@@ -21,5 +21,6 @@ The user interface for **FlowSensus**, built with **React**, **Vite**, **Tailwin
 ---
 
 ## 👥 Lead Maintainers
+
 * **Nadya** (Frontend UI/UX Lead)
 * **Lloyd** (Project Manager)
