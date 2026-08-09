@@ -22,5 +22,6 @@ The core backend service for **FlowSensus**, built with **FastAPI**, **Supabase 
 ---
 
 ## 👥 Lead Maintainers
+
 * **JC** (DevOps & Backend Lead)
 * **Lloyd** (Project Manager)
