@@ -1,17 +1,42 @@
-function App() {
-  return (
-    <main className='min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-6'>
-      <section className='w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900/70 p-10 text-center shadow-2xl backdrop-blur'>
-        <h1 className='text-4xl md:text-5xl font-extrabold tracking-tight text-emerald-400'>
-          FlowSensus Frontend is Live
-        </h1>
-        <p className='mt-4 text-base md:text-lg text-slate-300'>
-          Deployed with Vite, React, Tailwind CSS, and Vercel.
-        </p>
-      </section>
-    </main>
-  )
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import AppLayout from "./layouts/AppLayout";
+import LoginPage from "./pages/LoginPage";
+
+function DashboardPage() {
+  return <div>Dashboard Page</div>;
 }
 
-export default App
+function ApplicantsPage() {
+  return <div>Applicants Page</div>;
+}
 
+function AgenciesPage() {
+  return <div>Agencies Page</div>;
+}
+
+function FinancePage() {
+  return <div>Finance Page</div>;
+}
+
+function ForecastingPage() {
+  return <div>Forecasting Page</div>;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+
+        <Route element={<AppLayout />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/applicants" element={<ApplicantsPage />} />
+          <Route path="/agencies" element={<AgenciesPage />} />
+          <Route path="/finance" element={<FinancePage />} />
+          <Route path="/forecasting" element={<ForecastingPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
