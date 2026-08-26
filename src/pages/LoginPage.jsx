@@ -54,7 +54,7 @@ export default function LoginPage() {
               type="password"
               value={formData.password}
               onChange={handleChange}
-              placeholder="••••••••"
+              placeholder="Enter your password"
               required
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
             />
@@ -68,7 +68,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-slate-500">FlowSensus · FindStaff Placement Services Inc.</p>
+        <p className="mt-6 text-center text-xs text-slate-500">FlowSensus - FindStaff Placement Services Inc.</p>
       </div>
     </div>
   );
