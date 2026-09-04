@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlowSensus | FindStaff Placement Services</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              teal: '#0EA5E9',
+              tealDark: '#0284C7',
+              navy: '#0F172A',
+              navyLight: '#1E293B',
+              gray: '#F8FAFC',
+              success: '#10B981',
+              warning: '#F59E0B',
+              danger: '#EF4444',
+              text: '#475569',
+              muted: '#64748B'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", 'monospace'],
+          },
+          backgroundImage: {
+            'flow-pattern': "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%230ea5e9' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")",
+            'sidebar-glow': "linear-gradient(180deg, rgba(15,23,42,1) 0%, rgba(30,41,59,1) 100%)"
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #F1F5F9; color: #0F172A; }
+    .screen { display: none; }
+    .screen.active { display: flex; }
+    
+    /* FlowSensus Brand Elements - Fluid Precision */
+    button, input, select, textarea, .card { border-radius: 8px; transition: all 0.2s ease-in-out; }
+    .card { background: white; box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 2px 4px -1px rgba(15, 23, 42, 0.03); border: 1px solid #E2E8F0; }
+    
+    .sidebar-btn.active {
+      background: linear-gradient(90deg, rgba(14,165,233,0.15) 0%, rgba(14,165,233,0) 100%);
+      color: #0EA5E9;
+      border-left: 4px solid #0EA5E9;
+      padding-left: calc(0.75rem - 4px);
+      font-weight: 600;
+    }
+    .sidebar-btn { border-left: 4px solid transparent; color: #94A3B8; }
+    .sidebar-btn:hover:not(.active) { color: #F8FAFC; background: rgba(255,255,255,0.05); border-left: 4px solid #334155; padding-left: calc(0.75rem - 4px);}
+    
+    .tab-btn.active { border-color: #0EA5E9; color: #0EA5E9; font-weight: 600; }
+    .tab-btn { border-bottom: 2px solid transparent; color: #64748B; font-weight: 500; }
+    .tab-btn:hover:not(.active) { color: #0F172A; }
+    
+    input[type="range"] { accent-color: #0EA5E9; height: 6px; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: #0EA5E9; border-radius: 4px; cursor: pointer; }
+    input[type="radio"] { accent-color: #0EA5E9; }
+    
+    .modal-overlay { background: rgba(15,23,42,0.7); backdrop-filter: blur(4px); }
+    button:active { transform: scale(0.98); }
+    
+    /* Custom Scrollbar matching Brand */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #0EA5E9; }
+
+    /* Workflow Lock Overlay - Glassmorphism */
+    .locked-overlay {
+      position: absolute; inset: 0; background: rgba(241, 245, 249, 0.85); backdrop-filter: blur(6px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; border-radius: 8px;
+    }
+
+    .kanban-col { min-height: 200px; }
+    .stat-ring { stroke-dasharray: 100; stroke-dashoffset: 20; stroke-linecap: round; transition: stroke-dashoffset 1s ease-out; }
+  </style>
+</head>
+<body class="w-full min-h-screen flex text-brand-navy">
+
+  <!-- ================= LOGIN SCREEN ================= -->
+  <div id="screen-login" class="screen active w-full items-center justify-center min-h-screen bg-brand-navy bg-flow-pattern relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-brand-teal/20 to-transparent mix-blend-overlay"></div>
+    <div class="card p-10 w-full max-w-md mx-4 relative z-10 shadow-2xl border-none ring-1 ring-white/20">
+      <div class="text-center mb-8">
+        <div class="w-16 h-16 rounded-2xl bg-brand-navy flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(14,165,233,0.3)]">
+          <i data-lucide="waves" class="w-8 h-8 text-brand-teal"></i>
+        </div>
+        <h1 class="text-3xl font-extrabold tracking-tight text-brand-navy">FlowSensus</h1>
+        <p class="text-sm text-brand-muted mt-2 font-medium tracking-wide uppercase">FindStaff Placement Services</p>
+      </div>
+      <form id="login-form" class="space-y-6">
+        <div>
+          <label class="text-sm font-semibold text-brand-navy block mb-2">System Access Role (RBAC)</label>
+          <select id="login-role" class="w-full border-2 border-slate-200 px-4 py-3 rounded-lg text-sm focus:border-brand-teal focus:ring-0 outline-none bg-slate-50 font-medium transition-colors cursor-pointer">
+            <option value="Recruitment">Recruitment Staff</option>
+            <option value="Admin">Administrative Staff</option>
+            <option value="Accounting">Accounting Staff</option>
+            <option value="Management">Management / Admin</option>
+          </select>
+        </div>
+        <button type="submit" class="w-full py-3.5 bg-brand-teal hover:bg-brand-tealDark text-white font-bold text-sm rounded-lg shadow-lg shadow-brand-teal/30">
+          Authenticate & Enter
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MAIN APP SHELL ================= -->
+  <div id="screen-app" class="screen w-full min-h-screen">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="w-[260px] flex-shrink-0 flex flex-col bg-sidebar-glow overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
+      <div class="p-6 flex items-center gap-3 border-b border-white/10">
+        <div class="w-10 h-10 rounded-xl bg-brand-teal/10 border border-brand-teal/30 flex items-center justify-center shadow-[0_0_15px_rgba(14,165,233,0.2)]">
+          <i data-lucide="waves" class="w-5 h-5 text-brand-teal"></i>
+        </div>
+        <span class="font-extrabold text-white text-lg tracking-wide">FlowSensus</span>
+      </div>
+      
+      <div class="px-6 py-4 border-b border-white/5 bg-black/10">
+        <p class="text-[10px] text-brand-muted uppercase tracking-widest font-bold">Active Session</p>
+        <p id="display-role" class="text-sm font-bold text-brand-teal mt-1 flex items-center gap-2"><i data-lucide="shield-check" class="w-4 h-4"></i> Role</p>
+      </div>
+
+      <nav class="flex-1 p-4 space-y-1 text-sm font-medium">
+        <button class="sidebar-btn active w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3" data-view="dashboard" data-roles="All">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard
+        </button> 
+        <button class="sidebar-btn w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3" data-view="applicant" data-roles="All">
+          <i data-lucide="folder-search" class="w-4 h-4"></i>Applicant Profile
+        </button>
+
+        <!-- Recruitment Ops -->
+        <div class="nav-group mt-2" data-roles="Recruitment,Management">
+          <p class="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">Intake & Matching</p>
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="registration"><i data-lucide="user-plus" class="w-4 h-4"></i>Registration</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="screening"><i data-lucide="microscope" class="w-4 h-4"></i>Screening Panel</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="profiling"><i data-lucide="sparkles" class="w-4 h-4"></i>Smart Profiling</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="cv"><i data-lucide="file-signature" class="w-4 h-4"></i>CV Formatting</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="endorsement"><i data-lucide="kanban-square" class="w-4 h-4"></i>Endorsement Tracker</button>
+        </div>
+
+        <!-- Admin Ops -->
+        <div class="nav-group mt-2" data-roles="Admin,Management">
+          <p class="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">Compliance & Visa</p>
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="fittowork"><i data-lucide="heart-pulse" class="w-4 h-4"></i>Fit-to-Work</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="ocr"><i data-lucide="scan-text" class="w-4 h-4"></i>Document OCR</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="alerts"><i data-lucide="bell-ring" class="w-4 h-4"></i>3-2-1 Alerts</button>
+        </div>
+
+        <!-- Accounting Ops -->
+        <div class="nav-group mt-2" data-roles="Accounting,Management">
+          <p class="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">Financials</p>
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="expense"><i data-lucide="receipt" class="w-4 h-4"></i>Expense Ledger</button>
+        </div>
+
+        <!-- Management Ops -->
+        <div class="nav-group mt-2" data-roles="Management">
+          <p class="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">Oversight Controls</p>
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="approval"><i data-lucide="check-square" class="w-4 h-4"></i>CV Approval Inbox</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="employer"><i data-lucide="building-2" class="w-4 h-4"></i>Employer Accept</button> 
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="forecast"><i data-lucide="trending-up" class="w-4 h-4"></i>Predictive Timeline</button>
+          <button class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3" data-view="users"><i data-lucide="users" class="w-4 h-4"></i>User Mgmt</button> 
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col overflow-hidden relative bg-flow-pattern">
+      
+      <!-- Top Bar -->
+      <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 sticky top-0">
+        <div class="flex items-center gap-3 w-1/3">
+          <div class="relative w-full">
+            <i data-lucide="search" class="w-4 h-4 absolute left-4 top-2.5 text-slate-400"></i>
+            <input type="text" class="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-brand-teal outline-none transition-all placeholder:text-slate-500 font-medium" placeholder="Search applicant ID, name, or job order...">
+          </div>
+        </div>
+        <div class="flex items-center gap-6">
+          <div class="hidden md:flex text-xs font-bold text-brand-navy bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200">
+            <span class="w-2 h-2 rounded-full bg-brand-success animate-pulse"></span> Network Active
+          </div>
+          <button class="relative hover:text-brand-teal transition-colors">
+            <i data-lucide="bell" class="w-5 h-5 text-brand-text"></i>
+            <span class="absolute -top-1 -right-1 w-4 h-4 bg-brand-danger rounded-full text-white text-[10px] flex items-center justify-center font-bold border-2 border-white">2</span>
+          </button>
+          <div class="h-6 w-px bg-slate-200"></div>
+          <button id="logout-btn" class="text-sm font-bold text-brand-text hover:text-brand-danger transition-colors flex items-center gap-2">
+            Logout <i data-lucide="log-out" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- System Notification Toast -->
+      <div id="toast" class="absolute top-20 right-8 bg-brand-navy text-white px-5 py-4 rounded-lg shadow-2xl transform translate-x-[150%] transition-transform duration-300 z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-brand-teal">
+        <i data-lucide="info" class="w-5 h-5 text-brand-teal"></i>
+        <span id="toast-msg">Notification</span>
+      </div>
+
+      <!-- Views Container -->
+      <div class="flex-1 overflow-y-auto p-8 relative">
+        
+        <!-- DASHBOARD (All) -->
+        <div id="view-dashboard" class="view-panel space-y-6">
+          <div class="mb-8">
+            <h2 class="text-3xl font-extrabold tracking-tight text-brand-navy">Operational Overview</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Real-time metrics for current deployment pipeline.</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="card p-6 border-l-4 border-l-brand-teal relative overflow-hidden group">
+              <div class="absolute -right-4 -top-4 w-16 h-16 bg-brand-teal/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+              <p class="text-sm font-bold text-brand-muted uppercase tracking-wider">Active Pipeline</p>
+              <p class="text-4xl font-black text-brand-navy mt-2">142</p>
+            </div>
+            <div class="card p-6 border-l-4 border-l-brand-success relative overflow-hidden group">
+              <div class="absolute -right-4 -top-4 w-16 h-16 bg-brand-success/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+              <p class="text-sm font-bold text-brand-muted uppercase tracking-wider">Accepted</p>
+              <p class="text-4xl font-black text-brand-navy mt-2">18</p>
+            </div>
+            <div class="card p-6 border-l-4 border-l-brand-warning relative overflow-hidden group">
+              <div class="absolute -right-4 -top-4 w-16 h-16 bg-brand-warning/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+              <p class="text-sm font-bold text-brand-muted uppercase tracking-wider">Pending Medical</p>
+              <p class="text-4xl font-black text-brand-navy mt-2">27</p>
+            </div>
+            <div class="card p-6 border-l-4 border-l-brand-danger relative overflow-hidden group">
+               <div class="absolute -right-4 -top-4 w-16 h-16 bg-brand-danger/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+              <p class="text-sm font-bold text-brand-muted uppercase tracking-wider">Expiry Alerts</p>
+              <p class="text-4xl font-black text-brand-navy mt-2">2</p>
+            </div>
+          </div>
+          <div class="card p-8 min-h-[350px] flex items-center justify-center bg-white border-slate-200">
+            <div class="text-center text-slate-300">
+              <i data-lucide="bar-chart-2" class="w-16 h-16 mx-auto mb-4 opacity-50"></i>
+              <p class="font-semibold text-lg">Analytics Visualization Area</p>
+              <p class="text-sm font-medium mt-1">Data loads dynamically from active pipeline.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- APPLICANT PROFILE (All) -->
+        <div id="view-applicant" class="view-panel hidden space-y-6">
+          <div class="mb-6">
+            <h2 class="text-3xl font-extrabold tracking-tight">Centralized Record</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Unified view of applicant progression across all departments.</p>
+          </div>
+          
+          <div class="card overflow-hidden">
+            <!-- Profile Header -->
+            <div class="bg-brand-navy p-6 flex items-center justify-between text-white">
+              <div class="flex items-center gap-5">
+                <div class="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center font-bold text-2xl border-2 border-white/20">JD</div>
+                <div>
+                  <h3 class="text-2xl font-bold">Juan Dela Cruz</h3>
+                  <div class="flex gap-3 mt-1 text-sm font-medium text-brand-teal">
+                    <span>ID: APP-2026-089</span>
+                    <span>•</span>
+                    <span>Role: Industrial Welder</span>
+                  </div>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="inline-block px-3 py-1 bg-brand-teal/20 border border-brand-teal text-brand-teal text-xs font-bold uppercase tracking-wider rounded-full">Phase 3: CV Stage</span>
+              </div>
+            </div>
+            
+            <!-- Tabs -->
+            <div class="flex border-b border-slate-200 bg-slate-50 px-4">
+              <button class="tab-btn active px-6 py-4 text-sm focus:outline-none" data-tab="personal">Demographics</button>
+              <button class="tab-btn px-6 py-4 text-sm focus:outline-none" data-tab="screening">Assessments</button>
+              <button class="tab-btn px-6 py-4 text-sm focus:outline-none" data-tab="docs">Documents (OCR)</button>
+              <button class="tab-btn px-6 py-4 text-sm focus:outline-none" data-tab="finances">Financials</button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="p-8">
+              <!-- Personal Tab -->
+              <div id="tab-personal" class="tab-content block space-y-6">
+                <div class="grid grid-cols-3 gap-8">
+                  <div><p class="text-xs text-brand-muted font-bold uppercase mb-1">Date of Birth</p><p class="font-medium">March 15, 1992</p></div>
+                  <div><p class="text-xs text-brand-muted font-bold uppercase mb-1">Contact</p><p class="font-medium">+63 917 123 4567</p></div>
+                  <div><p class="text-xs text-brand-muted font-bold uppercase mb-1">Address</p><p class="font-medium">Quezon City, Metro Manila</p></div>
+                  <div><p class="text-xs text-brand-muted font-bold uppercase mb-1">Current Status</p><p class="font-bold text-brand-teal">Pending Manager CV Approval</p></div>
+                  <div class="col-span-2"><p class="text-xs text-brand-muted font-bold uppercase mb-1">Matched Job Order</p><p class="font-medium">JO-2026-0042 (Al-Futtaim Engineering)</p></div>
+                </div>
+              </div>
+              <!-- Other Tabs Placeholder to show structure -->
+              <div id="tab-screening" class="tab-content hidden"><p class="text-brand-muted font-medium italic">Screening data synced from Phase 1.</p></div>
+              <div id="tab-docs" class="tab-content hidden"><p class="text-brand-muted font-medium italic">Document verifications synced from Phase 5 OCR.</p></div>
+              <div id="tab-finances" class="tab-content hidden"><p class="text-brand-muted font-medium italic">Financial ledger synced from Accounting module.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- REGISTRATION (Phase 1) -->
+        <div id="view-registration" class="view-panel hidden space-y-6 max-w-4xl">
+          <div>
+            <h2 class="text-3xl font-extrabold tracking-tight">Applicant Intake</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Register new walk-in or online candidates.</p>
+          </div>
+          <div class="card p-8">
+            <div id="reg-warning" class="hidden bg-red-50 border border-red-200 text-brand-danger text-sm rounded-lg p-4 mb-6 flex items-center gap-3">
+              <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+              <span class="font-bold">System Alert:</span> Applicant record matching this Name/Contact already exists.
+            </div>
+            <div class="grid grid-cols-3 gap-10">
+              <div class="col-span-2 space-y-5">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black border-b-2 border-slate-100 pb-2">Demographic Data</p>
+                <div class="grid grid-cols-2 gap-5">
+                  <div class="col-span-2">
+                    <label class="text-xs font-bold text-brand-text block mb-1.5">Full Name</label>
+                    <input type="text" class="w-full border-2 border-slate-200 px-3 py-2 text-sm focus:border-brand-teal outline-none" placeholder="Last Name, First Name, Middle">
+                  </div>
+                  <div>
+                    <label class="text-xs font-bold text-brand-text block mb-1.5">Date of Birth</label>
+                    <input type="date" class="w-full border-2 border-slate-200 px-3 py-2 text-sm text-brand-text focus:border-brand-teal outline-none">
+                  </div>
+                  <div>
+                    <label class="text-xs font-bold text-brand-text block mb-1.5">Contact Number</label>
+                    <input type="tel" class="w-full border-2 border-slate-200 px-3 py-2 text-sm focus:border-brand-teal outline-none" placeholder="+63">
+                  </div>
+                  <div class="col-span-2">
+                    <label class="text-xs font-bold text-brand-text block mb-1.5">Target Role / Designation</label>
+                    <input type="text" class="w-full border-2 border-slate-200 px-3 py-2 text-sm focus:border-brand-teal outline-none" placeholder="e.g., Industrial Welder">
+                  </div>
+                </div>
+              </div>
+              <div class="space-y-4 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black pb-2 border-b-2 border-slate-200">On-Hand Documents</p>
+                <div class="space-y-4 pt-2">
+                  <label class="flex items-center gap-3 text-sm font-medium cursor-pointer hover:text-brand-teal transition-colors"><input type="checkbox"> Valid Passport</label>
+                  <label class="flex items-center gap-3 text-sm font-medium cursor-pointer hover:text-brand-teal transition-colors"><input type="checkbox"> NBI Clearance</label>
+                  <label class="flex items-center gap-3 text-sm font-medium cursor-pointer hover:text-brand-teal transition-colors"><input type="checkbox"> Resume / CV</label>
+                  <label class="flex items-center gap-3 text-sm font-medium cursor-pointer hover:text-brand-teal transition-colors"><input type="checkbox"> TESDA NCII</label>
+                </div>
+              </div>
+            </div>
+            <div class="mt-8 pt-6 border-t-2 border-slate-100 flex gap-4 justify-end">
+              <button class="px-6 py-2.5 text-sm font-bold border-2 border-slate-200 text-brand-text hover:bg-slate-50 rounded-lg">Clear Form</button>
+              <button class="px-8 py-2.5 bg-brand-teal text-white text-sm font-bold hover:bg-brand-tealDark shadow-lg shadow-brand-teal/20 rounded-lg">Initialize Record</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMART PROFILING (Phase 1) -->
+        <div id="view-profiling" class="view-panel hidden space-y-6">
+          <div class="mb-6">
+            <h2 class="text-3xl font-extrabold tracking-tight">Smart Recommender</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Match assessed candidates to active foreign job orders.</p>
+          </div>
+          <div class="grid grid-cols-12 gap-6 h-[500px]">
+            <div class="col-span-4 card p-6 bg-slate-50 border-r-0 rounded-r-none">
+              <p class="text-xs uppercase tracking-widest text-brand-navy font-black mb-4">Target Job Order</p>
+              <select class="w-full border-2 border-slate-200 px-3 py-3 rounded-lg text-sm font-bold bg-white focus:border-brand-teal outline-none cursor-pointer">
+                <option>JO-2026-0042 (Saudi) - Welder</option>
+                <option>JO-2026-0038 (Qatar) - Pipefitter</option>
+              </select>
+              <div class="mt-6 space-y-3 text-sm">
+                <p class="font-bold text-brand-text">Required Specs:</p>
+                <ul class="list-disc pl-5 text-brand-muted font-medium space-y-1">
+                  <li>Min. 3 Years Experience</li>
+                  <li>TESDA NCII Certified</li>
+                  <li>High Tech Exam Score</li>
+                </ul>
+              </div>
+            </div>
+            <div class="col-span-8 card p-6 rounded-l-none">
+              <div class="flex justify-between items-center mb-6 border-b-2 border-slate-100 pb-3">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black">Algorithm Matches</p>
+                <button class="text-xs font-bold text-brand-teal flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalculate</button>
+              </div>
+              <div class="space-y-3 overflow-y-auto pr-2" style="max-height: 380px;">
+                <!-- Match 1 -->
+                <div class="flex items-center justify-between p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl hover:shadow-md transition-shadow">
+                  <div class="flex items-center gap-4">
+                    <div class="relative w-12 h-12 flex items-center justify-center">
+                      <svg class="w-full h-full transform -rotate-90 absolute" viewBox="0 0 36 36">
+                        <path class="text-slate-200" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32" fill="none" stroke="currentColor" stroke-width="3"></path>
+                        <path class="text-brand-success stat-ring" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="100" stroke-dashoffset="6"></path>
+                      </svg>
+                      <span class="text-xs font-black text-brand-success relative z-10">94%</span>
+                    </div>
+                    <div>
+                      <p class="font-bold text-brand-navy">Juan Dela Cruz</p>
+                      <p class="text-xs font-medium text-brand-muted">APP-2026-089</p>
+                    </div>
+                  </div>
+                  <button class="px-5 py-2 bg-brand-teal text-white text-xs font-bold rounded-lg hover:bg-brand-tealDark shadow-sm">Endorse Candidate</button>
+                </div>
+                <!-- Match 2 -->
+                <div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md transition-shadow">
+                  <div class="flex items-center gap-4">
+                    <div class="relative w-12 h-12 flex items-center justify-center">
+                      <svg class="w-full h-full transform -rotate-90 absolute" viewBox="0 0 36 36">
+                        <path class="text-slate-200" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32" fill="none" stroke="currentColor" stroke-width="3"></path>
+                        <path class="text-brand-teal stat-ring" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="100" stroke-dashoffset="22"></path>
+                      </svg>
+                      <span class="text-xs font-black text-brand-teal relative z-10">78%</span>
+                    </div>
+                    <div>
+                      <p class="font-bold text-brand-navy">Pedro Garcia</p>
+                      <p class="text-xs font-medium text-brand-muted">APP-2026-112</p>
+                    </div>
+                  </div>
+                  <button class="px-5 py-2 bg-white border-2 border-brand-teal text-brand-teal text-xs font-bold rounded-lg hover:bg-sky-50 shadow-sm">Endorse Candidate</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ENDORSEMENT TRACKER (Phase 4 Kanban) -->
+        <div id="view-endorsement" class="view-panel hidden space-y-6">
+          <div class="mb-6">
+            <h2 class="text-3xl font-extrabold tracking-tight">Endorsement Tracker</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Track approved CVs being sent to external employers.</p>
+          </div>
+          <div class="grid grid-cols-3 gap-6">
+            <!-- Col 1 -->
+            <div class="bg-slate-200/50 rounded-xl p-4 flex flex-col h-[600px] border border-slate-200">
+              <div class="flex items-center justify-between mb-4">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black">Manager Approved</p>
+                <span class="px-2 py-0.5 bg-slate-200 text-brand-navy text-xs font-bold rounded">2</span>
+              </div>
+              <div class="kanban-col space-y-3 overflow-y-auto">
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 border-l-4 border-l-brand-success cursor-grab active:cursor-grabbing">
+                  <p class="font-bold text-brand-navy text-sm">Juan Dela Cruz</p>
+                  <p class="text-xs font-medium text-brand-muted mt-1 mb-3">Welder • JO-0042</p>
+                  <label class="flex items-center gap-2 text-xs font-bold text-brand-teal cursor-pointer">
+                    <input type="checkbox"> Confirm Ext. Upload
+                  </label>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 border-l-4 border-l-brand-success cursor-grab">
+                  <p class="font-bold text-brand-navy text-sm">Ana Reyes</p>
+                  <p class="text-xs font-medium text-brand-muted mt-1 mb-3">Nurse • JO-0051</p>
+                  <label class="flex items-center gap-2 text-xs font-bold text-brand-teal cursor-pointer">
+                    <input type="checkbox"> Confirm Ext. Upload
+                  </label>
+                </div>
+              </div>
+            </div>
+            <!-- Col 2 -->
+            <div class="bg-slate-200/50 rounded-xl p-4 flex flex-col h-[600px] border border-slate-200">
+              <div class="flex items-center justify-between mb-4">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black">Uploaded to Portal</p>
+                <span class="px-2 py-0.5 bg-slate-200 text-brand-navy text-xs font-bold rounded">1</span>
+              </div>
+              <div class="kanban-col space-y-3 overflow-y-auto">
+                 <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 border-l-4 border-l-brand-teal">
+                  <p class="font-bold text-brand-navy text-sm">Pedro Garcia</p>
+                  <p class="text-xs font-medium text-brand-muted mt-1">Pipefitter • JO-0038</p>
+                  <div class="mt-3 flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase"><i data-lucide="clock" class="w-3 h-3"></i> Awaiting Emp. Reply</div>
+                </div>
+              </div>
+            </div>
+            <!-- Col 3 -->
+            <div class="bg-slate-200/50 rounded-xl p-4 flex flex-col h-[600px] border border-slate-200">
+              <div class="flex items-center justify-between mb-4">
+                <p class="text-xs uppercase tracking-widest text-brand-navy font-black">Waiting Selection</p>
+                <span class="px-2 py-0.5 bg-slate-200 text-brand-navy text-xs font-bold rounded">0</span>
+              </div>
+              <div class="kanban-col space-y-3 overflow-y-auto flex items-center justify-center">
+                <p class="text-sm font-medium text-slate-400">Drag cards here</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-2-1 COMPLIANCE ALERTS (Phase 5) -->
+        <div id="view-alerts" class="view-panel hidden space-y-6 max-w-4xl">
+           <div class="mb-6">
+            <h2 class="text-3xl font-extrabold tracking-tight">3-2-1 Compliance Watch</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Automated expiration monitoring for pre-deployment documents.</p>
+          </div>
+          <div class="space-y-4">
+            <!-- Expired (Red) -->
+            <div class="bg-red-50/80 border border-brand-danger/30 rounded-xl p-5 flex items-center justify-between shadow-sm">
+              <div class="flex gap-4 items-center">
+                <div class="w-10 h-10 rounded-full bg-brand-danger/10 flex items-center justify-center">
+                  <i data-lucide="alert-triangle" class="w-5 h-5 text-brand-danger"></i>
+                </div>
+                <div>
+                  <p class="font-bold text-brand-navy text-sm">TESDA Certificate • Juan Dela Cruz</p>
+                  <p class="text-xs font-bold text-brand-danger mt-1 uppercase tracking-wider">Expired 3 days ago</p>
+                </div>
+              </div>
+              <button class="px-4 py-2 bg-white border-2 border-brand-danger text-brand-danger text-xs font-bold rounded-lg hover:bg-brand-danger hover:text-white transition-colors">Request Replacement</button>
+            </div>
+            <!-- 30 Days (Amber) -->
+            <div class="bg-amber-50/80 border border-brand-warning/30 rounded-xl p-5 flex items-center justify-between shadow-sm">
+              <div class="flex gap-4 items-center">
+                <div class="w-10 h-10 rounded-full bg-brand-warning/10 flex items-center justify-center">
+                  <i data-lucide="clock" class="w-5 h-5 text-brand-warning"></i>
+                </div>
+                <div>
+                  <p class="font-bold text-brand-navy text-sm">Medical Clearance • Ana Reyes</p>
+                  <p class="text-xs font-bold text-brand-warning mt-1 uppercase tracking-wider">Expires in 28 days</p>
+                </div>
+              </div>
+              <button class="px-4 py-2 bg-white border-2 border-brand-warning text-brand-warning text-xs font-bold rounded-lg hover:bg-brand-warning hover:text-white transition-colors">Notify Applicant</button>
+            </div>
+            <!-- 60 Days (Yellow/Amber) -->
+             <div class="bg-amber-50/50 border border-brand-warning/20 rounded-xl p-5 flex items-center justify-between shadow-sm">
+              <div class="flex gap-4 items-center">
+                <div class="w-10 h-10 rounded-full bg-brand-warning/5 flex items-center justify-center">
+                  <i data-lucide="calendar" class="w-5 h-5 text-amber-600"></i>
+                </div>
+                <div>
+                  <p class="font-bold text-brand-navy text-sm">NBI Clearance • Pedro Garcia</p>
+                  <p class="text-xs font-bold text-amber-600 mt-1 uppercase tracking-wider">Expires in 58 days</p>
+                </div>
+              </div>
+              <button class="px-4 py-2 bg-white border-2 border-amber-600 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-600 hover:text-white transition-colors">Notify Applicant</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- USER MANAGEMENT (RBAC Control) -->
+        <div id="view-users" class="view-panel hidden space-y-6">
+          <div class="mb-6 flex justify-between items-end">
+            <div>
+              <h2 class="text-3xl font-extrabold tracking-tight">System Access Controls</h2>
+              <p class="text-sm text-brand-muted mt-1 font-medium">Manage RBAC permissions and active staff accounts.</p>
+            </div>
+            <button class="px-5 py-2.5 bg-brand-navy text-white text-sm font-bold rounded-lg flex items-center gap-2"><i data-lucide="user-plus" class="w-4 h-4"></i> New Employee</button>
+          </div>
+          <div class="card overflow-hidden">
+            <table class="w-full text-sm text-left">
+               <thead class="bg-slate-50 border-b-2 border-slate-200">
+                 <tr>
+                   <th class="px-6 py-4 font-black text-brand-navy text-xs uppercase tracking-wider">Employee Name</th>
+                   <th class="px-6 py-4 font-black text-brand-navy text-xs uppercase tracking-wider">Department</th>
+                   <th class="px-6 py-4 font-black text-brand-navy text-xs uppercase tracking-wider">System Role</th>
+                   <th class="px-6 py-4 font-black text-brand-navy text-xs uppercase tracking-wider text-right">Status</th>
+                 </tr>
+               </thead>
+               <tbody class="divide-y divide-slate-100 font-medium">
+                 <tr class="hover:bg-slate-50 transition-colors cursor-pointer">
+                   <td class="px-6 py-4 flex items-center gap-3">
+                     <div class="w-8 h-8 rounded-full bg-brand-teal text-white flex items-center justify-center font-bold text-xs">SA</div>
+                     Admin User
+                   </td>
+                   <td class="px-6 py-4 text-brand-muted">Management</td>
+                   <td class="px-6 py-4 text-brand-navy font-bold">Super Admin</td>
+                   <td class="px-6 py-4 text-right"><span class="px-3 py-1 bg-brand-success/10 text-brand-success text-[10px] font-black uppercase rounded-full border border-brand-success/20">Active</span></td>
+                 </tr>
+                 <tr class="hover:bg-slate-50 transition-colors cursor-pointer">
+                   <td class="px-6 py-4 flex items-center gap-3">
+                     <div class="w-8 h-8 rounded-full bg-slate-200 text-brand-navy flex items-center justify-center font-bold text-xs">SC</div>
+                     Sarah Cruz
+                   </td>
+                   <td class="px-6 py-4 text-brand-muted">Recruitment</td>
+                   <td class="px-6 py-4 text-brand-navy font-bold">Recruiter</td>
+                   <td class="px-6 py-4 text-right"><span class="px-3 py-1 bg-brand-success/10 text-brand-success text-[10px] font-black uppercase rounded-full border border-brand-success/20">Active</span></td>
+                 </tr>
+                 <tr class="hover:bg-slate-50 transition-colors cursor-pointer bg-slate-50/50">
+                   <td class="px-6 py-4 flex items-center gap-3">
+                     <div class="w-8 h-8 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center font-bold text-xs">MT</div>
+                     <span class="text-slate-400">Mark Tan</span>
+                   </td>
+                   <td class="px-6 py-4 text-slate-400">Accounting</td>
+                   <td class="px-6 py-4 text-slate-400 font-bold">Staff</td>
+                   <td class="px-6 py-4 text-right"><span class="px-3 py-1 bg-slate-200 text-slate-500 text-[10px] font-black uppercase rounded-full">Inactive</span></td>
+                 </tr>
+               </tbody>
+             </table>
+          </div>
+        </div>
+
+        <!-- PREDICTIVE FORECASTING -->
+        <div id="view-forecast" class="view-panel hidden space-y-6 max-w-4xl">
+           <div class="mb-6">
+            <h2 class="text-3xl font-extrabold tracking-tight">Timeline Forecasting</h2>
+            <p class="text-sm text-brand-muted mt-1 font-medium">Predictive algorithm generating estimated final deployment dates.</p>
+          </div>
+          <div class="card p-8">
+            <div class="flex justify-between items-center mb-8">
+              <p class="font-bold text-brand-navy text-lg">Juan Dela Cruz</p>
+              <p class="text-xs font-bold uppercase tracking-widest text-brand-teal border border-brand-teal px-3 py-1 rounded-full">JO-0042 (Saudi Arabia)</p>
+            </div>
+            
+            <div class="relative pt-4 pb-8">
+              <!-- Background Bar -->
+              <div class="h-3 bg-slate-100 rounded-full w-full border border-slate-200"></div>
+              <!-- Progress Bar -->
+              <div class="h-3 bg-gradient-to-r from-brand-teal to-brand-tealDark rounded-full absolute top-4 left-0 shadow-[0_0_10px_rgba(14,165,233,0.5)]" style="width:68%"></div>
+              
+              <!-- Checkpoints -->
+              <div class="absolute top-2.5 left-[10%] w-6 h-6 bg-brand-success rounded-full border-4 border-white flex items-center justify-center shadow-sm"><i data-lucide="check" class="w-3 h-3 text-white"></i></div>
+              <div class="absolute top-2.5 left-[40%] w-6 h-6 bg-brand-success rounded-full border-4 border-white flex items-center justify-center shadow-sm"><i data-lucide="check" class="w-3 h-3 text-white"></i></div>
+              <div class="absolute top-2.5 left-[68%] w-6 h-6 bg-brand-teal rounded-full border-4 border-white shadow-sm ring-4 ring-brand-teal/20"></div>
+              <div class="absolute top-2.5 left-[95%] w-6 h-6 bg-slate-200 rounded-full border-4 border-white shadow-sm"></div>
+
+              <div class="flex justify-between mt-6 text-[11px] font-black uppercase tracking-widest text-brand-muted">
+                <span class="text-brand-success ml-4">Intake</span> 
+                <span class="text-brand-success">Medical</span> 
+                <span class="text-brand-teal translate-x-4">CV / Employer</span> 
+                <span class="mr-4 text-slate-400">Final Visa</span>
+              </div>
+            </div>
+
+            <div class="mt-8 pt-8 border-t-2 border-slate-100 text-center">
+              <p class="text-xs font-black text-brand-muted uppercase tracking-widest mb-2">Algorithm: Estimated Departure Date</p>
+              <p class="text-5xl font-black text-brand-navy">August 12, 2026</p>
+              <p class="text-xs font-medium text-brand-warning mt-4 flex items-center justify-center gap-1"><i data-lucide="alert-circle" class="w-4 h-4"></i> Based on current 42-day average for Saudi visa processing.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- MOCK OF OTHERS TO RETAIN JAVASCRIPT LOCK LOGIC -->
+        <!-- Screening -->
+        <div id="view-screening" class="view-panel hidden card p-12 text-center text-brand-muted"><i data-lucide="microscope" class="w-12 h-12 mx-auto mb-4 opacity-50"></i><p class="font-bold">Screening Panel UI (Code truncated here to fit new designs, logic remains intact)</p>
+          <button id="pass-btn" class="mt-4 px-6 py-2 bg-brand-success text-white rounded font-bold">Mock Pass to Trigger Medical</button>
+        </div>
+        <!-- Fit to Work -->
+        <div id="view-fittowork" class="view-panel hidden card p-12 text-center text-brand-muted">
+          <select id="medical-status-select" class="border p-2 rounded mr-2"><option value="">Select</option><option value="Fit">Fit to Work</option></select>
+          <button id="save-ftw-btn" class="px-6 py-2 bg-brand-navy text-white rounded font-bold">Save Status (Unlocks CV)</button>
+        </div>
+        <!-- CV -->
+        <div id="view-cv" class="view-panel hidden card p-12 text-center text-brand-muted relative">
+          <div id="lock-cv" class="locked-overlay"><i data-lucide="lock" class="w-8 h-8 text-slate-400 mb-3"></i><h3 class="font-bold">Locked by RBAC</h3></div>
+          <button id="cv-submit-btn" class="px-6 py-2 bg-brand-teal text-white rounded font-bold relative z-0">Submit CV to Manager</button>
+        </div>
+        <!-- CV Approval -->
+        <div id="view-approval" class="view-panel hidden card p-12 text-center text-brand-muted"><div id="approval-queue-list"></div><button id="btn-approve-cv" class="px-6 py-2 bg-brand-success text-white rounded font-bold" disabled>Approve CV</button></div>
+        <!-- Employer Acceptance -->
+        <div id="view-employer" class="view-panel hidden card p-12 text-center text-brand-muted relative">
+           <div id="lock-employer" class="locked-overlay"><i data-lucide="lock" class="w-8 h-8 text-slate-400 mb-3"></i><h3 class="font-bold">Locked by RBAC</h3></div>
+           <button id="employer-confirm-btn" class="px-6 py-2 bg-brand-navy text-white rounded font-bold" disabled>Confirm Acceptance</button>
+        </div>
+        <!-- OCR -->
+        <div id="view-ocr" class="view-panel hidden card p-12 text-center text-brand-muted relative"><div id="lock-ocr" class="locked-overlay"><i data-lucide="lock" class="w-8 h-8 text-slate-400 mb-3"></i><h3 class="font-bold">Locked by RBAC</h3></div><p>OCR System</p></div>
+        <!-- Expense -->
+        <div id="view-expense" class="view-panel hidden card p-12 text-center text-brand-muted relative"><div id="lock-expense" class="locked-overlay"><i data-lucide="lock" class="w-8 h-8 text-slate-400 mb-3"></i><h3 class="font-bold">Locked by RBAC</h3></div><p>Expense Tracker</p></div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Medical Referral Modal -->
+  <div id="modal-referral" class="fixed inset-0 modal-overlay hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4 transform transition-all border-none ring-1 ring-black/5">
+      <div class="flex justify-between items-center mb-6 border-b-2 border-slate-100 pb-4">
+        <h3 class="font-extrabold text-brand-navy flex items-center gap-2 text-lg"><i data-lucide="file-check-2" class="w-6 h-6 text-brand-teal"></i> Issue Referral</h3>
+      </div>
+      <div class="space-y-5">
+        <div>
+          <label class="text-xs font-bold text-brand-text block mb-1.5 uppercase tracking-wide">Partner Clinic</label>
+          <select class="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm bg-white focus:border-brand-teal outline-none font-medium"><option>Makati Medical Center</option></select>
+        </div>
+        <div>
+          <label class="text-xs font-bold text-brand-text block mb-1.5 uppercase tracking-wide">Applicant System ID</label>
+          <input type="text" value="Juan Dela Cruz (APP-089)" readonly class="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm bg-slate-50 font-bold text-brand-navy">
+        </div>
+        <div class="flex gap-3 pt-4">
+          <button id="modal-close" class="flex-1 px-4 py-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold text-brand-text hover:bg-slate-50">Cancel</button>
+          <button id="modal-generate" class="flex-1 px-4 py-3 bg-brand-teal hover:bg-brand-tealDark text-white rounded-lg text-sm font-bold shadow-lg shadow-brand-teal/20">Generate PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    // Workflow Logic Engine
+    const workflow = { screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false };
+    let currentUserRole = '';
+
+    // Auth & Navigation
+    document.getElementById('login-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      currentUserRole = document.getElementById('login-role').value;
+      document.getElementById('display-role').innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i> ${currentUserRole} Ops`;
+      lucide.createIcons();
+      
+      document.querySelectorAll('.nav-group').forEach(group => {
+        const roles = group.dataset.roles.split(',');
+        group.style.display = (roles.includes(currentUserRole) || roles.includes('All')) ? 'block' : 'none';
+      });
+
+      document.getElementById('screen-login').classList.remove('active');
+      document.getElementById('screen-app').classList.add('active');
+      switchView('dashboard');
+      showToast(`Authenticated via RBAC as ${currentUserRole}`);
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      document.getElementById('screen-app').classList.remove('active');
+      document.getElementById('screen-login').classList.add('active');
+    });
+
+    function switchView(viewId) {
+      document.querySelectorAll('.view-panel').forEach(v => v.classList.add('hidden'));
+      document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+      const targetView = document.getElementById('view-' + viewId);
+      const targetBtn = document.querySelector(`[data-view="${viewId}"]`);
+      if(targetView) targetView.classList.remove('hidden');
+      if(targetBtn) targetBtn.classList.add('active');
+      enforceWorkflowLocks();
+    }
+
+    document.querySelectorAll('.sidebar-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => switchView(e.currentTarget.dataset.view));
+    });
+
+    // Profile Tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); });
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden', 'block'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('block'));
+        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('block');
+      });
+    });
+
+    // RBAC Lock logic
+    function enforceWorkflowLocks() {
+      const lockCv = document.getElementById('lock-cv');
+      if(lockCv) lockCv.style.display = workflow.medicalCleared ? 'none' : 'flex';
+      
+      const lockEmp = document.getElementById('lock-employer');
+      const empBtn = document.getElementById('employer-confirm-btn');
+      if(lockEmp && empBtn) {
+        lockEmp.style.display = workflow.cvApproved ? 'none' : 'flex';
+        empBtn.disabled = !workflow.cvApproved;
+      }
+      ['ocr', 'expense'].forEach(module => {
+        const lock = document.getElementById(`lock-${module}`);
+        if(lock) lock.style.display = workflow.employerAccepted ? 'none' : 'flex';
+      });
+    }
+
+    // Mock Inter-departmental Triggers
+    document.getElementById('pass-btn')?.addEventListener('click', () => {
+      document.getElementById('modal-referral').classList.remove('hidden');
+      document.getElementById('modal-referral').classList.add('flex');
+    });
+    document.getElementById('modal-close')?.addEventListener('click', () => {
+      document.getElementById('modal-referral').classList.add('hidden');
+    });
+    document.getElementById('modal-generate')?.addEventListener('click', () => {
+      document.getElementById('modal-referral').classList.add('hidden');
+      showToast('Medical Referral PDF Generated.');
+    });
+    document.getElementById('save-ftw-btn')?.addEventListener('click', () => {
+      if(document.getElementById('medical-status-select').value === 'Fit') {
+        workflow.medicalCleared = true; showToast('Clearance Saved. CV Module Unlocked.');
+      }
+    });
+    document.getElementById('cv-submit-btn')?.addEventListener('click', () => {
+      showToast('CV locked. Sent to Manager.');
+      document.getElementById('btn-approve-cv').disabled = false;
+    });
+    document.getElementById('btn-approve-cv')?.addEventListener('click', () => {
+      workflow.cvApproved = true; showToast('CV Approved. Ready for Employer Endorsement.');
+    });
+    document.getElementById('employer-confirm-btn')?.addEventListener('click', () => {
+      workflow.employerAccepted = true; showToast('Employer Confirmed. Phase 5 Unlocked.');
+    });
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').innerText = msg;
+      toast.classList.remove('translate-x-[150%]');
+      setTimeout(() => { toast.classList.add('translate-x-[150%]'); }, 3500);
+    }
+  </script>
+</body>
+</html>
