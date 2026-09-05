@@ -43,14 +43,14 @@ export default function LoginPage({ applicants = [], tenantName = 'FindStaff Pla
   const navigate = useNavigate();
   const selectedPortal = PORTALS.find((p) => p.key === portal);
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     if (!portal) return;
     setError(null);
 
     // FlowSensus Strict RBAC: Only staff actually authenticate via Supabase
     if (portal === 'staff') {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: username,
         password: password,
       });
@@ -60,8 +60,19 @@ export default function LoginPage({ applicants = [], tenantName = 'FindStaff Pla
         return;
       }
       
-      console.log("Login successful! User ID:", data.user.id);
-      navigate('/dashboard');
+      // Check the database table for the is_super_admin flag
+      const { data: profile } = await supabase
+        .from('USER') // Note: Adjust to 'USER_ACCOUNTS' if Basty used that specific table name
+        .select('is_super_admin')
+        .eq('email', username)
+        .single();
+
+      // Route dynamically based on the database flag
+      if (profile?.is_super_admin) {
+        navigate('/super-admin');
+      } else {
+        navigate('/dashboard');
+      }
     } else {
       // Mock bypass for Applicant/Employer portals during testing
       navigate('/dashboard');

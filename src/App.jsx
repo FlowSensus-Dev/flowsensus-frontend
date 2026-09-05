@@ -30,8 +30,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
-
-        {/* Direct testing route for the new dashboard */}
         <Route path="/super-admin" element={<SuperAdminDashboard />} />
 
         <Route element={<AppLayout />}>
