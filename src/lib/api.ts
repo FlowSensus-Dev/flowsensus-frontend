@@ -11,6 +11,11 @@ import type {
   ExaminationCreate,
   ExaminationUpdate,
 } from "../types/database";
+import type {
+  OCRStatusResponse,
+  OCRRawExtractResponse,
+  OCRVerificationResponse,
+} from "../types/ocr";
 
 const fallbackApiUrl = "https://flowsensus-backend.onrender.com";
 
@@ -127,7 +132,7 @@ export function keysToCamel(data: unknown): unknown {
 
 // ─── Axios Instance ──────────────────────────────────────────────────────────
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || fallbackApiUrl,
+  baseURL: import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || fallbackApiUrl,
   headers: {
     "Content-Type": "application/json",
   },
@@ -199,6 +204,25 @@ export const apiService = {
     update: (examId: number | string, data: ExaminationUpdate) =>
       api.patch<Examination>(`/examinations/${examId}`, data),
     delete: (examId: number | string) => api.delete(`/examinations/${examId}`),
+  },
+
+  // OCR & Document Verification
+  ocr: {
+    checkStatus: () => api.get<OCRStatusResponse>("/ocr/status"),
+    extract: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return api.post<OCRRawExtractResponse>("/ocr/extract", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
+    verify: (applicantId: number | string, file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return api.post<OCRVerificationResponse>(`/ocr/verify/${applicantId}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
   },
 };
 
