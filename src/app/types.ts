@@ -9,14 +9,22 @@ export interface WorkflowState {
 
 export interface ApplicantRecord {
   id: string;
+  applicant_id?: number | string;
+  agency_id?: number;
+  country_id?: number | null;
+  employer_id?: number | null;
   name: string;
   firstName?: string;
+  first_name?: string;
   middleName?: string;
+  middle_name?: string;
   lastName?: string;
+  last_name?: string;
   role: string;
   jobOrder: string;
   phase: number;
   status: string;
+  application_status?: string;
   currentHandler: string;
   currentDepartment: string;
   lastUpdated: string;
@@ -28,6 +36,9 @@ export interface ApplicantRecord {
   email?: string;
   contact?: string;
   dateOfBirth?: string;
+  birth_date?: string;
+  passport_number?: string;
+  is_deleted?: boolean;
   placeOfBirth?: string;
   age?: number;
   sex?: 'Male' | 'Female';
@@ -309,3 +320,7 @@ export interface StaffAccount {
   status: 'active' | 'inactive';
   lastLogin?: string;
 }
+
+// ─── Direct Supabase Table Schemas (snake_case) ──────────────────────────────
+export * from '../types/database';
+
