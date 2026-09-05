@@ -1,44 +1,36 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import LoginPage from "./pages/LoginPage";
+import LandingPage from "./pages/LandingPage";
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
-import LandingPage from './pages/LandingPage';
 
-function DashboardPage() {
-  return <div>Dashboard Page</div>;
-}
-
-function ApplicantsPage() {
-  return <div>Applicants Page</div>;
-}
-
-function AgenciesPage() {
-  return <div>Agencies Page</div>;
-}
-
-function FinancePage() {
-  return <div>Finance Page</div>;
-}
-
-function ForecastingPage() {
-  return <div>Forecasting Page</div>;
-}
+// Departmental Dashboards
+import ManagerDashboard from './pages/ManagerDashboard';
+import RecruitmentDashboard from './pages/RecruitmentDashboard';
+import AdministrationDashboard from './pages/AdministrationDashboard';
+import AccountingDashboard from './pages/AccountingDashboard';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        
+        {/* Super Admin Route */}
         <Route path="/super-admin" element={<SuperAdminDashboard />} />
 
+        {/* Protected Agency Staff Routes */}
         <Route element={<AppLayout />}>
-          <Route path="home" element={<Navigate to="/" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/applicants" element={<ApplicantsPage />} />
-          <Route path="/agencies" element={<AgenciesPage />} />
-          <Route path="/finance" element={<FinancePage />} />
-          <Route path="/forecasting" element={<ForecastingPage />} />
+          {/* Default fallback for testing */}
+          <Route path="/dashboard" element={<ManagerDashboard />} />
+          
+          {/* Specific RBAC Views */}
+          <Route path="/manager" element={<ManagerDashboard />} />
+          <Route path="/recruitment" element={<RecruitmentDashboard />} />
+          <Route path="/administration" element={<AdministrationDashboard />} />
+          <Route path="/accounting" element={<AccountingDashboard />} />
         </Route>
       </Routes>
     </BrowserRouter>
