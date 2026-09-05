@@ -42,7 +42,7 @@ export default function LandingPage() {
     {
       icon: <Users size={20} />,
       title: "Role-Based Access",
-      desc: "Recruitment, Admin, Accounting, and Management roles — each with purpose-built dashboards.",
+      desc: "Recruitment, Admin, Accounting, and Management roles  each with purpose-built dashboards.",
     },
     {
       icon: <Sparkles size={20} />,
@@ -141,7 +141,7 @@ export default function LandingPage() {
               Manage Every <span className="text-[#0EA5E9]">Deployment Phase</span> in One Secure System
             </h1>
             <p className="mt-6 text-slate-300 text-lg leading-relaxed max-w-2xl">
-              FlowSensus helps recruitment agencies centralize applicant tracking, compliance checks, accounting, and employer endorsements — built for Philippine overseas hiring operations.
+              FlowSensus helps recruitment agencies centralize applicant tracking, compliance checks, accounting, and employer endorsements  built for Philippine overseas hiring operations.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <button
@@ -258,7 +258,7 @@ export default function LandingPage() {
       <section id="pricing" className="px-6 py-20 bg-white">
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 items-start">
           <div>
-            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">What’s Included</p>
+            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">Whats Included</p>
             <h2 className="mt-3 text-3xl font-black text-[#0F172A]">Enterprise-ready recruitment operations suite</h2>
             <p className="mt-4 text-slate-600 text-sm leading-relaxed max-w-xl">
               Your subscription includes workspace provisioning, role-based accounts, process monitoring dashboards, and onboarding support.
@@ -299,7 +299,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="max-w-2xl mb-10">
             <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">B2B Inquiry</p>
-            <h2 className="mt-3 text-3xl md:text-4xl font-black text-[#0F172A]">Let’s activate your agency workspace</h2>
+            <h2 className="mt-3 text-3xl md:text-4xl font-black text-[#0F172A]">Lets activate your agency workspace</h2>
             <p className="mt-4 text-slate-600 text-sm leading-relaxed">
               Share your agency details and our platform team will reach out with a guided walkthrough.
             </p>
@@ -438,7 +438,7 @@ export default function LandingPage() {
             </div>
             <span className="text-slate-300">FlowSensus</span>
           </div>
-          <p>© {new Date().getFullYear()} FlowSensus. Built for overseas recruitment operations.</p>
+          <p> {new Date().getFullYear()} FlowSensus. Built for overseas recruitment operations.</p>
           <div className="flex items-center gap-4">
             <button onClick={() => scrollTo(contactRef)} className="hover:text-slate-300 transition-colors">Request Demo</button>
             <button onClick={() => navigate("/login")} className="hover:text-slate-300 transition-colors">Staff Login</button>
