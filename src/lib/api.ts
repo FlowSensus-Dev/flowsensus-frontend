@@ -17,7 +17,7 @@ import type {
   OCRVerificationResponse,
 } from "../types/ocr";
 
-const fallbackApiUrl = "https://flowsensus-backend.onrender.com";
+
 
 // ─── Key Mapping Overrides for Supabase Tables ───────────────────────────────
 const CAMEL_TO_SNAKE_OVERRIDES: Record<string, string> = {
@@ -130,9 +130,64 @@ export function keysToCamel(data: unknown): unknown {
   return result;
 }
 
+// ─── Backend Endpoints Configuration ─────────────────────────────────────────
+// Priority order: Vercel / Cloud backend first, then fallback to Localhost.
+// Only if BOTH Vercel and Localhost are unavailable will the system mark offline.
+const envBackendUrl = (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "").trim();
+
+// Remote / Vercel cloud endpoints
+const CLOUD_ENDPOINTS: string[] = [
+  envBackendUrl && !envBackendUrl.includes("localhost") && !envBackendUrl.includes("127.0.0.1")
+    ? envBackendUrl.replace(/\/+$/, "")
+    : null,
+  "https://flowsensus-backend.onrender.com",
+].filter(Boolean) as string[];
+
+// Localhost endpoints
+const LOCAL_ENDPOINTS: string[] = [
+  envBackendUrl && (envBackendUrl.includes("localhost") || envBackendUrl.includes("127.0.0.1"))
+    ? envBackendUrl.replace(/\/+$/, "")
+    : null,
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+].filter(Boolean) as string[];
+
+// Detect if currently browsing on localhost / 127.0.0.1
+const isLocalBrowser =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+// Ordered candidate list: If on localhost, check localhost first for instant response!
+// If on production / Vercel, check cloud backend first.
+export const CANDIDATE_BACKEND_URLS: string[] = isLocalBrowser
+  ? Array.from(new Set([...LOCAL_ENDPOINTS, ...CLOUD_ENDPOINTS]))
+  : Array.from(new Set([...CLOUD_ENDPOINTS, ...LOCAL_ENDPOINTS]));
+
+// Read cached working URL or default to first appropriate candidate
+let activeBackendUrl: string =
+  (typeof window !== "undefined" && window.sessionStorage?.getItem("flowsensus_active_backend_url")) ||
+  CANDIDATE_BACKEND_URLS[0] ||
+  "http://localhost:8000";
+
+export const getActiveBackendUrl = (): string => activeBackendUrl;
+
+export const setActiveBackendUrl = (url: string): void => {
+  const normalized = url.replace(/\/+$/, "");
+  activeBackendUrl = normalized;
+  api.defaults.baseURL = normalized;
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem("flowsensus_active_backend_url", normalized);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+};
+
 // ─── Axios Instance ──────────────────────────────────────────────────────────
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || fallbackApiUrl,
+  baseURL: activeBackendUrl,
+  timeout: 30000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -164,7 +219,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// 🚀 Response Interceptor: Auto-Convert Body to camelCase (and preserve snake_case)
+// 🚀 Response Interceptor: Auto-Convert Body to camelCase & Auto-Failover on Connection Failure
 api.interceptors.response.use(
   (response: AxiosResponse) => {
     if (response.data) {
@@ -172,7 +227,33 @@ api.interceptors.response.use(
     }
     return response;
   },
-  (error) => Promise.reject(error)
+  async (error) => {
+    const originalConfig = error.config as (InternalAxiosRequestConfig & { _retryCandidateIndex?: number });
+
+    // Check if error is due to backend connection failure or server down
+    const isNetworkOrDown =
+      !error.response ||
+      error.code === "ERR_NETWORK" ||
+      error.code === "ECONNABORTED" ||
+      (error.response?.status >= 502 && error.response?.status <= 504);
+
+    if (isNetworkOrDown && originalConfig) {
+      const nextIndex = (originalConfig._retryCandidateIndex ?? 0) + 1;
+
+      if (nextIndex < CANDIDATE_BACKEND_URLS.length) {
+        const nextUrl = CANDIDATE_BACKEND_URLS[nextIndex];
+        console.warn(`[API Failover] Connection failed on ${api.defaults.baseURL || originalConfig.baseURL}. Failing over to: ${nextUrl}`);
+
+        originalConfig._retryCandidateIndex = nextIndex;
+        originalConfig.baseURL = nextUrl;
+        setActiveBackendUrl(nextUrl);
+
+        return api(originalConfig);
+      }
+    }
+
+    return Promise.reject(error);
+  }
 );
 
 // ─── Typed API Service Methods (Direct Supabase Table Endpoints) ─────────────
@@ -208,7 +289,43 @@ export const apiService = {
 
   // OCR & Document Verification
   ocr: {
-    checkStatus: () => api.get<OCRStatusResponse>("/ocr/status"),
+    checkStatus: async (): Promise<AxiosResponse<OCRStatusResponse>> => {
+      // Probe candidates in order:
+      // 1. Vercel/Cloud URL first
+      // 2. If unavailable, try Localhost (http://localhost:8000)
+      // 3. If Localhost is unavailable also, throw error so UI marks as offline
+      let lastError: any = null;
+
+      for (const candidate of CANDIDATE_BACKEND_URLS) {
+        try {
+          const res = await axios.get<OCRStatusResponse>(`${candidate}/ocr/status`, {
+            timeout: 2500, // Quick probe timeout for failover
+          });
+
+          if (res.status === 200 && res.data) {
+            setActiveBackendUrl(candidate);
+            const isLocal = candidate.includes("localhost") || candidate.includes("127.0.0.1");
+            return {
+              ...res,
+              data: {
+                ...res.data,
+                activeUrl: candidate,
+                backendMode: isLocal ? 'local' : 'cloud',
+              },
+            };
+          }
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Backend probe to ${candidate} unavailable:`, err.message || err);
+        }
+      }
+
+      // If all candidates (Vercel & localhost) failed, throw last error
+      throw (
+        lastError ||
+        new Error("All backend endpoints (Vercel cloud & localhost) are currently unavailable.")
+      );
+    },
     extract: (file: File) => {
       const formData = new FormData();
       formData.append("file", file);

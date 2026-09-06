@@ -99,5 +99,10 @@ export interface OCRStatusResponse {
   path?: string | null;
   version?: string | null;
   error?: string | null;
+  activeUrl?: string | null;
+  active_url?: string | null;
+  backendMode?: 'local' | 'cloud' | 'offline';
+  backend_mode?: 'local' | 'cloud' | 'offline';
 }
+
 

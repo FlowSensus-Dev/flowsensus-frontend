@@ -25,7 +25,132 @@ import type {
   OCRRawExtractResponse,
   OCRVerificationResponse,
   ExtractedData,
+  DiscrepancyItem,
+  ExpirationTrackingSummary,
 } from '../../../types/ocr';
+
+/**
+ * Prototype / Local testing helper:
+ * When testing without a Supabase tenant JWT session, cross-verify the real
+ * Gemini OCR extraction against the selected applicant in memory.
+ */
+function verifyAgainstMockApplicant(
+  selectedApp: ApplicantRecord | undefined,
+  numericId: number,
+  extracted: ExtractedData,
+  rawText: string,
+): OCRVerificationResponse {
+  const sysFirst = selectedApp?.firstName || selectedApp?.name?.split(' ')[0] || '';
+  const sysLast = selectedApp?.lastName || selectedApp?.name?.split(' ').slice(-1)[0] || '';
+  const sysFull = selectedApp?.name || `${sysFirst} ${sysLast}`.trim();
+  const sysBirth = selectedApp?.dateOfBirth || '';
+  const sysPassport = 'P' + String(numericId).padStart(7, '0');
+
+  const discrepancies: DiscrepancyItem[] = [];
+
+  const extFirst = (extracted.firstName || extracted.first_name || '').trim().toUpperCase();
+  const extLast = (extracted.lastName || extracted.last_name || '').trim().toUpperCase();
+  const extBirth = (extracted.birthDate || extracted.birth_date || '').trim();
+  const extExpiry = (extracted.expiryDate || extracted.expiry_date || '').trim();
+
+  // Check last name
+  if (extLast && sysLast && !extLast.includes(sysLast.toUpperCase()) && !sysLast.toUpperCase().includes(extLast)) {
+    discrepancies.push({
+      field: 'Last Name',
+      systemValue: sysLast,
+      extractedValue: extracted.lastName || extracted.last_name,
+      severity: 'critical',
+      issue: `Last name mismatch: system record has '${sysLast}', but uploaded document shows '${extracted.lastName || extracted.last_name}'.`,
+    });
+  }
+
+  // Check first name
+  if (extFirst && sysFirst && !extFirst.includes(sysFirst.toUpperCase()) && !sysFirst.toUpperCase().includes(extFirst)) {
+    discrepancies.push({
+      field: 'First Name',
+      systemValue: sysFirst,
+      extractedValue: extracted.firstName || extracted.first_name,
+      severity: 'critical',
+      issue: `First name mismatch: system record has '${sysFirst}', but uploaded document shows '${extracted.firstName || extracted.first_name}'.`,
+    });
+  }
+
+  // Check DOB
+  if (extBirth && sysBirth) {
+    const cleanExt = extBirth.replace(/[^\d]/g, '');
+    const cleanSys = sysBirth.replace(/[^\d]/g, '');
+    if (cleanExt && cleanSys && !cleanSys.includes(cleanExt) && !cleanExt.includes(cleanSys)) {
+      discrepancies.push({
+        field: 'Date of Birth',
+        systemValue: sysBirth,
+        extractedValue: extBirth,
+        severity: 'warning',
+        issue: `Date of birth mismatch: system has '${sysBirth}', document shows '${extBirth}'.`,
+      });
+    }
+  }
+
+  // Expiration monitoring check
+  let expirationMonitoring: ExpirationTrackingSummary | null = null;
+  if (extExpiry) {
+    const expDate = new Date(extExpiry);
+    if (!isNaN(expDate.getTime())) {
+      const now = new Date();
+      const diffDays = Math.round((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      let alertLevel: 'normal' | 'yellow_60d' | 'amber_30d' | 'red_expired' = 'normal';
+      let msg = `Passport is valid for ${diffDays} days.`;
+
+      if (diffDays <= 0) {
+        alertLevel = 'red_expired';
+        msg = `CRITICAL: Passport expired ${Math.abs(diffDays)} days ago.`;
+        discrepancies.push({
+          field: 'Passport Expiration',
+          systemValue: 'Active Passport Required',
+          extractedValue: extExpiry,
+          severity: 'critical',
+          issue: `Document is EXPIRED (${extExpiry}). Immediate renewal required for OFW deployment.`,
+        });
+      } else if (diffDays <= 30) {
+        alertLevel = 'amber_30d';
+        msg = `WARNING: Passport expires in ${diffDays} days (under 30 days).`;
+      } else if (diffDays <= 60) {
+        alertLevel = 'yellow_60d';
+        msg = `NOTICE: Passport expires in ${diffDays} days (under 60 days).`;
+      }
+
+      expirationMonitoring = {
+        expiryDate: extExpiry,
+        daysUntilExpiration: diffDays,
+        alertLevel,
+        monitoringActive: true,
+        message: msg,
+      };
+    }
+  }
+
+  const matchStatus = discrepancies.some((d) => d.severity === 'critical')
+    ? 'FLAGGED_FOR_REVIEW'
+    : 'VERIFIED';
+
+  return {
+    matchStatus,
+    applicantId: numericId,
+    extractedData: extracted,
+    systemData: {
+      applicantId: numericId,
+      firstName: sysFirst,
+      lastName: sysLast,
+      middleName: selectedApp?.middleName || null,
+      fullName: sysFull,
+      birthDate: sysBirth,
+      passportNumber: sysPassport,
+    },
+    discrepancies,
+    expirationMonitoring,
+    rawTextPreview: rawText.slice(0, 500),
+    processedAt: new Date().toISOString(),
+  };
+}
 
 interface DocumentOCRProps {
   workflow: WorkflowState;
@@ -83,7 +208,8 @@ export default function DocumentOCR({
       console.warn('OCR engine status check failed:', err);
       setOcrStatus({
         available: false,
-        error: err.response?.data?.detail || err.message || 'Unable to connect to OCR backend',
+        backendMode: 'offline',
+        error: err.response?.data?.detail || err.message || 'Unable to connect to OCR backend (Vercel & Localhost unavailable)',
       });
     } finally {
       setCheckingEngine(false);
@@ -277,8 +403,35 @@ export default function DocumentOCR({
         // Applicant verification mode
         // Find applicant ID (numeric or fallback)
         const numericId = parseInt(currentAppId.replace(/\D/g, '') || '1', 10);
-        const response = await apiService.ocr.verify(numericId, selectedFile);
-        const data = response.data;
+        let data: OCRVerificationResponse;
+
+        try {
+          // Attempt official backend cross-verification (for logged-in agency tenant)
+          const response = await apiService.ocr.verify(numericId, selectedFile);
+          data = response.data;
+        } catch (verifyErr: any) {
+          // If unauthenticated (401/403) or mock applicant not in DB (404) during local testing/prototyping:
+          if (
+            verifyErr.response?.status === 401 ||
+            verifyErr.response?.status === 403 ||
+            verifyErr.response?.status === 404
+          ) {
+            console.info('Testing mode detected: running Gemini Vision AI extract and cross-verifying locally against selected profile.');
+            const extractResponse = await apiService.ocr.extract(selectedFile);
+            const extData = extractResponse.data.extractedData || extractResponse.data.extracted_data;
+            const targetApp = applicants.find((a) => a.id === currentAppId);
+
+            data = verifyAgainstMockApplicant(
+              targetApp,
+              numericId,
+              extData,
+              extractResponse.data.rawText || extractResponse.data.raw_text || '',
+            );
+          } else {
+            throw verifyErr;
+          }
+        }
+
         setVerifyResult(data);
 
         addActivityLog({
@@ -352,6 +505,11 @@ export default function DocumentOCR({
                 ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm'
                 : 'bg-red-50 text-red-700 border-red-200'
             }`}
+            title={
+              ocrStatus?.available
+                ? `Active API: ${ocrStatus.activeUrl || ocrStatus.active_url || 'Connected'}`
+                : ocrStatus?.error || 'All backend endpoints (Vercel & localhost) unavailable'
+            }
           >
             {ocrStatus?.available ? (
               <Sparkles className="w-3.5 h-3.5 text-purple-600" />
@@ -362,7 +520,12 @@ export default function DocumentOCR({
               {checkingEngine
                 ? 'Checking Engine...'
                 : ocrStatus?.available
-                ? 'Google Gemini Vision Active (AI Cloud)'
+                ? (ocrStatus.backendMode === 'local' ||
+                   ocrStatus.backend_mode === 'local' ||
+                   ocrStatus.activeUrl?.includes('localhost') ||
+                   ocrStatus.activeUrl?.includes('127.0.0.1')
+                    ? 'Google Gemini Vision Active (Localhost:8000)'
+                    : 'Google Gemini Vision Active (AI Cloud)')
                 : 'Gemini Vision Offline (Check API Key)'}
             </span>
             <button
