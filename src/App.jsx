@@ -3,19 +3,27 @@ import AppLayout from "./layouts/AppLayout.jsx";
 import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/LandingPage";
 
-// Dashboards (Path based on your recent move)
-import SuperAdminDashboard from './pages/dashboard/SuperAdminDashboard';
-import ManagerDashboard from './pages/dashboard/ManagerDashboard';
-import RecruitmentDashboard from './pages/dashboard/RecruitmentDashboard';
-import AdministrationDashboard from './pages/dashboard/AdministrationDashboard';
-import AccountingDashboard from './pages/dashboard/AccountingDashboard';
+// Super Admin
+import SuperAdminDashboard from "./pages/super-admin/SuperAdminDashboard";
+import TenantManagement from "./pages/super-admin/TenantManagement";
+import AgencyOnboarding from "./pages/super-admin/AgencyOnboarding";
+import AuditLedger from "./pages/super-admin/AuditLedger";
 
-// 1. IMPORT YOUR 22 NEW PAGES HERE
-// (Verify the exact file paths match where you saved them)
-import Registration from './pages/Registration'; 
-import ApplicantList from './pages/ApplicantList'; 
+// Manager
+import ManagerDashboard from "./pages/manager/ManagerDashboard";
 
-// Fallback for pages you haven't imported yet
+// Recruitment
+import RecruitmentDashboard from "./pages/dashboard/RecruitmentDashboard";
+
+// Administration
+import AdministrationDashboard from "./pages/administration/AdministrationDashboard";
+
+// Accounting
+import AccountingDashboard from "./pages/accounting/AccountingDashboard";
+
+import Registration from "./pages/Registration";
+import ApplicantList from "./pages/ApplicantList";
+
 const PlaceholderView = ({ title }) => (
   <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
     <h3 className="text-lg font-bold text-slate-800">{title}</h3>
@@ -30,12 +38,14 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
 
-        {/* The AppLayout shell handles the Sidebar and Top Header */}
         <Route element={<AppLayout />}>
-          
-          <Route path="/super-admin" element={<SuperAdminDashboard />} />
+          <Route path="/super-admin">
+            <Route index element={<SuperAdminDashboard />} />
+            <Route path="tenant-management" element={<TenantManagement />} />
+            <Route path="agency-onboarding" element={<AgencyOnboarding />} />
+            <Route path="audit-ledger" element={<AuditLedger />} />
+          </Route>
 
-          {/* MANAGER ROUTE BLOCK */}
           <Route path="/manager">
             <Route index element={<ManagerDashboard />} />
             <Route path="administrative-compliance-center" element={<PlaceholderView title="Compliance Center" />} />
@@ -44,10 +54,8 @@ export default function App() {
             <Route path="agency-configuration" element={<PlaceholderView title="Agency Config" />} />
           </Route>
 
-          {/* RECRUITMENT ROUTE BLOCK */}
           <Route path="/recruitment">
             <Route index element={<RecruitmentDashboard />} />
-            {/* Replace Placeholders with your actual imported components */}
             <Route path="registration" element={<Registration />} />
             <Route path="applicant-list" element={<ApplicantList />} />
             <Route path="applicant-profile" element={<PlaceholderView title="Applicant Profile" />} />
@@ -56,7 +64,6 @@ export default function App() {
             <Route path="applicant-profiling" element={<PlaceholderView title="Applicant Profiling" />} />
           </Route>
 
-          {/* ADMINISTRATION ROUTE BLOCK */}
           <Route path="/administration">
             <Route index element={<AdministrationDashboard />} />
             <Route path="administrative-compliance-center" element={<PlaceholderView title="Compliance Center" />} />
@@ -65,7 +72,6 @@ export default function App() {
             <Route path="agency-configuration" element={<PlaceholderView title="Agency Config" />} />
           </Route>
 
-          {/* ACCOUNTING ROUTE BLOCK */}
           <Route path="/accounting">
             <Route index element={<AccountingDashboard />} />
             <Route path="applicant-list" element={<ApplicantList />} />
@@ -73,7 +79,6 @@ export default function App() {
             <Route path="financials" element={<PlaceholderView title="Financials" />} />
             <Route path="expense-ledger" element={<PlaceholderView title="Expense Ledger" />} />
           </Route>
-
         </Route>
       </Routes>
     </BrowserRouter>

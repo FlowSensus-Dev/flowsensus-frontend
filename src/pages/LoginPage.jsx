@@ -21,14 +21,6 @@ const PORTALS = [
     accent: '#10B981',
     gradient: 'from-[#10B981] to-[#059669]',
   },
-  {
-    key: 'employer',
-    title: 'Employer',
-    subtitle: 'Evaluate deployed workers and manage workforce records',
-    icon: <Building2 size={22} />,
-    accent: '#1D4ED8',
-    gradient: 'from-[#1D4ED8] to-[#1E40AF]',
-  },
 ];
 
 export default function LoginPage({ applicants = [], tenantName = 'FindStaff Placement Services Inc.' }) {
