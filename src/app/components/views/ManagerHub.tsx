@@ -20,7 +20,7 @@ export default function ManagerHub({
   currentUserName,
   addActivityLog,
   updateApplicant,
-  selectedApplicantId = 'APP-2026-089',
+  selectedApplicantId = '1',
 }: ManagerHubProps) {
   const handleExportToPDF = () => {
     // Generate PDF content
@@ -183,7 +183,7 @@ Date: ${new Date().toLocaleString()}
             <div>
               <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
               <p className="font-bold text-[#0F172A]">Juan Dela Cruz</p>
-              <p className="text-sm text-[#64748B]">APP-2026-089 | Industrial Welder</p>
+              <p className="text-sm text-[#64748B]">Applicant #1 | Industrial Welder</p>
             </div>
             <div>
               <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Target Employer</p>

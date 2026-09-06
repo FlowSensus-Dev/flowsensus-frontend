@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Lock, DollarSign, Plus, Receipt } from 'lucide-react';
-import { WorkflowState, ExpenseRecord, ActivityLog } from '../../types';
+import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ExpenseLedgerProps {
   workflow: WorkflowState;
@@ -10,6 +10,7 @@ interface ExpenseLedgerProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast: (message: string) => void;
   selectedApplicantId?: string;
+  applicants?: ApplicantRecord[];
 }
 
 export default function ExpenseLedger({
@@ -19,7 +20,8 @@ export default function ExpenseLedger({
   currentUserName,
   addActivityLog,
   showToast,
-  selectedApplicantId = 'APP-2026-089',
+  selectedApplicantId = '1',
+  applicants = [],
 }: ExpenseLedgerProps) {
   const isLocked = !workflow.employerAccepted;
   const [showForm, setShowForm] = useState(false);
@@ -30,8 +32,8 @@ export default function ExpenseLedger({
     category: 'visa' as const,
   });
 
-  // Add mock expense for demo
-  const mockExpenses: ExpenseRecord[] = [
+  // Prioritize live expenses from Supabase backend
+  const allExpenses = expenses.length > 0 ? expenses : [
     {
       id: 'EXP-001',
       applicantId: selectedApplicantId,
@@ -40,22 +42,25 @@ export default function ExpenseLedger({
       description: 'Saudi Arabia work visa application and processing',
       date: '2026-05-24',
       recordedBy: currentUserName,
-      category: 'visa',
+      category: 'visa' as const,
     },
     {
       id: 'EXP-002',
       applicantId: selectedApplicantId,
       type: 'Medical Examination',
       amount: 3500,
-      description: 'Pre-deployment medical checkup at Makati Medical Center',
+      description: 'Pre-deployment medical checkup at partner clinic',
       date: '2026-05-20',
       recordedBy: 'Admin User',
-      category: 'medical',
+      category: 'medical' as const,
     },
   ];
-
-  const allExpenses = [...mockExpenses, ...expenses];
   const totalExpenses = allExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+  const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
+  const applicantDisplayName = selectedApplicant
+    ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || 'Juan Dela Cruz')
+    : 'Juan Dela Cruz';
 
   const handleAddExpense = () => {
     const expense: Omit<ExpenseRecord, 'id'> = {
@@ -117,8 +122,8 @@ export default function ExpenseLedger({
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-6">
             <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
-            <p className="text-lg font-black text-[#0F172A]">Juan Dela Cruz</p>
-            <p className="text-xs text-[#64748B]">APP-2026-089</p>
+            <p className="text-lg font-black text-[#0F172A]">{applicantDisplayName}</p>
+            <p className="text-xs text-[#64748B]">Applicant #{selectedApplicantId}</p>
           </div>
         </div>
 

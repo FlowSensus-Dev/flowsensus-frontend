@@ -8,7 +8,7 @@ import {
 // ─── Dummy data ───────────────────────────────────────────────────────────────
 
 const APPLICANT = {
-  id: 'APP-2024-033',
+  id: '1',
   name: 'Grace P. Villanueva',
   initials: 'GV',
   role: 'Caregiver',

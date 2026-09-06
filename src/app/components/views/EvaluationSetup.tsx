@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Info, GripVertical,
   Brain, Heart, Wrench, Languages, Stethoscope, MessageSquare,
   Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { EvaluationTest, WorkflowPhase, UserRole } from '../../types';
+import { api } from '../../../lib/api';
 
 const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: React.ReactNode; color: string }> = {
   interview:  { label: 'Interview',          icon: <MessageSquare size={15} />, color: '#0EA5E9' },
@@ -15,14 +16,6 @@ const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: Reac
   medical:    { label: 'Medical',             icon: <Stethoscope size={15} />,     color: '#EF4444' },
   custom:     { label: 'Custom',              icon: <Sliders size={15} />,          color: '#64748B' },
 };
-
-const DEFAULT_TESTS: EvaluationTest[] = [
-  { id: 'ev-001', name: 'English Proficiency Test', type: 'language', description: 'Assesses reading comprehension, grammar, vocabulary, and oral communication skills.', maxScore: 100, passingScore: 70, weight: 20, isActive: true, scoringGuide: 'Administer the IELTS-style written exam. Oral scoring via structured 10-minute interview. Score is percentage of correct answers.' },
-  { id: 'ev-002', name: 'Trade Skills Assessment', type: 'skills', description: 'Practical skills test relevant to the applicant\'s job order position. Evaluated by a licensed trade assessor.', maxScore: 100, passingScore: 75, weight: 30, isActive: true, scoringGuide: 'TESDA NC II rubric. Evaluator scores each task 0-5. Final score is sum converted to percentage.' },
-  { id: 'ev-003', name: 'IQ / General Aptitude', type: 'iq', description: 'Measures cognitive ability, logical reasoning, numerical aptitude, and problem-solving.', maxScore: 100, passingScore: 60, weight: 20, isActive: true, scoringGuide: 'Standardized 50-item test (30 min). Each correct answer = 2 points. Score is total points.' },
-  { id: 'ev-004', name: 'Personality & EQ Assessment', type: 'eq', description: 'Evaluates emotional intelligence, stress tolerance, adaptability, and interpersonal skills.', maxScore: 100, passingScore: 0, weight: 15, isActive: true, scoringGuide: 'Uses Big 5 personality framework. Scored by a licensed psychologist. Result: Suitable / Conditionally Suitable / Not Suitable.' },
-  { id: 'ev-005', name: 'Initial Screening Interview', type: 'interview', description: 'Structured interview to assess communication, motivation, work ethic, and cultural fit for overseas deployment.', maxScore: 100, passingScore: 65, weight: 15, isActive: true, scoringGuide: 'Rubric: Communication (25pts), Motivation (25pts), Work History (25pts), Overseas Readiness (25pts).' },
-];
 
 const DEFAULT_PHASES: WorkflowPhase[] = [
   { id: 'ph-001', phaseNumber: 1, name: 'Registration & Document Collection', description: 'Applicant submits personal information and required employment documents. Recruitment staff verifies completeness.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: ['req-001','req-002','req-003','req-004'], requiredEvaluations: [], autoAdvance: false },
@@ -43,11 +36,41 @@ interface Props {
 
 export default function EvaluationSetup({ showToast, currentUserName }: Props) {
   const [tab, setTab] = useState<'evaluations' | 'workflow'>('evaluations');
-  const [tests, setTests] = useState<EvaluationTest[]>(DEFAULT_TESTS);
+  const [tests, setTests] = useState<EvaluationTest[]>([]);
+  const [loading, setLoading] = useState(false);
   const [phases, setPhases] = useState<WorkflowPhase[]>(DEFAULT_PHASES);
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkflowPhase | null>(null);
+
+  // ── Fetch Live Evaluation Templates on Mount ─────────────────────────────
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        setLoading(true);
+        const res = await api.get('/evaluations/templates');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
+            id: String(t.test_template_id || t.id),
+            name: t.name,
+            type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+            description: t.description || '',
+            maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+            passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+            weight: Number(t.weight_percentage ?? t.weight ?? 10),
+            scoringGuide: t.scoring_guide || t.scoringGuide || '',
+            isActive: Boolean(t.is_active ?? t.isActive ?? true),
+          }));
+          setTests(liveTests);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live evaluation templates from Supabase:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTemplates();
+  }, []);
 
   const totalWeight = tests.filter(t => t.isActive).reduce((s, t) => s + t.weight, 0);
   const weightOk = totalWeight === 100;
@@ -58,23 +81,85 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
   };
   const openEditTest = (t: EvaluationTest) => { setEditingTest({ ...t }); setIsNew(false); };
 
-  const saveTest = () => {
+  const saveTest = async () => {
     if (!editingTest) return;
     if (!editingTest.name.trim()) { showToast('Test name is required'); return; }
     if (editingTest.weight < 0 || editingTest.weight > 100) { showToast('Weight must be 0–100'); return; }
-    if (isNew) setTests(p => [...p, editingTest]);
-    else setTests(p => p.map(t => t.id === editingTest.id ? editingTest : t));
+
+    if (isNew) {
+      try {
+        const res = await api.post('/evaluations/templates', {
+          name: editingTest.name,
+          type: editingTest.type,
+          description: editingTest.description,
+          maxScore: editingTest.maxScore,
+          passingScore: editingTest.passingScore,
+          weight: editingTest.weight,
+          scoringGuide: editingTest.scoringGuide,
+          isActive: editingTest.isActive,
+        });
+        const created = res.data;
+        const newTest: EvaluationTest = {
+          ...editingTest,
+          id: String(created.test_template_id || created.id),
+        };
+        setTests(p => [...p, newTest]);
+      } catch (err) {
+        console.warn('Backend create evaluation template failed, adding locally:', err);
+        setTests(p => [...p, editingTest]);
+      }
+    } else {
+      const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
+      if (!isNaN(numId)) {
+        try {
+          await api.put(`/evaluations/templates/${numId}`, {
+            name: editingTest.name,
+            type: editingTest.type,
+            description: editingTest.description,
+            maxScore: editingTest.maxScore,
+            passingScore: editingTest.passingScore,
+            weight: editingTest.weight,
+            scoringGuide: editingTest.scoringGuide,
+            isActive: editingTest.isActive,
+          });
+        } catch (err) {
+          console.warn('Backend update template failed, updating locally:', err);
+        }
+      }
+      setTests(p => p.map(t => t.id === editingTest.id ? editingTest : t));
+    }
+
     showToast(`"${editingTest.name}" ${isNew ? 'added' : 'updated'}`);
     setEditingTest(null);
   };
 
-  const removeTest = (id: string) => {
+  const removeTest = async (id: string) => {
     const t = tests.find(t => t.id === id);
+    const numId = parseInt(id.replace('ev-', ''), 10);
+    if (!isNaN(numId)) {
+      try {
+        await api.delete(`/evaluations/templates/${numId}`);
+      } catch (err) {
+        console.warn('Backend delete template failed, removing locally:', err);
+      }
+    }
     setTests(p => p.filter(t => t.id !== id));
     showToast(`"${t?.name}" removed`);
   };
 
-  const toggleTest = (id: string) => setTests(p => p.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
+  const toggleTest = async (id: string) => {
+    const current = tests.find(t => t.id === id);
+    if (current) {
+      const numId = parseInt(id.replace('ev-', ''), 10);
+      if (!isNaN(numId)) {
+        api.put(`/evaluations/templates/${numId}`, { isActive: !current.isActive }).catch(err => {
+          console.warn('Backend toggle template failed:', err);
+        });
+      }
+    }
+    setTests(p => p.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
+  };
+
   const togglePhase = (id: string) => setPhases(p => p.map(ph => ph.id === id ? { ...ph, isActive: !ph.isActive } : ph));
 
   const savePhase = () => {

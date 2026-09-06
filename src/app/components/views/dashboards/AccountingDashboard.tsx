@@ -13,17 +13,18 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { ApplicantRecord, ExpenseRecord } from '../../../types';
+import { ViewType } from '../../AppShell';
 
 interface AccountingDashboardProps {
-  applicants: ApplicantRecord[];
-  expenses: ExpenseRecord[];
-  onNavigate: (view: string) => void;
+  applicants?: ApplicantRecord[];
+  expenses?: ExpenseRecord[];
+  onNavigate: (view: ViewType) => void;
   onAddExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
 }
 
 export default function AccountingDashboard({
-  applicants,
-  expenses,
+  applicants = [],
+  expenses = [],
   onNavigate,
   onAddExpense,
 }: AccountingDashboardProps) {
@@ -34,15 +35,18 @@ export default function AccountingDashboard({
     amount: '',
   });
 
-  // Calculate metrics
-  const monthlyTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const activeDeployments = applicants.filter((a) => a.phase >= 4).length;
-  const pendingCashAdvances = applicants.filter((a) => a.phase === 5 && a.status.includes('Final')).slice(0, 4);
+  // Calculate metrics with safe null/undefined guards
+  const monthlyTotal = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const activeDeployments = applicants.filter((a) => (a.phase ?? 0) >= 4).length;
+  const pendingCashAdvances = applicants
+    .filter((a) => a.phase === 5 && (a.status || '').toLowerCase().includes('final'))
+    .slice(0, 4);
   const recentTransactions = expenses.slice(0, 8);
 
   // Expense breakdown by category
   const expenseByCategory = expenses.reduce((acc, exp) => {
-    acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
+    const cat = exp.category || exp.type || 'Other';
+    acc[cat] = (acc[cat] || 0) + (exp.amount || 0);
     return acc;
   }, {} as Record<string, number>);
 
@@ -56,28 +60,30 @@ export default function AccountingDashboard({
 
   // Payment method breakdown
   const paymentBreakdown = expenses.reduce((acc, exp) => {
-    const method = exp.paymentMethod || 'Unknown';
-    acc[method] = (acc[method] || 0) + exp.amount;
+    const method = exp.paymentMethod || exp.type || 'Unknown';
+    acc[method] = (acc[method] || 0) + (exp.amount || 0);
     return acc;
   }, {} as Record<string, number>);
 
   // Who paid breakdown (Agency, Applicant, Employer)
   const paidByBreakdown = expenses.reduce((acc, exp) => {
-    const paidBy = exp.paidBy || 'Unknown';
-    acc[paidBy] = (acc[paidBy] || 0) + exp.amount;
+    const paidBy = exp.paidBy || (exp.recordedBy ? 'Agency' : 'Unknown');
+    acc[paidBy] = (acc[paidBy] || 0) + (exp.amount || 0);
     return acc;
   }, {} as Record<string, number>);
 
   // Per applicant expense totals
   const expensePerApplicant = expenses.reduce((acc, exp) => {
-    acc[exp.applicantId] = (acc[exp.applicantId] || 0) + exp.amount;
+    if (exp.applicantId) {
+      acc[exp.applicantId] = (acc[exp.applicantId] || 0) + (exp.amount || 0);
+    }
     return acc;
   }, {} as Record<string, number>);
 
   const topSpenders = Object.entries(expensePerApplicant)
     .map(([id, amount]) => ({
       applicantId: id,
-      applicantName: applicants.find((a) => a.id === id)?.name || 'Unknown',
+      applicantName: applicants.find((a) => a.id === id)?.name || `Applicant #${id}`,
       amount,
     }))
     .sort((a, b) => b.amount - a.amount)
@@ -92,14 +98,22 @@ export default function AccountingDashboard({
   const handleQuickExpenseSubmit = () => {
     if (!quickExpense.applicantId || !quickExpense.amount || !onAddExpense) return;
 
-    const expenseRecord = {
+    const amountNum = parseFloat(quickExpense.amount);
+    if (isNaN(amountNum) || amountNum <= 0) return;
+
+    const nowIso = new Date().toISOString();
+    const expenseRecord: Omit<ExpenseRecord, 'id'> = {
       applicantId: quickExpense.applicantId,
       category: quickExpense.category,
-      amount: parseFloat(quickExpense.amount),
+      type: quickExpense.category,
+      amount: amountNum,
       paymentMethod: 'Bank Transfer',
-      paidBy: 'Agency' as 'Agency' | 'Applicant' | 'Employer',
+      paidBy: 'Agency',
+      recordedBy: 'Accounting Staff',
+      description: 'Quick entry from dashboard',
       notes: 'Quick entry from dashboard',
-      timestamp: new Date().toISOString(),
+      date: nowIso.split('T')[0],
+      timestamp: nowIso,
     };
 
     onAddExpense(expenseRecord);
@@ -120,26 +134,43 @@ export default function AccountingDashboard({
   };
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Applicant ID', 'Category', 'Amount', 'Payment Method', 'Paid By', 'Notes'];
-    const rows = expenses.map((exp) => [
-      new Date(exp.timestamp).toLocaleDateString(),
-      exp.applicantId,
-      exp.category,
-      exp.amount,
-      exp.paymentMethod || 'N/A',
-      exp.paidBy || 'N/A',
-      exp.notes || 'N/A',
-    ]);
+    if (expenses.length === 0) {
+      alert('No expense records available to export.');
+      return;
+    }
 
-    const csvContent =
-      [headers.join(','), ...rows.map((row) => row.map((cell) => `"${cell}"`).join(','))].join('\n');
+    const headers = ['Date', 'Applicant ID', 'Category', 'Amount (PHP)', 'Payment Method', 'Paid By', 'Notes / Description'];
+    const clean = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const rows = expenses.map((exp: any) => {
+      const dateStr = exp.timestamp || exp.date || exp.created_at;
+      let formattedDate = 'N/A';
+      if (dateStr) {
+        const d = new Date(dateStr);
+        formattedDate = isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString();
+      }
+
+      return [
+        clean(formattedDate),
+        clean(exp.applicantId || 'N/A'),
+        clean(exp.category || exp.type || 'General Fee'),
+        clean(exp.amount || 0),
+        clean(exp.paymentMethod || exp.type || 'N/A'),
+        clean(exp.paidBy || exp.recordedBy || 'Agency'),
+        clean(exp.notes || exp.description || 'N/A'),
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.map(clean).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `expense-report-${new Date().toISOString().split('T')[0]}.csv`;
+    a.setAttribute('download', `expense-report-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -182,7 +213,7 @@ export default function AccountingDashboard({
               </label>
               <input
                 type="text"
-                placeholder="APP-2026-XXX"
+                placeholder="e.g. 1, 2, 3"
                 value={quickExpense.applicantId}
                 onChange={(e) => setQuickExpense({ ...quickExpense, applicantId: e.target.value })}
                 className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#10B981] outline-none"
@@ -414,29 +445,37 @@ export default function AccountingDashboard({
               <p className="text-sm font-medium">No transactions recorded yet.</p>
             </div>
           ) : (
-            recentTransactions.map((expense) => (
-              <div
-                key={expense.id}
-                className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-[#10B981]/10 flex items-center justify-center">
-                    <DollarSign className="w-5 h-5 text-[#10B981]" />
+            recentTransactions.map((expense: any) => {
+              const dateStr = expense.timestamp || expense.date || expense.created_at;
+              let formattedDate = 'N/A';
+              if (dateStr) {
+                const d = new Date(dateStr);
+                formattedDate = isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString();
+              }
+              return (
+                <div
+                  key={expense.id}
+                  className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-[#10B981]/10 flex items-center justify-center">
+                      <DollarSign className="w-5 h-5 text-[#10B981]" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-[#0F172A] text-sm">{expense.category || expense.type || 'General Expense'}</p>
+                      <p className="text-xs text-[#64748B]">
+                        {expense.applicantId} • {formattedDate} •{' '}
+                        <span className="font-medium">{expense.paidBy || expense.recordedBy || 'Agency'}</span>
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-bold text-[#0F172A] text-sm">{expense.category}</p>
-                    <p className="text-xs text-[#64748B]">
-                      {expense.applicantId} • {new Date(expense.timestamp).toLocaleDateString()} •{' '}
-                      <span className="font-medium">{expense.paidBy || 'N/A'}</span>
-                    </p>
+                  <div className="text-right">
+                    <p className="font-black text-[#0F172A] text-lg">₱{(expense.amount || 0).toLocaleString()}</p>
+                    <p className="text-xs text-[#64748B]">{expense.paymentMethod || expense.type || 'Standard'}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-black text-[#0F172A] text-lg">₱{expense.amount.toLocaleString()}</p>
-                  <p className="text-xs text-[#64748B]">{expense.paymentMethod}</p>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -458,32 +497,37 @@ export default function AccountingDashboard({
               <p className="text-sm font-medium">No pending cash advances.</p>
             </div>
           ) : (
-            pendingCashAdvances.map((applicant) => (
-              <div
-                key={applicant.id}
-                className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-[#F59E0B]/10 flex items-center justify-center font-bold text-[#F59E0B] text-sm">
-                    {applicant.name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')
-                      .substring(0, 2)}
-                  </div>
-                  <div>
-                    <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Ready for pre-departure cash advance</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onNavigate('expense')}
-                  className="px-4 py-2 bg-[#F59E0B] text-white text-xs font-bold rounded-lg hover:bg-[#D97706] shadow-sm"
+            pendingCashAdvances.map((applicant) => {
+              const initials = (applicant.name || 'AP')
+                .split(' ')
+                .filter(Boolean)
+                .map((n) => n[0])
+                .join('')
+                .substring(0, 2)
+                .toUpperCase();
+              return (
+                <div
+                  key={applicant.id}
+                  className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between"
                 >
-                  Process Advance
-                </button>
-              </div>
-            ))
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-[#F59E0B]/10 flex items-center justify-center font-bold text-[#F59E0B] text-sm">
+                      {initials}
+                    </div>
+                    <div>
+                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.id}`}</p>
+                      <p className="text-xs text-[#64748B]">{applicant.id} • Ready for pre-departure cash advance</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onNavigate('expense')}
+                    className="px-4 py-2 bg-[#F59E0B] text-white text-xs font-bold rounded-lg hover:bg-[#D97706] shadow-sm"
+                  >
+                    Process Advance
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </div>

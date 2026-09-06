@@ -86,6 +86,13 @@ export default function AppShell({
   const [showToast, setShowToast] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
+  // Keep selectedApplicantId in sync when applicants load or change
+  useEffect(() => {
+    if (applicants.length > 0 && (!selectedApplicantId || !applicants.some(a => String(a.id) === String(selectedApplicantId)))) {
+      setSelectedApplicantId(String(applicants[0].id));
+    }
+  }, [applicants, selectedApplicantId]);
+
   const showToastNotification = (message: string) => {
     setToastMessage(message);
     setShowToast(true);
@@ -99,12 +106,17 @@ export default function AppShell({
   }, [currentUserRole, currentUserName]);
 
   const handleViewApplicant = (applicantId: string) => {
-    setSelectedApplicantId(applicantId);
+    setSelectedApplicantId(String(applicantId));
     setCurrentView('applicant');
   };
 
+  const handleNavigate = (view: ViewType) => {
+    setCurrentView(view);
+  };
+
   const renderView = () => {
-    const selectedApplicant = applicants.find((a) => a.id === selectedApplicantId) || applicants[0];
+    const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId)) || applicants[0];
+
 
     switch (currentView) {
       case 'dashboard':
@@ -116,7 +128,7 @@ export default function AppShell({
                 applicants={applicants}
                 activityLogs={activityLogs}
                 onViewApplicant={handleViewApplicant}
-                onNavigate={setCurrentView}
+                onNavigate={handleNavigate}
               />
             );
           case 'Admin':
@@ -124,7 +136,7 @@ export default function AppShell({
               <AdminDashboard
                 applicants={applicants}
                 onViewApplicant={handleViewApplicant}
-                onNavigate={setCurrentView}
+                onNavigate={handleNavigate}
               />
             );
           case 'Accounting':
@@ -132,7 +144,7 @@ export default function AppShell({
               <AccountingDashboard
                 applicants={applicants}
                 expenses={expenses}
-                onNavigate={setCurrentView}
+                onNavigate={handleNavigate}
                 onAddExpense={addExpense}
               />
             );
@@ -142,7 +154,7 @@ export default function AppShell({
                 applicants={applicants}
                 activityLogs={activityLogs}
                 onViewApplicant={handleViewApplicant}
-                onNavigate={setCurrentView}
+                onNavigate={handleNavigate}
               />
             );
           default:
@@ -165,11 +177,18 @@ export default function AppShell({
           />
         );
       case 'applicant':
+        if (!selectedApplicant) {
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <p className="text-slate-500 font-medium">No applicant selected or loaded yet.</p>
+            </div>
+          );
+        }
         return (
           <ApplicantProfile
             applicant={selectedApplicant}
-            activityLogs={activityLogs.filter((log) => log.applicantId === selectedApplicant.id)}
-            expenses={expenses.filter((exp) => exp.applicantId === selectedApplicant.id)}
+            activityLogs={activityLogs.filter((log) => selectedApplicant && String(log.applicantId) === String(selectedApplicant.id))}
+            expenses={expenses.filter((exp) => selectedApplicant && String(exp.applicantId) === String(selectedApplicant.id))}
             updateApplicant={updateApplicant}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
@@ -208,9 +227,11 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             selectedApplicantId={selectedApplicantId}
+            onSelectApplicant={setSelectedApplicantId}
             workflow={workflow}
           />
         );
+
       case 'cv':
         return (
           <CVEncoding
@@ -285,7 +306,7 @@ export default function AppShell({
           />
         );
       case 'forecast':
-        return <PredictiveForecast applicants={applicants} />;
+        return <PredictiveForecast applicants={applicants} selectedApplicantId={selectedApplicantId} />;
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
@@ -338,10 +359,12 @@ export default function AppShell({
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && globalSearchQuery.trim()) {
+                    const q = globalSearchQuery.toLowerCase();
                     const found = applicants.find(
                       (a) =>
-                        a.id.toLowerCase().includes(globalSearchQuery.toLowerCase()) ||
-                        a.name.toLowerCase().includes(globalSearchQuery.toLowerCase())
+                        String(a.id || '').toLowerCase().includes(q) ||
+                        String(a.name || '').toLowerCase().includes(q) ||
+                        String(a.role || '').toLowerCase().includes(q)
                     );
                     if (found) {
                       handleViewApplicant(found.id);
@@ -351,6 +374,7 @@ export default function AppShell({
                     }
                   }
                 }}
+
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-[#0EA5E9] outline-none transition-all placeholder:text-slate-500 font-medium"
                 placeholder="Search applicant ID or name (press Enter)..."
               />

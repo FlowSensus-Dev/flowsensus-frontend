@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
@@ -11,6 +11,7 @@ import {
   TrainingRecord, LanguageRecord, EmploymentRecord, EmploymentFlag, EmploymentFlagType
 } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
+import { api } from '../../../lib/api';
 
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ interface RegistrationProps {
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Registration({
   showToast, currentUserName, addActivityLog,
-  selectedApplicantId: initialId = 'APP-2026-089',
+  selectedApplicantId: initialId = '1',
   updateApplicant, applicants = [],
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
@@ -149,13 +150,33 @@ export default function Registration({
 
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
+  const [openJobOrders, setOpenJobOrders] = useState<any[]>([
+    { id: 'JO-2026-0042', code: 'JO-2026-0042', position: 'Industrial Welder', country: 'UAE', employerName: 'Al-Futtaim Engineering LLC', available: 7 },
+    { id: 'JO-2026-0038', code: 'JO-2026-0038', position: 'Domestic Helper', country: 'Hong Kong', employerName: 'Hong Kong Family Services Ltd.', available: 1 },
+    { id: 'JO-2026-0051', code: 'JO-2026-0051', position: 'Registered Nurse / Caregiver', country: 'UAE', employerName: 'Dubai Healthcare Authority', available: 8 },
+  ]);
 
-  // Mock open job orders (in production these come from JobOrders module)
-  const openJobOrders = [
-    { id: 'jo-001', code: 'JO-2026-0042', position: 'Industrial Welder', country: 'UAE', employerName: 'Al-Futtaim Engineering LLC', available: 7 },
-    { id: 'jo-002', code: 'JO-2026-0038', position: 'Domestic Helper', country: 'Hong Kong', employerName: 'Hong Kong Family Services Ltd.', available: 1 },
-    { id: 'jo-003', code: 'JO-2026-0051', position: 'Registered Nurse / Caregiver', country: 'UAE', employerName: 'Dubai Healthcare Authority', available: 8 },
-  ];
+  useEffect(() => {
+    const fetchLiveJobOrders = async () => {
+      try {
+        const res = await api.get('/job-orders');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveOrders = res.data.map((jo: any) => ({
+            id: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            position: jo.position_title || jo.position || 'General Position',
+            country: jo.client_employer?.country?.country_name || jo.country || 'International',
+            employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+            available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
+          }));
+          setOpenJobOrders(liveOrders);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live job orders for registration, retaining defaults:', err);
+      }
+    };
+    fetchLiveJobOrders();
+  }, []);
 
   // Proof document upload helper
   const proofUpload = (
@@ -239,8 +260,8 @@ export default function Registration({
 
   // ── Employment History ────────────────────────────────────────────────────
   const [employment, setEmployment] = useState<EmploymentRecord[]>([
-    { id: 'emp-1', company: 'Metro Steel Corporation', position: 'Industrial Welder', dateStarted: '2019-03-01', dateEnded: '2023-02-28', country: 'Philippines', isPresent: false, reasonForLeaving: 'Contract ended' },
-    { id: 'emp-2', company: 'Qatar Construction LLC', position: 'Welder', dateStarted: '2017-01-15', dateEnded: '2018-12-31', country: 'Qatar', isPresent: false, reasonForLeaving: 'Contract ended' },
+    { id: 'eh-1', company: 'Metro Steel Corporation', position: 'Industrial Welder', dateStarted: '2019-03-01', dateEnded: '2023-02-28', country: 'Philippines', isPresent: false, reasonForLeaving: 'Contract ended' },
+    { id: 'eh-2', company: 'Qatar Construction LLC', position: 'Welder', dateStarted: '2017-01-15', dateEnded: '2018-12-31', country: 'Qatar', isPresent: false, reasonForLeaving: 'Contract ended' },
   ]);
   const [flags, setFlags] = useState<EmploymentFlag[]>([]);
   const [flagsAnalyzed, setFlagsAnalyzed] = useState(false);
@@ -262,7 +283,7 @@ export default function Registration({
     "Other (see details below)",
   ];
 
-  const addEmp = () => setEmployment(p => [...p, { id: `emp-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
+  const addEmp = () => setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
   const setEmp = (id: string, k: keyof EmploymentRecord, v: string | boolean) => {
     setEmployment(p => p.map(x => x.id === id ? { ...x, [k]: v, ...(k === 'isPresent' && v ? { dateEnded: '' } : {}) } : x));
     setFlagsAnalyzed(false);
@@ -337,6 +358,28 @@ export default function Registration({
       performedBy: currentUserName, department: 'Recruitment',
       details: `Full profile encoded for ${personal.lastName}, ${personal.firstName}. Employment flag check cleared (${flags.length} flag${flags.length !== 1 ? 's' : ''} reviewed).`,
     });
+
+    // Persist applicant update directly to Supabase
+    const numericId = parseInt(selectedApplicantId, 10);
+    if (!isNaN(numericId)) {
+      api.put(`/applicants/${numericId}`, {
+        first_name: personal.firstName,
+        middle_name: personal.middleName,
+        last_name: personal.lastName,
+        email: personal.email,
+        contact_number: personal.contact,
+        birth_date: personal.dateOfBirth,
+        gender: personal.sex,
+        civil_status: personal.civilStatus,
+        present_address: personal.presentAddress,
+        provincial_address: personal.provincialAddress,
+        applied_role: personal.role,
+        skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+      }).catch((err) => {
+        console.warn('Could not sync applicant update to Supabase backend:', err);
+      });
+    }
+
     showToast('Profile saved successfully. Applicant cleared for screening.');
   };
 

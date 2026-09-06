@@ -1,10 +1,11 @@
 import { AlertTriangle, Bell, FileCheck, Clock, Unlock } from 'lucide-react';
 import { ApplicantRecord } from '../../../types';
+import { ViewType } from '../../AppShell';
 
 interface AdminDashboardProps {
   applicants: ApplicantRecord[];
   onViewApplicant: (applicantId: string) => void;
-  onNavigate: (view: string) => void;
+  onNavigate: (view: ViewType) => void;
 }
 
 export default function AdminDashboard({ applicants, onViewApplicant, onNavigate }: AdminDashboardProps) {
@@ -20,21 +21,21 @@ export default function AdminDashboard({ applicants, onViewApplicant, onNavigate
       type: 'expired',
       doc: 'TESDA Certificate',
       applicant: 'Juan Dela Cruz',
-      applicantId: 'APP-2026-089',
+      applicantId: '1',
       daysAgo: 3,
     },
     {
       type: 'expiring30',
       doc: 'Medical Clearance',
       applicant: 'Ana Reyes',
-      applicantId: 'APP-2026-051',
+      applicantId: '2',
       daysLeft: 28,
     },
     {
       type: 'expiring60',
       doc: 'NBI Clearance',
       applicant: 'Pedro Garcia',
-      applicantId: 'APP-2026-112',
+      applicantId: '3',
       daysLeft: 58,
     },
   ];

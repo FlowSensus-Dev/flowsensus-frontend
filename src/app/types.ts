@@ -55,8 +55,10 @@ export interface ApplicantRecord {
   employmentHistory?: EmploymentRecord[];
   employmentFlags?: EmploymentFlag[];
 
-  // Selected job order
+  // Selected job order and applied position
   selectedJobOrderId?: string;
+  appliedPosition?: string;
+  appliedRole?: string;
 
   // Stop / Reject processing
   isStopped?: boolean;
@@ -178,12 +180,16 @@ export interface DocumentRecord {
 export interface ExpenseRecord {
   id: string;
   applicantId: string;
-  type: string;
+  type?: string;
   amount: number;
-  description: string;
-  date: string;
-  recordedBy: string;
-  category: 'processing_fee' | 'visa' | 'medical' | 'cash_advance' | 'other';
+  description?: string;
+  date?: string;
+  recordedBy?: string;
+  category?: 'processing_fee' | 'visa' | 'medical' | 'cash_advance' | 'other' | string;
+  paymentMethod?: string;
+  paidBy?: 'Agency' | 'Applicant' | 'Employer' | string;
+  notes?: string;
+  timestamp?: string;
 }
 
 export interface TestScores {

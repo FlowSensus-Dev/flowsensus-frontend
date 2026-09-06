@@ -20,7 +20,7 @@ export default function Screening({
   currentUserName,
   addActivityLog,
   updateApplicant,
-  selectedApplicantId: initialApplicantId = 'APP-2026-089',
+  selectedApplicantId: initialApplicantId = '1',
   applicants = [],
 }: ScreeningProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);

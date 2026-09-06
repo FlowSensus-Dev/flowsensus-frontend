@@ -4,6 +4,9 @@ import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
 import EmployerPortal from "./components/EmployerPortal";
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from "./types";
+import SuperAdminBar from "./components/SuperAdminBar";
+import { supabase } from "../lib/supabase";
+import { api } from "../lib/api";
 import {
   Check, ChevronRight, Building2, Users, Globe, Shield,
   ArrowRight, X, CheckCircle2, Loader2, Mail, Lock,
@@ -14,7 +17,7 @@ import {
 // ─── Mock applicant data ──────────────────────────────────────────────────────
 const mockApplicants: ApplicantRecord[] = [
   {
-    id: "APP-2026-089", name: "Juan Dela Cruz", firstName: "Juan", middleName: "Santos", lastName: "Dela Cruz",
+    id: "1", name: "Juan Dela Cruz", firstName: "Juan", middleName: "Santos", lastName: "Dela Cruz",
     role: "Industrial Welder", jobOrder: "JO-2026-0042 (Al-Futtaim Engineering)", phase: 3, status: "CV Encoding",
     currentHandler: "Sarah Cruz", currentDepartment: "Recruitment", lastUpdated: "2026-05-23 14:30",
     phaseDescription: "CV formatting and preparation for management approval",
@@ -36,7 +39,7 @@ const mockApplicants: ApplicantRecord[] = [
     matchScore: 94,
   },
   {
-    id: "APP-2026-112", name: "Pedro Garcia", firstName: "Pedro", middleName: "Reyes", lastName: "Garcia",
+    id: "2", name: "Pedro Garcia", firstName: "Pedro", middleName: "Reyes", lastName: "Garcia",
     role: "Domestic Helper", jobOrder: "JO-2026-0038 (Hong Kong Household)", phase: 2, status: "Medical Clearance",
     currentHandler: "Maria Santos", currentDepartment: "Admin", lastUpdated: "2026-05-24 09:15",
     phaseDescription: "Awaiting medical examination results from partner clinic",
@@ -56,7 +59,7 @@ const mockApplicants: ApplicantRecord[] = [
     matchScore: 78,
   },
   {
-    id: "APP-2026-051", name: "Ana Reyes", firstName: "Ana", middleName: "Santos", lastName: "Reyes",
+    id: "3", name: "Ana Reyes", firstName: "Ana", middleName: "Santos", lastName: "Reyes",
     role: "Caregiver", jobOrder: "JO-2026-0051 (Dubai Healthcare)", phase: 4, status: "Employer Review",
     currentHandler: "Admin User", currentDepartment: "Management", lastUpdated: "2026-05-22 16:45",
     phaseDescription: "CV submitted to foreign employer, awaiting selection decision",
@@ -81,7 +84,7 @@ const mockApplicants: ApplicantRecord[] = [
   // ── Flagged applicants (showcase flag engine) ──────────────────────────────
 
   {
-    id: "APP-2026-150", name: "Maria Santos", firstName: "Maria", middleName: "Lim", lastName: "Santos",
+    id: "4", name: "Maria Santos", firstName: "Maria", middleName: "Lim", lastName: "Santos",
     role: "Domestic Helper", jobOrder: "JO-2026-0038 (Hong Kong Household)", phase: 1, status: "Initial Screening",
     currentHandler: "Sarah Cruz", currentDepartment: "Recruitment", lastUpdated: "2026-06-01 09:00",
     phaseDescription: "Applicant profile complete — employment flags require recruiter review",
@@ -106,7 +109,7 @@ const mockApplicants: ApplicantRecord[] = [
   },
 
   {
-    id: "APP-2026-151", name: "Carlo Bautista", firstName: "Carlo", middleName: "Reyes", lastName: "Bautista",
+    id: "5", name: "Carlo Bautista", firstName: "Carlo", middleName: "Reyes", lastName: "Bautista",
     role: "Electrician", jobOrder: "JO-2026-0042 (Al-Futtaim Engineering)", phase: 1, status: "Initial Screening",
     currentHandler: "Sarah Cruz", currentDepartment: "Recruitment", lastUpdated: "2026-06-02 10:30",
     phaseDescription: "Critical red flag in employment history — must be clarified before evaluation",
@@ -130,7 +133,7 @@ const mockApplicants: ApplicantRecord[] = [
   },
 
   {
-    id: "APP-2026-152", name: "Jose Mendoza", firstName: "Jose", middleName: "Cruz", lastName: "Mendoza",
+    id: "6", name: "Jose Mendoza", firstName: "Jose", middleName: "Cruz", lastName: "Mendoza",
     role: "Construction Worker / Mason", jobOrder: "JO-2026-0042 (Al-Futtaim Engineering)", phase: 1, status: "Initial Screening",
     currentHandler: "Sarah Cruz", currentDepartment: "Recruitment", lastUpdated: "2026-06-03 08:45",
     phaseDescription: "Overlapping employment dates detected — possible data error or moonlighting",
@@ -154,7 +157,7 @@ const mockApplicants: ApplicantRecord[] = [
   },
 
   {
-    id: "APP-2026-153", name: "Elena Torres", firstName: "Elena", middleName: "Sta. Ana", lastName: "Torres",
+    id: "7", name: "Elena Torres", firstName: "Elena", middleName: "Sta. Ana", lastName: "Torres",
     role: "Caregiver / Nurse", jobOrder: "JO-2026-0051 (Dubai Healthcare)", phase: 1, status: "Initial Screening",
     currentHandler: "Sarah Cruz", currentDepartment: "Recruitment", lastUpdated: "2026-06-04 11:00",
     phaseDescription: "Possible demotion in employment history requires recruiter review and clarification",
@@ -177,7 +180,7 @@ const mockApplicants: ApplicantRecord[] = [
   },
 
   {
-    id: "APP-2026-154", name: "Roberto Cruz", firstName: "Roberto", middleName: "Dela Paz", lastName: "Cruz",
+    id: "8", name: "Roberto Cruz", firstName: "Roberto", middleName: "Dela Paz", lastName: "Cruz",
     role: "Production Operator / Factory Worker", jobOrder: "JO-2026-0042 (Al-Futtaim Engineering)", phase: 1, status: "Processing Stopped",
     isStopped: true,
     stoppedReason: "Applicant has multiple critical flags: AWOL record, two separate short stints under 2 months, and a 20-month unexplained employment gap. Repeated pattern of instability disqualifies applicant from current job order. Applicant may re-apply after 6 months with supporting documentation.",
@@ -344,10 +347,10 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
                 </div>
                 <div className="p-5 space-y-3">
                   {[
-                    { id: "APP-2026-089", name: "Juan Dela Cruz", role: "Industrial Welder", phase: 3, status: "CV Encoding", pct: 58, color: "#0EA5E9" },
-                    { id: "APP-2026-112", name: "Pedro Garcia", role: "Domestic Helper", phase: 2, status: "Medical Clearance", pct: 35, color: "#F59E0B" },
-                    { id: "APP-2026-051", name: "Ana Reyes", role: "Caregiver", phase: 4, status: "Employer Review", pct: 82, color: "#10B981" },
-                    { id: "APP-2026-073", name: "Carlo Bautista", role: "Electrician", phase: 1, status: "Screening", pct: 18, color: "#8B5CF6" },
+                    { id: "1", name: "Juan Dela Cruz", role: "Industrial Welder", phase: 3, status: "CV Encoding", pct: 58, color: "#0EA5E9" },
+                    { id: "2", name: "Pedro Garcia", role: "Domestic Helper", phase: 2, status: "Medical Clearance", pct: 35, color: "#F59E0B" },
+                    { id: "3", name: "Ana Reyes", role: "Caregiver", phase: 4, status: "Employer Review", pct: 82, color: "#10B981" },
+                    { id: "5", name: "Carlo Bautista", role: "Electrician", phase: 1, status: "Screening", pct: 18, color: "#8B5CF6" },
                   ].map((a) => (
                     <div key={a.id} className="bg-[#0F172A] rounded-lg p-3 flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0EA5E9]/30 to-[#0EA5E9]/10 flex items-center justify-center text-xs text-[#0EA5E9] font-bold flex-shrink-0">
@@ -1197,28 +1200,203 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
-  const addActivityLog = (log: Omit<ActivityLog, "id" | "timestamp">) => {
-    setActivityLogs((prev) => [{ ...log, id: `LOG-${Date.now()}`, timestamp: new Date().toISOString() }, ...prev]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // Check active Supabase session and load live backend data on startup
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+          const email = session.user.email || "";
+          const isSuper = Boolean(
+            session.user.app_metadata?.is_super_admin ||
+            session.user.user_metadata?.is_super_admin ||
+            email === "admin@findstaff.ph"
+          );
+          if (isSuper) {
+            setIsSuperAdmin(true);
+            setCurrentUserRole("Management");
+            setCurrentUserName("Superadmin (admin@findstaff.ph)");
+            setView("app");
+          }
+        }
+      } catch (err) {
+        console.error("Session check error:", err);
+      }
+    };
+    checkSession();
+
+    // ── Live Backend Data Fetching ──────────────────────────────────────────
+    const fetchLiveBackendData = async () => {
+      // 1. Fetch live applicants from /applicants
+      try {
+        const res = await api.get('/applicants');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
+            const existingMock = mockApplicants.find((m) => m.id === String(item.applicant_id));
+            const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || `Applicant #${item.applicant_id}`;
+
+            return {
+              ...(existingMock || {}),
+              id: String(item.applicant_id),
+              name: fullName,
+              firstName: item.first_name || existingMock?.firstName || '',
+              middleName: item.middle_name || existingMock?.middleName || '',
+              lastName: item.last_name || existingMock?.lastName || '',
+              role: item.applied_role || existingMock?.role || 'Applicant',
+              jobOrder: item.job_order_id ? `JO-${item.job_order_id}` : (existingMock?.jobOrder || 'JO-2026-0042'),
+              phase: typeof item.current_phase === 'number' ? item.current_phase : (existingMock?.phase || 1),
+              status: item.status || existingMock?.status || 'Initial Screening',
+              currentHandler: item.current_handler || existingMock?.currentHandler || 'Sarah Cruz',
+              currentDepartment: item.current_department || existingMock?.currentDepartment || 'Recruitment',
+              lastUpdated: item.updated_at ? new Date(item.updated_at).toLocaleString() : (existingMock?.lastUpdated || new Date().toLocaleString()),
+              phaseDescription: item.phase_description || existingMock?.phaseDescription || 'Active in candidate pipeline',
+              presentAddress: item.present_address || existingMock?.presentAddress || '',
+              provincialAddress: item.provincial_address || existingMock?.provincialAddress || '',
+              email: item.email || existingMock?.email || '',
+              contact: item.contact_number || existingMock?.contact || '',
+              dateOfBirth: item.birth_date || existingMock?.dateOfBirth || '',
+              age: item.age || existingMock?.age || 30,
+              sex: (item.gender === 'Male' || item.gender === 'Female') ? item.gender : (existingMock?.sex || 'Male'),
+              civilStatus: item.civil_status || existingMock?.civilStatus || 'Single',
+              citizenship: item.nationality || existingMock?.citizenship || 'Filipino',
+              religion: item.religion || existingMock?.religion || 'Roman Catholic',
+              height: item.height || existingMock?.height || '5\'6"',
+              weight: item.weight || existingMock?.weight || '65 kg',
+              skills: Array.isArray(item.skills) && item.skills.length > 0 ? item.skills : (existingMock?.skills || []),
+              certifications: Array.isArray(item.certifications) && item.certifications.length > 0 ? item.certifications : (existingMock?.certifications || []),
+              workExperience: Array.isArray(item.work_experience) && item.work_experience.length > 0 ? item.work_experience : (existingMock?.workExperience || []),
+              address: item.present_address || item.provincial_address || existingMock?.address || '',
+              testScores: existingMock?.testScores || { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+              matchScore: existingMock?.matchScore || 90,
+            };
+          });
+          setApplicants(liveMapped);
+        }
+      } catch (err) {
+        console.warn('Backend applicants unavailable, retaining fallback data:', err);
+      }
+
+      // 2. Fetch live audit logs from /audit-logs
+      try {
+        const logsRes = await api.get('/audit-logs');
+        if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
+          const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
+            id: `LOG-${l.audit_log_id}`,
+            applicantId: l.applicant_id ? String(l.applicant_id) : '',
+            action: l.action || 'Action Logged',
+            performedBy: l.performed_by || 'System User',
+            department: l.department || 'General',
+            details: l.details || '',
+            timestamp: l.created_at || new Date().toISOString(),
+          }));
+          setActivityLogs(liveLogs);
+        }
+      } catch (err) {
+        console.warn('Backend audit logs unavailable:', err);
+      }
+
+      // 3. Fetch live financial records from /financial/records
+      try {
+        const expRes = await api.get('/financial/records');
+        if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
+          const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
+            id: `EXP-${r.financial_record_id}`,
+            applicantId: String(r.applicant_id),
+            category: r.category || 'processing',
+            type: r.payment_type || 'Processing Fee',
+            amount: r.amount || 0,
+            description: r.description || r.payment_type || '',
+            date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+            recordedBy: r.recorded_by_name || 'Mark Tan',
+            paymentMethod: 'Bank Transfer',
+            paidBy: 'Agency',
+            notes: r.description || '',
+            timestamp: r.created_at || new Date().toISOString(),
+          }));
+          setExpenses(liveExpenses);
+        }
+      } catch (err) {
+        console.warn('Backend financial records unavailable:', err);
+      }
+    };
+
+    fetchLiveBackendData();
+  }, []);
+
+  const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
+    const timestamp = new Date().toISOString();
+    const tempId = `LOG-${Date.now()}`;
+    setActivityLogs((prev) => [{ ...log, id: tempId, timestamp }, ...prev]);
+
+    try {
+      await api.post('/audit-logs', {
+        action: log.action,
+        details: log.details,
+        applicant_id: log.applicantId ? parseInt(log.applicantId, 10) : null,
+        department: log.department,
+        performed_by: log.performedBy,
+        user_id: 1,
+      });
+    } catch (err) {
+      console.warn('Could not persist audit log to backend:', err);
+    }
   };
 
-  const handleLogin = (role: UserRole, name?: string, applicantId?: string) => {
+  const handleLogin = (role: UserRole, name?: string, applicantId?: string, isSuper?: boolean) => {
+    if (isSuper) {
+      setIsSuperAdmin(true);
+    }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Sign out error:", err);
+    }
     addActivityLog({ applicantId: "", action: "User Logout", performedBy: currentUserName, department: currentUserRole, details: `${currentUserName} logged out` });
+    setIsSuperAdmin(false);
     setCurrentUserRole("");
     setCurrentUserName("");
+  };
+
+  const handleSwitchSuperAdminRole = (newRole: UserRole) => {
+    setCurrentUserRole(newRole);
+    addActivityLog({
+      applicantId: "",
+      action: "Superadmin Role Switch",
+      performedBy: currentUserName,
+      department: newRole,
+      details: `Superadmin switched active view to ${newRole}`,
+    });
   };
 
   const updateWorkflow = (updates: Partial<WorkflowState>) => setWorkflow((prev) => ({ ...prev, ...updates }));
   const updateApplicant = (id: string, updates: Partial<ApplicantRecord>) => {
     setApplicants((prev) => prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a));
   };
-  const addExpense = (expense: Omit<ExpenseRecord, "id">) => setExpenses((prev) => [{ ...expense, id: `EXP-${Date.now()}` }, ...prev]);
+  const addExpense = async (expense: Omit<ExpenseRecord, "id">) => {
+    const tempId = `EXP-${Date.now()}`;
+    setExpenses((prev) => [{ ...expense, id: tempId }, ...prev]);
+
+    try {
+      const applicantIdInt = parseInt(expense.applicantId, 10) || 1;
+      await api.post('/financial/records', {
+        applicant_id: applicantIdInt,
+        payment_type: expense.type || expense.category || 'Processing Fee',
+        amount: expense.amount,
+        recorded_by: 1,
+      });
+    } catch (err) {
+      console.warn('Could not persist expense to backend:', err);
+    }
+  };
 
   // Landing
   if (view === "landing") {
@@ -1275,28 +1453,39 @@ export default function App() {
       );
     }
 
-    if (currentUserRole === "Applicant") {
-      return <ApplicantPortal onLogout={handleLogout} />;
-    }
-
-    if (currentUserRole === "Employer") {
-      return <EmployerPortal onLogout={handleLogout} />;
-    }
-
     return (
-      <AppShell
-        currentUserRole={currentUserRole}
-        currentUserName={currentUserName}
-        workflow={workflow}
-        updateWorkflow={updateWorkflow}
-        applicants={applicants}
-        updateApplicant={updateApplicant}
-        activityLogs={activityLogs}
-        addActivityLog={addActivityLog}
-        expenses={expenses}
-        addExpense={addExpense}
-        onLogout={handleLogout}
-      />
+      <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+        {isSuperAdmin && (
+          <SuperAdminBar
+            currentUserRole={currentUserRole}
+            currentUserName={currentUserName}
+            onSwitchRole={handleSwitchSuperAdminRole}
+            onLogout={handleLogout}
+            backendOnline={true}
+          />
+        )}
+        <div className="flex-1 min-h-0">
+          {currentUserRole === "Applicant" ? (
+            <ApplicantPortal onLogout={handleLogout} />
+          ) : currentUserRole === "Employer" ? (
+            <EmployerPortal onLogout={handleLogout} />
+          ) : (
+            <AppShell
+              currentUserRole={currentUserRole}
+              currentUserName={currentUserName}
+              workflow={workflow}
+              updateWorkflow={updateWorkflow}
+              applicants={applicants}
+              updateApplicant={updateApplicant}
+              activityLogs={activityLogs}
+              addActivityLog={addActivityLog}
+              expenses={expenses}
+              addExpense={addExpense}
+              onLogout={handleLogout}
+            />
+          )}
+        </div>
+      </div>
     );
   }
 

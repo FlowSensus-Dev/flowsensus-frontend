@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X } from 'lucide-react';
 import { ActivityLog, UserRole } from '../../types';
+import { api } from '../../../lib/api';
 
 interface StaffAccount {
   id: string;
@@ -17,50 +18,53 @@ interface UserManagementProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
 }
 
+const DEPT_ROLE_MAP: Record<string, { role: UserRole; dept: string; deptId: number }> = {
+  Recruitment: { role: 'Recruitment', dept: 'Recruitment', deptId: 2 },
+  Admin: { role: 'Admin', dept: 'Admin', deptId: 3 },
+  Accounting: { role: 'Accounting', dept: 'Accounting', deptId: 4 },
+  Management: { role: 'Management', dept: 'Management', deptId: 1 },
+  SuperAdmin: { role: 'Management', dept: 'Executive', deptId: 1 },
+};
+
 export default function UserManagement({ currentUserName, addActivityLog }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [staff, setStaff] = useState<StaffAccount[]>([
-    {
-      id: 'STAFF-001',
-      name: 'Admin User',
-      email: 'admin@flowsensus.com',
-      department: 'Management',
-      role: 'Management',
-      status: 'Active',
-      createdDate: '2026-01-15',
-    },
-    {
-      id: 'STAFF-002',
-      name: 'Sarah Cruz',
-      email: 'recruit@flowsensus.com',
-      department: 'Recruitment',
-      role: 'Recruitment',
-      status: 'Active',
-      createdDate: '2026-02-10',
-    },
-    {
-      id: 'STAFF-003',
-      name: 'Maria Santos',
-      email: 'admin@flowsensus.com',
-      department: 'Admin',
-      role: 'Admin',
-      status: 'Active',
-      createdDate: '2026-02-12',
-    },
-    {
-      id: 'STAFF-004',
-      name: 'Mark Tan',
-      email: 'accounting@flowsensus.com',
-      department: 'Accounting',
-      role: 'Accounting',
-      status: 'Inactive',
-      createdDate: '2026-01-20',
-    },
-  ]);
+  const [staff, setStaff] = useState<StaffAccount[]>([]);
+
+  // ── Fetch Live Staff from Supabase on Mount ──────────────────────────────
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        setLoading(true);
+        const res = await api.get('/users');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveStaff: StaffAccount[] = res.data.map((u: any) => {
+            const roleKey = u.role_name || 'Recruitment';
+            const mapped = DEPT_ROLE_MAP[roleKey] || { role: 'Recruitment' as UserRole, dept: 'Recruitment', deptId: 2 };
+            return {
+              id: String(u.user_id),
+              name: u.full_name || 'Staff Member',
+              email: u.email,
+              department: u.department_id === 1 ? 'Management' : u.department_id === 2 ? 'Recruitment' : u.department_id === 3 ? 'Admin' : u.department_id === 4 ? 'Accounting' : mapped.dept,
+              role: mapped.role,
+              status: u.status === 'Inactive' ? 'Inactive' : 'Active',
+              createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+            };
+          });
+          setStaff(liveStaff);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStaff();
+  }, []);
 
   const [newStaff, setNewStaff] = useState({
     name: '',
@@ -69,33 +73,74 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     role: 'Recruitment' as UserRole,
   });
 
-  const handleAddStaff = () => {
-    const staffAccount: StaffAccount = {
-      id: `STAFF-${String(staff.length + 1).padStart(3, '0')}`,
-      name: newStaff.name,
-      email: newStaff.email,
-      department: newStaff.department,
-      role: newStaff.role,
-      status: 'Active',
-      createdDate: new Date().toISOString().split('T')[0],
-    };
+  const handleAddStaff = async () => {
+    if (!newStaff.name || !newStaff.email) return;
 
-    setStaff([...staff, staffAccount]);
+    const deptInfo = DEPT_ROLE_MAP[newStaff.role] || { deptId: 2 };
+
+    try {
+      const res = await api.post('/users', {
+        fullName: newStaff.name,
+        email: newStaff.email,
+        roleName: newStaff.role,
+        departmentId: deptInfo.deptId,
+        status: 'Active',
+      });
+
+      const created = res.data;
+      const staffAccount: StaffAccount = {
+        id: String(created.user_id),
+        name: created.full_name,
+        email: created.email,
+        department: newStaff.department || deptInfo.dept,
+        role: newStaff.role,
+        status: 'Active',
+        createdDate: new Date().toISOString().split('T')[0],
+      };
+
+      setStaff(prev => [...prev, staffAccount]);
+    } catch (err) {
+      console.warn('Backend create user failed, creating locally:', err);
+      const staffAccount: StaffAccount = {
+        id: `STAFF-${String(staff.length + 1).padStart(3, '0')}`,
+        name: newStaff.name,
+        email: newStaff.email,
+        department: newStaff.department || 'Recruitment',
+        role: newStaff.role,
+        status: 'Active',
+        createdDate: new Date().toISOString().split('T')[0],
+      };
+      setStaff(prev => [...prev, staffAccount]);
+    }
 
     addActivityLog({
       applicantId: '',
       action: 'Staff Account Created',
       performedBy: currentUserName,
       department: 'Management',
-      details: `New staff account created: ${staffAccount.name} (${staffAccount.role}) - ${staffAccount.email}`,
+      details: `New staff account created: ${newStaff.name} (${newStaff.role}) - ${newStaff.email}`,
     });
 
     setNewStaff({ name: '', email: '', department: '', role: 'Recruitment' });
     setShowAddModal(false);
   };
 
-  const handleEditStaff = () => {
+  const handleEditStaff = async () => {
     if (!selectedStaff) return;
+
+    const numId = parseInt(selectedStaff.id, 10);
+    const deptInfo = DEPT_ROLE_MAP[selectedStaff.role] || { deptId: 2 };
+
+    if (!isNaN(numId)) {
+      try {
+        await api.put(`/users/${numId}`, {
+          roleName: selectedStaff.role,
+          departmentId: deptInfo.deptId,
+        });
+      } catch (err) {
+        console.warn('Backend update user failed, applying locally:', err);
+      }
+    }
 
     setStaff(
       staff.map((s) =>
@@ -117,8 +162,17 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     setSelectedStaff(null);
   };
 
-  const handleDeleteStaff = () => {
+  const handleDeleteStaff = async () => {
     if (!selectedStaff) return;
+
+    const numId = parseInt(selectedStaff.id, 10);
+    if (!isNaN(numId)) {
+      try {
+        await api.delete(`/users/${numId}`);
+      } catch (err) {
+        console.warn('Backend delete user failed, removing locally:', err);
+      }
+    }
 
     setStaff(staff.filter((s) => s.id !== selectedStaff.id));
 
@@ -134,8 +188,17 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     setSelectedStaff(null);
   };
 
-  const handleToggleAccess = (staffMember: StaffAccount) => {
+  const handleToggleAccess = async (staffMember: StaffAccount) => {
     const newStatus = staffMember.status === 'Active' ? 'Inactive' : 'Active';
+
+    const numId = parseInt(staffMember.id, 10);
+    if (!isNaN(numId)) {
+      try {
+        await api.put(`/users/${numId}`, { status: newStatus });
+      } catch (err) {
+        console.warn('Backend status toggle failed, toggling locally:', err);
+      }
+    }
 
     setStaff(staff.map((s) => (s.id === staffMember.id ? { ...s, status: newStatus } : s)));
 
@@ -147,6 +210,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
       details: `Access ${newStatus === 'Active' ? 'restored for' : 'revoked from'} ${staffMember.name}`,
     });
   };
+
 
   const getInitials = (name: string) => {
     return name

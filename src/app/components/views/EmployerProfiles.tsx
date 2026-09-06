@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Star, StarOff,
   Building2, Globe, Phone, Mail, Link, ShieldCheck, ShieldX,
@@ -6,6 +6,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Briefcase
 } from 'lucide-react';
 import { EmployerProfile, EmployerRemark } from '../../types';
+import { api } from '../../../lib/api';
 
 const STATUS_META: Record<EmployerProfile['status'], { label: string; color: string; icon: React.ReactNode }> = {
   active:      { label: 'Active',      color: '#10B981', icon: <CheckCircle2 size={13} /> },
@@ -24,7 +25,17 @@ const REMARK_META: Record<EmployerRemark['category'], { label: string; color: st
 
 const DEFAULT_EMPLOYERS: EmployerProfile[] = [
   {
-    id: 'emp-001', companyName: 'Al-Futtaim Engineering LLC', country: 'UAE', industry: 'Construction & Engineering',
+    id: '1', companyName: 'Al-Marai Hospital Group', country: 'Saudi Arabia', industry: 'Healthcare & Hospital Services',
+    contactPerson: 'Dr. Tariq Al-Ghamdi', contactEmail: 'recruitment@almarai-health.sa', contactPhone: '+966 11 405 8899',
+    address: 'King Fahd Road, Al Olaya, Riyadh 12213, Saudi Arabia', website: 'https://www.almarai-health.sa',
+    accreditationNo: 'POEA-DMW-KSA-2023-0144', accreditationExpiry: '2027-12-31',
+    status: 'active', rating: 5, totalDeployed: 145, activeJobOrders: 2, createdAt: '2022-01-10',
+    remarks: [
+      { id: 'rem-000', date: '2026-01-10', author: 'Admin User', category: 'commendation', content: 'Premier hospital network in Riyadh. Prompt salary transfers and premium medical accommodations.' },
+    ],
+  },
+  {
+    id: '2', companyName: 'Al-Futtaim Engineering LLC', country: 'UAE', industry: 'Construction & Engineering',
     contactPerson: 'Mr. Ahmed Al-Rashid', contactEmail: 'a.rashid@alfuttaim.ae', contactPhone: '+971 4 701 0000',
     address: 'Al-Futtaim Tower, Sheikh Zayed Road, Dubai, UAE', website: 'https://www.alfuttaim.com',
     accreditationNo: 'POEA-DMW-UAE-2024-0042', accreditationExpiry: '2026-04-30',
@@ -35,9 +46,9 @@ const DEFAULT_EMPLOYERS: EmployerProfile[] = [
     ],
   },
   {
-    id: 'emp-002', companyName: 'Hong Kong Family Services Ltd.', country: 'Hong Kong', industry: 'Domestic / Household',
+    id: '3', companyName: 'Hong Kong Family Services Ltd.', country: 'Hong Kong', industry: 'Domestic / Household',
     contactPerson: 'Ms. Catherine Wong', contactEmail: 'c.wong@hkfs.hk', contactPhone: '+852 2345 6789',
-    address: 'Unit 18B, Pacific Place, 88 Queensway, Admiralty, HK', website: '',
+    address: 'Unit 18B, Pacific Place, 88 Queensway, Admiralty, HK', website: 'https://www.hkfamilyservices.org.hk',
     accreditationNo: 'POEA-DMW-HK-2024-0081', accreditationExpiry: '2025-12-31',
     status: 'pending', rating: 3, totalDeployed: 87, activeJobOrders: 2, createdAt: '2021-06-01',
     remarks: [
@@ -46,7 +57,7 @@ const DEFAULT_EMPLOYERS: EmployerProfile[] = [
     ],
   },
   {
-    id: 'emp-003', companyName: 'Dubai Healthcare Authority', country: 'UAE', industry: 'Healthcare',
+    id: '4', companyName: 'Dubai Healthcare Authority', country: 'UAE', industry: 'Healthcare',
     contactPerson: 'Dr. Fatima Al-Maktoum', contactEmail: 'f.maktoum@dha.ae', contactPhone: '+971 4 219 6000',
     address: 'DHA Headquarters, Bur Dubai, Dubai, UAE', website: 'https://www.dha.gov.ae',
     accreditationNo: 'POEA-DMW-UAE-2024-0119', accreditationExpiry: '2027-01-15',
@@ -56,9 +67,9 @@ const DEFAULT_EMPLOYERS: EmployerProfile[] = [
     ],
   },
   {
-    id: 'emp-004', companyName: 'SkyBuild Construction Corp.', country: 'Qatar', industry: 'Construction',
+    id: '5', companyName: 'SkyBuild Construction Corp.', country: 'Qatar', industry: 'Construction',
     contactPerson: 'Mr. Khalid Al-Thani', contactEmail: 'k.althani@skybuild.qa', contactPhone: '+974 4432 1100',
-    address: 'West Bay, Doha, Qatar',  website: '',
+    address: 'West Bay, Doha, Qatar',  website: 'https://www.skybuild-corp.qa',
     accreditationNo: 'POEA-DMW-QA-2023-0033', accreditationExpiry: '2024-06-30',
     status: 'suspended', rating: 2, totalDeployed: 45, activeJobOrders: 0, createdAt: '2023-01-20',
     remarks: [
@@ -88,6 +99,39 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   const [isNew, setIsNew] = useState(false);
   const [addingRemark, setAddingRemark] = useState<{ employerId: string; content: string; category: EmployerRemark['category'] } | null>(null);
 
+  // ── Fetch Live Employers on Mount ─────────────────────────────────────────
+  useEffect(() => {
+    const fetchEmployers = async () => {
+      try {
+        const res = await api.get('/employers');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveEmps: EmployerProfile[] = res.data.map((e: any) => ({
+            id: String(e.employer_id),
+            companyName: e.company_name,
+            country: e.country?.country_name || 'International',
+            industry: e.industry || 'General',
+            contactPerson: e.contact_person || '',
+            contactEmail: e.contact_email || '',
+            contactPhone: e.contact_phone || '',
+            address: e.address || '',
+            accreditationNo: e.accreditation_no || '',
+            accreditationExpiry: e.accreditation_expiry || '',
+            status: (e.registration_status || 'active').toLowerCase() as any,
+            rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
+            totalDeployed: e.total_deployed || 0,
+            activeJobOrders: e.active_job_orders || 0,
+            remarks: Array.isArray(e.remarks) ? e.remarks : [],
+            createdAt: e.created_at || '',
+          }));
+          setEmployers(liveEmps);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live employers, retaining cached data:', err);
+      }
+    };
+    fetchEmployers();
+  }, []);
+
   const filtered = employers.filter(e => {
     const q = search.toLowerCase();
     const matchSearch = !search || e.companyName.toLowerCase().includes(q) || e.country.toLowerCase().includes(q) || e.industry.toLowerCase().includes(q);
@@ -96,30 +140,81 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   });
 
   const openNew = () => {
-    setEditing({ ...BLANK_EMPLOYER, id: `emp-${Date.now()}`, createdAt: new Date().toISOString().slice(0, 10), remarks: [], totalDeployed: 0, activeJobOrders: 0 });
+    const nextId = String(employers.length > 0 ? Math.max(...employers.map(e => Number(e.id) || 0)) + 1 : 1);
+    setEditing({ ...BLANK_EMPLOYER, id: nextId, createdAt: new Date().toISOString().slice(0, 10), remarks: [], totalDeployed: 0, activeJobOrders: 0 });
     setIsNew(true);
   };
 
-  const saveEmployer = () => {
+  const saveEmployer = async () => {
     if (!editing) return;
     if (!editing.companyName.trim()) { showToast('Company name is required'); return; }
-    if (isNew) setEmployers(p => [...p, editing]);
-    else setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
-    showToast(`"${editing.companyName}" ${isNew ? 'added' : 'updated'}`);
+
+    const payload = {
+      company_name: editing.companyName,
+      industry: editing.industry,
+      contact_person: editing.contactPerson,
+      contact_email: editing.contactEmail,
+      contact_phone: editing.contactPhone,
+      address: editing.address,
+      website: editing.website,
+      accreditation_no: editing.accreditationNo,
+      accreditation_expiry: editing.accreditationExpiry || undefined,
+      registration_status: editing.status,
+      compliance_status: editing.status === 'active' ? 'Compliant' : 'Under Review',
+      star_rating: editing.rating,
+      total_deployed: editing.totalDeployed,
+      active_job_orders: editing.activeJobOrders,
+      remarks: editing.remarks,
+    };
+
+    try {
+      if (isNew) {
+        const res = await api.post('/employers', payload);
+        const createdId = res.data?.employer_id ? String(res.data.employer_id) : editing.id;
+        setEmployers(p => [...p, { ...editing, id: createdId }]);
+      } else {
+        await api.put(`/employers/${editing.id}`, payload);
+        setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
+      }
+      showToast(`"${editing.companyName}" ${isNew ? 'added' : 'updated'}`);
+    } catch (err) {
+      console.warn('Backend save error, updating locally:', err);
+      if (isNew) setEmployers(p => [...p, editing]);
+      else setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
+      showToast(`Saved locally: "${editing.companyName}"`);
+    }
+
     setEditing(null);
   };
 
-  const removeEmployer = (id: string) => {
+  const removeEmployer = async (id: string) => {
     const e = employers.find(e => e.id === id);
     setEmployers(p => p.filter(e => e.id !== id));
-    showToast(`"${e?.companyName}" removed`);
+    try {
+      await api.delete(`/employers/${id}`);
+      showToast(`"${e?.companyName}" removed from database`);
+    } catch (err) {
+      console.warn('Backend delete error, removed locally:', err);
+      showToast(`"${e?.companyName}" removed`);
+    }
   };
 
-  const addRemark = () => {
+  const addRemark = async () => {
     if (!addingRemark?.content.trim()) return;
     const remark: EmployerRemark = { id: `rem-${Date.now()}`, date: new Date().toISOString().slice(0, 10), author: currentUserName, category: addingRemark.category, content: addingRemark.content };
-    setEmployers(p => p.map(e => e.id === addingRemark.employerId ? { ...e, remarks: [remark, ...e.remarks] } : e));
+    
+    const targetEmp = employers.find(e => e.id === addingRemark.employerId);
+    const updatedRemarks = targetEmp ? [remark, ...targetEmp.remarks] : [remark];
+
+    setEmployers(p => p.map(e => e.id === addingRemark.employerId ? { ...e, remarks: updatedRemarks } : e));
     showToast('Remark added');
+
+    try {
+      await api.put(`/employers/${addingRemark.employerId}`, { remarks: updatedRemarks });
+    } catch (err) {
+      console.warn('Could not persist remark to backend:', err);
+    }
+
     setAddingRemark(null);
   };
 
