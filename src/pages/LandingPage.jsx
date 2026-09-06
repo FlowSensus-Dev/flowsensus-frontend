@@ -1,22 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Check,
-  ChevronRight,
-  Users,
-  Globe,
-  Shield,
-  ArrowRight,
-  X,
-  CheckCircle2,
-  Mail,
-  User,
-  FileText,
-  BarChart3,
-  Sparkles,
-  Menu,
-  Layers,
-} from "lucide-react";
+import { Check, ChevronRight, Users, Globe, Shield, ArrowRight, X, CheckCircle2, Mail, User, FileText, BarChart3, Sparkles, Menu, Layers,} from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -154,7 +138,7 @@ export default function LandingPage() {
                 onClick={() => navigate("/login")}
                 className="border border-white/20 hover:border-white/40 bg-white/5 text-white px-6 py-3.5 rounded-xl font-semibold text-sm transition-colors"
               >
-                Staff Login
+                Agency Login
               </button>
             </div>
             <div className="mt-8 flex flex-wrap gap-6 text-sm text-slate-300">
