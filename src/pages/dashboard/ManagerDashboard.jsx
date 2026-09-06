@@ -31,7 +31,7 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
         <div className="px-6 py-4 border-b border-slate-200 bg-[#EF4444]/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-6 h-6 text-[#EF4444]" />
-            <h3 className="font-black text-[#0F172A] text-lg">Ã°Å¸Å¡Â¨ Escalation & SLA Breach Alerts</h3>
+            <h3 className="font-black text-[#0F172A] text-lg">Escalation & SLA Breach Alerts</h3>
           </div>
           <span className="px-3 py-1 bg-[#EF4444] text-white text-xs font-bold rounded-full">
             {sla_breaches?.length} Critical
