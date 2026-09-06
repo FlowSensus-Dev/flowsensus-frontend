@@ -13,7 +13,7 @@ import AuditLedger from "./pages/super-admin/AuditLedger";
 import ManagerDashboard from "./pages/manager/ManagerDashboard";
 
 // Recruitment
-import RecruitmentDashboard from "./pages/dashboard/RecruitmentDashboard";
+import RecruitmentDashboard from "./pages/recruitment/RecruitmentDashboard";
 
 // Administration
 import AdministrationDashboard from "./pages/administration/AdministrationDashboard";
