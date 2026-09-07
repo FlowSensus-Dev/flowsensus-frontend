@@ -994,6 +994,7 @@ export default function App() {
   const [tenantName, setTenantName] = useState("");
 
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
+  const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
@@ -1018,8 +1019,28 @@ export default function App() {
           if (isSuper) {
             setIsSuperAdmin(true);
             setCurrentUserRole("Management");
+            setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
             setCurrentUserName("Superadmin (admin@findstaff.ph)");
             setView("app");
+          } else {
+            const userMeta = session.user.user_metadata || {};
+            const appMeta = session.user.app_metadata || {};
+            let roles: UserRole[] = [];
+            if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
+              roles = userMeta.roles;
+            } else if (typeof userMeta.role === 'string') {
+              roles = userMeta.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
+            } else if (Array.isArray(appMeta.roles) && appMeta.roles.length > 0) {
+              roles = appMeta.roles;
+            } else if (userMeta.role) {
+              roles = [userMeta.role];
+            }
+            if (roles.length > 0) {
+              setCurrentUserRole(roles[0]);
+              setCurrentUserRoles(roles);
+              setCurrentUserName(userMeta.full_name || email || "Staff Member");
+              setView("app");
+            }
           }
         }
       } catch (err) {
@@ -1161,9 +1182,18 @@ export default function App() {
     }
   };
 
-  const handleLogin = (role: UserRole, name?: string, applicantId?: string, isSuper?: boolean) => {
+  const handleLogin = (
+    role: UserRole,
+    name?: string,
+    applicantId?: string,
+    isSuper?: boolean,
+    roles?: UserRole[]
+  ) => {
     if (isSuper) {
       setIsSuperAdmin(true);
+      setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
+    } else {
+      setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
@@ -1180,11 +1210,13 @@ export default function App() {
     addActivityLog({ applicantId: "", action: "User Logout", performedBy: currentUserName, department: currentUserRole, details: `${currentUserName} logged out` });
     setIsSuperAdmin(false);
     setCurrentUserRole("");
+    setCurrentUserRoles([]);
     setCurrentUserName("");
   };
 
   const handleSwitchSuperAdminRole = (newRole: UserRole) => {
     setCurrentUserRole(newRole);
+    setCurrentUserRoles([newRole]);
     addActivityLog({
       applicantId: "",
       action: "Superadmin Role Switch",
@@ -1292,6 +1324,7 @@ export default function App() {
           ) : (
             <AppShell
               currentUserRole={currentUserRole}
+              currentUserRoles={currentUserRoles}
               currentUserName={currentUserName}
               workflow={workflow}
               updateWorkflow={updateWorkflow}

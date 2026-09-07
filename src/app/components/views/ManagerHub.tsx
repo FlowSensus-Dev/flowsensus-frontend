@@ -1,4 +1,5 @@
-import { CheckSquare, Building2, Lock, Download } from 'lucide-react';
+import { useState } from 'react';
+import { CheckSquare, Building2, Lock, Download, Loader2 } from 'lucide-react';
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
 
 interface ManagerHubProps {
@@ -22,6 +23,7 @@ export default function ManagerHub({
   updateApplicant,
   selectedApplicantId = '1',
 }: ManagerHubProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
   const handleExportToPDF = () => {
     // Generate PDF content
     const selectedApplicant = applicants.find(a => a.id === selectedApplicantId);
@@ -84,6 +86,8 @@ Date: ${new Date().toLocaleString()}
   };
 
   const handleApproveAndAccept = () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     const applicantId = selectedApplicantId;
 
     // Step 1: Approve CV
@@ -123,6 +127,7 @@ Date: ${new Date().toLocaleString()}
           'Foreign employer (Saudi - Al-Futtaim Engineering) confirmed hiring decision. MASTER KEY ACTIVATED: Phase 5 modules (Document OCR, Expense Tracking) now unlocked for Admin and Accounting.',
       });
 
+      setIsProcessing(false);
       showToast(
         '✓ CV Approved & Employer Acceptance Recorded! Admin & Accounting modules unlocked (Master Key Activated).'
       );
@@ -225,11 +230,20 @@ Date: ${new Date().toLocaleString()}
             </div>
             <button
               onClick={handleApproveAndAccept}
-              disabled={cvLocked}
+              disabled={cvLocked || isProcessing}
               className="px-8 py-4 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] shadow-lg rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              <CheckSquare className="w-5 h-5" />
-              Approve CV & Record Employer Acceptance
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Activating Master Key...
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="w-5 h-5" />
+                  Approve CV & Record Employer Acceptance
+                </>
+              )}
             </button>
           </div>
         </div>

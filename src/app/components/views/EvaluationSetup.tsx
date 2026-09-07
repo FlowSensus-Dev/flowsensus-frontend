@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Info, GripVertical,
   Brain, Heart, Wrench, Languages, Stethoscope, MessageSquare,
-  Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight
+  Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight, Loader2
 } from 'lucide-react';
 import { EvaluationTest, WorkflowPhase, UserRole } from '../../types';
 import { api } from '../../../lib/api';
@@ -41,6 +41,7 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
   const [phases, setPhases] = useState<WorkflowPhase[]>(DEFAULT_PHASES);
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [isSavingTest, setIsSavingTest] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkflowPhase | null>(null);
 
   // ── Fetch Live Evaluation Templates on Mount ─────────────────────────────
@@ -82,37 +83,15 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
   const openEditTest = (t: EvaluationTest) => { setEditingTest({ ...t }); setIsNew(false); };
 
   const saveTest = async () => {
-    if (!editingTest) return;
+    if (!editingTest || isSavingTest) return;
     if (!editingTest.name.trim()) { showToast('Test name is required'); return; }
     if (editingTest.weight < 0 || editingTest.weight > 100) { showToast('Weight must be 0–100'); return; }
 
-    if (isNew) {
-      try {
-        const res = await api.post('/evaluations/templates', {
-          name: editingTest.name,
-          type: editingTest.type,
-          description: editingTest.description,
-          maxScore: editingTest.maxScore,
-          passingScore: editingTest.passingScore,
-          weight: editingTest.weight,
-          scoringGuide: editingTest.scoringGuide,
-          isActive: editingTest.isActive,
-        });
-        const created = res.data;
-        const newTest: EvaluationTest = {
-          ...editingTest,
-          id: String(created.test_template_id || created.id),
-        };
-        setTests(p => [...p, newTest]);
-      } catch (err) {
-        console.warn('Backend create evaluation template failed, adding locally:', err);
-        setTests(p => [...p, editingTest]);
-      }
-    } else {
-      const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
-      if (!isNaN(numId)) {
+    setIsSavingTest(true);
+    try {
+      if (isNew) {
         try {
-          await api.put(`/evaluations/templates/${numId}`, {
+          const res = await api.post('/evaluations/templates', {
             name: editingTest.name,
             type: editingTest.type,
             description: editingTest.description,
@@ -122,15 +101,42 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
             scoringGuide: editingTest.scoringGuide,
             isActive: editingTest.isActive,
           });
+          const created = res.data;
+          const newTest: EvaluationTest = {
+            ...editingTest,
+            id: String(created.test_template_id || created.id),
+          };
+          setTests(p => [...p, newTest]);
         } catch (err) {
-          console.warn('Backend update template failed, updating locally:', err);
+          console.warn('Backend create evaluation template failed, adding locally:', err);
+          setTests(p => [...p, editingTest]);
         }
+      } else {
+        const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
+        if (!isNaN(numId)) {
+          try {
+            await api.put(`/evaluations/templates/${numId}`, {
+              name: editingTest.name,
+              type: editingTest.type,
+              description: editingTest.description,
+              maxScore: editingTest.maxScore,
+              passingScore: editingTest.passingScore,
+              weight: editingTest.weight,
+              scoringGuide: editingTest.scoringGuide,
+              isActive: editingTest.isActive,
+            });
+          } catch (err) {
+            console.warn('Backend update template failed, updating locally:', err);
+          }
+        }
+        setTests(p => p.map(t => t.id === editingTest.id ? editingTest : t));
       }
-      setTests(p => p.map(t => t.id === editingTest.id ? editingTest : t));
-    }
 
-    showToast(`"${editingTest.name}" ${isNew ? 'added' : 'updated'}`);
-    setEditingTest(null);
+      showToast(`"${editingTest.name}" ${isNew ? 'added' : 'updated'}`);
+      setEditingTest(null);
+    } finally {
+      setIsSavingTest(false);
+    }
   };
 
   const removeTest = async (id: string) => {
@@ -399,9 +405,17 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditingTest(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={saveTest} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Add Evaluation' : 'Save Changes'}
+              <button onClick={() => setEditingTest(null)} disabled={isSavingTest} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={saveTest} disabled={isSavingTest} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSavingTest ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Adding Evaluation...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Add Evaluation' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>

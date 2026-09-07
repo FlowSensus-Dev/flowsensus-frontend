@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight } from 'lucide-react';
+import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight, Loader2 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ScreeningProps {
@@ -27,6 +27,7 @@ export default function Screening({
   const [listView, setListView] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showStopModal, setShowStopModal] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [stopReason, setStopReason] = useState('');
 
   const handleStopProcessing = () => {
@@ -66,35 +67,41 @@ export default function Screening({
     setShowModal(true);
   };
 
-  const handleGenerateReferral = () => {
-    const applicantId = selectedApplicantId;
+  const handleGenerateReferral = async () => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const applicantId = selectedApplicantId;
 
-    updateWorkflow({ screeningPassed: true });
-    updateApplicant(applicantId, {
-      phase: 2,
-      status: 'Medical Clearance',
-      currentHandler: 'Maria Santos',
-      currentDepartment: 'Admin',
-      phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
-      testScores: {
-        englishProficiency: examScores.englishProficiency,
-        tradeSkills: examScores.tradeSkills,
-        iqAptitude: examScores.iqAptitude,
-        personalityEQ: examScores.personalityEQ,
-        employerSpecific: examScores.employerSpecific || undefined,
-      },
-    });
+      updateWorkflow({ screeningPassed: true });
+      updateApplicant(applicantId, {
+        phase: 2,
+        status: 'Medical Clearance',
+        currentHandler: 'Maria Santos',
+        currentDepartment: 'Admin',
+        phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
+        testScores: {
+          englishProficiency: examScores.englishProficiency,
+          tradeSkills: examScores.tradeSkills,
+          iqAptitude: examScores.iqAptitude,
+          personalityEQ: examScores.personalityEQ,
+          employerSpecific: examScores.employerSpecific || undefined,
+        },
+      });
 
-    addActivityLog({
-      applicantId,
-      action: 'Screening Passed & Medical Referral Generated',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: `Recruiter ${currentUserName} logged digital signature. Test scores: English ${examScores.englishProficiency}%, Trade Skills ${examScores.tradeSkills}%, IQ/Aptitude ${examScores.iqAptitude}%, Personality: ${examScores.personalityEQ}. Medical referral PDF auto-generated.`,
-    });
+      addActivityLog({
+        applicantId,
+        action: 'Screening Passed & Medical Referral Generated',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Recruiter ${currentUserName} logged digital signature. Test scores: English ${examScores.englishProficiency}%, Trade Skills ${examScores.tradeSkills}%, IQ/Aptitude ${examScores.iqAptitude}%, Personality: ${examScores.personalityEQ}. Medical referral PDF auto-generated.`,
+      });
 
-    setShowModal(false);
-    showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+      setShowModal(false);
+      showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // Calculate passing status
@@ -523,16 +530,27 @@ export default function Screening({
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold text-[#475569] hover:bg-slate-50"
+                  disabled={isGenerating}
+                  className="flex-1 px-4 py-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold text-[#475569] hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleGenerateReferral}
-                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 flex items-center justify-center gap-2"
+                  disabled={isGenerating}
+                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 flex items-center justify-center gap-2"
                 >
-                  <FileCheck2 className="w-4 h-4" />
-                  Generate PDF
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Generating Referral...
+                    </>
+                  ) : (
+                    <>
+                      <FileCheck2 className="w-4 h-4" />
+                      Generate PDF
+                    </>
+                  )}
                 </button>
               </div>
             </div>

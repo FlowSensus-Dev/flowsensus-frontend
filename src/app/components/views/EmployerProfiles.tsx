@@ -3,7 +3,7 @@ import {
   Plus, Pencil, Trash2, Save, X, Search, Star, StarOff,
   Building2, Globe, Phone, Mail, Link, ShieldCheck, ShieldX,
   ThumbsUp, ThumbsDown, MessageSquare, ChevronDown, ChevronRight,
-  AlertTriangle, CheckCircle2, Clock, Briefcase
+  AlertTriangle, CheckCircle2, Clock, Briefcase, Loader2
 } from 'lucide-react';
 import { EmployerProfile, EmployerRemark } from '../../types';
 import { api } from '../../../lib/api';
@@ -42,6 +42,8 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   const [editing, setEditing] = useState<EmployerProfile | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [addingRemark, setAddingRemark] = useState<{ employerId: string; content: string; category: EmployerRemark['category'] } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingRemark, setIsSavingRemark] = useState(false);
 
   // ── Fetch Live Employers on Mount ─────────────────────────────────────────
   useEffect(() => {
@@ -90,9 +92,10 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   };
 
   const saveEmployer = async () => {
-    if (!editing) return;
+    if (!editing || isSaving) return;
     if (!editing.companyName.trim()) { showToast('Company name is required'); return; }
 
+    setIsSaving(true);
     const payload = {
       company_name: editing.companyName,
       industry: editing.industry,
@@ -121,14 +124,16 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
         setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
       }
       showToast(`"${editing.companyName}" ${isNew ? 'added' : 'updated'}`);
+      setEditing(null);
     } catch (err) {
       console.warn('Backend save error, updating locally:', err);
       if (isNew) setEmployers(p => [...p, editing]);
       else setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
       showToast(`Saved locally: "${editing.companyName}"`);
+      setEditing(null);
+    } finally {
+      setIsSaving(false);
     }
-
-    setEditing(null);
   };
 
   const removeEmployer = async (id: string) => {
@@ -144,7 +149,8 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   };
 
   const addRemark = async () => {
-    if (!addingRemark?.content.trim()) return;
+    if (!addingRemark?.content.trim() || isSavingRemark) return;
+    setIsSavingRemark(true);
     const remark: EmployerRemark = { id: `rem-${Date.now()}`, date: new Date().toISOString().slice(0, 10), author: currentUserName, category: addingRemark.category, content: addingRemark.content };
     
     const targetEmp = employers.find(e => e.id === addingRemark.employerId);
@@ -157,9 +163,10 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
       await api.put(`/employers/${addingRemark.employerId}`, { remarks: updatedRemarks });
     } catch (err) {
       console.warn('Could not persist remark to backend:', err);
+    } finally {
+      setIsSavingRemark(false);
+      setAddingRemark(null);
     }
-
-    setAddingRemark(null);
   };
 
   const renderStars = (rating: number, onChange?: (n: number) => void) => (
@@ -386,9 +393,17 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={saveEmployer} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Add Employer' : 'Save Changes'}
+              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={saveEmployer} disabled={isSaving} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Adding Employer...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Add Employer' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -430,9 +445,17 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
               <p className="text-xs text-slate-400">This remark will be recorded under your name ({currentUserName}) with today's date.</p>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setAddingRemark(null)} className="px-4 py-2 text-sm font-medium text-slate-600">Cancel</button>
-              <button onClick={addRemark} disabled={!addingRemark.content.trim()} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-40 text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> Save Remark
+              <button onClick={() => setAddingRemark(null)} disabled={isSavingRemark} className="px-4 py-2 text-sm font-medium text-slate-600 disabled:opacity-50">Cancel</button>
+              <button onClick={addRemark} disabled={!addingRemark.content.trim() || isSavingRemark} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSavingRemark ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Saving Remark...
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> Save Remark
+                  </>
+                )}
               </button>
             </div>
           </div>

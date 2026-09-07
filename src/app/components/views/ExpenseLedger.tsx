@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lock, DollarSign, Plus, Receipt } from 'lucide-react';
+import { Lock, DollarSign, Plus, Receipt, Loader2 } from 'lucide-react';
 import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ExpenseLedgerProps {
@@ -25,6 +25,7 @@ export default function ExpenseLedger({
 }: ExpenseLedgerProps) {
   const isLocked = !workflow.employerAccepted;
   const [showForm, setShowForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newExpense, setNewExpense] = useState({
     type: 'Visa Processing Fee',
     amount: 15000,
@@ -41,29 +42,35 @@ export default function ExpenseLedger({
     ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || 'Juan Dela Cruz')
     : 'Juan Dela Cruz';
 
-  const handleAddExpense = () => {
-    const expense: Omit<ExpenseRecord, 'id'> = {
-      applicantId: selectedApplicantId,
-      type: newExpense.type,
-      amount: newExpense.amount,
-      description: newExpense.description,
-      date: new Date().toISOString().split('T')[0],
-      recordedBy: currentUserName,
-      category: newExpense.category,
-    };
+  const handleAddExpense = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const expense: Omit<ExpenseRecord, 'id'> = {
+        applicantId: selectedApplicantId,
+        type: newExpense.type,
+        amount: newExpense.amount,
+        description: newExpense.description,
+        date: new Date().toISOString().split('T')[0],
+        recordedBy: currentUserName,
+        category: newExpense.category,
+      };
 
-    addExpense(expense);
+      await Promise.resolve(addExpense(expense));
 
-    addActivityLog({
-      applicantId: selectedApplicantId,
-      action: 'Financial Transaction Recorded',
-      performedBy: currentUserName,
-      department: 'Accounting',
-      details: `${newExpense.type}: ₱${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
-    });
+      addActivityLog({
+        applicantId: selectedApplicantId,
+        action: 'Financial Transaction Recorded',
+        performedBy: currentUserName,
+        department: 'Accounting',
+        details: `${newExpense.type}: ₱${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
+      });
 
-    showToast(`✓ Expense recorded: ${newExpense.type} (₱${newExpense.amount.toLocaleString()})`);
-    setShowForm(false);
+      showToast(`✓ Expense recorded: ${newExpense.type} (₱${newExpense.amount.toLocaleString()})`);
+      setShowForm(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -159,15 +166,24 @@ export default function ExpenseLedger({
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowForm(false)}
-                className="px-4 py-2 border-2 border-slate-200 text-[#475569] text-sm font-bold rounded-lg hover:bg-slate-100"
+                disabled={isSubmitting}
+                className="px-4 py-2 border-2 border-slate-200 text-[#475569] text-sm font-bold rounded-lg hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddExpense}
-                className="px-6 py-2 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] rounded-lg"
+                disabled={isSubmitting}
+                className="flex items-center gap-2 px-6 py-2 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm"
               >
-                Record Transaction
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Recording...
+                  </>
+                ) : (
+                  'Record Transaction'
+                )}
               </button>
             </div>
           </div>

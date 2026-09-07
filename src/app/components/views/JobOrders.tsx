@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Globe, Briefcase,
   Users, Calendar, DollarSign, FileText, ChevronDown, ChevronRight,
-  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star
+  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star, Loader2
 } from 'lucide-react';
 import { JobOrder, EmployerProfile } from '../../types';
 import { api } from '../../../lib/api';
@@ -35,6 +35,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
   const [isNew, setIsNew] = useState(false);
   const [reqInput, setReqInput] = useState('');
   const [certInput, setCertInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   // ── Fetch Live Data on Mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -118,10 +119,11 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
   };
 
   const save = async () => {
-    if (!editing) return;
+    if (!editing || isSaving) return;
     if (!editing.position.trim()) { showToast('Position is required'); return; }
     if (!editing.employerId) { showToast('Select an employer'); return; }
 
+    setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
     const updatedEditing: JobOrder = {
       ...editing,
@@ -156,14 +158,16 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
         setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
       }
       showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
+      setEditing(null);
     } catch (err: any) {
       console.warn('Backend save error, updating local state:', err);
       if (isNew) setOrders(p => [...p, updatedEditing]);
       else setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
       showToast(`Saved locally: "${updatedEditing.code || updatedEditing.position}"`);
+      setEditing(null);
+    } finally {
+      setIsSaving(false);
     }
-
-    setEditing(null);
   };
 
   const remove = async (id: string) => {
@@ -474,9 +478,17 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={save} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Create Job Order' : 'Save Changes'}
+              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={save} disabled={isSaving} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Creating Job Order...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Create Job Order' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>

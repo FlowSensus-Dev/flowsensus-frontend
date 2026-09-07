@@ -55,6 +55,7 @@ export type ViewType =
 
 interface AppShellProps {
   currentUserRole: UserRole;
+  currentUserRoles?: UserRole[];
   currentUserName: string;
   workflow: WorkflowState;
   updateWorkflow: (updates: Partial<WorkflowState>) => void;
@@ -70,6 +71,7 @@ interface AppShellProps {
 
 export default function AppShell({
   currentUserRole,
+  currentUserRoles,
   currentUserName,
   workflow,
   updateWorkflow,
@@ -350,7 +352,12 @@ export default function AppShell({
 
   return (
     <div className="w-full h-full flex bg-[#F1F5F9] overflow-hidden">
-      <Sidebar currentUserRole={currentUserRole} currentView={currentView} onViewChange={handleNavigate} />
+      <Sidebar
+        currentUserRole={currentUserRole}
+        currentUserRoles={currentUserRoles}
+        currentView={currentView}
+        onViewChange={handleNavigate}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 h-full flex flex-col overflow-hidden relative">

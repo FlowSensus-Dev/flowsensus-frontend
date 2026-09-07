@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, GripVertical, CheckCircle2, XCircle,
-  FileText, Globe, Users, Star, Save, X, ToggleLeft, ToggleRight, AlertCircle
+  FileText, Globe, Users, Star, Save, X, ToggleLeft, ToggleRight, AlertCircle, Loader2
 } from 'lucide-react';
 import { DocumentRequirement, JOB_TYPE_OPTIONS, JobTypeValue } from '../../types';
 import { api } from '../../../lib/api';
@@ -43,6 +43,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<DocumentRequirement | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [filter, setFilter] = useState<'all' | DocumentRequirement['appliesTo']>('all');
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeValue | 'all'>('all');
   const [dragId, setDragId] = useState<string | null>(null);
@@ -96,37 +97,14 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
   const openEdit = (r: DocumentRequirement) => { setEditing({ ...r }); setIsNew(false); };
 
   const save = async () => {
-    if (!editing) return;
+    if (!editing || isSaving) return;
     if (!editing.name.trim()) { showToast('Requirement name is required'); return; }
 
-    if (isNew) {
-      try {
-        const res = await api.post('/requirements', {
-          name: editing.name,
-          description: editing.description,
-          isRequired: editing.isRequired,
-          appliesTo: editing.appliesTo,
-          applicableJobTypes: editing.applicableJobTypes,
-          expiryTracked: editing.expiryTracked,
-          validityPeriod: editing.validityMonths ? editing.validityMonths * 30 : 365,
-          sortOrder: editing.sortOrder,
-          isActive: editing.isActive,
-        });
-        const created = res.data;
-        const newReq: DocumentRequirement = {
-          ...editing,
-          id: String(created.requirement_id || created.id),
-        };
-        setRequirements(prev => [...prev, newReq]);
-      } catch (err) {
-        console.warn('Backend create requirement failed, adding locally:', err);
-        setRequirements(prev => [...prev, editing]);
-      }
-    } else {
-      const numId = parseInt(editing.id.replace('req-', ''), 10);
-      if (!isNaN(numId)) {
+    setIsSaving(true);
+    try {
+      if (isNew) {
         try {
-          await api.put(`/requirements/${numId}`, {
+          const res = await api.post('/requirements', {
             name: editing.name,
             description: editing.description,
             isRequired: editing.isRequired,
@@ -137,15 +115,43 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
             sortOrder: editing.sortOrder,
             isActive: editing.isActive,
           });
+          const created = res.data;
+          const newReq: DocumentRequirement = {
+            ...editing,
+            id: String(created.requirement_id || created.id),
+          };
+          setRequirements(prev => [...prev, newReq]);
         } catch (err) {
-          console.warn('Backend update requirement failed, applying locally:', err);
+          console.warn('Backend create requirement failed, adding locally:', err);
+          setRequirements(prev => [...prev, editing]);
         }
+      } else {
+        const numId = parseInt(editing.id.replace('req-', ''), 10);
+        if (!isNaN(numId)) {
+          try {
+            await api.put(`/requirements/${numId}`, {
+              name: editing.name,
+              description: editing.description,
+              isRequired: editing.isRequired,
+              appliesTo: editing.appliesTo,
+              applicableJobTypes: editing.applicableJobTypes,
+              expiryTracked: editing.expiryTracked,
+              validityPeriod: editing.validityMonths ? editing.validityMonths * 30 : 365,
+              sortOrder: editing.sortOrder,
+              isActive: editing.isActive,
+            });
+          } catch (err) {
+            console.warn('Backend update requirement failed, applying locally:', err);
+          }
+        }
+        setRequirements(prev => prev.map(r => r.id === editing.id ? editing : r));
       }
-      setRequirements(prev => prev.map(r => r.id === editing.id ? editing : r));
-    }
 
-    showToast(`"${editing.name}" ${isNew ? 'added' : 'updated'} successfully`);
-    setEditing(null);
+      showToast(`"${editing.name}" ${isNew ? 'added' : 'updated'} successfully`);
+      setEditing(null);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const remove = async (id: string) => {
@@ -502,9 +508,17 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={save} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Add Requirement' : 'Save Changes'}
+              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={save} disabled={isSaving} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Adding Requirement...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Add Requirement' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>

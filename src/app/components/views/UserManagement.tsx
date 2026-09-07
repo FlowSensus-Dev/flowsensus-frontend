@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles, Loader2 } from 'lucide-react';
 import { ActivityLog, UserRole } from '../../types';
 import { api } from '../../../lib/api';
 
@@ -9,6 +9,7 @@ interface StaffAccount {
   email: string;
   department: string;
   role: UserRole;
+  roles: UserRole[];
   status: 'Active' | 'Inactive';
   createdDate: string;
 }
@@ -26,12 +27,23 @@ const DEPT_ROLE_MAP: Record<string, { role: UserRole; dept: string; deptId: numb
   SuperAdmin: { role: 'Management', dept: 'Executive', deptId: 1 },
 };
 
+const SYSTEM_ROLES_CATALOG: { id: UserRole; label: string; desc: string; badgeColor: string; activeColor: string }[] = [
+  { id: 'Recruitment', label: 'Recruitment', desc: 'Screening & Profiling', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
+  { id: 'Admin', label: 'Admin', desc: 'Agency Setup & Visas', badgeColor: 'bg-purple-50 text-purple-700 border-purple-200', activeColor: 'border-purple-400 bg-purple-50 text-purple-900' },
+  { id: 'Accounting', label: 'Accounting', desc: 'Ledger & Expenses', badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200', activeColor: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
+  { id: 'Management', label: 'Management', desc: 'Analytics & Hub', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
+];
+
 export default function UserManagement({ currentUserName, addActivityLog }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
+  const [editRoles, setEditRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [staff, setStaff] = useState<StaffAccount[]>([]);
 
@@ -43,14 +55,18 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         const res = await api.get('/users');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveStaff: StaffAccount[] = res.data.map((u: any) => {
-            const roleKey = u.role_name || 'Recruitment';
-            const mapped = DEPT_ROLE_MAP[roleKey] || { role: 'Recruitment' as UserRole, dept: 'Recruitment', deptId: 2 };
+            const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
+              ? u.role_names
+              : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
+            const primaryRole = rawRoles[0] || 'Recruitment';
+            const mapped = DEPT_ROLE_MAP[primaryRole] || { role: 'Recruitment' as UserRole, dept: 'Recruitment', deptId: 2 };
             return {
               id: String(u.user_id),
               name: u.full_name || 'Staff Member',
               email: u.email,
-              department: u.department_id === 1 ? 'Management' : u.department_id === 2 ? 'Recruitment' : u.department_id === 3 ? 'Admin' : u.department_id === 4 ? 'Accounting' : mapped.dept,
-              role: mapped.role,
+              department: u.department_name || u.department || (u.department_id === 1 ? 'Management' : u.department_id === 2 ? 'Recruitment' : u.department_id === 3 ? 'Admin' : u.department_id === 4 ? 'Accounting' : mapped.dept),
+              role: primaryRole,
+              roles: rawRoles,
               status: u.status === 'Inactive' ? 'Inactive' : 'Active',
               createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
             };
@@ -67,10 +83,17 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
   }, []);
 
   const generateTempPassword = () => {
-    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-    let res = 'FS-';
-    for (let i = 0; i < 7; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
-    return res + '!';
+    const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowers = 'abcdefghjkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const specials = '!@#$%&*';
+    const all = uppers + lowers + numbers + specials;
+    const pick = (s: string) => s.charAt(Math.floor(Math.random() * s.length));
+    const chars = [pick(uppers), pick(lowers), pick(numbers), pick(specials)];
+    for (let i = 0; i < 8; i++) {
+      chars.push(pick(all));
+    }
+    return chars.sort(() => Math.random() - 0.5).join('');
   };
 
   const [newStaff, setNewStaff] = useState({
@@ -78,6 +101,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     email: '',
     department: '',
     role: 'Recruitment' as UserRole,
+    roles: ['Recruitment'] as UserRole[],
     password: generateTempPassword(),
     requirePasswordChange: true,
   });
@@ -95,139 +119,154 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
   const [copied, setCopied] = useState(false);
 
   const handleAddStaff = async () => {
-    if (!newStaff.name || !newStaff.email) return;
+    if (!newStaff.name || !newStaff.email || isSubmitting) return;
+    setIsSubmitting(true);
 
-    const deptInfo = DEPT_ROLE_MAP[newStaff.role] || { deptId: 2 };
+    const chosenRoles = newStaff.roles && newStaff.roles.length > 0 ? newStaff.roles : [newStaff.role];
+    const primaryRole = chosenRoles[0] || 'Recruitment';
+    const deptInfo = DEPT_ROLE_MAP[primaryRole] || { deptId: 2 };
     const finalPassword = newStaff.password.trim() || generateTempPassword();
+    const customDept = newStaff.department.trim() || deptInfo.dept;
     let emailDispatched = false;
 
     try {
       const res = await api.post('/users', {
         fullName: newStaff.name,
         email: newStaff.email,
-        roleName: newStaff.role,
+        roleNames: chosenRoles,
+        roleName: chosenRoles.join(', '),
+        department: customDept,
         departmentId: deptInfo.deptId,
-        status: 'Active',
         password: finalPassword,
+        requirePasswordChange: newStaff.requirePasswordChange,
       });
 
-      const created = res.data;
-      emailDispatched = !!created.emailDispatched;
-      const staffAccount: StaffAccount = {
-        id: String(created.user_id),
-        name: created.full_name,
-        email: created.email,
-        department: newStaff.department || deptInfo.dept,
-        role: newStaff.role,
-        status: 'Active',
-        createdDate: new Date().toISOString().split('T')[0],
-      };
+      if (res.data) {
+        emailDispatched = Boolean(res.data.emailDispatched ?? res.data.email_dispatched);
+      }
 
-      setStaff(prev => [...prev, staffAccount]);
-    } catch (err) {
-      console.warn('Backend create user failed, creating locally:', err);
-      const staffAccount: StaffAccount = {
-        id: `STAFF-${String(staff.length + 1).padStart(3, '0')}`,
+      const createdStaff: StaffAccount = {
+        id: String(res.data?.userId || res.data?.user_id || Date.now()),
         name: newStaff.name,
         email: newStaff.email,
-        department: newStaff.department || 'Recruitment',
-        role: newStaff.role,
+        department: res.data?.department || res.data?.department_name || customDept,
+        role: primaryRole,
+        roles: chosenRoles,
         status: 'Active',
         createdDate: new Date().toISOString().split('T')[0],
       };
-      setStaff(prev => [...prev, staffAccount]);
+      setStaff([createdStaff, ...staff]);
+
+      addActivityLog({
+        applicantId: '',
+        action: 'New Staff Provisioned',
+        performedBy: currentUserName,
+        department: primaryRole,
+        details: `Staff account provisioned for ${newStaff.name} (${newStaff.email}) with roles: ${chosenRoles.join(', ')}`,
+      });
+
+      setCreatedCredentials({
+        name: newStaff.name,
+        email: newStaff.email,
+        role: chosenRoles.join(' & '),
+        department: newStaff.department || deptInfo.dept,
+        tempPass: finalPassword,
+        emailDispatched: emailDispatched,
+      });
+      setShowCredentialsModal(true);
+      setShowAddModal(false);
+      setNewStaff({
+        name: '',
+        email: '',
+        department: '',
+        role: 'Recruitment',
+        roles: ['Recruitment'],
+        password: generateTempPassword(),
+        requirePasswordChange: true,
+      });
+    } catch (err: any) {
+      console.error('Failed to add staff:', err);
+      const errMsg = err?.response?.data?.detail || err.message || 'Failed to create staff account. Please check backend connectivity.';
+      alert(errMsg);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    addActivityLog({
-      applicantId: '',
-      action: 'Staff Account Created',
-      performedBy: currentUserName,
-      department: 'Management',
-      details: `New staff account created: ${newStaff.name} (${newStaff.role}) - ${newStaff.email}`,
-    });
-
-    setCreatedCredentials({
-      name: newStaff.name,
-      email: newStaff.email,
-      role: newStaff.role,
-      department: newStaff.department || deptInfo.dept,
-      tempPass: finalPassword,
-      emailDispatched,
-    });
-
-    setNewStaff({
-      name: '',
-      email: '',
-      department: '',
-      role: 'Recruitment',
-      password: generateTempPassword(),
-      requirePasswordChange: true,
-    });
-    setShowAddModal(false);
-    setShowCredentialsModal(true);
   };
-
   const handleEditStaff = async () => {
-    if (!selectedStaff) return;
+    if (!selectedStaff || isEditing) return;
+    setIsEditing(true);
 
     const numId = parseInt(selectedStaff.id, 10);
-    const deptInfo = DEPT_ROLE_MAP[selectedStaff.role] || { deptId: 2 };
+    const chosenRoles = editRoles && editRoles.length > 0 ? editRoles : [selectedStaff.role];
+    const primaryRole = chosenRoles[0] || 'Recruitment';
+    const deptInfo = DEPT_ROLE_MAP[primaryRole] || { deptId: 2 };
 
-    if (!isNaN(numId)) {
-      try {
-        await api.put(`/users/${numId}`, {
-          roleName: selectedStaff.role,
+    try {
+      let savedDept = (selectedStaff.department || '').trim() || deptInfo.dept;
+      if (!isNaN(numId)) {
+        const res = await api.put(`/users/${numId}`, {
+          roleNames: chosenRoles,
+          roleName: chosenRoles.join(', '),
           departmentId: deptInfo.deptId,
+          department: savedDept,
         });
-      } catch (err) {
-        console.warn('Backend update user failed, applying locally:', err);
+        if (res.data?.department || res.data?.department_name) {
+          savedDept = res.data.department || res.data.department_name;
+        }
       }
+
+      setStaff(
+        staff.map((s) =>
+          s.id === selectedStaff.id
+            ? { ...s, role: primaryRole, roles: chosenRoles, department: savedDept }
+            : s
+        )
+      );
+
+      addActivityLog({
+        applicantId: '',
+        action: 'Staff Roles Updated',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${chosenRoles.join(', ')}`,
+      });
+
+      setShowEditModal(false);
+      setSelectedStaff(null);
+    } catch (err) {
+      console.warn('Backend update user failed:', err);
+    } finally {
+      setIsEditing(false);
     }
-
-    setStaff(
-      staff.map((s) =>
-        s.id === selectedStaff.id
-          ? { ...s, role: selectedStaff.role, department: selectedStaff.department }
-          : s
-      )
-    );
-
-    addActivityLog({
-      applicantId: '',
-      action: 'Staff Role Updated',
-      performedBy: currentUserName,
-      department: 'Management',
-      details: `Staff role updated: ${selectedStaff.name} - New Role: ${selectedStaff.role}`,
-    });
-
-    setShowEditModal(false);
-    setSelectedStaff(null);
   };
 
   const handleDeleteStaff = async () => {
-    if (!selectedStaff) return;
+    if (!selectedStaff || isDeleting) return;
+    setIsDeleting(true);
 
     const numId = parseInt(selectedStaff.id, 10);
-    if (!isNaN(numId)) {
-      try {
+    try {
+      if (!isNaN(numId)) {
         await api.delete(`/users/${numId}`);
-      } catch (err) {
-        console.warn('Backend delete user failed, removing locally:', err);
       }
+
+      setStaff(staff.filter((s) => s.id !== selectedStaff.id));
+
+      addActivityLog({
+        applicantId: '',
+        action: 'Staff Account Deleted',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `Staff account deleted: ${selectedStaff.name} (${selectedStaff.id})`,
+      });
+
+      setShowDeleteModal(false);
+      setSelectedStaff(null);
+    } catch (err) {
+      console.warn('Backend delete user failed:', err);
+    } finally {
+      setIsDeleting(false);
     }
-
-    setStaff(staff.filter((s) => s.id !== selectedStaff.id));
-
-    addActivityLog({
-      applicantId: '',
-      action: 'Staff Account Deleted',
-      performedBy: currentUserName,
-      department: 'Management',
-      details: `Staff account deleted: ${selectedStaff.name} (${selectedStaff.id})`,
-    });
-
-    setShowDeleteModal(false);
-    setSelectedStaff(null);
   };
 
   const handleToggleAccess = async (staffMember: StaffAccount) => {
@@ -322,8 +361,29 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 <td className={`px-6 py-4 ${staffMember.status === 'Inactive' ? 'text-slate-400' : 'text-[#64748B]'}`}>
                   {staffMember.department}
                 </td>
-                <td className={`px-6 py-4 font-bold ${staffMember.status === 'Inactive' ? 'text-slate-400' : ''}`}>
-                  {staffMember.role}
+                <td className="px-6 py-4">
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {(staffMember.roles && staffMember.roles.length > 0 ? staffMember.roles : [staffMember.role]).map((r, idx) => {
+                      const colors: Record<string, string> = {
+                        Admin: 'bg-purple-50 text-purple-700 border-purple-200',
+                        Recruitment: 'bg-sky-50 text-sky-700 border-sky-200',
+                        Accounting: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                        Management: 'bg-amber-50 text-amber-700 border-amber-200',
+                      };
+                      return (
+                        <span
+                          key={idx}
+                          className={`px-2.5 py-0.5 text-xs font-bold rounded-full border ${
+                            staffMember.status === 'Inactive'
+                              ? 'bg-slate-100 text-slate-400 border-slate-200'
+                              : colors[r] || 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {r}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <span
@@ -341,10 +401,11 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                     <button
                       onClick={() => {
                         setSelectedStaff(staffMember);
+                        setEditRoles(staffMember.roles && staffMember.roles.length > 0 ? staffMember.roles : [staffMember.role]);
                         setShowEditModal(true);
                       }}
-                      className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
-                      title="Edit Role"
+                      className="p-2 hover:bg-blue-50 rounded-lg transition-colors group cursor-pointer"
+                      title="Edit Roles"
                     >
                       <Edit2 className="w-4 h-4 text-[#64748B] group-hover:text-[#0EA5E9]" />
                     </button>
@@ -418,26 +479,63 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 </label>
                 <input
                   type="text"
+                  list="dept-options"
                   value={newStaff.department}
                   onChange={(e) => setNewStaff({ ...newStaff, department: e.target.value })}
                   className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                  placeholder="e.g., Recruitment"
+                  placeholder="e.g., Documentation Department, Recruitment..."
                 />
+                <datalist id="dept-options">
+                  <option value="Recruitment" />
+                  <option value="Admin & Processing" />
+                  <option value="Documentation Department" />
+                  <option value="Finance & Accounting" />
+                  <option value="Executive Management" />
+                </datalist>
               </div>
               <div>
                 <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
-                  System Role
+                  System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
-                <select
-                  value={newStaff.role}
-                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value as UserRole })}
-                  className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm font-bold focus:border-[#0EA5E9] outline-none"
-                >
-                  <option value="Recruitment">Recruitment</option>
-                  <option value="Admin">Admin</option>
-                  <option value="Accounting">Accounting</option>
-                  <option value="Management">Management</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                    const isChecked = (newStaff.roles || []).includes(r.id);
+                    return (
+                      <button
+                        type="button"
+                        key={r.id}
+                        onClick={() => {
+                          const current = newStaff.roles || [newStaff.role];
+                          let next: UserRole[];
+                          if (current.includes(r.id)) {
+                            next = current.filter((x) => x !== r.id);
+                            if (next.length === 0) next = [r.id]; // keep at least 1
+                          } else {
+                            next = [...current, r.id];
+                          }
+                          setNewStaff({ ...newStaff, roles: next, role: next[0] });
+                        }}
+                        className={`p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col ${
+                          isChecked
+                            ? r.activeColor + ' shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs">{r.label}</span>
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold ${
+                              isChecked ? 'bg-[#0EA5E9] text-white' : 'border border-slate-300 bg-slate-50 text-transparent'
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 mt-0.5">{r.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
@@ -498,10 +596,20 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 </button>
                 <button
                   onClick={handleAddStaff}
-                  disabled={!newStaff.name || !newStaff.email}
-                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!newStaff.name || !newStaff.email || isSubmitting}
+                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  Add Staff
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Creating Staff...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={16} />
+                      <span>Add Staff</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -671,25 +779,57 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 </label>
                 <input
                   type="text"
+                  list="dept-options"
                   value={selectedStaff.department}
                   onChange={(e) => setSelectedStaff({ ...selectedStaff, department: e.target.value })}
                   className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
+                  placeholder="e.g., Documentation Department"
                 />
               </div>
               <div>
                 <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
-                  System Role
+                  System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
-                <select
-                  value={selectedStaff.role}
-                  onChange={(e) => setSelectedStaff({ ...selectedStaff, role: e.target.value as UserRole })}
-                  className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm font-bold focus:border-[#0EA5E9] outline-none"
-                >
-                  <option value="Recruitment">Recruitment</option>
-                  <option value="Admin">Admin</option>
-                  <option value="Accounting">Accounting</option>
-                  <option value="Management">Management</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                    const isChecked = (editRoles || []).includes(r.id);
+                    return (
+                      <button
+                        type="button"
+                        key={r.id}
+                        onClick={() => {
+                          const current = editRoles || [selectedStaff.role];
+                          let next: UserRole[];
+                          if (current.includes(r.id)) {
+                            next = current.filter((x) => x !== r.id);
+                            if (next.length === 0) next = [r.id]; // keep at least 1
+                          } else {
+                            next = [...current, r.id];
+                          }
+                          setEditRoles(next);
+                          setSelectedStaff({ ...selectedStaff, roles: next, role: next[0] });
+                        }}
+                        className={`p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col ${
+                          isChecked
+                            ? r.activeColor + ' shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs">{r.label}</span>
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold ${
+                              isChecked ? 'bg-[#0EA5E9] text-white' : 'border border-slate-300 bg-slate-50 text-transparent'
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 mt-0.5">{r.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
@@ -703,9 +843,17 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 </button>
                 <button
                   onClick={handleEditStaff}
-                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20"
+                  disabled={isEditing}
+                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  Save Changes
+                  {isEditing ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -749,9 +897,17 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                 </button>
                 <button
                   onClick={handleDeleteStaff}
-                  className="flex-1 px-4 py-3 bg-[#EF4444] hover:bg-[#DC2626] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#EF4444]/20"
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-3 bg-[#EF4444] hover:bg-[#DC2626] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#EF4444]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  Delete Account
+                  {isDeleting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Deleting Account...</span>
+                    </>
+                  ) : (
+                    <span>Delete Account</span>
+                  )}
                 </button>
               </div>
             </div>
