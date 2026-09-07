@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Lock, DollarSign, Plus, Receipt } from 'lucide-react';
 
 export default function ExpenseLedger({
@@ -10,7 +10,7 @@ export default function ExpenseLedger({
   showToast,
   selectedApplicantId = 'APP-2026-089',
 }) {
-  const isLocked = !workflow.employerAccepted;
+  const isLocked = !workflow?.employerAccepted;
   const [showForm, setShowForm] = useState(false);
   const [newExpense, setNewExpense] = useState({
     type: 'Visa Processing Fee',
@@ -63,10 +63,10 @@ export default function ExpenseLedger({
       action: 'Financial Transaction Recorded',
       performedBy: currentUserName,
       department: 'Accounting',
-      details: `${newExpense.type}: ₱${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
+      details: `${newExpense.type}: â‚±${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
     });
 
-    showToast(`✓ Expense recorded: ${newExpense.type} (₱${newExpense.amount.toLocaleString()})`);
+    showToast(`âœ“ Expense recorded: ${newExpense.type} (â‚±${newExpense.amount.toLocaleString()})`);
     setShowForm(false);
   };
 
@@ -97,7 +97,7 @@ export default function ExpenseLedger({
         <div className="grid grid-cols-3 gap-6 mb-6">
           <div className="bg-[#10B981]/10 border border-[#10B981]/30 rounded-lg p-6">
             <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Total Deployment Expenses</p>
-            <p className="text-3xl font-black text-[#10B981]">₱{totalExpenses.toLocaleString()}</p>
+            <p className="text-3xl font-black text-[#10B981]">â‚±{totalExpenses.toLocaleString()}</p>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-6">
             <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Transactions Recorded</p>
@@ -194,11 +194,11 @@ export default function ExpenseLedger({
                     <p className="font-bold text-[#0F172A]">{expense.type}</p>
                     <p className="text-sm text-[#64748B]">{expense.description}</p>
                     <p className="text-xs text-[#64748B] mt-1">
-                      Recorded by: {expense.recordedBy} • {expense.date}
+                      Recorded by: {expense.recordedBy} â€¢ {expense.date}
                     </p>
                   </div>
                 </div>
-                <p className="text-2xl font-black text-[#10B981]">₱{expense.amount.toLocaleString()}</p>
+                <p className="text-2xl font-black text-[#10B981]">â‚±{expense.amount.toLocaleString()}</p>
               </div>
             ))}
           </div>

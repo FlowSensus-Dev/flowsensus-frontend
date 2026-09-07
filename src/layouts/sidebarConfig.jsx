@@ -1,10 +1,19 @@
-export const SIDEBAR_CONFIG = {
+﻿export const SIDEBAR_CONFIG = {
   "/manager": [
     { to: "/manager", label: "Dashboard" },
     { to: "/manager/administrative-compliance-center", label: "Compliance Center" },
     { to: "/manager/applicant-list", label: "Applicant List" },
     { to: "/manager/applicant-profile", label: "Applicant Profile" },
     { to: "/manager/agency-configuration", label: "Agency Config" },
+    { to: "/manager/cv-encoding", label: "CV Encoding" },
+    { to: "/manager/endorsement-tracker", label: "Endorsement Tracker" },
+    { to: "/manager/document-ocr", label: "Document OCR" },
+    { to: "/manager/3-2-1-alerts", label: "3-2-1 Alerts" },
+    { to: "/manager/employer-hub", label: "Employer Hub" },
+    { to: "/manager/predictive-timeline", label: "Predictive Timeline" },
+    { to: "/manager/deployment-history", label: "Deployment History" },
+    { to: "/manager/operational-reports", label: "Operational Reports" },
+    { to: "/manager/user-management", label: "User Management" },
   ],
   "/recruitment": [
     { to: "/recruitment", label: "Dashboard" },
@@ -21,6 +30,13 @@ export const SIDEBAR_CONFIG = {
     { to: "/administration/applicant-list", label: "Applicant List" },
     { to: "/administration/applicant-profile", label: "Applicant Profile" },
     { to: "/administration/agency-configuration", label: "Agency Config" },
+    { to: "/administration/document-requirements", label: "Document Requirements" },
+    { to: "/administration/evaluation-workflow", label: "Evaluation & Workflow" },
+    { to: "/administration/job-orders", label: "Job Orders" },
+    { to: "/administration/employer-profiles", label: "Employer Profiles" },
+    { to: "/administration/fit-to-work", label: "Fit-to-Work" },
+    { to: "/administration/document-ocr", label: "Document OCR" },
+    { to: "/administration/3-2-1-alerts", label: "3-2-1 Alerts" },
   ],
   "/accounting": [
     { to: "/accounting", label: "Dashboard" },
