@@ -1,6 +1,7 @@
 ﻿import { AlertTriangle, Clock, FileCheck, TrendingUp, BarChart3, Eye, CheckCircle } from 'lucide-react';
+import { mockApplicants } from '../../data/mockApplicants';
 
-export default function ManagerDashboard({ applicants = [], activity_logs = [], onViewApplicant = () => {}, onNavigate = () => {} }) {
+export default function ManagerDashboard({ applicants = mockApplicants, activity_logs = [], onViewApplicant = () => {}, onNavigate = () => {} }) {
   // SLA Breach Detection (applicants stuck in same phase for >7 days - mock logic)
   const sla_breaches = applicants?.filter((a) => a.phase < 5).slice(0, 2);
 
@@ -12,7 +13,7 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
 
   // Calculate performance metrics
   const total_active = applicants?.length;
-  const avg_phase = (applicants?.reduce((sum, a) => sum + a.phase, 0) / applicants?.length).toFixed(1);
+  const avg_phase = total_active > 0 ? (applicants.reduce((sum, a) => sum + a.phase, 0) / total_active).toFixed(1) : '0.0';
   const deployment_ready = applicants?.filter((a) => a.phase === 5)?.length;
   const conversion_rate = total_active > 0 ? ((deployment_ready / total_active) * 100).toFixed(0) : '0';
 
@@ -55,9 +56,9 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} Ã¢â‚¬Â¢ Stuck in Phase {applicant.phase}</p>
+                    <p className="text-xs text-[#64748B]">{applicant.id} • Stuck in Phase {applicant.phase}</p>
                     <p className="text-xs font-bold text-[#EF4444] uppercase mt-1">
-                      Ã¢Å¡Â  7+ days without progress Ã¢â‚¬Â¢ Handler: {applicant.current_handler}
+                      ⚠ 7+ days without progress • Handler: {applicant.currentHandler}
                     </p>
                   </div>
                 </div>
@@ -100,7 +101,7 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Conversion Rate</p>
           <p className="text-4xl font-black text-[#0F172A] mt-2">{conversion_rate}%</p>
-          <p className="text-xs text-[#64748B] mt-1">Intake Ã¢â€ â€™ Deployment</p>
+          <p className="text-xs text-[#64748B] mt-1">Intake → Deployment</p>
         </div>
       </div>
 
@@ -137,14 +138,14 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
                     <p className="text-xs text-[#64748B]">
-                      {applicant.id} Ã¢â‚¬Â¢ {applicant.role} Ã¢â‚¬Â¢ CV awaiting quality control
+                      {applicant.id} • {applicant.role} • CV awaiting quality control
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right text-xs text-[#64748B]">
                     <Clock className="w-3 h-3 inline mr-1" />
-                    {applicant.last_updated}
+                    {applicant.lastUpdated}
                   </div>
                   <button
                     onClick={() => onNavigate('manager')}
@@ -172,7 +173,7 @@ export default function ManagerDashboard({ applicants = [], activity_logs = [], 
             onClick={() => onNavigate('forecast')}
             className="text-xs font-bold text-[#0EA5E9] hover:underline"
           >
-            View Full Timeline Ã¢â€ â€™
+            View Full Timeline →
           </button>
         </div>
         <div className="p-6">
