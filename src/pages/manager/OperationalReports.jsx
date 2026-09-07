@@ -2,7 +2,7 @@ import { Download, FileText, TrendingUp, Users, DollarSign } from 'lucide-react'
 
 export default function OperationalReports({ applicants = [], activityLogs = [], expenses = [] }) {
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const avgTimePerPhase = 5.2; // days - would be calculated from real data
+  const avgTimePerPhase = 0; // days - would be calculated from real data
 
   const reports = [
     {
