@@ -1,8 +1,10 @@
-﻿import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   Search, Bell, LogOut, LayoutDashboard, Users, UserSquare,
-  FileText, Settings, Briefcase, Globe, HeartPulse, FileScan, AlertTriangle, Layers
+  FileText, Settings, Briefcase, Globe, HeartPulse, FileScan, AlertTriangle, Layers, ShieldCheck, KanbanSquare, ScanText, BellRing,
+  CheckSquare, TrendingUp, History, FileBarChart, FolderSearch
 } from "lucide-react";
+import Logo from "../components/Logo";
 import { SIDEBAR_CONFIG } from "./sidebarConfig";
 
 const ROLE_META = {
@@ -79,7 +81,6 @@ export default function AppLayout() {
   const roleKey = Object.keys(ROLE_META).find((key) => currentPath.startsWith(`/${key}`));
   const roleMeta = roleKey ? ROLE_META[roleKey] : ROLE_META.administration;
   const ROLE_EMAILS = {
-    manager: "manager@flowsensus.com",
     recruitment: "recruitment@flowsensus.com",
     administration: "admin@flowsensus.com",
     accounting: "accounting@flowsensus.com",
@@ -99,6 +100,8 @@ export default function AppLayout() {
     if (exact) return currentPath === path;
     return currentPath === path || currentPath.startsWith(`${path}/`);
   };
+
+  if (roleKey === "manager") return <ManagementLayout currentPath={currentPath} />;
 
   return (
     <div className="flex h-screen bg-slate-50 font-['Inter',sans-serif]">
@@ -190,3 +193,73 @@ export default function AppLayout() {
 }
 
 
+
+const MANAGEMENT_ICONS = {
+  LayoutDashboard, Users, FileText, KanbanSquare, ScanText, BellRing,
+  CheckSquare, TrendingUp, History, FileBarChart, FolderSearch,
+};
+
+function ManagementLayout({ currentPath }) {
+  const items = SIDEBAR_CONFIG['/manager'];
+  const groups = [...new Set(items.map((item) => item.group))];
+
+  return (
+    <div className="w-full h-screen flex bg-[#F1F5F9]">
+      <aside className="w-[260px] flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
+        <div className="p-6 flex items-center gap-3 border-b border-white/10">
+          <Logo size="small" />
+          <span className="font-extrabold text-white text-lg tracking-wider leading-none">FLOWSENSUS</span>
+        </div>
+        <div className="px-6 py-4 border-b border-white/5 bg-black/10">
+          <p className="text-[10px] text-[#64748B] uppercase tracking-widest font-bold">Active Session</p>
+          <p className="text-sm font-bold text-[#0EA5E9] mt-1 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" /> Management Ops
+          </p>
+        </div>
+        <nav aria-label="Management navigation" className="flex-1 p-4 space-y-1 text-sm font-medium">
+          {groups.map((group) => (
+            <div key={group} className={group ? 'mt-2' : 'space-y-1'}>
+              {group && <p className="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">{group}</p>}
+              {items.filter((item) => item.group === group).map((item) => {
+                const Icon = MANAGEMENT_ICONS[item.icon];
+                const active = currentPath === item.to || (item.to !== '/manager' && item.to && currentPath.startsWith(`${item.to}/`));
+                const className = `w-full text-left px-3 ${group ? 'py-2' : 'py-2.5'} rounded-lg flex items-center gap-3 transition-all ${
+                  item.disabled ? 'text-[#94A3B8] border-l-4 border-transparent opacity-50 cursor-not-allowed' : active
+                    ? 'bg-gradient-to-r from-[#0EA5E9]/15 to-transparent text-[#0EA5E9] border-l-4 border-[#0EA5E9] pl-[8px] font-semibold'
+                    : 'text-[#94A3B8] border-l-4 border-transparent hover:text-white hover:bg-white/5 hover:border-[#334155] hover:pl-[8px]'
+                }`;
+                const content = <><Icon className="w-4 h-4" />{item.label}</>;
+                return item.disabled
+                  ? <button key={item.label} disabled title="CV review is not available yet" className={className}>{content}</button>
+                  : <Link key={item.label} to={item.to} aria-current={active ? 'page' : undefined} className={className}>{content}</Link>;
+              })}
+            </div>
+          ))}
+        </nav>
+      </aside>
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 sticky top-0">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-4 top-2.5 text-slate-400" />
+              <input type="text" disabled title="Applicant search is not available yet" placeholder="Search applicant ID or name..." className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-[#0EA5E9] outline-none transition-all placeholder:text-slate-500 font-medium disabled:cursor-not-allowed" />
+            </div>
+          </div>
+          <div className="flex items-center gap-6 ml-4">
+            <span className="hidden md:flex text-xs font-bold text-[#0F172A] bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200">
+              <ShieldCheck className="w-4 h-4" /> Management
+            </span>
+            <button disabled aria-label="Notifications unavailable" title="Notifications are not available yet" className="relative disabled:cursor-not-allowed">
+              <Bell className="w-5 h-5 text-[#475569]" />
+            </button>
+            <div className="h-6 w-px bg-slate-200"></div>
+            <Link to="/login" className="text-sm font-bold text-[#475569] hover:text-[#EF4444] transition-colors flex items-center gap-2">
+              Logout <LogOut className="w-4 h-4" />
+            </Link>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto p-8 relative"><Outlet /></div>
+      </main>
+    </div>
+  );
+}

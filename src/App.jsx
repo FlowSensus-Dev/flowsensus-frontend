@@ -1,4 +1,4 @@
-﻿import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout.jsx";
 
 // Global & Shared Pages
@@ -58,12 +58,13 @@ export default function App() {
           <Route path="/manager">
             <Route index element={<ManagerDashboard />} />
             <Route path="applicant-list" element={<ApplicantList />} />
+            <Route path="applicant-profile" element={<ApplicantProfile />} />
             <Route path="applicant-profile/:id" element={<ApplicantProfile />} />
             <Route path="cv-encoding" element={<CVEncoding />} />
             <Route path="endorsement-tracker" element={<EndorsementTracker />} />
             <Route path="document-ocr" element={<DocumentOCR />} />
             <Route path="3-2-1-alerts" element={<ComplianceAlerts />} />
-            <Route path="employer-hub" element={<EmployerProfiles />} />
+            <Route path="employer-hub" element={<ManagerHub />} />
             <Route path="predictive-timeline" element={<PredictiveForecast />} />
             <Route path="deployment-history" element={<DeploymentHistory />} />
             <Route path="operational-reports" element={<OperationalReports />} />
