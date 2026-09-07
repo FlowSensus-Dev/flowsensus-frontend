@@ -1,57 +1,28 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronRight, Users, Globe, Shield, ArrowRight, X, CheckCircle2, Mail, User, FileText, BarChart3, Sparkles, Menu, Layers,} from "lucide-react";
+import { Check, ChevronRight, Building2, Users, Globe, Shield, ArrowRight, X, CheckCircle2, Mail, Layers, FileText, BarChart3, Sparkles, Menu, Palette } from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const contactRef = useRef(null);
-  const [inquiry, setInquiry] = useState({
-    agency_name: "",
-    gm_name: "",
-    poea_license_no: "",
-    email: "",
-    message: "",
-  });
+  const [inquiry, setInquiry] = useState({ agencyName: "", gmName: "", licenseNo: "", email: "", message: "" });
   const [inquirySubmitted, setInquirySubmitted] = useState(false);
-
-  const scrollTo = (ref) => ref.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollTo = (ref) =>
+    ref.current?.scrollIntoView({ behavior: "smooth" });
 
   const featuresList = [
-    {
-      icon: <FileText size={20} />,
-      title: "5-Phase Lifecycle",
-      desc: "End-to-end workflow from applicant registration through final overseas deployment, fully tracked.",
-    },
-    {
-      icon: <Users size={20} />,
-      title: "Role-Based Access",
-      desc: "Recruitment, Admin, Accounting, and Management roles  each with purpose-built dashboards.",
-    },
-    {
-      icon: <Sparkles size={20} />,
-      title: "CV Readiness Engine",
-      desc: "Automated 7-criteria scoring detects whether an applicant's profile is ready for employer submission.",
-    },
-    {
-      icon: <Globe size={20} />,
-      title: "Employer Endorsement",
-      desc: "Track foreign employer selections, interview schedules, and deployment clearances in one place.",
-    },
-    {
-      icon: <BarChart3 size={20} />,
-      title: "Accounting Dashboard",
-      desc: "Expense tracking, category breakdowns, and one-click CSV/PDF exports for financial compliance.",
-    },
-    {
-      icon: <Shield size={20} />,
-      title: "OCR Document Checks",
-      desc: "Automated document verification flags discrepancies before visa and deployment processing.",
-    },
+    { icon: <FileText size={20} />, title: "5-Phase Lifecycle", desc: "End-to-end workflow from applicant registration through final overseas deployment, fully tracked." },
+    { icon: <Users size={20} />, title: "Role-Based Access", desc: "Recruitment, Admin, Accounting, and Management roles — each with purpose-built dashboards." },
+    { icon: <Sparkles size={20} />, title: "CV Readiness Engine", desc: "Automated 7-criteria scoring detects whether an applicant's profile is ready for employer submission." },
+    { icon: <Globe size={20} />, title: "Employer Endorsement", desc: "Track foreign employer selections, interview schedules, and deployment clearances in one place." },
+    { icon: <BarChart3 size={20} />, title: "Accounting Dashboard", desc: "Expense tracking, category breakdowns, and one-click CSV/PDF exports for financial compliance." },
+    { icon: <Shield size={20} />, title: "OCR Document Checks", desc: "Automated document verification flags discrepancies before visa and deployment processing." },
   ];
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-['Inter',sans-serif]">
+      {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0F172A]/95 backdrop-blur-sm border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -62,23 +33,12 @@ export default function LandingPage() {
               FLOW<span className="text-[#0EA5E9]">SENSUS</span>
             </span>
           </div>
-
           <div className="hidden md:flex items-center gap-7 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#how" className="hover:text-white transition-colors">How It Works</a>
             <a href="#pricing" className="hover:text-white transition-colors">What's Included</a>
-            <a
-              href="#contact"
-              onClick={(event) => {
-                event.preventDefault();
-                scrollTo(contactRef);
-              }}
-              className="hover:text-white transition-colors"
-            >
-              Contact
-            </a>
+            <a href="#contact" onClick={(e) => { e.preventDefault(); scrollTo(contactRef); }} className="hover:text-white transition-colors">Contact</a>
           </div>
-
           <div className="flex items-center gap-3">
             <button
               onClick={() => scrollTo(contactRef)}
@@ -90,263 +50,298 @@ export default function LandingPage() {
               onClick={() => navigate("/login")}
               className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
             >
-              Staff Login
+              Agency Login
             </button>
             <button className="md:hidden text-slate-400 hover:text-white" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           </div>
         </div>
-
         {mobileOpen && (
           <div className="md:hidden bg-[#0F172A] border-t border-white/10 px-6 py-4 flex flex-col gap-3 text-sm text-slate-400">
             <a href="#features" onClick={() => setMobileOpen(false)} className="py-1 hover:text-white transition-colors">Features</a>
             <a href="#how" onClick={() => setMobileOpen(false)} className="py-1 hover:text-white transition-colors">How It Works</a>
-            <a href="#pricing" onClick={() => setMobileOpen(false)} className="py-1 hover:text-white transition-colors">What's Included</a>
-            <button onClick={() => { scrollTo(contactRef); setMobileOpen(false); }} className="text-left text-[#0EA5E9] font-semibold">Request a Demo</button>
-            <button onClick={() => navigate("/login")} className="bg-[#0EA5E9] text-white font-semibold px-5 py-2.5 rounded-lg text-center">Staff Login</button>
+            <a href="#pricing" onClick={() => setMobileOpen(false)} className="py-1 hover:text-white transition-colors">{"What's Included"}</a>
+            <button onClick={() => { scrollTo(contactRef); setMobileOpen(false); }} className="py-1 text-left hover:text-white transition-colors">Contact</button>
+            <div className="border-t border-white/10 pt-3 flex flex-col gap-2">
+              <button onClick={() => { scrollTo(contactRef); setMobileOpen(false); }} className="text-left text-[#0EA5E9] font-semibold">Request a Demo</button>
+              <button onClick={() => navigate("/login")} className="bg-[#0EA5E9] text-white font-semibold px-5 py-2.5 rounded-lg text-center">Agency Login</button>
+            </div>
           </div>
         )}
       </nav>
 
-      <section className="relative pt-32 pb-20 px-6 bg-gradient-to-b from-[#0F172A] via-[#111827] to-[#1E293B] overflow-hidden">
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute w-[650px] h-[650px] bg-[#0EA5E9]/30 blur-3xl rounded-full -top-64 -left-40" />
-          <div className="absolute w-[520px] h-[520px] bg-[#8B5CF6]/25 blur-3xl rounded-full bottom-[-220px] right-[-140px]" />
-        </div>
-
-        <div className="relative max-w-7xl mx-auto grid lg:grid-cols-2 gap-14 items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-2 text-xs text-slate-200 mb-6 backdrop-blur-sm">
-              <Sparkles size={14} className="text-[#0EA5E9]" />
-              End-to-End Overseas Recruitment Workflow Platform
-            </div>
-            <h1 className="text-4xl md:text-[52px] leading-[1.06] font-black text-white tracking-tight">
-              Manage Every <span className="text-[#0EA5E9]">Deployment Phase</span> in One Secure System
-            </h1>
-            <p className="mt-6 text-slate-300 text-lg leading-relaxed max-w-2xl">
-              FlowSensus helps recruitment agencies centralize applicant tracking, compliance checks, accounting, and employer endorsements  built for Philippine overseas hiring operations.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <button
-                onClick={() => scrollTo(contactRef)}
-                className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-[0_8px_24px_rgba(14,165,233,0.35)]"
-              >
-                Request a Demo <ArrowRight size={18} />
-              </button>
-              <button
-                onClick={() => navigate("/login")}
-                className="border border-white/20 hover:border-white/40 bg-white/5 text-white px-6 py-3.5 rounded-xl font-semibold text-sm transition-colors"
-              >
-                Agency Login
-              </button>
-            </div>
-            <div className="mt-8 flex flex-wrap gap-6 text-sm text-slate-300">
-              <div className="flex items-center gap-2"><Check className="text-emerald-400" size={16} />Built for POEA/DMW-licensed agencies</div>
-              <div className="flex items-center gap-2"><Check className="text-emerald-400" size={16} />Real-time lifecycle tracking</div>
-              <div className="flex items-center gap-2"><Check className="text-emerald-400" size={16} />Role-based team collaboration</div>
-            </div>
-          </div>
-
-          <div className="relative">
-            <div className="absolute -inset-4 rounded-3xl bg-gradient-to-br from-[#0EA5E9]/20 to-[#8B5CF6]/20 blur-2xl" />
-            <div className="relative bg-white/10 border border-white/20 rounded-3xl p-6 backdrop-blur-md shadow-2xl">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {[
-                  { label: "Applicants Processed", value: "1,280+" },
-                  { label: "Active Recruiters", value: "84" },
-                  { label: "Avg. CV Completion", value: "92%" },
-                  { label: "Deployment Visibility", value: "100%" },
-                ].map((kpi) => (
-                  <div key={kpi.label} className="bg-white/10 rounded-xl p-4 border border-white/10">
-                    <p className="text-xs text-slate-300 mb-1">{kpi.label}</p>
-                    <p className="text-xl font-bold text-white">{kpi.value}</p>
-                  </div>
-                ))}
+      {/* Hero */}
+      <section className="bg-[#0F172A] pt-32 pb-24 px-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,rgba(14,165,233,0.14),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(14,165,233,0.07),transparent_50%)]" />
+        <div className="absolute inset-0 opacity-[0.025]" style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
+        <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#F8FAFC] to-transparent pointer-events-none" />
+        <div className="max-w-7xl mx-auto relative">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-[#0EA5E9]/10 border border-[#0EA5E9]/30 rounded-full px-4 py-1.5 mb-8">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9] animate-pulse" />
+                <span className="text-[#0EA5E9] text-xs font-semibold tracking-wide uppercase">Now Accepting Agency Partners</span>
               </div>
-              <div className="mt-5 rounded-xl bg-[#0F172A]/70 border border-white/10 p-4">
-                <p className="text-xs text-slate-300 mb-2">Current Lifecycle Snapshot</p>
-                <div className="space-y-2">
+              <h1 className="font-['Libre_Baskerville',serif] text-4xl lg:text-5xl font-bold text-white leading-[1.15] mb-6">
+                The complete system for<br />
+                <em className="not-italic text-[#0EA5E9]">overseas placement</em><br />
+                agencies.
+              </h1>
+              <p className="text-slate-400 text-lg leading-relaxed mb-10 max-w-lg">
+                FLOWSENSUS manages your entire 5-phase deployment lifecycle — from applicant registration
+                through final boarding — with role-based workflows built specifically for POEA-licensed agencies.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button
+                  onClick={() => scrollTo(contactRef)}
+                  className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
+                >
+                  Request a Demo <ArrowRight size={18} />
+                </button>
+                <button
+                  onClick={() => navigate("/login")}
+                  className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
+                >
+                  Agency Login →
+                </button>
+              </div>
+              <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
+                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> POEA/DMW-licensed agencies only</span>
+                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Dedicated subdomain workspace</span>
+                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Provisioned within 24 hours</span>
+              </div>
+            </div>
+            {/* App mockup */}
+            <div className="hidden lg:block">
+              <div className="rounded-2xl border border-white/10 bg-[#1E293B] shadow-2xl overflow-hidden">
+                <div className="h-8 bg-[#0F172A] flex items-center gap-2 px-4 border-b border-white/10">
+                  <div className="flex gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-[#EF4444]/60" />
+                    <span className="w-3 h-3 rounded-full bg-[#F59E0B]/60" />
+                    <span className="w-3 h-3 rounded-full bg-[#10B981]/60" />
+                  </div>
+                  <span className="ml-4 font-['JetBrains_Mono',monospace] text-xs text-slate-500">acme-placement.flowsensus.com</span>
+                </div>
+                <div className="p-5 space-y-3">
                   {[
-                    { phase: "Phase 1 - Sourcing", count: 234, color: "bg-sky-400" },
-                    { phase: "Phase 2 - Screening", count: 156, color: "bg-indigo-400" },
-                    { phase: "Phase 3 - Documentation", count: 92, color: "bg-amber-400" },
-                    { phase: "Phase 4 - Employer Review", count: 48, color: "bg-violet-400" },
-                    { phase: "Phase 5 - Deployment", count: 31, color: "bg-emerald-400" },
-                  ].map((row) => (
-                    <div key={row.phase} className="flex items-center gap-3">
-                      <div className={`h-2.5 w-2.5 rounded-full ${row.color}`} />
-                      <p className="text-xs text-slate-300 flex-1">{row.phase}</p>
-                      <p className="text-xs font-semibold text-white">{row.count}</p>
+                    { id: "APP-2026-089", name: "Juan Dela Cruz", role: "Industrial Welder", phase: 3, status: "CV Encoding", pct: 58, color: "#0EA5E9" },
+                    { id: "APP-2026-112", name: "Pedro Garcia", role: "Domestic Helper", phase: 2, status: "Medical Clearance", pct: 35, color: "#F59E0B" },
+                    { id: "APP-2026-051", name: "Ana Reyes", role: "Caregiver", phase: 4, status: "Employer Review", pct: 82, color: "#10B981" },
+                    { id: "APP-2026-073", name: "Carlo Bautista", role: "Electrician", phase: 1, status: "Screening", pct: 18, color: "#8B5CF6" },
+                  ].map((a) => (
+                    <div key={a.id} className="bg-[#0F172A] rounded-lg p-3 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0EA5E9]/30 to-[#0EA5E9]/10 flex items-center justify-center text-xs text-[#0EA5E9] font-bold flex-shrink-0">
+                        {a.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-white text-xs font-medium truncate">{a.name}</span>
+                          <span className="text-slate-500 text-[10px] font-['JetBrains_Mono',monospace] ml-2 flex-shrink-0">Ph.{a.phase}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1 bg-white/10 rounded-full">
+                            <div className="h-1 rounded-full transition-all" style={{ width: `${a.pct}%`, background: a.color }} />
+                          </div>
+                          <span className="text-[10px] flex-shrink-0" style={{ color: a.color }}>{a.status}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
+                  <div className="grid grid-cols-3 gap-2 mt-4">
+                    {[{ label: "Active", val: "47", c: "#0EA5E9" }, { label: "Deployed", val: "312", c: "#10B981" }, { label: "Pending", val: "9", c: "#F59E0B" }].map((s) => (
+                      <div key={s.label} className="bg-[#0F172A] rounded-lg p-3 text-center">
+                        <div className="font-['Libre_Baskerville',serif] text-xl font-bold" style={{ color: s.c }}>{s.val}</div>
+                        <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </section>
 
-      <section id="features" className="px-6 py-20 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <div className="max-w-3xl">
-            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">Platform Highlights</p>
-            <h2 className="mt-3 text-3xl md:text-4xl font-black text-[#0F172A]">Everything your agency needs to monitor recruitment operations at scale</h2>
-            <p className="mt-4 text-slate-600 text-base leading-relaxed">
-              Designed for multi-team agency workflows, FlowSensus ensures no applicant record, compliance check, or endorsement milestone is lost.
-            </p>
-          </div>
-          <div className="mt-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {featuresList.map((feature) => (
-              <article
-                key={feature.title}
-                className="group bg-[#F8FAFC] border border-slate-200 rounded-2xl p-6 hover:shadow-lg hover:-translate-y-0.5 transition-all"
-              >
-                <div className="w-11 h-11 rounded-xl bg-[#0EA5E9]/10 text-[#0EA5E9] flex items-center justify-center mb-4 group-hover:bg-[#0EA5E9]/20 transition-colors">
-                  {feature.icon}
-                </div>
-                <h3 className="font-bold text-[#0F172A] text-lg">{feature.title}</h3>
-                <p className="text-slate-600 text-sm leading-relaxed mt-2">{feature.desc}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="how" className="px-6 py-20 bg-[#F1F5F9] border-y border-slate-200">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-12 items-start">
-          <div className="lg:col-span-1">
-            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">How It Works</p>
-            <h2 className="mt-3 text-3xl font-black text-[#0F172A]">From registration to deployment, fully traceable</h2>
-            <p className="mt-4 text-slate-600 text-sm leading-relaxed">
-              Recruiters, admins, accounting staff, and management teams collaborate through one synchronized workflow.
-            </p>
-          </div>
-          <div className="lg:col-span-2 grid md:grid-cols-2 gap-5">
+        {/* Stats bar */}
+        <div className="max-w-7xl mx-auto mt-16 relative">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { step: "01", title: "Applicant Intake", text: "Capture profile, documents, and initial eligibility details in one unified applicant record." },
-              { step: "02", title: "Screening & Evaluation", text: "Track test outcomes and AI-assisted CV readiness before employer endorsement." },
-              { step: "03", title: "Compliance & Processing", text: "Manage medicals, visa requirements, and document verification with phase checkpoints." },
-              { step: "04", title: "Deployment Monitoring", text: "Monitor employer selection, deployment clearances, and final overseas placement status." },
-            ].map((item) => (
-              <div key={item.step} className="bg-white border border-slate-200 rounded-2xl p-6">
-                <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-[#0EA5E9]/10 text-[#0EA5E9] font-bold text-sm">{item.step}</span>
-                <h3 className="mt-4 font-bold text-[#0F172A]">{item.title}</h3>
-                <p className="mt-2 text-sm text-slate-600 leading-relaxed">{item.text}</p>
+              { val: "5-Phase", label: "Deployment Workflow", color: "#0EA5E9", bg: "rgba(14,165,233,0.1)", border: "rgba(14,165,233,0.25)" },
+              { val: "4 Roles", label: "Staff Access Levels", color: "#A78BFA", bg: "rgba(167,139,250,0.1)", border: "rgba(167,139,250,0.25)" },
+              { val: "POEA-Ready", label: "Fully Compliant", color: "#34D399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.25)" },
+              { val: "99.9%", label: "Uptime SLA", color: "#FB923C", bg: "rgba(251,146,60,0.1)", border: "rgba(251,146,60,0.25)" },
+            ].map((s) => (
+              <div key={s.label} className="rounded-xl px-6 py-5 text-center" style={{ background: s.bg, border: `1px solid ${s.border}` }}>
+                <div className="text-2xl font-black tracking-tight" style={{ color: s.color }}>{s.val}</div>
+                <div className="text-slate-400 text-xs mt-1 font-medium">{s.label}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="pricing" className="px-6 py-20 bg-white">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 items-start">
-          <div>
-            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">Whats Included</p>
-            <h2 className="mt-3 text-3xl font-black text-[#0F172A]">Enterprise-ready recruitment operations suite</h2>
-            <p className="mt-4 text-slate-600 text-sm leading-relaxed max-w-xl">
-              Your subscription includes workspace provisioning, role-based accounts, process monitoring dashboards, and onboarding support.
+      {/* Features */}
+      <section id="features" className="py-24 px-6 bg-white">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-[#0EA5E9] text-xs font-semibold tracking-widest uppercase mb-3">Platform Capabilities</div>
+            <h2 className="font-['Libre_Baskerville',serif] text-3xl md:text-4xl font-bold text-[#0F172A] mb-4">
+              Everything your agency needs,<br />nothing it doesn't.
+            </h2>
+            <p className="text-slate-500 text-lg max-w-2xl mx-auto">
+              Built from the ground up for POEA-licensed placement agencies, with workflows that match how deployment actually happens.
             </p>
-            <div className="mt-7 space-y-3">
-              {[
-                "Super Admin provisioning and tenant isolation",
-                "Recruitment, Admin, Accounting, Management role modules",
-                "Applicant lifecycle dashboard with progress checkpoints",
-                "Export-ready accounting summaries (CSV/PDF)",
-                "Support for agency branding and onboarding",
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-3 text-sm text-slate-700">
-                  <Check className="text-emerald-500 mt-0.5" size={16} />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
           </div>
-          <div className="bg-[#0F172A] text-white rounded-3xl p-8 border border-[#1E293B] shadow-xl">
-            <p className="text-xs uppercase tracking-widest text-slate-400">B2B Agency Plan</p>
-            <h3 className="mt-3 text-3xl font-black">Custom Pricing</h3>
-            <p className="mt-2 text-slate-300 text-sm leading-relaxed">
-              Pricing is based on agency scale, number of active staff accounts, and deployment volume.
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuresList.map((f, i) => (
+              <div key={i} className="group border border-slate-100 rounded-xl p-6 hover:border-[#0EA5E9]/40 hover:shadow-md transition-all duration-200">
+                <div className="w-10 h-10 rounded-lg bg-[#0EA5E9]/10 text-[#0EA5E9] flex items-center justify-center mb-4 group-hover:bg-[#0EA5E9] group-hover:text-white transition-all duration-200">
+                  {f.icon}
+                </div>
+                <h3 className="font-semibold text-[#0F172A] mb-2">{f.title}</h3>
+                <p className="text-slate-500 text-sm leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section id="how" className="py-24 px-6 bg-[#F8FAFC]">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-[#0EA5E9] text-xs font-semibold tracking-widest uppercase mb-3">5-Phase Deployment Lifecycle</div>
+            <h2 className="font-['Libre_Baskerville',serif] text-3xl md:text-4xl font-bold text-[#0F172A]">
+              From registration to boarding.
+            </h2>
+          </div>
+          <div className="relative">
+            <div className="hidden md:block absolute left-[calc(50%-1px)] top-8 bottom-8 w-px bg-slate-200" />
+            {[
+              { phase: "01", title: "Applicant Registration", desc: "Detailed applicant intake with personal information, work history, and skills assessment.", side: "left", color: "#0EA5E9" },
+              { phase: "02", title: "Screening & Medical", desc: "English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
+              { phase: "03", title: "CV Encoding", desc: "Readiness engine evaluates 7 criteria. Management approves for employer submission.", side: "left", color: "#F59E0B" },
+              { phase: "04", title: "Employer Endorsement", desc: "Foreign employer selects candidates. Interview scheduling and endorsement tracking.", side: "right", color: "#10B981" },
+              { phase: "05", title: "Final Deployment", desc: "OCR document verification, expense tracking, visa processing, and departure monitoring.", side: "left", color: "#EF4444" },
+            ].map((p, i) => (
+              <div key={i} className={`relative flex items-start gap-8 mb-10 ${p.side === "right" ? "md:flex-row-reverse" : ""}`}>
+                <div className={`flex-1 ${p.side === "right" ? "md:text-right" : ""}`}>
+                  <div className="bg-white border border-slate-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+                    <div className="font-['JetBrains_Mono',monospace] text-xs font-medium mb-2" style={{ color: p.color }}>PHASE {p.phase}</div>
+                    <h3 className="font-semibold text-[#0F172A] mb-2">{p.title}</h3>
+                    <p className="text-slate-500 text-sm leading-relaxed">{p.desc}</p>
+                  </div>
+                </div>
+                <div className="hidden md:flex flex-shrink-0 w-10 h-10 rounded-full border-2 items-center justify-center z-10 mt-6 font-['JetBrains_Mono',monospace] text-xs font-bold" style={{ borderColor: p.color, color: p.color, background: "#F8FAFC" }}>
+                  {p.phase}
+                </div>
+                <div className="hidden md:block flex-1" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* What's included */}
+      <section id="pricing" className="py-24 px-6 bg-[#0F172A]">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-[#0EA5E9] text-xs font-semibold tracking-widest uppercase mb-3">Everything Included</div>
+            <h2 className="font-['Libre_Baskerville',serif] text-3xl md:text-4xl font-bold text-white mb-4">
+              One workspace. Everything your<br />agency needs to deploy.
+            </h2>
+            <p className="text-slate-400 text-lg max-w-xl mx-auto">
+              Every FLOWSENSUS workspace comes fully equipped — no add-ons, no feature tiers, no surprises.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
+            {[
+              { icon: <Users size={18} />, title: "Role-Based Staff Accounts", desc: "Recruitment, Admin, Accounting, and Management — each role sees only what it needs." },
+              { icon: <FileText size={18} />, title: "Full 5-Phase Lifecycle", desc: "From first intake to final boarding. Every step tracked, documented, and reportable." },
+              { icon: <Sparkles size={18} />, title: "CV Readiness Engine", desc: "Automated 7-criteria scoring tells you instantly whether a profile is ready for endorsement." },
+              { icon: <Globe size={18} />, title: "Employer Endorsement Tracking", desc: "Foreign employer selections, interview records, and deployment decisions in one view." },
+              { icon: <BarChart3 size={18} />, title: "Accounting & Analytics", desc: "Expense tracking by category, deployment cost reports, and one-click PDF/CSV export." },
+              { icon: <Shield size={18} />, title: "OCR Document Verification", desc: "Automated document checks catch discrepancies before they become costly delays." },
+              { icon: <Building2 size={18} />, title: "Custom Subdomain", desc: "Your agency gets its own workspace URL (agency.flowsensus.com) from day one." },
+              { icon: <Palette size={18} />, title: "Brand Customization", desc: "Upload your logo and set your accent color. Your workspace, your identity." },
+              { icon: <Layers size={18} />, title: "Activity Audit Log", desc: "Full per-applicant audit trail. Know who did what and when across every department." },
+            ].map((f, i) => (
+              <div key={i} className="bg-[#1E293B] rounded-xl p-5 border border-white/5 hover:border-[#0EA5E9]/30 transition-all group">
+                <div className="w-9 h-9 rounded-lg bg-[#0EA5E9]/10 text-[#0EA5E9] flex items-center justify-center mb-3 group-hover:bg-[#0EA5E9] group-hover:text-white transition-all duration-200">
+                  {f.icon}
+                </div>
+                <h3 className="text-white font-semibold text-sm mb-1.5">{f.title}</h3>
+                <p className="text-slate-400 text-xs leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA inside dark section */}
+          <div className="max-w-2xl mx-auto text-center bg-gradient-to-br from-[#0EA5E9]/20 to-[#0EA5E9]/5 rounded-2xl border border-[#0EA5E9]/20 p-10">
+            <div className="w-14 h-14 rounded-2xl bg-[#0EA5E9] flex items-center justify-center mx-auto mb-5">
+              <Layers size={24} className="text-white" />
+            </div>
+            <h3 className="font-['Libre_Baskerville',serif] text-2xl font-bold text-white mb-3">
+              Ready to partner with us?
+            </h3>
+            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+              FLOWSENSUS is available exclusively to POEA/DMW-licensed placement agencies.
+              Submit a B2B inquiry and our team will onboard your workspace within 24 hours.
             </p>
             <button
               onClick={() => scrollTo(contactRef)}
-              className="mt-7 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="inline-flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-8 py-4 rounded-xl transition-colors text-base"
             >
-              Request a Demo <ArrowRight size={16} />
+              Request a Demo <ArrowRight size={18} />
             </button>
-            <p className="mt-4 text-xs text-slate-400">Includes onboarding, setup guidance, and technical support.</p>
+            <p className="text-slate-500 text-xs mt-4">For POEA/DMW-licensed agencies only</p>
           </div>
         </div>
       </section>
 
-      <section id="contact" ref={contactRef} className="px-6 py-20 bg-white border-t border-slate-200">
-        <div className="max-w-7xl mx-auto">
-          <div className="max-w-2xl mb-10">
-            <p className="text-[#0EA5E9] text-xs font-semibold uppercase tracking-widest">B2B Inquiry</p>
-            <h2 className="mt-3 text-3xl md:text-4xl font-black text-[#0F172A]">Lets activate your agency workspace</h2>
-            <p className="mt-4 text-slate-600 text-sm leading-relaxed">
-              Share your agency details and our platform team will reach out with a guided walkthrough.
+      {/* B2B Inquiry + Contact */}
+      <div ref={contactRef} id="contact" />
+      <section className="py-20 px-6 bg-white">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="text-[#0EA5E9] text-xs font-semibold tracking-widest uppercase mb-3">Partner With Us</div>
+            <h2 className="font-['Libre_Baskerville',serif] text-3xl md:text-4xl font-bold text-[#0F172A] mb-4">Request a platform demo.</h2>
+            <p className="text-slate-500 text-lg max-w-xl mx-auto">
+              FLOWSENSUS is provisioned exclusively for POEA/DMW-licensed agencies.
+              Submit your inquiry and our team will reach out within one business day.
             </p>
           </div>
+          <div className="grid lg:grid-cols-2 gap-10">
 
-          <div className="grid lg:grid-cols-5 gap-8">
+            {/* Inquiry form */}
             {!inquirySubmitted ? (
-              <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-                <form
-                  className="space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    setInquirySubmitted(true);
-                  }}
-                >
-                  <div>
-                    <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">Agency Name</label>
-                    <input
-                      value={inquiry.agency_name}
-                      onChange={(event) => setInquiry((prev) => ({ ...prev, agency_name: event.target.value }))}
-                      required
-                      className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 bg-white transition-all"
-                      placeholder="e.g., ABC Global Recruitment"
-                    />
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">General Manager</label>
+              <div className="bg-[#F8FAFC] border border-slate-200 rounded-2xl p-8">
+                <h3 className="font-bold text-[#0F172A] text-lg mb-6">B2B Inquiry Form</h3>
+                <form onSubmit={(e) => { e.preventDefault(); setInquirySubmitted(true); }} className="space-y-4">
+                  {[
+                    { key: "agencyName", label: "Agency Name", placeholder: "Your registered agency name", type: "text" },
+                    { key: "gmName", label: "General Manager's Name", placeholder: "Full name", type: "text" },
+                    { key: "licenseNo", label: "POEA / DMW License No.", placeholder: "e.g. POEA-026-LB-042026-R", type: "text" },
+                    { key: "email", label: "Corporate Email Address", placeholder: "gm@youragency.ph", type: "email" },
+                  ].map((f) => (
+                    <div key={f.key}>
+                      <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">{f.label} <span className="text-red-400">*</span></label>
                       <input
-                        value={inquiry.gm_name}
-                        onChange={(event) => setInquiry((prev) => ({ ...prev, gm_name: event.target.value }))}
-                        required
+                        type={f.type}
+                        value={inquiry[f.key]}
+                        onChange={(e) => setInquiry(p => ({ ...p, [f.key]: e.target.value }))}
                         className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 bg-white transition-all"
-                        placeholder="Full name"
+                        placeholder={f.placeholder}
+                        required
                       />
                     </div>
-                    <div>
-                      <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">POEA/DMW License No.</label>
-                      <input
-                        value={inquiry.poea_license_no}
-                        onChange={(event) => setInquiry((prev) => ({ ...prev, poea_license_no: event.target.value }))}
-                        required
-                        className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 bg-white transition-all"
-                        placeholder="e.g., POEA-123-LB-04032026"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">Official Email</label>
-                    <input
-                      type="email"
-                      value={inquiry.email}
-                      onChange={(event) => setInquiry((prev) => ({ ...prev, email: event.target.value }))}
-                      required
-                      className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 bg-white transition-all"
-                      placeholder="name@agency.com"
-                    />
-                  </div>
+                  ))}
                   <div>
                     <label className="text-sm font-semibold text-[#0F172A] block mb-1.5">Message / Inquiry</label>
                     <textarea
                       value={inquiry.message}
-                      onChange={(event) => setInquiry((prev) => ({ ...prev, message: event.target.value }))}
+                      onChange={(e) => setInquiry(p => ({ ...p, message: e.target.value }))}
                       rows={4}
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 bg-white transition-all resize-none"
                       placeholder="Tell us about your agency and what you're looking for..."
@@ -358,19 +353,20 @@ export default function LandingPage() {
                 </form>
               </div>
             ) : (
-              <div className="lg:col-span-3 bg-[#F8FAFC] border border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center text-center min-h-[400px]">
+              <div className="bg-[#F8FAFC] border border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center text-center min-h-[400px]">
                 <div className="w-16 h-16 rounded-full bg-[#10B981]/10 flex items-center justify-center mb-4">
                   <CheckCircle2 size={32} className="text-[#10B981]" />
                 </div>
                 <h3 className="font-bold text-[#0F172A] text-xl mb-2">Inquiry Received</h3>
                 <p className="text-slate-500 text-sm leading-relaxed max-w-xs">
-                  Thank you, <strong className="text-[#0F172A]">{inquiry.gm_name || "your team"}</strong>. Our platform team will review your agency details and reach out to{" "}
+                  Thank you, <strong className="text-[#0F172A]">{inquiry.gmName || "your team"}</strong>. Our platform team will review your agency details and reach out to{" "}
                   <strong className="text-[#0F172A]">{inquiry.email}</strong> within one business day.
                 </p>
               </div>
             )}
 
-            <div className="lg:col-span-2 flex flex-col gap-5">
+            {/* Contact info + process */}
+            <div className="flex flex-col gap-5">
               <h3 className="font-semibold text-[#0F172A] text-lg">Direct Contact</h3>
               <div className="space-y-3">
                 <div className="flex items-start gap-4 p-4 bg-[#F8FAFC] border border-slate-200 rounded-xl">
@@ -401,10 +397,10 @@ export default function LandingPage() {
                     { step: "01", text: "Submit your B2B inquiry with your POEA/DMW license number" },
                     { step: "02", text: "Our team verifies your agency accreditation within 24 hours" },
                     { step: "03", text: "Your workspace is provisioned and login credentials are sent to your GM" },
-                  ].map((item) => (
-                    <div key={item.step} className="flex items-start gap-3">
-                      <span className="font-['JetBrains_Mono',monospace] text-[#0EA5E9] font-bold text-sm flex-shrink-0 mt-0.5">{item.step}</span>
-                      <p className="text-slate-400 text-sm leading-snug">{item.text}</p>
+                  ].map((s) => (
+                    <div key={s.step} className="flex items-start gap-3">
+                      <span className="font-['JetBrains_Mono',monospace] text-[#0EA5E9] font-bold text-sm flex-shrink-0 mt-0.5">{s.step}</span>
+                      <p className="text-slate-400 text-sm leading-snug">{s.text}</p>
                     </div>
                   ))}
                 </div>
@@ -420,15 +416,16 @@ export default function LandingPage() {
             <div className="w-6 h-6 rounded bg-[#0EA5E9] flex items-center justify-center shadow-[0_0_10px_rgba(14,165,233,0.4)]">
               <Layers size={12} className="text-white" />
             </div>
-            <span className="text-slate-300">FlowSensus</span>
-          </div>
-          <p> {new Date().getFullYear()} FlowSensus. Built for overseas recruitment operations.</p>
-          <div className="flex items-center gap-4">
-            <button onClick={() => scrollTo(contactRef)} className="hover:text-slate-300 transition-colors">Request Demo</button>
-            <button onClick={() => navigate("/login")} className="hover:text-slate-300 transition-colors">Staff Login</button>
-          </div>
+            <span className="text-white font-black tracking-[0.06em]">FLOW<span className="text-[#0EA5E9]">SENSUS</span></span>
+            </div>
+          <p>{new Date().getFullYear()} FlowSensus. Built for overseas recruitment operations.</p>
         </div>
       </footer>
     </div>
   );
 }
+
+
+
+
+
