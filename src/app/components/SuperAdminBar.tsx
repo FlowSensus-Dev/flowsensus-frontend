@@ -10,7 +10,6 @@ import {
   User,
   LogOut,
   Activity,
-  ChevronRight,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -19,6 +18,7 @@ interface SuperAdminBarProps {
   currentUserName: string;
   onSwitchRole: (role: UserRole) => void;
   onLogout: () => void;
+  onSuperAdminDashboard?: () => void;
   backendOnline?: boolean;
 }
 
@@ -80,6 +80,7 @@ export default function SuperAdminBar({
   currentUserName,
   onSwitchRole,
   onLogout,
+  onSuperAdminDashboard,
   backendOnline = true,
 }: SuperAdminBarProps) {
   return (
@@ -115,8 +116,23 @@ export default function SuperAdminBar({
           </div>
         </div>
 
-        {/* Center: Role Switcher Buttons */}
+        {/* Center: Superadmin Console return + Role Switcher Buttons */}
         <div className="flex items-center flex-wrap gap-1.5 bg-slate-900/90 border border-slate-800/80 p-1 rounded-lg">
+          {/* Return to Super Admin Console */}
+          {onSuperAdminDashboard && (
+            <>
+              <button
+                onClick={onSuperAdminDashboard}
+                title="Return to Super Admin Console"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all duration-150 text-amber-300 hover:text-amber-100 hover:bg-amber-500/20 border border-amber-500/30"
+              >
+                <Crown size={13} className="text-amber-400" />
+                <span>Super Admin Console</span>
+              </button>
+              <span className="text-slate-700 text-xs px-1">|</span>
+            </>
+          )}
+
           <span className="text-[10px] uppercase font-bold text-slate-400 px-2 flex items-center gap-1">
             <Activity size={11} className="text-amber-400" />
             Switch Role:

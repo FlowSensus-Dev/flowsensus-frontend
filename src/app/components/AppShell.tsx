@@ -67,6 +67,8 @@ interface AppShellProps {
   expenses: ExpenseRecord[];
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
   onLogout: () => void;
+  isSuperAdmin?: boolean;
+  onSuperAdminDashboard?: () => void;
 }
 
 export default function AppShell({
@@ -83,6 +85,8 @@ export default function AppShell({
   expenses,
   addExpense,
   onLogout,
+  isSuperAdmin,
+  onSuperAdminDashboard,
 }: AppShellProps) {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
@@ -357,6 +361,8 @@ export default function AppShell({
         currentUserRoles={currentUserRoles}
         currentView={currentView}
         onViewChange={handleNavigate}
+        isSuperAdmin={isSuperAdmin}
+        onSuperAdminDashboard={onSuperAdminDashboard}
       />
 
       {/* Main Content Area */}

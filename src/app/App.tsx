@@ -5,6 +5,7 @@ import ApplicantPortal from "./components/ApplicantPortal";
 import EmployerPortal from "./components/EmployerPortal";
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from "./types";
 import SuperAdminBar from "./components/SuperAdminBar";
+import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
 import {
@@ -986,10 +987,14 @@ function ProvisioningScreen({ form, onDone }: { form: FormData; onDone: () => vo
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
-type AppView = "landing" | "register" | "provisioning" | "app";
+type AppView = "landing" | "register" | "provisioning" | "app" | "super-admin";
 
 export default function App() {
   const [view, setView] = useState<AppView>("landing");
+  const showAppView = (nextView: AppView) => {
+    window.history.replaceState(window.history.state, '', nextView === 'super-admin' ? '/super-admin' : '/');
+    setView(nextView);
+  };
   const [registrationForm, setRegistrationForm] = useState<FormData | null>(null);
   const [tenantName, setTenantName] = useState("");
 
@@ -1021,7 +1026,7 @@ export default function App() {
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
             setCurrentUserName("Superadmin (admin@findstaff.ph)");
-            setView("app");
+            showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
@@ -1121,12 +1126,16 @@ export default function App() {
         const logsRes = await api.get('/audit-logs');
         if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
           const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
+            audit_log_id: l.audit_log_id,
+            applicant_id: l.applicant_id,
+            performed_by: l.performed_by,
+            created_at: l.created_at,
             id: `LOG-${l.audit_log_id}`,
             applicantId: l.applicant_id ? String(l.applicant_id) : '',
-            action: l.action || 'Action Logged',
+            action: l.action,
             performedBy: l.performed_by || 'System User',
-            department: l.department || 'General',
-            details: l.details || '',
+            department: l.department,
+            details: l.details,
             timestamp: l.created_at || new Date().toISOString(),
           }));
           setActivityLogs(liveLogs);
@@ -1192,6 +1201,7 @@ export default function App() {
     if (isSuper) {
       setIsSuperAdmin(true);
       setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
+      showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
     }
@@ -1212,11 +1222,13 @@ export default function App() {
     setCurrentUserRole("");
     setCurrentUserRoles([]);
     setCurrentUserName("");
+    showAppView("landing");
   };
 
   const handleSwitchSuperAdminRole = (newRole: UserRole) => {
     setCurrentUserRole(newRole);
     setCurrentUserRoles([newRole]);
+    showAppView("app"); // Enter operational shell for the chosen role
     addActivityLog({
       applicantId: "",
       action: "Superadmin Role Switch",
@@ -1284,6 +1296,19 @@ export default function App() {
     );
   }
 
+  // Super Admin dedicated dashboard
+  if (view === "super-admin" && isSuperAdmin) {
+    return (
+      <SuperAdminDashboard
+        onLogout={handleLogout}
+        onSwitchRole={handleSwitchSuperAdminRole}
+        currentUserName={currentUserName}
+        applicants={applicants}
+        activityLogs={activityLogs}
+      />
+    );
+  }
+
   // Tenant workspace
   if (view === "app") {
     if (!currentUserRole) {
@@ -1313,6 +1338,7 @@ export default function App() {
             currentUserName={currentUserName}
             onSwitchRole={handleSwitchSuperAdminRole}
             onLogout={handleLogout}
+            onSuperAdminDashboard={() => showAppView('super-admin')}
             backendOnline={true}
           />
         )}
@@ -1336,6 +1362,8 @@ export default function App() {
               expenses={expenses}
               addExpense={addExpense}
               onLogout={handleLogout}
+              isSuperAdmin={isSuperAdmin}
+              onSuperAdminDashboard={() => showAppView('super-admin')}
             />
           )}
         </div>

@@ -33,6 +33,8 @@ interface SidebarProps {
   currentUserRoles?: UserRole[];
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
+  isSuperAdmin?: boolean;
+  onSuperAdminDashboard?: () => void;
 }
 
 interface NavItem {
@@ -53,6 +55,8 @@ export default function Sidebar({
   currentUserRoles,
   currentView,
   onViewChange,
+  isSuperAdmin,
+  onSuperAdminDashboard,
 }: SidebarProps) {
   const mainItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: 'All' },
@@ -116,7 +120,7 @@ export default function Sidebar({
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
         { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
-        { id: 'users', label: 'User Mgmt', icon: Users, roles: ['Management'] },
+        { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
       ],
     },
   ];
