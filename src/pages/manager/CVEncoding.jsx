@@ -1,145 +1,42 @@
 import { useState } from 'react';
-import { Lock, Save, Download } from 'lucide-react';
+import { UserCircle, Save, Download } from 'lucide-react';
 
-function InlineApplicantSelector({
-  applicants = [],
-  selectedApplicantId,
-  onSelectApplicant,
-}) {
+function InlineApplicantSelector({ applicants, selectedApplicantId, onSelectApplicant }) {
+  const selectedApplicant = applicants.find((a) => String(a.id) === selectedApplicantId);
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-      <div className="text-xs font-bold text-[#475569] uppercase tracking-wide">
-        Select Applicant
-      </div>
-      <div className="flex-1 max-w-md">
-        <select
-          value={selectedApplicantId}
-          onChange={(e) => onSelectApplicant?.(e.target.value)}
-          className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg text-sm font-semibold text-[#0F172A] bg-slate-50 focus:border-[#0EA5E9] outline-none transition-colors"
-        >
-          {applicants.map((app) => (
-            <option key={app.id} value={app.id}>
-              {app.name} — {app.role} ({app.id})
-            </option>
-          ))}
-        </select>
+    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4 mb-6">
+      <div className="flex items-center gap-4">
+        <UserCircle className="w-5 h-5 text-[#0EA5E9]" />
+        <div className="flex-1">
+          <label htmlFor="cv-applicant" className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">Select Applicant</label>
+          <select id="cv-applicant" value={selectedApplicantId} disabled={applicants.length === 0} onChange={(e) => onSelectApplicant(e.target.value)} className="w-full border-2 border-[#0EA5E9]/30 px-4 py-2.5 rounded-lg text-sm font-bold bg-white focus:border-[#0EA5E9] outline-none disabled:cursor-not-allowed">
+            <option value="">{applicants.length === 0 ? 'No applicants available for CV Encoding' : 'Select an applicant'}</option>
+            {applicants.map((applicant) => (
+              <option key={applicant.id} value={String(applicant.id)}>
+                {applicant.id} - {applicant.name ?? ''} ({applicant.role ?? ''}) - Phase {applicant.phase ?? ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        {selectedApplicant && (
+          <div className="text-right">
+            <p className="text-xs text-[#64748B] font-medium">Current Status</p>
+            <p className="text-sm font-bold text-[#0F172A]">{selectedApplicant.status ?? ''}</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export default function CVEncoding({
-  workflow,
-  showToast,
-  currentUserName,
-  addActivityLog,
-  updateApplicant,
-  selectedApplicantId: initialApplicantId = 'APP-2026-089',
-  applicants = [],
-}) {
-  const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
-  const isLocked = !workflow?.medicalCleared;
-
-  const handleExportToPDF = () => {
-    const selectedApplicant = applicants.find((a) => a.id === selectedApplicantId);
-
-    if (!selectedApplicant) {
-      showToast('❌ No applicant selected');
-      return;
-    }
-
-    // Create CV export content
-    const cvContent = `
-CURRICULUM VITAE - EXPORT
-=========================
-
-Personal Information:
-- Full Name: ${selectedApplicant.name}
-- Applicant ID: ${selectedApplicant.id}
-- Position Applied: ${selectedApplicant.role}
-- Job Order: ${selectedApplicant.jobOrder || 'N/A'}
-
-Contact Information:
-- Email: ${selectedApplicant.email || 'N/A'}
-- Contact: ${selectedApplicant.contact || 'N/A'}
-- Present Address: ${selectedApplicant.presentAddress || 'N/A'}
-
-Professional Summary:
-Experienced ${selectedApplicant.role} with ${selectedApplicant.workExperience?.length || 0}+ years in the industry.
-
-Key Skills:
-${selectedApplicant.skills?.map((skill) => `- ${skill}`).join('\n') || '- N/A'}
-
-Certifications:
-${selectedApplicant.certifications?.map((cert) => `- ${cert}`).join('\n') || '- N/A'}
-
-Work Experience:
-${selectedApplicant.workExperience?.map((exp, idx) => `
-${idx + 1}. ${exp.position} at ${exp.companyName}
-   ${exp.startDate} - ${exp.endDate}
-   ${exp.country}${exp.isOverseas ? ' (Overseas)' : ' (Local)'}
-   Responsibilities:
-   ${exp.responsibilities.map((r) => `   - ${r}`).join('\n')}
-`).join('\n') || 'N/A'}
-
-Languages Spoken:
-${selectedApplicant.languagesSpoken?.map((lang) => `- ${lang}`).join('\n') || '- N/A'}
-
-Test Scores:
-- English Proficiency: ${selectedApplicant.testScores?.englishProficiency || 'N/A'}%
-- Trade/Skills: ${selectedApplicant.testScores?.tradeSkills || 'N/A'}%
-- IQ/Aptitude: ${selectedApplicant.testScores?.iqAptitude || 'N/A'}%
-- Personality/EQ: ${selectedApplicant.testScores?.personalityEQ || 'N/A'}
-
-Current Status:
-- Phase: ${selectedApplicant.phase}
-- Status: ${selectedApplicant.status}
-- Handler: ${selectedApplicant.currentHandler}
-
-CV Prepared by: ${currentUserName}
-Date Generated: ${new Date().toLocaleString()}
-    `;
-
-    // Create blob and download
-    const blob = new Blob([cvContent], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `CV-${selectedApplicant.name.replace(/\s+/g, '-')}-${selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-
-    addActivityLog({
-      applicantId: selectedApplicantId,
-      action: 'CV Exported to PDF',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: `CV exported for ${selectedApplicant.name} (${selectedApplicant.id})`,
-    });
-
-    showToast('✓ CV exported successfully');
-  };
-
-  const handleSubmit = () => {
-    const applicantId = selectedApplicantId;
-
-    addActivityLog({
-      applicantId,
-      action: 'CV Submitted for Approval',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: 'CV formatted and submitted to management for approval',
-    });
-
-    updateApplicant(applicantId, {
-      status: 'Pending Manager Approval',
-      currentHandler: 'Admin User',
-      currentDepartment: 'Management',
-      phaseDescription: 'CV awaiting management review and approval',
-    });
-
-    showToast('CV submitted to Manager for approval');
-  };
+export default function CVEncoding({ selectedApplicantId: initialApplicantId = '', applicants = [] } = {}) {
+  const [selectedApplicantId, setSelectedApplicantId] = useState(String(initialApplicantId ?? ''));
+  const selectableApplicants = applicants.filter((a) => a && a.id != null && String(a.id) !== '');
+  const selectedApplicant = selectedApplicantId ? selectableApplicants.find((a) => String(a.id) === selectedApplicantId) : undefined;
+  const skills = Array.isArray(selectedApplicant?.skills) ? selectedApplicant.skills.filter((skill) => typeof skill === 'string') : [];
+  const certifications = Array.isArray(selectedApplicant?.certifications) ? selectedApplicant.certifications.filter((cert) => typeof cert === 'string').join(', ') : '';
+  // Applicant-specific clearance, experience years, and CV summary fields are not established here.
+  // Keep the form read-only until its data and persistence contract is integrated.
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -151,8 +48,8 @@ Date Generated: ${new Date().toLocaleString()}
           </p>
         </div>
         <button
-          onClick={handleExportToPDF}
-          disabled={isLocked}
+          disabled
+          title="PDF export is not available yet"
           className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg shadow-lg shadow-[#0EA5E9]/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
@@ -160,23 +57,21 @@ Date Generated: ${new Date().toLocaleString()}
         </button>
       </div>
 
-      {applicants.length > 0 && (
         <InlineApplicantSelector
-          applicants={applicants}
-          selectedApplicantId={selectedApplicantId}
+          applicants={selectableApplicants}
+          selectedApplicantId={selectedApplicant ? selectedApplicantId : ''}
           onSelectApplicant={setSelectedApplicantId}
         />
-      )}
 
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8 relative">
-        {isLocked && (
+        {!selectedApplicant && (
           <div className="absolute inset-0 bg-[#F1F5F9]/85 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-lg">
-            <Lock className="w-8 h-8 text-slate-400 mb-3" />
-            <h3 className="font-bold text-[#0F172A]">Locked by RBAC</h3>
-            <p className="text-sm mt-1">Medical clearance required to proceed</p>
+            <UserCircle className="w-8 h-8 text-slate-400 mb-3" />
+            <h3 className="font-bold text-[#0F172A]">Select an applicant to begin CV encoding.</h3>
           </div>
         )}
 
+        {selectedApplicant && <p className="text-sm text-[#64748B] mb-6" role="status">CV encoding is not available yet. Supplied applicant details are shown read-only.</p>}
         <div className="space-y-6">
           <div>
             <label className="text-xs font-bold text-[#475569] block mb-2 uppercase tracking-wide">
@@ -184,8 +79,8 @@ Date Generated: ${new Date().toLocaleString()}
             </label>
             <input
               type="text"
-              defaultValue="Juan Dela Cruz"
-              disabled={isLocked}
+              value={selectedApplicant?.name ?? ''}
+              disabled
               className="w-full border-2 border-slate-200 px-4 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none bg-slate-50 font-bold"
             />
           </div>
@@ -195,8 +90,8 @@ Date Generated: ${new Date().toLocaleString()}
               <label className="text-xs font-bold text-[#475569] block mb-2 uppercase tracking-wide">Position</label>
               <input
                 type="text"
-                defaultValue="Industrial Welder"
-                disabled={isLocked}
+                value={selectedApplicant?.role ?? ''}
+                disabled
                 className="w-full border-2 border-slate-200 px-4 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
               />
             </div>
@@ -206,8 +101,8 @@ Date Generated: ${new Date().toLocaleString()}
               </label>
               <input
                 type="number"
-                defaultValue="5"
-                disabled={isLocked}
+                value=""
+                disabled
                 className="w-full border-2 border-slate-200 px-4 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
               />
             </div>
@@ -219,8 +114,8 @@ Date Generated: ${new Date().toLocaleString()}
             </label>
             <textarea
               rows={4}
-              defaultValue="Experienced industrial welder with 5+ years in structural fabrication. TESDA NCII certified with expertise in SMAW, GMAW, and FCAW processes."
-              disabled={isLocked}
+              value=""
+              disabled
               className="w-full border-2 border-slate-200 px-4 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
             ></textarea>
           </div>
@@ -229,8 +124,8 @@ Date Generated: ${new Date().toLocaleString()}
             <label className="text-xs font-bold text-[#475569] block mb-2 uppercase tracking-wide">
               Key Skills
             </label>
-            <div className="flex flex-wrap gap-2">
-              {['SMAW', 'GMAW', 'FCAW', 'Blueprint Reading', 'Metal Fabrication', 'Quality Control'].map((skill) => (
+            <div className="flex flex-wrap gap-2 min-h-7">
+              {skills.map((skill) => (
                 <span
                   key={skill}
                   className="px-3 py-1 bg-[#0EA5E9]/10 text-[#0EA5E9] text-xs font-bold rounded-full"
@@ -247,22 +142,22 @@ Date Generated: ${new Date().toLocaleString()}
             </label>
             <input
               type="text"
-              defaultValue="TESDA NCII - Shielded Metal Arc Welding"
-              disabled={isLocked}
+              value={certifications}
+              disabled
               className="w-full border-2 border-slate-200 px-4 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
             />
           </div>
 
           <div className="pt-4 border-t-2 border-slate-100 flex gap-4 justify-end">
             <button
-              disabled={isLocked}
+              disabled
               className="px-6 py-2.5 text-sm font-bold border-2 border-slate-200 text-[#475569] hover:bg-slate-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save Draft
             </button>
             <button
-              onClick={handleSubmit}
-              disabled={isLocked}
+              title="Workflow submission is not available yet"
+              disabled
               className="px-8 py-2.5 bg-[#0EA5E9] text-white text-sm font-bold hover:bg-[#0284C7] shadow-lg shadow-[#0EA5E9]/20 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
