@@ -80,7 +80,7 @@ export default function UserProfile({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       {/* Header */}
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">

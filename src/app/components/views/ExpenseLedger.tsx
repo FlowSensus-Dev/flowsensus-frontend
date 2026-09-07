@@ -32,29 +32,8 @@ export default function ExpenseLedger({
     category: 'visa' as const,
   });
 
-  // Prioritize live expenses from Supabase backend
-  const allExpenses = expenses.length > 0 ? expenses : [
-    {
-      id: 'EXP-001',
-      applicantId: selectedApplicantId,
-      type: 'Visa Processing Fee',
-      amount: 15000,
-      description: 'Saudi Arabia work visa application and processing',
-      date: '2026-05-24',
-      recordedBy: currentUserName,
-      category: 'visa' as const,
-    },
-    {
-      id: 'EXP-002',
-      applicantId: selectedApplicantId,
-      type: 'Medical Examination',
-      amount: 3500,
-      description: 'Pre-deployment medical checkup at partner clinic',
-      date: '2026-05-20',
-      recordedBy: 'Admin User',
-      category: 'medical' as const,
-    },
-  ];
+  // Live expenses strictly from Supabase backend
+  const allExpenses = expenses;
   const totalExpenses = allExpenses.reduce((sum, exp) => sum + exp.amount, 0);
 
   const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
@@ -88,7 +67,7 @@ export default function ExpenseLedger({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight">
           <Receipt className="w-8 h-8 inline-block mr-2 text-[#10B981]" />
@@ -198,26 +177,34 @@ export default function ExpenseLedger({
         <div>
           <h3 className="font-bold text-[#0F172A] mb-4">Transaction History</h3>
           <div className="space-y-3">
-            {allExpenses.map((expense) => (
-              <div
-                key={expense.id}
-                className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#10B981] transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#10B981]/10 flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-[#10B981]" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-[#0F172A]">{expense.type}</p>
-                    <p className="text-sm text-[#64748B]">{expense.description}</p>
-                    <p className="text-xs text-[#64748B] mt-1">
-                      Recorded by: {expense.recordedBy} • {expense.date}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#10B981]">₱{expense.amount.toLocaleString()}</p>
+            {allExpenses.length === 0 ? (
+              <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-lg">
+                <DollarSign className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-500">No financial transactions recorded yet</p>
+                <p className="text-xs text-slate-400 mt-1">Recorded financial transactions will appear here.</p>
               </div>
-            ))}
+            ) : (
+              allExpenses.map((expense) => (
+                <div
+                  key={expense.id}
+                  className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#10B981] transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-[#10B981]/10 flex items-center justify-center">
+                      <DollarSign className="w-6 h-6 text-[#10B981]" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-[#0F172A]">{expense.type}</p>
+                      <p className="text-sm text-[#64748B]">{expense.description}</p>
+                      <p className="text-xs text-[#64748B] mt-1">
+                        Recorded by: {expense.recordedBy} • {expense.date}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-[#10B981]">₱{expense.amount.toLocaleString()}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

@@ -79,9 +79,10 @@ function resolveStaffRole(username: string): UserRole {
 function resolveStaffName(username: string): string {
   const l = username.toLowerCase();
   if (l.includes('admin@findstaff.ph')) return 'Superadmin (Findstaff PH)';
-  if (l.includes('sarah')) return 'Sarah Cruz';
-  if (l.includes('maria')) return 'Maria Santos';
-  if (l.includes('mark')) return 'Mark Tan';
+  if (l.includes('sarah') || l.includes('recruit')) return 'Sarah Cruz (Recruitment)';
+  if (l.includes('maria')) return 'Maria Santos (Admin)';
+  if (l.includes('mark') || l.includes('account')) return 'Mark Tan (Accounting)';
+  if (l.includes('admin@flowsensus.com')) return 'Agency Admin';
   return username || 'Staff Member';
 }
 
@@ -120,7 +121,7 @@ export default function LoginScreen({
     } catch (err: any) {
       console.error('Superadmin login error:', err);
       setErrorMessage(
-        err.message || 'Failed to authenticate with Supabase. Please check your credentials.'
+        err.message || 'Authentication failed. Please check your credentials.'
       );
     } finally {
       setLoading(false);
@@ -163,7 +164,8 @@ export default function LoginScreen({
         } else if (portal === 'applicant') {
           onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper);
         } else {
-          const role = isSuper ? 'Management' : resolveStaffRole(trimmedUser);
+          const dynamicRole = (user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
+          const role = isSuper ? 'Management' : dynamicRole;
           const name = isSuper ? 'Superadmin (Findstaff PH)' : (user?.user_metadata?.full_name || resolveStaffName(trimmedUser));
           onLogin(role, name, undefined, isSuper);
         }
@@ -241,7 +243,7 @@ export default function LoginScreen({
                     </div>
                     <p className="font-bold text-slate-900 text-sm">Superadmin Account</p>
                     <p className="text-xs text-slate-600 mt-0.5 leading-snug">
-                      Test all roles (Management, Recruitment, Admin, Accounting, Employer, Applicant) with verified Supabase JWT & backend access.
+                      Access all platform operational modules with verified enterprise role-based authorization.
                     </p>
                     <button
                       type="button"
@@ -252,7 +254,7 @@ export default function LoginScreen({
                       {loading ? (
                         <>
                           <Loader2 size={14} className="animate-spin text-slate-950" />
-                          <span>Authenticating with Supabase...</span>
+                          <span>Authenticating...</span>
                         </>
                       ) : (
                         <>
@@ -353,25 +355,6 @@ export default function LoginScreen({
 
             {/* Form */}
             <div className="px-8 py-6">
-              {/* Quick Superadmin Pill for this portal */}
-              <div className="mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername('admin@findstaff.ph');
-                    setPassword('AdminPassword2026!');
-                  }}
-                  className="w-full text-left bg-amber-50 hover:bg-amber-100/80 border border-amber-300/80 rounded-lg p-2.5 text-xs text-amber-900 transition-colors flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Crown size={14} className="text-amber-600" />
-                    Fill Superadmin: <strong className="font-mono">admin@findstaff.ph</strong>
-                  </span>
-                  <span className="text-[11px] font-bold text-amber-700 bg-amber-200/80 px-2 py-0.5 rounded">
-                    Autofill
-                  </span>
-                </button>
-              </div>
 
               {errorMessage && (
                 <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2.5 rounded-lg text-xs flex items-start gap-2">
@@ -463,7 +446,7 @@ export default function LoginScreen({
                     />
                     <span>Remember me</span>
                   </label>
-                  <span className="text-slate-400">Secure Supabase Session</span>
+                  <span className="text-slate-400">Encrypted Enterprise Session</span>
                 </div>
 
                 {/* Sign In button */}

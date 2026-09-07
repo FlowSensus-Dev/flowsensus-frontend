@@ -8,7 +8,7 @@ interface ComplianceAlertsProps {
 
 export default function ComplianceAlerts({ applicants = [], showToast }: ComplianceAlertsProps) {
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 w-full">
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight">3-2-1 Compliance Watch</h2>
         <p className="text-sm text-[#64748B] mt-1 font-medium">

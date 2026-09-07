@@ -909,7 +909,7 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
   ];
 
   return (
-    <div className="w-full min-h-screen bg-[#EEF2F7]">
+    <div className="w-full h-full overflow-y-auto bg-[#EEF2F7]">
 
       {/* ── Corporate header ──────────────────────────────────────────────────── */}
       <header className="bg-[#0C1A2E] px-6 py-4 flex items-center justify-between">

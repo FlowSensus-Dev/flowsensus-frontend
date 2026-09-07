@@ -24,41 +24,7 @@ export default function SmartProfiling({
 }: SmartProfilingProps) {
   const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId || '');
   const [selectedJobOrder, setSelectedJobOrder] = useState('');
-  const [jobOrders, setJobOrders] = useState<any[]>([
-    {
-      id: 'JO-2026-0042',
-      position: 'Industrial Welder',
-      country: 'Saudi Arabia',
-      employer: 'Al-Futtaim Engineering',
-      employerId: 2,
-      minExperience: 3,
-      keyDuties: ['MIG/TIG welding', 'structural fabrication', 'blueprint reading'],
-      certifications: ['TESDA NC II', 'Trade Test Passer'],
-      languageRequirements: ['English (conversational)'],
-    },
-    {
-      id: 'JO-2026-0038',
-      position: 'Domestic Helper',
-      country: 'Hong Kong',
-      employer: 'Private Household',
-      employerId: 3,
-      minExperience: 2,
-      keyDuties: ['cleaning rooms/houses', 'childcare', 'cooking'],
-      certifications: ['TESDA NC II - Housekeeping'],
-      languageRequirements: ['English (basic)', 'Cantonese (basic)'],
-    },
-    {
-      id: 'JO-2026-0051',
-      position: 'Caregiver',
-      country: 'United Arab Emirates',
-      employer: 'Emirates Healthcare Group',
-      employerId: 4,
-      minExperience: 2,
-      keyDuties: ['elderly care', 'bedridden patient assistance', 'medication reminders'],
-      certifications: ['TESDA NC II - Caregiving', 'CPR/First Aid'],
-      languageRequirements: ['English (fluent)', 'Arabic (basic)'],
-    },
-  ]);
+  const [jobOrders, setJobOrders] = useState<any[]>([]);
 
   const [matchingEval, setMatchingEval] = useState<any | null>(null);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
@@ -388,7 +354,7 @@ export default function SmartProfiling({
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 w-full">
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight">
           <Target className="w-8 h-8 inline-block mr-2 text-[#F59E0B]" />

@@ -14,21 +14,6 @@ const STATUS_META: Record<JobOrder['status'], { label: string; color: string; ic
   closed:  { label: 'Closed',  color: '#64748B', icon: <XCircle size={13} /> },
 };
 
-const MOCK_EMPLOYERS: EmployerProfile[] = [
-  { id: '1', companyName: 'Al-Marai Hospital Group', country: 'Saudi Arabia', industry: 'Healthcare & Hospital Services', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active', rating: 5, totalDeployed: 145, activeJobOrders: 2, remarks: [], createdAt: '' },
-  { id: '2', companyName: 'Al-Futtaim Engineering LLC', country: 'UAE', industry: 'Construction', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active', rating: 5, totalDeployed: 312, activeJobOrders: 3, remarks: [], createdAt: '' },
-  { id: '3', companyName: 'Hong Kong Family Services Ltd.', country: 'Hong Kong', industry: 'Domestic', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'pending', rating: 3, totalDeployed: 87, activeJobOrders: 2, remarks: [], createdAt: '' },
-  { id: '4', companyName: 'Dubai Healthcare Authority', country: 'UAE', industry: 'Healthcare', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active', rating: 5, totalDeployed: 204, activeJobOrders: 5, remarks: [], createdAt: '' },
-  { id: '5', companyName: 'SkyBuild Construction Corp.', country: 'Qatar', industry: 'Construction', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'suspended', rating: 2, totalDeployed: 45, activeJobOrders: 0, remarks: [], createdAt: '' },
-];
-
-const DEFAULT_ORDERS: JobOrder[] = [
-  { id: '1', code: 'JO-2026-0042', position: 'Industrial Welder', country: 'UAE', employerId: '2', employerName: 'Al-Futtaim Engineering LLC', slots: 10, filledSlots: 3, salaryRange: 'AED 2,800–3,400/mo', contractDuration: '2 years', requirements: ['Valid Passport', 'NBI Clearance', 'TESDA NC II - SMAW', 'Medical Certificate', 'PEOS Certificate'], minExperience: 3, certifications: ['TESDA NC II Welding', 'CSWIP 3.1 (preferred)'], status: 'open', datePosted: '2026-04-01', deadline: '2026-07-31', notes: 'Employer prefers applicants with overseas Gulf experience. Housing and meals provided. Night differential applicable.' },
-  { id: '2', code: 'JO-2026-0038', position: 'Domestic Helper', country: 'Hong Kong', employerId: '3', employerName: 'Hong Kong Family Services Ltd.', slots: 5, filledSlots: 4, salaryRange: 'HKD 4,730/mo (minimum wage)', contractDuration: '2 years', requirements: ['Valid Passport', 'NBI Clearance', 'Medical Certificate', 'PEOS Certificate', 'OFW Information Sheet'], minExperience: 1, certifications: [], status: 'open', datePosted: '2026-03-15', deadline: '2026-06-30', notes: 'Employer family has 2 children aged 4 and 7. Must be comfortable with cooking Filipino and Chinese dishes.' },
-  { id: '3', code: 'JO-2026-0051', position: 'Registered Nurse / Caregiver', country: 'UAE', employerId: '4', employerName: 'Dubai Healthcare Authority', slots: 20, filledSlots: 12, salaryRange: 'AED 4,500–6,000/mo', contractDuration: '3 years', requirements: ['Valid Passport', 'NBI Clearance', 'Medical Certificate', 'PRC License', 'PEOS Certificate', 'DMW e-Registration'], minExperience: 2, certifications: ['PRC License - Nursing', 'DataFlow Verification', 'DHA License (preferred)'], status: 'open', datePosted: '2026-02-20', deadline: '2026-08-31', notes: 'DHA pre-licensure screening required. Agency to assist with DataFlow document verification. Premium employer — priority endorsement.' },
-  { id: '4', code: 'JO-2025-0189', position: 'Electrician (Building Works)', country: 'Qatar', employerId: '5', employerName: 'SkyBuild Construction Corp.', slots: 15, filledSlots: 15, salaryRange: 'QAR 1,800/mo', contractDuration: '1 year', requirements: ['Valid Passport', 'NBI Clearance', 'TESDA NC II - Electrical', 'Medical Certificate'], minExperience: 2, certifications: ['TESDA NC II - Electrical Installation'], status: 'filled', datePosted: '2025-10-01', deadline: '2025-12-31', notes: 'EMPLOYER SUSPENDED — Do not process new applicants under this order. Existing deployed workers are being monitored.' },
-];
-
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
   code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
   salaryRange: '', contractDuration: '', requirements: [], minExperience: 0, certifications: [],
@@ -41,8 +26,8 @@ interface Props {
 }
 
 export default function JobOrders({ showToast, currentUserName }: Props) {
-  const [orders, setOrders] = useState<JobOrder[]>(DEFAULT_ORDERS);
-  const [employers, setEmployers] = useState<EmployerProfile[]>(MOCK_EMPLOYERS);
+  const [orders, setOrders] = useState<JobOrder[]>([]);
+  const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | JobOrder['status']>('all');
   const [expanded, setExpanded] = useState<string | null>(null);

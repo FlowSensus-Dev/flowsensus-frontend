@@ -210,7 +210,7 @@ export default function ApplicantProfile({
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div ref={topRef} className="max-w-4xl space-y-0 pb-20">
+    <div ref={topRef} className="w-full space-y-0 pb-20">
 
       {/* ── Profile Header card ──────────────────────────────────────────────── */}
       <div className="bg-[#0F172A] rounded-t-xl overflow-hidden">

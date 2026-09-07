@@ -133,7 +133,7 @@ Date: ${new Date().toLocaleString()}
   const bothActionsComplete = workflow.cvApproved && workflow.employerAccepted;
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       <div className="mb-6 flex items-end justify-between">
         <div>
           <h2 className="text-3xl font-extrabold tracking-tight">

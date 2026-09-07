@@ -60,6 +60,7 @@ interface AppShellProps {
   updateWorkflow: (updates: Partial<WorkflowState>) => void;
   applicants: ApplicantRecord[];
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
+  addApplicant?: (newApplicant: ApplicantRecord) => void;
   activityLogs: ActivityLog[];
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   expenses: ExpenseRecord[];
@@ -74,6 +75,7 @@ export default function AppShell({
   updateWorkflow,
   applicants,
   updateApplicant,
+  addApplicant,
   activityLogs,
   addActivityLog,
   expenses,
@@ -81,14 +83,14 @@ export default function AppShell({
   onLogout,
 }: AppShellProps) {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [selectedApplicantId, setSelectedApplicantId] = useState<string>(applicants[0]?.id || '');
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
-  // Keep selectedApplicantId in sync when applicants load or change
+  // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
   useEffect(() => {
-    if (applicants.length > 0 && (!selectedApplicantId || !applicants.some(a => String(a.id) === String(selectedApplicantId)))) {
+    if (applicants.length > 0 && (!selectedApplicantId || (selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))))) {
       setSelectedApplicantId(String(applicants[0].id));
     }
   }, [applicants, selectedApplicantId]);
@@ -111,6 +113,9 @@ export default function AppShell({
   };
 
   const handleNavigate = (view: ViewType) => {
+    if (view === 'registration') {
+      setSelectedApplicantId('new');
+    }
     setCurrentView(view);
   };
 
@@ -173,7 +178,7 @@ export default function AppShell({
             applicants={applicants}
             onViewApplicant={handleViewApplicant}
             currentUserName={currentUserName}
-            onNavigate={setCurrentView}
+            onNavigate={handleNavigate}
           />
         );
       case 'applicant':
@@ -203,6 +208,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             selectedApplicantId={selectedApplicantId}
             updateApplicant={updateApplicant}
+            addApplicant={addApplicant}
             applicants={applicants}
           />
         );
@@ -343,13 +349,13 @@ export default function AppShell({
   };
 
   return (
-    <div className="w-full min-h-screen flex bg-[#F1F5F9]">
-      <Sidebar currentUserRole={currentUserRole} currentView={currentView} onViewChange={setCurrentView} />
+    <div className="w-full h-full flex bg-[#F1F5F9] overflow-hidden">
+      <Sidebar currentUserRole={currentUserRole} currentView={currentView} onViewChange={handleNavigate} />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex-1 h-full flex flex-col overflow-hidden relative">
         {/* Top Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 sticky top-0">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
           <div className="flex items-center gap-4 flex-1">
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 absolute left-4 top-2.5 text-slate-400" />

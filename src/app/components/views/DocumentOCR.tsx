@@ -15,6 +15,8 @@ import {
   Check,
   X,
   ShieldCheck,
+  Search,
+  Filter,
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
@@ -80,9 +82,56 @@ export default function DocumentOCR({
   selectedApplicantId = '1',
   applicants = [],
 }: DocumentOCRProps) {
-  const isLocked = !workflow.employerAccepted;
+  // Helper to determine if an applicant has reached Phase 4+ (Foreign Employer Acceptance, Visa, or Deployed)
+  const isApplicantQualifiedForPhase = (app?: ApplicantRecord | null) =>
+    Boolean(
+      app && (
+        app.phase >= 4 ||
+        ['Deployed', 'Employer Review', 'Visa Processing', 'Final Deployment'].includes(app.status)
+      )
+    );
 
-  const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId);
+  // List of only candidates who belong to Phase 4+ for the dropdown selector
+  const phaseQualifiedApplicants = applicants.filter(isApplicantQualifiedForPhase);
+
+  // Default candidate for quick switch recommendation if needed
+  const defaultQualified = phaseQualifiedApplicants[0] || applicants[0];
+
+  // Default value is empty string so selector displays "Select applicant for verification"
+  const [activeApplicantId, setActiveApplicantId] = useState<string>('');
+  const [testModeUnlocked, setTestModeUnlocked] = useState<boolean>(false);
+  const [applicantSearch, setApplicantSearch] = useState<string>('');
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState<boolean>(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Close search popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const activeApplicant = applicants.find((a) => String(a.id) === String(activeApplicantId));
+  const isApplicantQualified = isApplicantQualifiedForPhase(activeApplicant);
+
+  // Filter search results across all applicants
+  const searchResults = applicantSearch.trim()
+    ? applicants.filter((a) => {
+        const q = applicantSearch.toLowerCase();
+        return (
+          String(a.id).toLowerCase().includes(q) ||
+          a.name.toLowerCase().includes(q) ||
+          (a.role && a.role.toLowerCase().includes(q)) ||
+          (a.status && a.status.toLowerCase().includes(q))
+        );
+      })
+    : [];
+
+  const isLocked = !testModeUnlocked && !workflow.employerAccepted && !isApplicantQualified;
   const [engineStatus, setEngineStatus] = useState<{
     available: boolean;
     engine?: string;
@@ -264,7 +313,7 @@ export default function DocumentOCR({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl pb-12">
+    <div className="space-y-6 w-full pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -300,51 +349,256 @@ export default function DocumentOCR({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 relative">
-        {isLocked && (
-          <div className="absolute inset-0 bg-slate-100/90 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-2xl p-8">
-            <Lock className="w-12 h-12 text-slate-400 mb-3" />
-            <h3 className="font-black text-slate-900 text-xl mb-2">Access Restricted</h3>
-            <p className="text-sm text-slate-600 text-center max-w-md">
-              This module requires employer acceptance to be recorded by Management before document verification can proceed.
-            </p>
-          </div>
-        )}
-
-        {/* Applicant Selector */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700">Verification Target:</span>
+      {/* Target Candidate Selector & Quick Search */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Left: Phase 4+ Selector */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <ScanText className="w-4 h-4 text-purple-600" />
+              Verification Target:
+            </span>
             <select
               value={activeApplicantId}
               onChange={(e) => {
                 setActiveApplicantId(e.target.value);
                 setOcrResult(null);
               }}
-              className="text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
+              className="text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm min-w-[280px]"
             >
-              {applicants.map((app) => (
+              <option value="">Select applicant for verification</option>
+
+              {/* If currently selected applicant is locked/searched (not in Phase 4+), show them selected with lock badge */}
+              {activeApplicant && !isApplicantQualified && (
+                <option value={activeApplicant.id}>
+                  🔒 [LOCKED · Ph.{activeApplicant.phase}] #{activeApplicant.id} - {activeApplicant.name} ({activeApplicant.status})
+                </option>
+              )}
+
+              {/* In the dropdown, ONLY show applicants who are for this phase (Phase 4+ / 5) */}
+              {phaseQualifiedApplicants.map((app) => (
                 <option key={app.id} value={app.id}>
-                  #{app.id} - {app.name} ({app.role || 'Applicant'})
+                  #{app.id} - {app.name} (Ph.{app.phase} · {app.status} ✓ Ready)
                 </option>
               ))}
-            </select>
-          </div>
-          <span className="text-xs text-slate-500">
-            Database ground truth benchmark for cross-checking
-          </span>
-        </div>
 
-        {/* Error Alert */}
-        {errorMsg && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-900 text-xs">
-            <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-bold">OCR Processing Encountered an Issue:</p>
-              <p className="mt-0.5">{errorMsg}</p>
-            </div>
+              {phaseQualifiedApplicants.length === 0 && (
+                <option disabled>No Phase 4+ candidates available</option>
+              )}
+            </select>
+
+            <span className="text-[11px] font-medium text-slate-500 hidden sm:inline">
+              ({phaseQualifiedApplicants.length} Phase 4+ candidates ready for OCR)
+            </span>
           </div>
-        )}
+
+          {/* Right: Quick Search for any applicant across all phases */}
+          <div ref={searchContainerRef} className="relative">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={applicantSearch}
+                onChange={(e) => {
+                  setApplicantSearch(e.target.value);
+                  setIsSearchDropdownOpen(true);
+                }}
+                onFocus={() => setIsSearchDropdownOpen(true)}
+                placeholder="Search any candidate by name or #ID..."
+                className="pl-8 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white shadow-sm w-full sm:w-72 transition-all"
+              />
+              {applicantSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApplicantSearch('');
+                    setIsSearchDropdownOpen(false);
+                  }}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            {/* Live Search Suggestions Dropdown */}
+            {isSearchDropdownOpen && applicantSearch.trim() && (
+              <div className="absolute right-0 mt-1 w-80 sm:w-96 bg-white border border-slate-200 rounded-xl shadow-2xl z-30 max-h-64 overflow-y-auto py-1">
+                <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100 flex items-center justify-between">
+                  <span>Candidate Search Results</span>
+                  <span>{searchResults.length} found</span>
+                </div>
+                {searchResults.length === 0 ? (
+                  <div className="p-4 text-xs text-slate-500 text-center">
+                    No applicant found matching "{applicantSearch}"
+                  </div>
+                ) : (
+                  searchResults.map((app) => {
+                    const ready = isApplicantQualifiedForPhase(app);
+                    return (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveApplicantId(String(app.id));
+                          setOcrResult(null);
+                          setIsSearchDropdownOpen(false);
+                          setApplicantSearch('');
+                        }}
+                        className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-50 flex items-center justify-between gap-2 border-b border-slate-50 transition-colors ${
+                          String(app.id) === String(activeApplicantId) ? 'bg-purple-50' : ''
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-900 truncate">
+                            #{app.id} - {app.name}
+                          </p>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            {app.role || 'Candidate'} · Phase {app.phase} ({app.status})
+                          </p>
+                        </div>
+                        <span
+                          className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 ${
+                            ready
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {ready ? (
+                            <>
+                              <Check size={10} /> Ph.{app.phase} Ready
+                            </>
+                          ) : (
+                            <>
+                              <Lock size={10} /> Ph.{app.phase} Locked
+                            </>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Error Alert */}
+      {errorMsg && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-900 text-xs">
+          <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-bold">OCR Processing Encountered an Issue:</p>
+            <p className="mt-0.5">{errorMsg}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content: 
+          1. Empty State (no candidate selected yet)
+          2. Lock Gate Card (candidate selected is in Phase 1-3)
+          3. Upload & OCR Workspace (candidate selected is in Phase 4+)
+      */}
+      {!activeApplicant ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center mb-4 shadow-sm">
+            <ScanText className="w-8 h-8" />
+          </div>
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200 mb-3">
+            Ready for Document Inspection
+          </span>
+          <h3 className="font-extrabold text-slate-900 text-xl mb-2">
+            Select an Applicant for Verification
+          </h3>
+          <p className="text-sm text-slate-600 max-w-lg mb-6 leading-relaxed">
+            Please choose an eligible Phase 4+ candidate from the dropdown above or search any candidate by name to inspect documents and run biometric cross-validation against POEA/DMW records.
+          </p>
+
+          {/* Quick select cards of the Phase 4+ candidates */}
+          {phaseQualifiedApplicants.length > 0 && (
+            <div className="w-full max-w-xl">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                Eligible Candidates Ready for OCR ({phaseQualifiedApplicants.length})
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {phaseQualifiedApplicants.map((app) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveApplicantId(String(app.id));
+                      setOcrResult(null);
+                    }}
+                    className="p-3 bg-slate-50 hover:bg-purple-50 border border-slate-200 hover:border-purple-300 rounded-xl text-left transition-all flex items-center justify-between group cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-purple-700">
+                        #{app.id} - {app.name}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Ph.{app.phase} · {app.status}
+                      </p>
+                    </div>
+                    <span className="text-xs text-purple-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      Select →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : isLocked ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mb-4 shadow-sm">
+            <Lock className="w-8 h-8" />
+          </div>
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 mb-3 flex items-center gap-1.5">
+            <Lock size={12} /> Phase 5 Document Gate Active · OCR Locked
+          </span>
+          <h3 className="font-extrabold text-slate-900 text-xl mb-2">
+            Document OCR Locked for {activeApplicant?.name || 'Selected Applicant'} (#{activeApplicant?.id})
+          </h3>
+          <p className="text-sm text-slate-600 max-w-lg mb-6 leading-relaxed">
+            {activeApplicant ? (
+              <>
+                Candidate <strong className="text-slate-900">{activeApplicant.name}</strong> is currently in{' '}
+                <span className="inline-block px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-800 font-bold">
+                  Phase {activeApplicant.phase} · {activeApplicant.status}
+                </span>.
+                <br />
+                Document OCR biometric cross-validation unlocks once foreign employer hiring is confirmed (Phase 4+).
+              </>
+            ) : (
+              'This module requires foreign employer acceptance to be recorded before document verification proceeds.'
+            )}
+          </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {defaultQualified && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveApplicantId(String(defaultQualified.id));
+                  setOcrResult(null);
+                }}
+                className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+              >
+                <span>Switch to {defaultQualified.name} (#{defaultQualified.id} · Ph.{defaultQualified.phase} {defaultQualified.status})</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setTestModeUnlocked(true)}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition-colors"
+            >
+              Unlock for Testing & Demo
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
 
         {/* Upload State */}
         {!ocrResult ? (
@@ -755,6 +1009,7 @@ export default function DocumentOCR({
           </div>
         )}
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 }

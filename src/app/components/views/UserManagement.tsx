@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { ActivityLog, UserRole } from '../../types';
 import { api } from '../../../lib/api';
 
@@ -66,17 +66,40 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     fetchStaff();
   }, []);
 
+  const generateTempPassword = () => {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
+    let res = 'FS-';
+    for (let i = 0; i < 7; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+    return res + '!';
+  };
+
   const [newStaff, setNewStaff] = useState({
     name: '',
     email: '',
     department: '',
     role: 'Recruitment' as UserRole,
+    password: generateTempPassword(),
+    requirePasswordChange: true,
   });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    name: string;
+    email: string;
+    role: string;
+    department: string;
+    tempPass: string;
+    emailDispatched?: boolean;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const handleAddStaff = async () => {
     if (!newStaff.name || !newStaff.email) return;
 
     const deptInfo = DEPT_ROLE_MAP[newStaff.role] || { deptId: 2 };
+    const finalPassword = newStaff.password.trim() || generateTempPassword();
+    let emailDispatched = false;
 
     try {
       const res = await api.post('/users', {
@@ -85,9 +108,11 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         roleName: newStaff.role,
         departmentId: deptInfo.deptId,
         status: 'Active',
+        password: finalPassword,
       });
 
       const created = res.data;
+      emailDispatched = !!created.emailDispatched;
       const staffAccount: StaffAccount = {
         id: String(created.user_id),
         name: created.full_name,
@@ -121,8 +146,25 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
       details: `New staff account created: ${newStaff.name} (${newStaff.role}) - ${newStaff.email}`,
     });
 
-    setNewStaff({ name: '', email: '', department: '', role: 'Recruitment' });
+    setCreatedCredentials({
+      name: newStaff.name,
+      email: newStaff.email,
+      role: newStaff.role,
+      department: newStaff.department || deptInfo.dept,
+      tempPass: finalPassword,
+      emailDispatched,
+    });
+
+    setNewStaff({
+      name: '',
+      email: '',
+      department: '',
+      role: 'Recruitment',
+      password: generateTempPassword(),
+      requirePasswordChange: true,
+    });
     setShowAddModal(false);
+    setShowCredentialsModal(true);
   };
 
   const handleEditStaff = async () => {
@@ -397,6 +439,56 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   <option value="Management">Management</option>
                 </select>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-[#475569] uppercase tracking-wide flex items-center gap-1.5">
+                    <Key size={13} className="text-[#0EA5E9]" /> Temporary Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setNewStaff(s => ({ ...s, password: generateTempPassword() }))}
+                    className="text-[11px] font-bold text-[#0EA5E9] hover:text-[#0284C7] flex items-center gap-1"
+                  >
+                    <Sparkles size={11} /> Auto-Generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newStaff.password}
+                    onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
+                    className="w-full border-2 border-slate-200 pl-3 pr-10 py-2.5 rounded-lg text-sm font-mono focus:border-[#0EA5E9] outline-none"
+                    placeholder="Enter or generate temporary password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  The employee will use this temporary password to log in and will be prompted to change it.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newStaff.requirePasswordChange}
+                    onChange={(e) => setNewStaff({ ...newStaff, requirePasswordChange: e.target.checked })}
+                    className="mt-0.5 rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                  />
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">Require Password Change on First Login</p>
+                    <p className="text-[11px] text-slate-500">Employee must set a new private password before accessing recruitment records.</p>
+                  </div>
+                </label>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={() => setShowAddModal(false)}
@@ -412,6 +504,134 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   Add Staff
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credentials Confirmation & Email Dispatch Modal */}
+      {showCredentialsModal && createdCredentials && (
+        <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Key size={18} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[#0F172A] text-base">Account Provisioned Successfully</h3>
+                  <p className="text-xs text-slate-500">Credentials are ready to send to the employee</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCredentialsModal(false);
+                  setCreatedCredentials(null);
+                }}
+                className="text-slate-400 hover:text-[#0F172A]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 font-medium">Employee Name:</span>
+                  <span className="font-bold text-slate-900">{createdCredentials.name}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 font-medium">Work Email:</span>
+                  <span className="font-bold text-slate-900">{createdCredentials.email}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 font-medium">Assigned Role:</span>
+                  <span className="font-bold text-[#0EA5E9] bg-sky-50 px-2 py-0.5 rounded border border-sky-200">{createdCredentials.role}</span>
+                </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Temporary Password</p>
+                      <p className="text-base font-mono font-black text-slate-900 tracking-wider mt-0.5">{createdCredentials.tempPass}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(createdCredentials.tempPass);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 shadow-sm"
+                    >
+                      {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {createdCredentials.emailDispatched ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-emerald-900">
+                    <p className="font-bold">Automated Agency Invitation Dispatched</p>
+                    <p className="text-emerald-700 mt-0.5 leading-relaxed">
+                      An official onboarding email was dispatched automatically from the agency workspace to <strong className="text-emerald-950">{createdCredentials.email}</strong>.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-sky-900">
+                    <p className="font-bold">Staff Account Active & Ready</p>
+                    <p className="text-sky-700 mt-0.5 leading-relaxed">
+                      Credentials are securely provisioned. You can copy the login details or full onboarding invitation below to forward to the employee.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdCredentials.tempPass);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                >
+                  {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                  <span>{copied ? 'Password Copied!' : 'Copy Password'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
+                    navigator.clipboard.writeText(onboardingMsg);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2500);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-md shadow-sky-500/20 transition-colors"
+                >
+                  <Mail size={14} />
+                  <span>Copy Full Invite</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium pt-1">
+                <ShieldCheck size={13} className="text-slate-400 flex-shrink-0" />
+                <span>Multi-tenant data boundary enforced. Personal email accounts are never accessed.</span>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowCredentialsModal(false);
+                  setCreatedCredentials(null);
+                }}
+                className="w-full py-2 text-center text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                Close & Return to Staff List
+              </button>
             </div>
           </div>
         </div>

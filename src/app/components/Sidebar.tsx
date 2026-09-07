@@ -121,7 +121,7 @@ export default function Sidebar({ currentUserRole, currentView, onViewChange }: 
   };
 
   return (
-    <aside className="w-[260px] flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
+    <aside className="w-[260px] h-full flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-white/10">
         <Logo size="small" />

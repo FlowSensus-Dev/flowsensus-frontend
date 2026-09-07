@@ -23,62 +23,6 @@ const REMARK_META: Record<EmployerRemark['category'], { label: string; color: st
   complaint:    { label: 'Complaint',    color: '#EF4444', icon: <ThumbsDown size={13} /> },
 };
 
-const DEFAULT_EMPLOYERS: EmployerProfile[] = [
-  {
-    id: '1', companyName: 'Al-Marai Hospital Group', country: 'Saudi Arabia', industry: 'Healthcare & Hospital Services',
-    contactPerson: 'Dr. Tariq Al-Ghamdi', contactEmail: 'recruitment@almarai-health.sa', contactPhone: '+966 11 405 8899',
-    address: 'King Fahd Road, Al Olaya, Riyadh 12213, Saudi Arabia', website: 'https://www.almarai-health.sa',
-    accreditationNo: 'POEA-DMW-KSA-2023-0144', accreditationExpiry: '2027-12-31',
-    status: 'active', rating: 5, totalDeployed: 145, activeJobOrders: 2, createdAt: '2022-01-10',
-    remarks: [
-      { id: 'rem-000', date: '2026-01-10', author: 'Admin User', category: 'commendation', content: 'Premier hospital network in Riyadh. Prompt salary transfers and premium medical accommodations.' },
-    ],
-  },
-  {
-    id: '2', companyName: 'Al-Futtaim Engineering LLC', country: 'UAE', industry: 'Construction & Engineering',
-    contactPerson: 'Mr. Ahmed Al-Rashid', contactEmail: 'a.rashid@alfuttaim.ae', contactPhone: '+971 4 701 0000',
-    address: 'Al-Futtaim Tower, Sheikh Zayed Road, Dubai, UAE', website: 'https://www.alfuttaim.com',
-    accreditationNo: 'POEA-DMW-UAE-2024-0042', accreditationExpiry: '2026-04-30',
-    status: 'active', rating: 5, totalDeployed: 312, activeJobOrders: 3, createdAt: '2022-01-15',
-    remarks: [
-      { id: 'rem-001', date: '2026-03-10', author: 'Maria Santos', category: 'commendation', content: 'Employer consistently pays salaries on time and provides decent accommodation. Workers report high satisfaction. No complaints received in 3 years.' },
-      { id: 'rem-002', date: '2025-11-05', author: 'Juan Reyes', category: 'positive', content: '2-year contract renewal offered to 18 out of 20 deployed workers. Strong indicator of employer satisfaction.' },
-    ],
-  },
-  {
-    id: '3', companyName: 'Hong Kong Family Services Ltd.', country: 'Hong Kong', industry: 'Domestic / Household',
-    contactPerson: 'Ms. Catherine Wong', contactEmail: 'c.wong@hkfs.hk', contactPhone: '+852 2345 6789',
-    address: 'Unit 18B, Pacific Place, 88 Queensway, Admiralty, HK', website: 'https://www.hkfamilyservices.org.hk',
-    accreditationNo: 'POEA-DMW-HK-2024-0081', accreditationExpiry: '2025-12-31',
-    status: 'pending', rating: 3, totalDeployed: 87, activeJobOrders: 2, createdAt: '2021-06-01',
-    remarks: [
-      { id: 'rem-003', date: '2025-09-18', author: 'Maria Santos', category: 'negative', content: 'One worker reported delay in weekly rest day allowance. Verified and employer was reminded. Worker situation resolved.' },
-      { id: 'rem-004', date: '2024-04-22', author: 'Admin User', category: 'neutral', content: 'Accreditation renewal pending. Advised employer to renew before December 2025. Follow up scheduled.' },
-    ],
-  },
-  {
-    id: '4', companyName: 'Dubai Healthcare Authority', country: 'UAE', industry: 'Healthcare',
-    contactPerson: 'Dr. Fatima Al-Maktoum', contactEmail: 'f.maktoum@dha.ae', contactPhone: '+971 4 219 6000',
-    address: 'DHA Headquarters, Bur Dubai, Dubai, UAE', website: 'https://www.dha.gov.ae',
-    accreditationNo: 'POEA-DMW-UAE-2024-0119', accreditationExpiry: '2027-01-15',
-    status: 'active', rating: 5, totalDeployed: 204, activeJobOrders: 5, createdAt: '2020-03-10',
-    remarks: [
-      { id: 'rem-005', date: '2026-02-01', author: 'Admin User', category: 'commendation', content: 'Government employer. Excellent track record. Provides housing, meals, transport, and health insurance for all deployed workers.' },
-    ],
-  },
-  {
-    id: '5', companyName: 'SkyBuild Construction Corp.', country: 'Qatar', industry: 'Construction',
-    contactPerson: 'Mr. Khalid Al-Thani', contactEmail: 'k.althani@skybuild.qa', contactPhone: '+974 4432 1100',
-    address: 'West Bay, Doha, Qatar',  website: 'https://www.skybuild-corp.qa',
-    accreditationNo: 'POEA-DMW-QA-2023-0033', accreditationExpiry: '2024-06-30',
-    status: 'suspended', rating: 2, totalDeployed: 45, activeJobOrders: 0, createdAt: '2023-01-20',
-    remarks: [
-      { id: 'rem-006', date: '2024-07-12', author: 'Maria Santos', category: 'complaint', content: 'Three workers filed complaints about unpaid overtime (4 months). DMW case reference: DMW-2024-QA-00441. Employer suspended pending investigation.' },
-      { id: 'rem-007', date: '2024-08-01', author: 'Admin User', category: 'negative', content: 'Accreditation expired June 2024. Do not accept new job orders from this employer until case is resolved and accreditation is renewed.' },
-    ],
-  },
-];
-
 const BLANK_EMPLOYER: Omit<EmployerProfile, 'id' | 'createdAt' | 'remarks' | 'totalDeployed' | 'activeJobOrders'> = {
   companyName: '', country: '', industry: '', contactPerson: '', contactEmail: '', contactPhone: '',
   address: '', website: '', accreditationNo: '', accreditationExpiry: '',
@@ -91,7 +35,7 @@ interface Props {
 }
 
 export default function EmployerProfiles({ showToast, currentUserName }: Props) {
-  const [employers, setEmployers] = useState<EmployerProfile[]>(DEFAULT_EMPLOYERS);
+  const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployerProfile['status']>('all');
   const [expanded, setExpanded] = useState<string | null>(null);

@@ -27,19 +27,24 @@ export default function InlineApplicantSelector({
             onChange={(e) => onSelectApplicant(e.target.value)}
             className="w-full border-2 border-[#0EA5E9]/30 px-4 py-2.5 rounded-lg text-sm font-bold bg-white focus:border-[#0EA5E9] outline-none"
           >
-            {applicants.map((applicant) => (
-              <option key={applicant.id} value={applicant.id}>
-                {applicant.id} - {applicant.name} ({applicant.role}) - Phase {applicant.phase}
-              </option>
-            ))}
+            <option value="new" className="text-emerald-700 font-bold bg-emerald-50">
+              ✨ + Register New Candidate (Blank Form)
+            </option>
+            <optgroup label="── Existing Registered Applicants ──">
+              {applicants.map((applicant) => (
+                <option key={applicant.id} value={applicant.id}>
+                  {applicant.id} - {applicant.name} ({applicant.role}) - Phase {applicant.phase}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
-        {selectedApplicant && (
-          <div className="text-right">
-            <p className="text-xs text-[#64748B] font-medium">Current Status</p>
-            <p className="text-sm font-bold text-[#0F172A]">{selectedApplicant.status}</p>
-          </div>
-        )}
+        <div className="text-right">
+          <p className="text-xs text-[#64748B] font-medium">Current Status</p>
+          <p className={`text-sm font-bold ${selectedApplicantId === 'new' ? 'text-emerald-600' : 'text-[#0F172A]'}`}>
+            {selectedApplicantId === 'new' ? '✨ New Intake' : (selectedApplicant?.status || 'Active')}
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -120,7 +120,7 @@ export default function Screening({
 
   if (listView) {
     return (
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-6 w-full">
         <div>
           <h2 className="text-2xl font-bold text-[#0F172A] flex items-center gap-2">
             <Microscope className="w-6 h-6 text-[#0EA5E9]" /> Screening Module
@@ -212,7 +212,7 @@ export default function Screening({
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 w-full">
       {/* Back button */}
       <button onClick={() => setListView(true)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#0EA5E9] transition-colors font-medium">
         <ArrowLeft size={16} /> Back to applicant list
