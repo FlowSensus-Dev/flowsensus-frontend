@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lock, Save, Download } from 'lucide-react';
+import { Lock, Save, Download, Loader2 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
 
@@ -19,10 +19,11 @@ export default function CVEncoding({
   currentUserName,
   addActivityLog,
   updateApplicant,
-  selectedApplicantId: initialApplicantId = 'APP-2026-089',
+  selectedApplicantId: initialApplicantId = '1',
   applicants = [],
 }: CVEncodingProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const isLocked = !workflow.medicalCleared;
 
   const handleExportToPDF = () => {
@@ -105,29 +106,35 @@ Date Generated: ${new Date().toLocaleString()}
     showToast('✓ CV exported successfully');
   };
 
-  const handleSubmit = () => {
-    const applicantId = selectedApplicantId;
+  const handleSubmit = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const applicantId = selectedApplicantId;
 
-    addActivityLog({
-      applicantId,
-      action: 'CV Submitted for Approval',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: 'CV formatted and submitted to management for approval',
-    });
+      addActivityLog({
+        applicantId,
+        action: 'CV Submitted for Approval',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: 'CV formatted and submitted to management for approval',
+      });
 
-    updateApplicant(applicantId, {
-      status: 'Pending Manager Approval',
-      currentHandler: 'Admin User',
-      currentDepartment: 'Management',
-      phaseDescription: 'CV awaiting management review and approval',
-    });
+      updateApplicant(applicantId, {
+        status: 'Pending Manager Approval',
+        currentHandler: 'Admin User',
+        currentDepartment: 'Management',
+        phaseDescription: 'CV awaiting management review and approval',
+      });
 
-    showToast('CV submitted to Manager for approval');
+      showToast('CV submitted to Manager for approval');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 w-full">
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-3xl font-extrabold tracking-tight">CV Encoding & Formatting</h2>
@@ -247,11 +254,20 @@ Date Generated: ${new Date().toLocaleString()}
             </button>
             <button
               onClick={handleSubmit}
-              disabled={isLocked}
+              disabled={isLocked || isSubmitting}
               className="px-8 py-2.5 bg-[#0EA5E9] text-white text-sm font-bold hover:bg-[#0284C7] shadow-lg shadow-[#0EA5E9]/20 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Save className="w-4 h-4" />
-              Submit for Approval
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Submitting for Approval...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Submit for Approval
+                </>
+              )}
             </button>
           </div>
         </div>

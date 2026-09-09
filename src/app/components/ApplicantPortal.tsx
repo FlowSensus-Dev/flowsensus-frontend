@@ -8,7 +8,7 @@ import {
 // ─── Dummy data ───────────────────────────────────────────────────────────────
 
 const APPLICANT = {
-  id: 'APP-2024-033',
+  id: '1',
   name: 'Grace P. Villanueva',
   initials: 'GV',
   role: 'Caregiver',
@@ -98,7 +98,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#F1F5F9]">
+    <div className="w-full h-full overflow-y-auto bg-[#F1F5F9]">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between sticky top-0 z-20 shadow-sm">

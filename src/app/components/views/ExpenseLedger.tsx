@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Lock, DollarSign, Plus, Receipt } from 'lucide-react';
-import { WorkflowState, ExpenseRecord, ActivityLog } from '../../types';
+import { Lock, DollarSign, Plus, Receipt, Loader2 } from 'lucide-react';
+import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ExpenseLedgerProps {
   workflow: WorkflowState;
@@ -10,6 +10,7 @@ interface ExpenseLedgerProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast: (message: string) => void;
   selectedApplicantId?: string;
+  applicants?: ApplicantRecord[];
 }
 
 export default function ExpenseLedger({
@@ -19,10 +20,12 @@ export default function ExpenseLedger({
   currentUserName,
   addActivityLog,
   showToast,
-  selectedApplicantId = 'APP-2026-089',
+  selectedApplicantId = '1',
+  applicants = [],
 }: ExpenseLedgerProps) {
   const isLocked = !workflow.employerAccepted;
   const [showForm, setShowForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newExpense, setNewExpense] = useState({
     type: 'Visa Processing Fee',
     amount: 15000,
@@ -30,60 +33,48 @@ export default function ExpenseLedger({
     category: 'visa' as const,
   });
 
-  // Add mock expense for demo
-  const mockExpenses: ExpenseRecord[] = [
-    {
-      id: 'EXP-001',
-      applicantId: selectedApplicantId,
-      type: 'Visa Processing Fee',
-      amount: 15000,
-      description: 'Saudi Arabia work visa application and processing',
-      date: '2026-05-24',
-      recordedBy: currentUserName,
-      category: 'visa',
-    },
-    {
-      id: 'EXP-002',
-      applicantId: selectedApplicantId,
-      type: 'Medical Examination',
-      amount: 3500,
-      description: 'Pre-deployment medical checkup at Makati Medical Center',
-      date: '2026-05-20',
-      recordedBy: 'Admin User',
-      category: 'medical',
-    },
-  ];
-
-  const allExpenses = [...mockExpenses, ...expenses];
+  // Live expenses strictly from Supabase backend
+  const allExpenses = expenses;
   const totalExpenses = allExpenses.reduce((sum, exp) => sum + exp.amount, 0);
 
-  const handleAddExpense = () => {
-    const expense: Omit<ExpenseRecord, 'id'> = {
-      applicantId: selectedApplicantId,
-      type: newExpense.type,
-      amount: newExpense.amount,
-      description: newExpense.description,
-      date: new Date().toISOString().split('T')[0],
-      recordedBy: currentUserName,
-      category: newExpense.category,
-    };
+  const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
+  const applicantDisplayName = selectedApplicant
+    ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || 'Juan Dela Cruz')
+    : 'Juan Dela Cruz';
 
-    addExpense(expense);
+  const handleAddExpense = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const expense: Omit<ExpenseRecord, 'id'> = {
+        applicantId: selectedApplicantId,
+        type: newExpense.type,
+        amount: newExpense.amount,
+        description: newExpense.description,
+        date: new Date().toISOString().split('T')[0],
+        recordedBy: currentUserName,
+        category: newExpense.category,
+      };
 
-    addActivityLog({
-      applicantId: selectedApplicantId,
-      action: 'Financial Transaction Recorded',
-      performedBy: currentUserName,
-      department: 'Accounting',
-      details: `${newExpense.type}: ₱${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
-    });
+      await Promise.resolve(addExpense(expense));
 
-    showToast(`✓ Expense recorded: ${newExpense.type} (₱${newExpense.amount.toLocaleString()})`);
-    setShowForm(false);
+      addActivityLog({
+        applicantId: selectedApplicantId,
+        action: 'Financial Transaction Recorded',
+        performedBy: currentUserName,
+        department: 'Accounting',
+        details: `${newExpense.type}: ₱${newExpense.amount.toLocaleString()} - ${newExpense.description}`,
+      });
+
+      showToast(`✓ Expense recorded: ${newExpense.type} (₱${newExpense.amount.toLocaleString()})`);
+      setShowForm(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight">
           <Receipt className="w-8 h-8 inline-block mr-2 text-[#10B981]" />
@@ -117,8 +108,8 @@ export default function ExpenseLedger({
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-6">
             <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
-            <p className="text-lg font-black text-[#0F172A]">Juan Dela Cruz</p>
-            <p className="text-xs text-[#64748B]">APP-2026-089</p>
+            <p className="text-lg font-black text-[#0F172A]">{applicantDisplayName}</p>
+            <p className="text-xs text-[#64748B]">Applicant #{selectedApplicantId}</p>
           </div>
         </div>
 
@@ -175,15 +166,24 @@ export default function ExpenseLedger({
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowForm(false)}
-                className="px-4 py-2 border-2 border-slate-200 text-[#475569] text-sm font-bold rounded-lg hover:bg-slate-100"
+                disabled={isSubmitting}
+                className="px-4 py-2 border-2 border-slate-200 text-[#475569] text-sm font-bold rounded-lg hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddExpense}
-                className="px-6 py-2 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] rounded-lg"
+                disabled={isSubmitting}
+                className="flex items-center gap-2 px-6 py-2 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm"
               >
-                Record Transaction
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Recording...
+                  </>
+                ) : (
+                  'Record Transaction'
+                )}
               </button>
             </div>
           </div>
@@ -193,26 +193,34 @@ export default function ExpenseLedger({
         <div>
           <h3 className="font-bold text-[#0F172A] mb-4">Transaction History</h3>
           <div className="space-y-3">
-            {allExpenses.map((expense) => (
-              <div
-                key={expense.id}
-                className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#10B981] transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#10B981]/10 flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-[#10B981]" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-[#0F172A]">{expense.type}</p>
-                    <p className="text-sm text-[#64748B]">{expense.description}</p>
-                    <p className="text-xs text-[#64748B] mt-1">
-                      Recorded by: {expense.recordedBy} • {expense.date}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#10B981]">₱{expense.amount.toLocaleString()}</p>
+            {allExpenses.length === 0 ? (
+              <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-lg">
+                <DollarSign className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-500">No financial transactions recorded yet</p>
+                <p className="text-xs text-slate-400 mt-1">Recorded financial transactions will appear here.</p>
               </div>
-            ))}
+            ) : (
+              allExpenses.map((expense) => (
+                <div
+                  key={expense.id}
+                  className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#10B981] transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-[#10B981]/10 flex items-center justify-center">
+                      <DollarSign className="w-6 h-6 text-[#10B981]" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-[#0F172A]">{expense.type}</p>
+                      <p className="text-sm text-[#64748B]">{expense.description}</p>
+                      <p className="text-xs text-[#64748B] mt-1">
+                        Recorded by: {expense.recordedBy} • {expense.date}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-2xl font-black text-[#10B981]">₱{expense.amount.toLocaleString()}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

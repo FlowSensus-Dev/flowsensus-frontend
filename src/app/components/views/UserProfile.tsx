@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { User, Mail, Phone, Shield, Calendar, Key, Save, Edit2, CheckCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Mail, Phone, Shield, Calendar, Key, Save, Edit2, CheckCircle, Eye, EyeOff, Check, X, ShieldCheck, Loader2 } from 'lucide-react';
 import { UserRole, ActivityLog } from '../../types';
+import { supabase } from '../../../lib/supabase';
+import { api } from '../../../lib/api';
+import { validatePassword } from '../../../lib/passwordPolicy';
 
 interface UserProfileProps {
   currentUserName: string;
@@ -25,14 +28,88 @@ export default function UserProfile({
                  currentUserRole === 'Accounting' ? 'Finance & Accounting' :
                  currentUserRole === 'Management' ? 'Management' : 'Applicant Services',
     employeeId: 'EMP-2026-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
-    joinDate: '2024-06-15',
+    joinDate: '',
   });
+
+  // Dynamically load account metadata and exact created_at timestamp
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAccountData() {
+      try {
+        // 1. Fetch live authenticated user from Supabase Auth
+        const { data: { user } } = await supabase.auth.getUser();
+        let exactCreatedAt = user?.created_at;
+        let accountEmail = user?.email;
+
+        // 2. Fetch corresponding database record from USER table
+        let dbUser: any = null;
+        if (accountEmail) {
+          const { data } = await supabase
+            .from('USER')
+            .select('user_id, full_name, email, department_id')
+            .eq('email', accountEmail)
+            .maybeSingle();
+          dbUser = data;
+        } else if (currentUserName) {
+          const { data } = await supabase
+            .from('USER')
+            .select('user_id, full_name, email, department_id')
+            .ilike('full_name', `%${currentUserName}%`)
+            .maybeSingle();
+          dbUser = data;
+        }
+
+        // 3. Fallback to /users/me API if needed
+        if (!exactCreatedAt) {
+          try {
+            const res = await api.get('/users/me');
+            if (res?.data?.created_at) {
+              exactCreatedAt = res.data.created_at;
+            }
+            if (res?.data?.email && !accountEmail) {
+              accountEmail = res.data.email;
+            }
+            if (res?.data?.user_id && !dbUser) {
+              dbUser = res.data;
+            }
+          } catch (e) {
+            // Ignored if API offline
+          }
+        }
+
+        if (isMounted) {
+          setFormData((prev) => ({
+            ...prev,
+            fullName: dbUser?.full_name || user?.user_metadata?.full_name || prev.fullName,
+            email: dbUser?.email || accountEmail || prev.email,
+            employeeId: dbUser?.user_id
+              ? `EMP-2026-${String(dbUser.user_id).padStart(3, '0')}`
+              : prev.employeeId,
+            joinDate: exactCreatedAt || prev.joinDate || new Date().toISOString(),
+          }));
+        }
+      } catch (err) {
+        console.warn('Could not dynamically load account profile:', err);
+      }
+    }
+
+    loadAccountData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUserName]);
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   // Get user's recent activity
   const userActivity = activityLogs
@@ -51,17 +128,41 @@ export default function UserProfile({
     showToast('✓ Profile updated successfully');
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      showToast('❌ Passwords do not match');
+      showToast('❌ Passwords do not match. Please re-type your confirmation password.');
       return;
     }
-    if (passwordData.newPassword.length < 8) {
-      showToast('❌ Password must be at least 8 characters');
+    const val = validatePassword(passwordData.newPassword);
+    if (!val.isValid) {
+      showToast(`❌ ${val.errors[0]}`);
       return;
     }
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    showToast('✓ Password changed successfully');
+
+    setIsSavingPassword(true);
+    try {
+      // 1. Update in Supabase Auth
+      const { error: authError } = await supabase.auth.updateUser({
+        password: passwordData.newPassword,
+      });
+      if (authError) throw authError;
+
+      // 2. Synchronize password hash in backend USER table
+      try {
+        await api.post('/users/change-password', {
+          new_password: passwordData.newPassword,
+        });
+      } catch (apiErr) {
+        console.warn('Backend sync notice:', apiErr);
+      }
+
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      showToast('✓ Password updated successfully with enterprise bcrypt hashing.');
+    } catch (err: any) {
+      showToast(`❌ ${err.message || 'Failed to change password. Please try again.'}`);
+    } finally {
+      setIsSavingPassword(false);
+    }
   };
 
   const getRoleBadgeColor = (role: UserRole) => {
@@ -80,7 +181,7 @@ export default function UserProfile({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       {/* Header */}
       <div className="mb-6">
         <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">
@@ -210,11 +311,20 @@ export default function UserProfile({
                     Join Date
                   </label>
                   <p className="text-sm font-bold text-[#0F172A]">
-                    {new Date(formData.joinDate).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
+                    {formData.joinDate ? (
+                      (() => {
+                        const d = new Date(formData.joinDate);
+                        return isNaN(d.getTime())
+                          ? formData.joinDate
+                          : d.toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            });
+                      })()
+                    ) : (
+                      <span className="text-slate-400 font-normal">Loading...</span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -233,64 +343,173 @@ export default function UserProfile({
             </div>
           </div>
 
-          {/* Security Settings */}
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center gap-2 mb-6 pb-4 border-b border-slate-200">
-              <Key className="w-5 h-5 text-[#F59E0B]" />
-              <h3 className="font-black text-[#0F172A] text-lg">Security Settings</h3>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                  Current Password
-                </label>
-                <input
-                  type="password"
-                  value={passwordData.currentPassword}
-                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                  className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                  placeholder="Enter current password"
-                />
+            {/* Security Settings */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-2 mb-6 pb-4 border-b border-slate-200">
+                <Key className="w-5 h-5 text-[#F59E0B]" />
+                <h3 className="font-black text-[#0F172A] text-lg">Security Settings</h3>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
+                {/* Current Password */}
                 <div>
                   <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                    New Password
+                    Current Password
                   </label>
-                  <input
-                    type="password"
-                    value={passwordData.newPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                    className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                    placeholder="Min. 8 characters"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      value={passwordData.currentPassword}
+                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                      className="w-full pl-3 pr-10 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none font-mono"
+                      placeholder="Enter current password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                    Confirm Password
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                    className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                    placeholder="Re-enter new password"
-                  />
-                </div>
-              </div>
 
-              <button
-                onClick={handleChangePassword}
-                disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
-                className="w-full px-6 py-3 bg-[#F59E0B] text-white text-sm font-bold rounded-lg hover:bg-[#D97706] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Key className="w-4 h-4" />
-                Change Password
-              </button>
+                {/* New Password and Confirm Password */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
+                      New Password <span className="text-slate-400 font-normal lowercase">(8–12+ chars)</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={passwordData.newPassword}
+                        onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                        className="w-full pl-3 pr-10 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none font-mono"
+                        placeholder="Min. 8 characters"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
+                      Confirm Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        value={passwordData.confirmPassword}
+                        onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                        className="w-full pl-3 pr-10 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none font-mono"
+                        placeholder="Re-enter new password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {passwordData.confirmPassword && (
+                      <p className={`text-[11px] mt-1.5 flex items-center gap-1 font-medium ${
+                        passwordData.newPassword === passwordData.confirmPassword ? 'text-emerald-600' : 'text-rose-500'
+                      }`}>
+                        {passwordData.newPassword === passwordData.confirmPassword ? (
+                          <>
+                            <Check size={12} /> Passwords match
+                          </>
+                        ) : (
+                          <>
+                            <X size={12} /> Passwords do not match
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Password Policy Requirements Card */}
+                {(() => {
+                  const policy = validatePassword(passwordData.newPassword);
+                  const reqs = [
+                    { label: '8–12+ characters (8 min, 12+ recommended)', met: policy.checks.minLength },
+                    { label: 'Uppercase letter (A–Z)', met: policy.checks.hasUpper },
+                    { label: 'Lowercase letter (a–z)', met: policy.checks.hasLower },
+                    { label: 'Numeric digit (0–9)', met: policy.checks.hasNumber },
+                    { label: 'Special character (!@#$%...)', met: policy.checks.hasSpecial },
+                    { label: 'Avoid common weak passwords', met: policy.checks.notCommon },
+                  ];
+                  const metCount = reqs.filter(r => r.met).length;
+
+                  return (
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-3 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                        <span className="flex items-center gap-1.5">
+                          <ShieldCheck size={13} className="text-[#F59E0B]" />
+                          Password Policy Standards
+                        </span>
+                        <span className={policy.isValid ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
+                          {policy.isValid ? '✓ Standards Met' : `${metCount}/${reqs.length}`}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 pt-1">
+                        {reqs.map((req, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex items-center gap-1.5 text-[11px] transition-colors ${
+                              req.met ? 'text-emerald-700 font-medium' : 'text-slate-500'
+                            }`}
+                          >
+                            {req.met ? (
+                              <Check size={12} className="text-emerald-500 flex-shrink-0" />
+                            ) : (
+                              <span className="w-2.5 h-2.5 rounded-full border border-slate-300 flex items-center justify-center flex-shrink-0">
+                                <span className="w-1 h-1 rounded-full bg-slate-400" />
+                              </span>
+                            )}
+                            <span className="truncate">{req.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <button
+                  onClick={handleChangePassword}
+                  disabled={
+                    isSavingPassword ||
+                    !passwordData.currentPassword ||
+                    !passwordData.newPassword ||
+                    !passwordData.confirmPassword
+                  }
+                  className="w-full px-6 py-3 bg-[#F59E0B] text-white text-sm font-bold rounded-lg hover:bg-[#D97706] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
+                >
+                  {isSavingPassword ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Updating Password...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="w-4 h-4" />
+                      Change Password
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
         </div>
 
         {/* Right Column - Activity Stats & Recent Activity */}

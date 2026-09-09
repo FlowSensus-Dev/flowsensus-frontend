@@ -1,10 +1,10 @@
 import axios from "axios";
 import { supabase } from "./supabase"; // <-- We import your Supabase client here
 
-const fallbackApiUrl = "https://flowsensus-backend.onrender.com";
+const fallbackApiUrl = "http://localhost:8000";
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || fallbackApiUrl,
+  baseURL: import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL || fallbackApiUrl,
   headers: {
     "Content-Type": "application/json",
   },
@@ -20,9 +20,12 @@ api.interceptors.request.use(
       console.error("Error fetching Supabase session:", error.message);
     }
 
-    // 2. If a user is logged in, grab their secure token and attach it to the request
+    // 2. If a user is logged in, grab their secure token and attach it to the request.
+    // Otherwise, attach dev_token fallback so development and testing proceed seamlessly.
     if (session && session.access_token) {
       config.headers.Authorization = `Bearer ${session.access_token}`;
+    } else {
+      config.headers.Authorization = `Bearer dev_token`;
     }
 
     return config;

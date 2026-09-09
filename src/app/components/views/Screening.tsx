@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight } from 'lucide-react';
+import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight, Loader2 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ScreeningProps {
@@ -20,13 +20,14 @@ export default function Screening({
   currentUserName,
   addActivityLog,
   updateApplicant,
-  selectedApplicantId: initialApplicantId = 'APP-2026-089',
+  selectedApplicantId: initialApplicantId = '1',
   applicants = [],
 }: ScreeningProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
   const [listView, setListView] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showStopModal, setShowStopModal] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [stopReason, setStopReason] = useState('');
 
   const handleStopProcessing = () => {
@@ -66,35 +67,41 @@ export default function Screening({
     setShowModal(true);
   };
 
-  const handleGenerateReferral = () => {
-    const applicantId = selectedApplicantId;
+  const handleGenerateReferral = async () => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const applicantId = selectedApplicantId;
 
-    updateWorkflow({ screeningPassed: true });
-    updateApplicant(applicantId, {
-      phase: 2,
-      status: 'Medical Clearance',
-      currentHandler: 'Maria Santos',
-      currentDepartment: 'Admin',
-      phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
-      testScores: {
-        englishProficiency: examScores.englishProficiency,
-        tradeSkills: examScores.tradeSkills,
-        iqAptitude: examScores.iqAptitude,
-        personalityEQ: examScores.personalityEQ,
-        employerSpecific: examScores.employerSpecific || undefined,
-      },
-    });
+      updateWorkflow({ screeningPassed: true });
+      updateApplicant(applicantId, {
+        phase: 2,
+        status: 'Medical Clearance',
+        currentHandler: 'Maria Santos',
+        currentDepartment: 'Admin',
+        phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
+        testScores: {
+          englishProficiency: examScores.englishProficiency,
+          tradeSkills: examScores.tradeSkills,
+          iqAptitude: examScores.iqAptitude,
+          personalityEQ: examScores.personalityEQ,
+          employerSpecific: examScores.employerSpecific || undefined,
+        },
+      });
 
-    addActivityLog({
-      applicantId,
-      action: 'Screening Passed & Medical Referral Generated',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: `Recruiter ${currentUserName} logged digital signature. Test scores: English ${examScores.englishProficiency}%, Trade Skills ${examScores.tradeSkills}%, IQ/Aptitude ${examScores.iqAptitude}%, Personality: ${examScores.personalityEQ}. Medical referral PDF auto-generated.`,
-    });
+      addActivityLog({
+        applicantId,
+        action: 'Screening Passed & Medical Referral Generated',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Recruiter ${currentUserName} logged digital signature. Test scores: English ${examScores.englishProficiency}%, Trade Skills ${examScores.tradeSkills}%, IQ/Aptitude ${examScores.iqAptitude}%, Personality: ${examScores.personalityEQ}. Medical referral PDF auto-generated.`,
+      });
 
-    setShowModal(false);
-    showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+      setShowModal(false);
+      showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // Calculate passing status
@@ -120,7 +127,7 @@ export default function Screening({
 
   if (listView) {
     return (
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-6 w-full">
         <div>
           <h2 className="text-2xl font-bold text-[#0F172A] flex items-center gap-2">
             <Microscope className="w-6 h-6 text-[#0EA5E9]" /> Screening Module
@@ -212,7 +219,7 @@ export default function Screening({
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 w-full">
       {/* Back button */}
       <button onClick={() => setListView(true)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#0EA5E9] transition-colors font-medium">
         <ArrowLeft size={16} /> Back to applicant list
@@ -523,16 +530,27 @@ export default function Screening({
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold text-[#475569] hover:bg-slate-50"
+                  disabled={isGenerating}
+                  className="flex-1 px-4 py-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold text-[#475569] hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleGenerateReferral}
-                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 flex items-center justify-center gap-2"
+                  disabled={isGenerating}
+                  className="flex-1 px-4 py-3 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold shadow-lg shadow-[#0EA5E9]/20 flex items-center justify-center gap-2"
                 >
-                  <FileCheck2 className="w-4 h-4" />
-                  Generate PDF
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Generating Referral...
+                    </>
+                  ) : (
+                    <>
+                      <FileCheck2 className="w-4 h-4" />
+                      Generate PDF
+                    </>
+                  )}
                 </button>
               </div>
             </div>

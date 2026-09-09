@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
-  Save, User, FileCheck, Upload, Briefcase
+  Save, User, FileCheck, Upload, Briefcase, Loader2
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -11,6 +11,7 @@ import {
   TrainingRecord, LanguageRecord, EmploymentRecord, EmploymentFlag, EmploymentFlagType
 } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
+import { api } from '../../../lib/api';
 
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
 
@@ -134,14 +135,26 @@ interface RegistrationProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   selectedApplicantId?: string;
   updateApplicant?: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
+  addApplicant?: (newApplicant: ApplicantRecord) => void;
   applicants?: ApplicantRecord[];
 }
+
+const BLANK_PERSONAL = {
+  firstName: '', middleName: '', lastName: '',
+  email: '', contact: '',
+  dateOfBirth: '', age: '', sex: 'Male',
+  religion: 'Roman Catholic', civilStatus: 'Single',
+  weight: '', height: '',
+  presentAddress: '',
+  provincialAddress: '',
+  role: '',
+};
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Registration({
   showToast, currentUserName, addActivityLog,
-  selectedApplicantId: initialId = 'APP-2026-089',
-  updateApplicant, applicants = [],
+  selectedApplicantId: initialId = 'new',
+  updateApplicant, addApplicant, applicants = [],
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
   const [activeSection, setActiveSection] = useState<string>('personal');
@@ -149,13 +162,29 @@ export default function Registration({
 
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
+  const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
 
-  // Mock open job orders (in production these come from JobOrders module)
-  const openJobOrders = [
-    { id: 'jo-001', code: 'JO-2026-0042', position: 'Industrial Welder', country: 'UAE', employerName: 'Al-Futtaim Engineering LLC', available: 7 },
-    { id: 'jo-002', code: 'JO-2026-0038', position: 'Domestic Helper', country: 'Hong Kong', employerName: 'Hong Kong Family Services Ltd.', available: 1 },
-    { id: 'jo-003', code: 'JO-2026-0051', position: 'Registered Nurse / Caregiver', country: 'UAE', employerName: 'Dubai Healthcare Authority', available: 8 },
-  ];
+  useEffect(() => {
+    const fetchLiveJobOrders = async () => {
+      try {
+        const res = await api.get('/job-orders');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveOrders = res.data.map((jo: any) => ({
+            id: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            position: jo.position_title || jo.position || 'General Position',
+            country: jo.client_employer?.country?.country_name || jo.country || 'International',
+            employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+            available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
+          }));
+          setOpenJobOrders(liveOrders);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live job orders for registration:', err);
+      }
+    };
+    fetchLiveJobOrders();
+  }, []);
 
   // Proof document upload helper
   const proofUpload = (
@@ -176,16 +205,7 @@ export default function Registration({
   };
 
   const [photo, setPhoto] = useState('');
-  const [personal, setPersonal] = useState({
-    firstName: 'Juan', middleName: 'Santos', lastName: 'Dela Cruz',
-    email: 'juan.delacruz@email.com', contact: '+63 917 123 4567',
-    dateOfBirth: '1992-03-15', age: '34', sex: 'Male',
-    religion: 'Roman Catholic', civilStatus: 'Single',
-    weight: '68 kg', height: "5'7\"",
-    presentAddress: 'Brgy. San Juan, Quezon City, Metro Manila',
-    provincialAddress: 'San Fernando, Pampanga',
-    role: 'Industrial Welder',
-  });
+  const [personal, setPersonal] = useState(BLANK_PERSONAL);
   const setP = (k: string, v: string) => setPersonal(p => ({ ...p, [k]: v }));
 
   const calcAge = (dob: string) => {
@@ -195,55 +215,109 @@ export default function Registration({
   };
 
   // ── Identifications ───────────────────────────────────────────────────────
-  const [ids, setIds] = useState<IdentificationRecord[]>([
-    { id: 'id-1', type: 'Passport', identificationNo: 'P1234567A', expiryDate: '2028-03-15' },
-    { id: 'id-2', type: 'UMID', identificationNo: '0012-3456789-0', expiryDate: '' },
-  ]);
+  const [ids, setIds] = useState<IdentificationRecord[]>([]);
   const addId = () => setIds(p => [...p, { id: `id-${Date.now()}`, type: 'Passport', identificationNo: '', expiryDate: '' }]);
   const setId = (id: string, k: keyof IdentificationRecord, v: string) => setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeId = (id: string) => setIds(p => p.filter(x => x.id !== id));
 
   // ── Education ─────────────────────────────────────────────────────────────
-  const [education, setEducation] = useState<EducationRecord[]>([
-    { id: 'edu-1', level: 'College', school: 'Polytechnic University of the Philippines', course: 'BS Mechanical Engineering Technology', yearGraduated: '2014' },
-  ]);
+  const [education, setEducation] = useState<EducationRecord[]>([]);
   const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: 'College', school: '', course: '', yearGraduated: '' }]);
   const setEdu = (id: string, k: keyof EducationRecord, v: string) => setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeEdu = (id: string) => setEducation(p => p.filter(x => x.id !== id));
 
   // ── Certificates ──────────────────────────────────────────────────────────
-  const [certs, setCerts] = useState<CertificateRecord[]>([
-    { id: 'cert-1', title: 'TESDA NC II - Shielded Metal Arc Welding', serialNo: 'NC-2023-0041289', issuedBy: 'TESDA Region IV-A', noOfHours: '160', competencyDateIssued: '2023-05-12', expiryDate: '' },
-  ]);
+  const [certs, setCerts] = useState<CertificateRecord[]>([]);
   const addCert = () => setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]);
   const setCert = (id: string, k: keyof CertificateRecord, v: string) => setCerts(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeCert = (id: string) => setCerts(p => p.filter(x => x.id !== id));
 
   // ── Trainings ─────────────────────────────────────────────────────────────
-  const [trainings, setTrainings] = useState<TrainingRecord[]>([
-    { id: 'tr-1', trainingName: 'Basic Occupational Safety & Health (BOSH)', certNo: 'BOSH-2024-0019', duration: '4 days', noOfHours: '40', conductedBy: 'DOLE-Accredited Provider', skillsAcquired: 'Hazard identification, PPE use, emergency procedures' },
-  ]);
+  const [trainings, setTrainings] = useState<TrainingRecord[]>([]);
   const addTraining = () => setTrainings(p => [...p, { id: `tr-${Date.now()}`, trainingName: '', certNo: '', duration: '', noOfHours: '', conductedBy: '', skillsAcquired: '' }]);
   const setTraining = (id: string, k: keyof TrainingRecord, v: string) => setTrainings(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeTraining = (id: string) => setTrainings(p => p.filter(x => x.id !== id));
 
   // ── Languages ─────────────────────────────────────────────────────────────
-  const [languages, setLanguages] = useState<LanguageRecord[]>([
-    { id: 'lang-1', language: 'English', competency: 'Proficient', spokenRating: 8, writtenRating: 7 },
-    { id: 'lang-2', language: 'Filipino / Tagalog', competency: 'Native', spokenRating: 10, writtenRating: 10 },
-    { id: 'lang-3', language: 'Arabic', competency: 'Basic', spokenRating: 3, writtenRating: 1 },
-  ]);
+  const [languages, setLanguages] = useState<LanguageRecord[]>([]);
   const addLang = () => setLanguages(p => [...p, { id: `lang-${Date.now()}`, language: '', competency: 'Basic', spokenRating: 5, writtenRating: 5 }]);
   const setLang = (id: string, k: keyof LanguageRecord, v: string | number) => setLanguages(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeLang = (id: string) => setLanguages(p => p.filter(x => x.id !== id));
 
   // ── Employment History ────────────────────────────────────────────────────
-  const [employment, setEmployment] = useState<EmploymentRecord[]>([
-    { id: 'emp-1', company: 'Metro Steel Corporation', position: 'Industrial Welder', dateStarted: '2019-03-01', dateEnded: '2023-02-28', country: 'Philippines', isPresent: false, reasonForLeaving: 'Contract ended' },
-    { id: 'emp-2', company: 'Qatar Construction LLC', position: 'Welder', dateStarted: '2017-01-15', dateEnded: '2018-12-31', country: 'Qatar', isPresent: false, reasonForLeaving: 'Contract ended' },
-  ]);
+  const [employment, setEmployment] = useState<EmploymentRecord[]>([]);
   const [flags, setFlags] = useState<EmploymentFlag[]>([]);
   const [flagsAnalyzed, setFlagsAnalyzed] = useState(false);
+
+  // ── Clear form helper ─────────────────────────────────────────────────────
+  const resetBlankForm = () => {
+    setPersonal(BLANK_PERSONAL);
+    setSelectedJobOrderId('');
+    setIds([]);
+    setEducation([]);
+    setCerts([]);
+    setTrainings([]);
+    setLanguages([]);
+    setEmployment([]);
+    setFlags([]);
+    setFlagsAnalyzed(false);
+    setPhoto('');
+  };
+
+  // ── Sync with prop when parent changes applicant selection ───────────────
+  useEffect(() => {
+    if (initialId) {
+      setSelectedApplicantId(initialId);
+    }
+  }, [initialId]);
+
+  // ── Sync form data when selecting applicant from prop ─────────────────────
+  useEffect(() => {
+    if (selectedApplicantId === 'new') {
+      resetBlankForm();
+      return;
+    }
+    const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+    if (app) {
+      setPersonal({
+        firstName: app.firstName || '',
+        middleName: app.middleName || '',
+        lastName: app.lastName || '',
+        email: app.email || '',
+        contact: app.contact || '',
+        dateOfBirth: app.dateOfBirth || '',
+        age: String(app.age || ''),
+        sex: app.sex || 'Male',
+        religion: app.religion || 'Roman Catholic',
+        civilStatus: app.civilStatus || 'Single',
+        weight: app.weight || '',
+        height: app.height || '',
+        presentAddress: app.presentAddress || '',
+        provincialAddress: app.provincialAddress || '',
+        role: app.role || '',
+      });
+      if (app.selectedJobOrderId) setSelectedJobOrderId(app.selectedJobOrderId);
+      if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
+      else setIds([]);
+      if (app.education && app.education.length > 0) setEducation(app.education);
+      else setEducation([]);
+      if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
+      else setCerts([]);
+      if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
+      else setTrainings([]);
+      if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
+      else setLanguages([]);
+      if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
+      else setEmployment([]);
+      if (app.employmentFlags && app.employmentFlags.length > 0) {
+        setFlags(app.employmentFlags);
+        setFlagsAnalyzed(true);
+      } else {
+        setFlags([]);
+        setFlagsAnalyzed(false);
+      }
+    }
+  }, [selectedApplicantId, applicants]);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
   const [customReason, setCustomReason] = useState('');
@@ -262,7 +336,7 @@ export default function Registration({
     "Other (see details below)",
   ];
 
-  const addEmp = () => setEmployment(p => [...p, { id: `emp-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
+  const addEmp = () => setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
   const setEmp = (id: string, k: keyof EmploymentRecord, v: string | boolean) => {
     setEmployment(p => p.map(x => x.id === id ? { ...x, [k]: v, ...(k === 'isPresent' && v ? { dateEnded: '' } : {}) } : x));
     setFlagsAnalyzed(false);
@@ -302,42 +376,186 @@ export default function Registration({
   const activeFlagCount = flags.filter(f => !f.dismissed).length;
   const hasBlockingFlags = flagsAnalyzed && activeFlagCount > 0;
 
-  // ── Save Profile ──────────────────────────────────────────────────────────
-  const handleSave = () => {
-    if (!flagsAnalyzed) { showToast('Please run the Employment Flag Check before saving.'); return; }
-    if (hasBlockingFlags) { showToast(`Cannot save: ${activeFlagCount} unresolved flag${activeFlagCount > 1 ? 's' : ''} in employment history.`); return; }
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-    if (updateApplicant) {
-      updateApplicant(selectedApplicantId, {
-        firstName: personal.firstName, middleName: personal.middleName, lastName: personal.lastName,
-        name: `${personal.firstName} ${personal.middleName} ${personal.lastName}`.trim(),
-        email: personal.email, contact: personal.contact, dateOfBirth: personal.dateOfBirth,
-        age: parseInt(personal.age), sex: personal.sex as 'Male' | 'Female',
-        religion: personal.religion, civilStatus: personal.civilStatus as any,
-        weight: personal.weight, height: personal.height,
-        presentAddress: personal.presentAddress, provincialAddress: personal.provincialAddress,
-        role: personal.role,
-        selectedJobOrderId: selectedJobOrderId || undefined,
-        jobOrder: selectedJobOrderId ? (() => { const jo = openJobOrders.find(j => j.id === selectedJobOrderId); return jo ? `${jo.code} (${jo.employerName})` : ''; })() : undefined,
-        photoDataUrl: photo,
-        identifications: ids,
-        education: education,
-        certificateRecords: certs,
-        trainings: trainings,
-        languageRecords: languages,
-        employmentHistory: employment,
-        employmentFlags: flags,
-        phase: 1, status: 'Initial Screening',
-        currentHandler: currentUserName, currentDepartment: 'Recruitment',
-        phaseDescription: 'Applicant profile complete. Cleared for evaluation.',
-      });
+  // ── Save Profile (Create New or Update Existing) ──────────────────────────
+  const handleSave = async () => {
+    if (!personal.firstName.trim() || !personal.lastName.trim()) {
+      showToast('First Name and Last Name are required.');
+      return;
     }
-    addActivityLog({
-      applicantId: selectedApplicantId, action: 'Profile Registration',
-      performedBy: currentUserName, department: 'Recruitment',
-      details: `Full profile encoded for ${personal.lastName}, ${personal.firstName}. Employment flag check cleared (${flags.length} flag${flags.length !== 1 ? 's' : ''} reviewed).`,
-    });
-    showToast('Profile saved successfully. Applicant cleared for screening.');
+
+    if (employment.length > 0 && !flagsAnalyzed) {
+      const newFlags = analyzeEmployment(employment);
+      setFlags(newFlags);
+      setFlagsAnalyzed(true);
+      if (newFlags.some(f => !f.dismissed)) {
+        showToast(`${newFlags.length} concern(s) flagged in work experience. Review before proceeding.`);
+        return;
+      }
+    }
+
+    if (hasBlockingFlags) {
+      showToast(`Cannot save: ${activeFlagCount} unresolved flag(s) in employment history.`);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (selectedApplicantId === 'new') {
+        // ── CREATE NEW APPLICANT VIA POST /applicants ───────────────────────
+        const payload = {
+          first_name: personal.firstName.trim(),
+          middle_name: personal.middleName.trim() || undefined,
+          last_name: personal.lastName.trim(),
+          email: personal.email.trim() || undefined,
+          contact_number: personal.contact.trim() || undefined,
+          birth_date: personal.dateOfBirth || undefined,
+          age: personal.age ? parseInt(personal.age, 10) : undefined,
+          gender: personal.sex || 'Male',
+          sex: personal.sex || 'Male',
+          civil_status: personal.civilStatus || 'Single',
+          religion: personal.religion || 'Roman Catholic',
+          height: personal.height || undefined,
+          weight: personal.weight || undefined,
+          present_address: personal.presentAddress.trim() || undefined,
+          provincial_address: personal.provincialAddress.trim() || undefined,
+          applied_role: personal.role.trim() || 'Applicant',
+          skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          work_experience: employment.map(e => ({
+            companyName: e.company,
+            position: e.position,
+            startDate: e.dateStarted,
+            endDate: e.dateEnded,
+            country: e.country,
+            isOverseas: e.country !== 'Philippines',
+            responsibilities: e.reasonForLeaving ? [e.reasonForLeaving] : []
+          })),
+          current_phase: 1,
+          status: 'Initial Screening',
+          current_handler: currentUserName,
+          current_department: 'Recruitment',
+          phase_description: 'Newly registered applicant. Cleared for initial screening.',
+        };
+
+        const res = await api.post('/applicants', payload);
+        const createdData = res.data;
+        const newId = String(createdData.applicant_id);
+
+        const newApplicantRecord: ApplicantRecord = {
+          id: newId,
+          name: `${personal.firstName} ${personal.lastName}`.trim(),
+          firstName: personal.firstName,
+          middleName: personal.middleName,
+          lastName: personal.lastName,
+          role: personal.role || 'Applicant',
+          jobOrder: selectedJobOrderId ? (() => { const jo = openJobOrders.find(j => j.id === selectedJobOrderId); return jo ? `${jo.code} (${jo.employerName})` : 'Unassigned'; })() : 'Unassigned',
+          phase: 1,
+          status: 'Initial Screening',
+          currentHandler: currentUserName,
+          currentDepartment: 'Recruitment',
+          lastUpdated: new Date().toLocaleString(),
+          phaseDescription: 'Newly registered applicant. Cleared for initial screening.',
+          presentAddress: personal.presentAddress,
+          provincialAddress: personal.provincialAddress,
+          email: personal.email,
+          contact: personal.contact,
+          dateOfBirth: personal.dateOfBirth,
+          age: parseInt(personal.age, 10) || 25,
+          sex: (personal.sex as 'Male' | 'Female') || 'Male',
+          civilStatus: (personal.civilStatus as any) || 'Single',
+          citizenship: 'Filipino',
+          religion: personal.religion,
+          height: personal.height,
+          weight: personal.weight,
+          skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          workExperience: payload.work_experience,
+          employmentHistory: employment,
+          employmentFlags: flags,
+          address: personal.presentAddress || personal.provincialAddress,
+          testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          matchScore: 85,
+        };
+
+        if (addApplicant) {
+          addApplicant(newApplicantRecord);
+        }
+
+        addActivityLog({
+          applicantId: newId,
+          action: 'New Applicant Registered',
+          performedBy: currentUserName,
+          department: 'Recruitment',
+          details: `Registered new applicant ${personal.lastName}, ${personal.firstName} (ID #${newId}) with active Phase 1 screening.`,
+        });
+
+        showToast(`✓ New applicant "${personal.firstName} ${personal.lastName}" registered successfully! (ID: #${newId})`);
+        resetBlankForm();
+      } else {
+        // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
+        const numericId = parseInt(selectedApplicantId, 10);
+        if (!isNaN(numericId)) {
+          await api.put(`/applicants/${numericId}`, {
+            first_name: personal.firstName,
+            middle_name: personal.middleName,
+            last_name: personal.lastName,
+            email: personal.email,
+            contact_number: personal.contact,
+            birth_date: personal.dateOfBirth,
+            gender: personal.sex,
+            sex: personal.sex,
+            civil_status: personal.civilStatus,
+            present_address: personal.presentAddress,
+            provincial_address: personal.provincialAddress,
+            applied_role: personal.role,
+            skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+          });
+        }
+
+        if (updateApplicant) {
+          updateApplicant(selectedApplicantId, {
+            firstName: personal.firstName,
+            middleName: personal.middleName,
+            lastName: personal.lastName,
+            name: `${personal.firstName} ${personal.middleName} ${personal.lastName}`.trim(),
+            email: personal.email,
+            contact: personal.contact,
+            dateOfBirth: personal.dateOfBirth,
+            age: parseInt(personal.age, 10) || 30,
+            sex: personal.sex as 'Male' | 'Female',
+            religion: personal.religion,
+            civilStatus: personal.civilStatus as any,
+            weight: personal.weight,
+            height: personal.height,
+            presentAddress: personal.presentAddress,
+            provincialAddress: personal.provincialAddress,
+            role: personal.role,
+            skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+            certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+            employmentHistory: employment,
+            employmentFlags: flags,
+          });
+        }
+
+        addActivityLog({
+          applicantId: selectedApplicantId,
+          action: 'Profile Updated',
+          performedBy: currentUserName,
+          department: 'Recruitment',
+          details: `Updated profile details for applicant #${selectedApplicantId} (${personal.lastName}, ${personal.firstName}).`,
+        });
+
+        showToast(`✓ Profile for "${personal.firstName} ${personal.lastName}" updated successfully!`);
+      }
+    } catch (err: any) {
+      console.error('Registration save error:', err);
+      showToast(`Error saving applicant: ${err?.response?.data?.detail || err.message || 'Check connection'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const sections = [
@@ -358,7 +576,7 @@ export default function Registration({
   );
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -372,6 +590,69 @@ export default function Registration({
             <ShieldAlert size={16} /> {activeFlagCount} unresolved flag{activeFlagCount > 1 ? 's' : ''} — cannot save
           </div>
         )}
+      </div>
+
+      {/* Mode Banner */}
+      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
+        selectedApplicantId === 'new'
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+          : 'bg-sky-50 border-sky-200 text-sky-900'
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${
+            selectedApplicantId === 'new'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-[#0EA5E9] text-white'
+          }`}>
+            {selectedApplicantId === 'new' ? <UserPlus size={20} /> : <User size={20} />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                selectedApplicantId === 'new'
+                  ? 'bg-emerald-200 text-emerald-800'
+                  : 'bg-sky-200 text-sky-800'
+              }`}>
+                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant #${selectedApplicantId}`}
+              </span>
+              {selectedApplicantId === 'new' ? (
+                <span className="text-xs text-emerald-700 font-semibold">Clean intake form · Ready for encoding</span>
+              ) : (
+                <span className="text-xs text-sky-700 font-semibold">Active candidate profile</span>
+              )}
+            </div>
+            <p className="text-sm font-medium text-slate-800 mt-1">
+              {selectedApplicantId === 'new'
+                ? 'Enter candidate details below. Clicking "Register New Applicant" provisions the candidate profile with Phase 1 Initial Screening.'
+                : `Updating candidate profile for ${personal.firstName || ''} ${personal.lastName || ''} (${personal.role || 'Applicant'}).`}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {selectedApplicantId !== 'new' ? (
+            <button
+              onClick={() => {
+                setSelectedApplicantId('new');
+                resetBlankForm();
+                showToast('Switched to blank form: Registering a new candidate.');
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+            >
+              <UserPlus size={14} /> + Register New Candidate
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                resetBlankForm();
+                showToast('Form cleared.');
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition-colors shadow-sm"
+            >
+              <Trash2 size={13} className="text-emerald-600" /> Clear Form
+            </button>
+          )}
+        </div>
       </div>
 
       {applicants.length > 0 && (
@@ -414,21 +695,31 @@ export default function Registration({
       </div>
 
       {/* Section Nav */}
-      <div className="flex gap-1 flex-wrap bg-slate-100 p-1 rounded-xl">
-        {sections.map(s => (
-          <button
-            key={s.id}
-            onClick={() => setActiveSection(s.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeSection === s.id ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
-          >
-            {s.label}
-            {s.id === 'employment' && activeFlagCount > 0 && (
-              <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">{activeFlagCount}</span>
-            )}
-          </button>
-        ))}
+      <div className="space-y-2">
+        <div className="flex gap-1 flex-wrap bg-slate-100 p-1 rounded-xl">
+          {sections.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setActiveSection(s.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeSection === s.id ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+            >
+              {s.label}
+              {s.id === 'personal' ? (
+                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded">Required *</span>
+              ) : (
+                <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+              )}
+              {s.id === 'employment' && activeFlagCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">{activeFlagCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 px-1">
+          <strong className="text-slate-600">Intake Note:</strong> Only <strong>First Name</strong> and <strong>Last Name</strong> in <em>Personal Info</em> are required to register. Other sections (Identifications, Education, Certificates, Work History) can be encoded now or completed during Phase 1 processing.
+        </p>
       </div>
 
       {/* ── Personal Info ────────────────────────────────────────────────────── */}
@@ -458,16 +749,20 @@ export default function Registration({
             {/* Fields */}
             <div className="flex-1 grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">First Name</label>
-                <input className={inp} value={personal.firstName} onChange={e => setP('firstName', e.target.value)} />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  First Name <span className="text-red-500 font-bold">*</span>
+                </label>
+                <input className={inp} value={personal.firstName} onChange={e => setP('firstName', e.target.value)} placeholder="e.g. Juan" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Middle Name</label>
-                <input className={inp} value={personal.middleName} onChange={e => setP('middleName', e.target.value)} />
+                <input className={inp} value={personal.middleName} onChange={e => setP('middleName', e.target.value)} placeholder="e.g. Santos" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Last Name</label>
-                <input className={inp} value={personal.lastName} onChange={e => setP('lastName', e.target.value)} />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Last Name <span className="text-red-500 font-bold">*</span>
+                </label>
+                <input className={inp} value={personal.lastName} onChange={e => setP('lastName', e.target.value)} placeholder="e.g. Dela Cruz" />
               </div>
 
               <div className="col-span-2">
@@ -921,27 +1216,52 @@ export default function Registration({
         </div>
       )}
 
-      {/* Save Button */}
+      {/* Save / Register Button */}
       <div className="flex items-center justify-between pt-4 border-t border-slate-200 gap-4 flex-wrap">
         <div className="text-xs text-slate-400">
           {hasBlockingFlags ? (
-            <span className="text-red-500 font-semibold flex items-center gap-1.5"><ShieldAlert size={13} /> Resolve all {activeFlagCount} flag{activeFlagCount > 1 ? 's' : ''} in Work Experience before saving</span>
-          ) : !flagsAnalyzed ? (
-            <span className="flex items-center gap-1.5"><AlertCircle size={13} className="text-amber-500" /> Run Employment Flag Check on Work Experience tab before saving</span>
+            <span className="text-red-500 font-semibold flex items-center gap-1.5">
+              <ShieldAlert size={14} /> Resolve all {activeFlagCount} flag{activeFlagCount > 1 ? 's' : ''} in Work Experience before saving
+            </span>
+          ) : employment.length > 0 && !flagsAnalyzed ? (
+            <span className="flex items-center gap-1.5 text-amber-600 font-medium">
+              <AlertCircle size={14} /> Run Employment Flag Check on Work Experience tab before saving
+            </span>
+          ) : !personal.firstName.trim() || !personal.lastName.trim() ? (
+            <span className="text-amber-600 font-medium flex items-center gap-1.5">
+              <AlertCircle size={14} /> Candidate First Name and Last Name are required to register
+            </span>
           ) : (
-            <span className="text-emerald-600 font-semibold flex items-center gap-1.5"><CheckCircle2 size={13} /> All checks passed — ready to save</span>
+            <span className="text-emerald-600 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 size={14} /> Ready to {selectedApplicantId === 'new' ? 'register candidate' : 'save changes'}
+            </span>
           )}
         </div>
         <button
           onClick={handleSave}
-          disabled={hasBlockingFlags || !flagsAnalyzed}
+          disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
-            hasBlockingFlags || !flagsAnalyzed
-              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
+            hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+              : selectedApplicantId === 'new'
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
+                : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
           }`}
         >
-          <Save size={16} /> Save Applicant Profile
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}
+            </>
+          ) : selectedApplicantId === 'new' ? (
+            <>
+              <UserPlus size={16} /> Register New Applicant
+            </>
+          ) : (
+            <>
+              <Save size={16} /> Save Applicant #{selectedApplicantId} Changes
+            </>
+          )}
         </button>
       </div>
     </div>

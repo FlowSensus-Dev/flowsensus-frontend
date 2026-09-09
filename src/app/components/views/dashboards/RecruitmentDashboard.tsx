@@ -1,11 +1,12 @@
 import { Clock, UserPlus, FileCheck, AlertTriangle, CheckCircle, Eye } from 'lucide-react';
 import { ApplicantRecord, ActivityLog } from '../../../types';
+import { ViewType } from '../../AppShell';
 
 interface RecruitmentDashboardProps {
   applicants: ApplicantRecord[];
   activityLogs: ActivityLog[];
   onViewApplicant: (applicantId: string) => void;
-  onNavigate: (view: string) => void;
+  onNavigate: (view: ViewType) => void;
 }
 
 export default function RecruitmentDashboard({

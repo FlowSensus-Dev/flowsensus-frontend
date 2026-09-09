@@ -13,7 +13,7 @@ interface FitToWorkProps {
   applicants?: ApplicantRecord[];
 }
 
-export default function FitToWork({ workflow, updateWorkflow, showToast, currentUserName, addActivityLog, updateApplicant, selectedApplicantId: initialApplicantId = 'APP-2026-089', applicants = [] }: FitToWorkProps) {
+export default function FitToWork({ workflow, updateWorkflow, showToast, currentUserName, addActivityLog, updateApplicant, selectedApplicantId: initialApplicantId = '1', applicants = [] }: FitToWorkProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

@@ -38,6 +38,7 @@ interface DeployedEmployee {
 // ─── Dummy data ───────────────────────────────────────────────────────────────
 
 const EMPLOYER = {
+  id: '2',
   name: 'Al Noor Hospital Group',
   initials: 'ANH',
   industry: 'Healthcare / Inpatient Care',
@@ -64,19 +65,19 @@ const EMPLOYER = {
 const EMPLOYEES: DeployedEmployee[] = [
   // ── Currently active ──────────────────────────────────────────────────────
   {
-    id: 'EMP-024', name: 'Diana A. Palma', initials: 'DP',
+    id: '1', name: 'Diana A. Palma', initials: 'DP',
     role: 'Senior Caregiver', department: 'Geriatric Ward',
     dateStarted: 'March 1, 2025', dateEnded: '', contractDuration: '2 Years',
     status: 'active', contractNo: 'OEC-2025-PH-01141',
   },
   {
-    id: 'EMP-025', name: 'Mark L. Tolentino', initials: 'MT',
+    id: '2', name: 'Mark L. Tolentino', initials: 'MT',
     role: 'Medical Aide', department: 'Emergency Unit',
     dateStarted: 'April 15, 2025', dateEnded: '', contractDuration: '2 Years',
     status: 'active', contractNo: 'OEC-2025-PH-01209',
   },
   {
-    id: 'EMP-026', name: 'Rosario G. dela Cruz', initials: 'RD',
+    id: '3', name: 'Rosario G. dela Cruz', initials: 'RD',
     role: 'Registered Nurse', department: 'ICU / Critical Care',
     dateStarted: 'June 1, 2025', dateEnded: '', contractDuration: '2 Years',
     status: 'active', contractNo: 'OEC-2025-PH-01378',
@@ -84,19 +85,19 @@ const EMPLOYEES: DeployedEmployee[] = [
 
   // ── Pending evaluation (contract ended, no eval yet) ──────────────────────
   {
-    id: 'EMP-021', name: 'Grace P. Villanueva', initials: 'GV',
+    id: '4', name: 'Grace P. Villanueva', initials: 'GV',
     role: 'Senior Caregiver / Patient Care Assistant', department: 'Geriatric Ward',
     dateStarted: 'January 15, 2024', dateEnded: 'January 14, 2026',
     contractDuration: '2 Years', status: 'pending_eval', contractNo: 'OEC-2024-PH-00892',
   },
   {
-    id: 'EMP-022', name: 'Luz F. Bautista', initials: 'LB',
+    id: '5', name: 'Luz F. Bautista', initials: 'LB',
     role: 'Ward Assistant', department: 'General Medicine',
     dateStarted: 'February 10, 2024', dateEnded: 'February 9, 2026',
     contractDuration: '2 Years', status: 'pending_eval', contractNo: 'OEC-2024-PH-00941',
   },
   {
-    id: 'EMP-023', name: 'Benjamin R. Macaraig', initials: 'BM',
+    id: '6', name: 'Benjamin R. Macaraig', initials: 'BM',
     role: 'Physical Therapist', department: 'Rehabilitation',
     dateStarted: 'March 5, 2024', dateEnded: 'October 12, 2025',
     contractDuration: '2 Years (left early)', status: 'left_early', contractNo: 'OEC-2024-PH-01005',
@@ -104,7 +105,7 @@ const EMPLOYEES: DeployedEmployee[] = [
 
   // ── Evaluated ─────────────────────────────────────────────────────────────
   {
-    id: 'EMP-015', name: 'Maria C. Santos', initials: 'MS',
+    id: '7', name: 'Maria C. Santos', initials: 'MS',
     role: 'Senior Nurse', department: 'ICU / Critical Care',
     dateStarted: 'June 1, 2022', dateEnded: 'May 31, 2024',
     contractDuration: '2 Years', status: 'completed', contractNo: 'OEC-2022-PH-00551',
@@ -116,7 +117,7 @@ const EMPLOYEES: DeployedEmployee[] = [
     },
   },
   {
-    id: 'EMP-016', name: 'Jose T. Reyes', initials: 'JR',
+    id: '8', name: 'Jose T. Reyes', initials: 'JR',
     role: 'Medical Aide', department: 'Orthopedics',
     dateStarted: 'January 5, 2023', dateEnded: 'January 4, 2025',
     contractDuration: '2 Years', status: 'completed', contractNo: 'OEC-2023-PH-00678',
@@ -128,7 +129,7 @@ const EMPLOYEES: DeployedEmployee[] = [
     },
   },
   {
-    id: 'EMP-017', name: 'Ana L. Torres', initials: 'AT',
+    id: '9', name: 'Ana L. Torres', initials: 'AT',
     role: 'Caregiver', department: 'Pediatric Ward',
     dateStarted: 'March 10, 2022', dateEnded: 'March 9, 2024',
     contractDuration: '2 Years', status: 'completed', contractNo: 'OEC-2022-PH-00489',
@@ -140,7 +141,7 @@ const EMPLOYEES: DeployedEmployee[] = [
     },
   },
   {
-    id: 'EMP-018', name: 'Carlo B. Mendoza', initials: 'CM',
+    id: '10', name: 'Carlo B. Mendoza', initials: 'CM',
     role: 'Hospital Aide', department: 'General Surgery',
     dateStarted: 'September 1, 2022', dateEnded: 'August 31, 2024',
     contractDuration: '2 Years', status: 'completed', contractNo: 'OEC-2022-PH-00602',
@@ -152,7 +153,7 @@ const EMPLOYEES: DeployedEmployee[] = [
     },
   },
   {
-    id: 'EMP-019', name: 'Elena M. Cruz', initials: 'EC',
+    id: '11', name: 'Elena M. Cruz', initials: 'EC',
     role: 'Senior Nurse', department: 'Maternity & OB',
     dateStarted: 'July 15, 2023', dateEnded: 'July 14, 2025',
     contractDuration: '2 Years', status: 'completed', contractNo: 'OEC-2023-PH-00811',
@@ -164,7 +165,7 @@ const EMPLOYEES: DeployedEmployee[] = [
     },
   },
   {
-    id: 'EMP-020', name: 'Roberto V. Santos', initials: 'RS',
+    id: '12', name: 'Roberto V. Santos', initials: 'RS',
     role: 'Medical Technologist', department: 'Clinical Laboratory',
     dateStarted: 'February 1, 2023', dateEnded: 'August 15, 2024',
     contractDuration: '2 Years (left early)', status: 'left_early', contractNo: 'OEC-2023-PH-00701',
@@ -908,7 +909,7 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
   ];
 
   return (
-    <div className="w-full min-h-screen bg-[#EEF2F7]">
+    <div className="w-full h-full overflow-y-auto bg-[#EEF2F7]">
 
       {/* ── Corporate header ──────────────────────────────────────────────────── */}
       <header className="bg-[#0C1A2E] px-6 py-4 flex items-center justify-between">
@@ -967,12 +968,6 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
                 )}
               </button>
             ))}
-            {view === 'eval-form' && evalTarget && (
-              <div className="flex items-center gap-1.5 px-4 py-3.5 text-sm text-[#64748B]">
-                <ChevronRight size={13} />
-                <span className="text-[#93C5FD]">Evaluating: {evalTarget.name}</span>
-              </div>
-            )}
           </div>
         </div>
       )}

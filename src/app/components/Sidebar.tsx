@@ -30,8 +30,11 @@ import Logo from './Logo';
 
 interface SidebarProps {
   currentUserRole: UserRole;
+  currentUserRoles?: UserRole[];
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
+  isSuperAdmin?: boolean;
+  onSuperAdminDashboard?: () => void;
 }
 
 interface NavItem {
@@ -47,7 +50,14 @@ interface NavGroup {
   items: NavItem[];
 }
 
-export default function Sidebar({ currentUserRole, currentView, onViewChange }: SidebarProps) {
+export default function Sidebar({
+  currentUserRole,
+  currentUserRoles,
+  currentView,
+  onViewChange,
+  isSuperAdmin,
+  onSuperAdminDashboard,
+}: SidebarProps) {
   const mainItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: 'All' },
     { id: 'applicants', label: 'Applicant List', icon: UsersIcon, roles: 'All' },
@@ -110,18 +120,26 @@ export default function Sidebar({ currentUserRole, currentView, onViewChange }: 
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
         { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
-        { id: 'users', label: 'User Mgmt', icon: Users, roles: ['Management'] },
+        { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
       ],
     },
   ];
 
+  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
+    ? currentUserRoles
+    : [currentUserRole];
+
   const hasAccess = (roles: UserRole[] | 'All'): boolean => {
     if (roles === 'All') return true;
-    return roles.includes(currentUserRole);
+    return roles.some((r) => userRolesList.includes(r));
   };
 
+  const rolesDisplayText = userRolesList
+    .filter((r) => r && r !== 'Applicant' && r !== 'Employer')
+    .join(' & ') || currentUserRole || 'Staff';
+
   return (
-    <aside className="w-[260px] flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
+    <aside className="w-[260px] h-full flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-white/10">
         <Logo size="small" />
@@ -131,9 +149,10 @@ export default function Sidebar({ currentUserRole, currentView, onViewChange }: 
       {/* Active Session */}
       <div className="px-6 py-4 border-b border-white/5 bg-black/10">
         <p className="text-[10px] text-[#64748B] uppercase tracking-widest font-bold">Active Session</p>
-        <p className="text-sm font-bold text-[#0EA5E9] mt-1 flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4" /> {currentUserRole} Ops
-        </p>
+        <div className="text-sm font-bold text-[#0EA5E9] mt-1 flex items-center gap-2 flex-wrap">
+          <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+          <span>{rolesDisplayText} Ops</span>
+        </div>
       </div>
 
       {/* Navigation */}

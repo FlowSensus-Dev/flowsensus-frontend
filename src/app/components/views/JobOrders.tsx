@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Globe, Briefcase,
   Users, Calendar, DollarSign, FileText, ChevronDown, ChevronRight,
-  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star
+  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star, Loader2
 } from 'lucide-react';
 import { JobOrder, EmployerProfile } from '../../types';
+import { api } from '../../../lib/api';
 
 const STATUS_META: Record<JobOrder['status'], { label: string; color: string; icon: React.ReactNode }> = {
   open:    { label: 'Open',    color: '#10B981', icon: <CheckCircle2 size={13} /> },
@@ -12,20 +13,6 @@ const STATUS_META: Record<JobOrder['status'], { label: string; color: string; ic
   filled:  { label: 'Filled',  color: '#0EA5E9', icon: <CheckCircle2 size={13} /> },
   closed:  { label: 'Closed',  color: '#64748B', icon: <XCircle size={13} /> },
 };
-
-const MOCK_EMPLOYERS: EmployerProfile[] = [
-  { id: 'emp-001', companyName: 'Al-Futtaim Engineering LLC', country: 'UAE', industry: 'Construction', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active', rating: 5, totalDeployed: 312, activeJobOrders: 3, remarks: [], createdAt: '' },
-  { id: 'emp-002', companyName: 'Hong Kong Family Services Ltd.', country: 'Hong Kong', industry: 'Domestic', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'pending', rating: 3, totalDeployed: 87, activeJobOrders: 2, remarks: [], createdAt: '' },
-  { id: 'emp-003', companyName: 'Dubai Healthcare Authority', country: 'UAE', industry: 'Healthcare', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active', rating: 5, totalDeployed: 204, activeJobOrders: 5, remarks: [], createdAt: '' },
-  { id: 'emp-004', companyName: 'SkyBuild Construction Corp.', country: 'Qatar', industry: 'Construction', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'suspended', rating: 2, totalDeployed: 45, activeJobOrders: 0, remarks: [], createdAt: '' },
-];
-
-const DEFAULT_ORDERS: JobOrder[] = [
-  { id: 'jo-001', code: 'JO-2026-0042', position: 'Industrial Welder', country: 'UAE', employerId: 'emp-001', employerName: 'Al-Futtaim Engineering LLC', slots: 10, filledSlots: 3, salaryRange: 'AED 2,800–3,400/mo', contractDuration: '2 years', requirements: ['Valid Passport', 'NBI Clearance', 'TESDA NC II - SMAW', 'Medical Certificate', 'PEOS Certificate'], minExperience: 3, certifications: ['TESDA NC II Welding', 'CSWIP 3.1 (preferred)'], status: 'open', datePosted: '2026-04-01', deadline: '2026-07-31', notes: 'Employer prefers applicants with overseas Gulf experience. Housing and meals provided. Night differential applicable.' },
-  { id: 'jo-002', code: 'JO-2026-0038', position: 'Domestic Helper', country: 'Hong Kong', employerId: 'emp-002', employerName: 'Hong Kong Family Services Ltd.', slots: 5, filledSlots: 4, salaryRange: 'HKD 4,730/mo (minimum wage)', contractDuration: '2 years', requirements: ['Valid Passport', 'NBI Clearance', 'Medical Certificate', 'PEOS Certificate', 'OFW Information Sheet'], minExperience: 1, certifications: [], status: 'open', datePosted: '2026-03-15', deadline: '2026-06-30', notes: 'Employer family has 2 children aged 4 and 7. Must be comfortable with cooking Filipino and Chinese dishes.' },
-  { id: 'jo-003', code: 'JO-2026-0051', position: 'Registered Nurse / Caregiver', country: 'UAE', employerId: 'emp-003', employerName: 'Dubai Healthcare Authority', slots: 20, filledSlots: 12, salaryRange: 'AED 4,500–6,000/mo', contractDuration: '3 years', requirements: ['Valid Passport', 'NBI Clearance', 'Medical Certificate', 'PRC License', 'PEOS Certificate', 'DMW e-Registration'], minExperience: 2, certifications: ['PRC License - Nursing', 'DataFlow Verification', 'DHA License (preferred)'], status: 'open', datePosted: '2026-02-20', deadline: '2026-08-31', notes: 'DHA pre-licensure screening required. Agency to assist with DataFlow document verification. Premium employer — priority endorsement.' },
-  { id: 'jo-004', code: 'JO-2025-0189', position: 'Electrician (Building Works)', country: 'Qatar', employerId: 'emp-004', employerName: 'SkyBuild Construction Corp.', slots: 15, filledSlots: 15, salaryRange: 'QAR 1,800/mo', contractDuration: '1 year', requirements: ['Valid Passport', 'NBI Clearance', 'TESDA NC II - Electrical', 'Medical Certificate'], minExperience: 2, certifications: ['TESDA NC II - Electrical Installation'], status: 'filled', datePosted: '2025-10-01', deadline: '2025-12-31', notes: 'EMPLOYER SUSPENDED — Do not process new applicants under this order. Existing deployed workers are being monitored.' },
-];
 
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
   code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
@@ -39,7 +26,8 @@ interface Props {
 }
 
 export default function JobOrders({ showToast, currentUserName }: Props) {
-  const [orders, setOrders] = useState<JobOrder[]>(DEFAULT_ORDERS);
+  const [orders, setOrders] = useState<JobOrder[]>([]);
+  const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | JobOrder['status']>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -47,6 +35,67 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
   const [isNew, setIsNew] = useState(false);
   const [reqInput, setReqInput] = useState('');
   const [certInput, setCertInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ── Fetch Live Data on Mount ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchLiveJobOrders = async () => {
+      try {
+        const [ordersRes, empRes] = await Promise.allSettled([
+          api.get('/job-orders'),
+          api.get('/employers'),
+        ]);
+
+        if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
+          const liveEmps: EmployerProfile[] = empRes.value.data.map((e: any) => ({
+            id: String(e.employer_id),
+            companyName: e.company_name,
+            country: e.country?.country_name || 'International',
+            industry: e.industry || 'General',
+            contactPerson: e.contact_person || '',
+            contactEmail: e.contact_email || '',
+            contactPhone: e.contact_phone || '',
+            address: e.address || '',
+            accreditationNo: e.accreditation_no || '',
+            accreditationExpiry: e.accreditation_expiry || '',
+            status: (e.registration_status || 'active').toLowerCase() as any,
+            rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
+            totalDeployed: e.total_deployed || 0,
+            activeJobOrders: e.active_job_orders || 0,
+            remarks: Array.isArray(e.remarks) ? e.remarks : [],
+            createdAt: e.created_at || '',
+          }));
+          setEmployers(liveEmps);
+        }
+
+        if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
+          const mapped: JobOrder[] = ordersRes.value.data.map((jo: any) => ({
+            id: String(jo.job_order_id),
+            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            position: jo.position_title || jo.position || '',
+            country: jo.client_employer?.country?.country_name || jo.country || 'International',
+            employerId: String(jo.employer_id),
+            employerName: jo.client_employer?.company_name || jo.employer_name || '',
+            slots: jo.slots_requested || jo.total_slots || 1,
+            filledSlots: jo.slots_filled || jo.filled_slots || 0,
+            salaryRange: jo.salary_range || '',
+            contractDuration: jo.contract_duration || '2 years',
+            requirements: Array.isArray(jo.required_skills) ? jo.required_skills : (Array.isArray(jo.requirements) ? jo.requirements : []),
+            minExperience: jo.min_experience_years || 1,
+            certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
+            status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
+            datePosted: jo.date_posted || '',
+            deadline: jo.application_deadline || jo.deadline || '',
+            notes: jo.notes || '',
+          }));
+          setOrders(mapped);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live job orders, retaining default orders:', err);
+      }
+    };
+    fetchLiveJobOrders();
+  }, []);
 
   const filtered = orders.filter(o => {
     const q = search.toLowerCase();
@@ -69,20 +118,68 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
     setCertInput('');
   };
 
-  const save = () => {
-    if (!editing) return;
+  const save = async () => {
+    if (!editing || isSaving) return;
     if (!editing.position.trim()) { showToast('Position is required'); return; }
     if (!editing.employerId) { showToast('Select an employer'); return; }
-    if (isNew) setOrders(p => [...p, editing]);
-    else setOrders(p => p.map(o => o.id === editing.id ? editing : o));
-    showToast(`Job Order "${editing.code || editing.position}" ${isNew ? 'created' : 'updated'}`);
-    setEditing(null);
+
+    setIsSaving(true);
+    const empObj = employers.find(e => e.id === editing.employerId);
+    const updatedEditing: JobOrder = {
+      ...editing,
+      employerName: empObj ? empObj.companyName : editing.employerName,
+      country: empObj ? empObj.country : editing.country,
+    };
+
+    const payload = {
+      employer_id: parseInt(editing.employerId, 10) || 1,
+      position_title: editing.position,
+      job_order_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
+      slots_requested: editing.slots,
+      slots_filled: editing.filledSlots,
+      salary_range: editing.salaryRange,
+      contract_duration: editing.contractDuration,
+      min_experience_years: editing.minExperience,
+      required_certifications: editing.certifications,
+      required_skills: editing.requirements,
+      order_status: editing.status,
+      date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
+      application_deadline: editing.deadline || undefined,
+      notes: editing.notes,
+    };
+
+    try {
+      if (isNew) {
+        const res = await api.post('/job-orders', payload);
+        const createdId = res.data?.job_order_id ? String(res.data.job_order_id) : updatedEditing.id;
+        setOrders(p => [...p, { ...updatedEditing, id: createdId }]);
+      } else {
+        await api.put(`/job-orders/${editing.id}`, payload);
+        setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
+      }
+      showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
+      setEditing(null);
+    } catch (err: any) {
+      console.warn('Backend save error, updating local state:', err);
+      if (isNew) setOrders(p => [...p, updatedEditing]);
+      else setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
+      showToast(`Saved locally: "${updatedEditing.code || updatedEditing.position}"`);
+      setEditing(null);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const remove = (id: string) => {
+  const remove = async (id: string) => {
     const o = orders.find(o => o.id === id);
     setOrders(p => p.filter(o => o.id !== id));
-    showToast(`"${o?.code} ${o?.position}" removed`);
+    try {
+      await api.delete(`/job-orders/${id}`);
+      showToast(`"${o?.code} ${o?.position}" deleted from database`);
+    } catch (err) {
+      console.warn('Backend delete error, removed locally:', err);
+      showToast(`"${o?.code} ${o?.position}" removed`);
+    }
   };
 
   const addTag = (field: 'requirements' | 'certifications', val: string) => {
@@ -99,7 +196,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
   };
 
   const onEmployerChange = (empId: string) => {
-    const emp = MOCK_EMPLOYERS.find(e => e.id === empId);
+    const emp = employers.find(e => e.id === empId);
     setEditing(p => p ? { ...p, employerId: empId, employerName: emp?.companyName || '', country: emp?.country || p.country } : p);
   };
 
@@ -162,7 +259,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
       <div className="space-y-3">
         {filtered.map(order => {
           const meta = STATUS_META[order.status];
-          const emp = MOCK_EMPLOYERS.find(e => e.id === order.employerId);
+          const emp = employers.find(e => e.id === order.employerId);
           const isExpanded = expanded === order.id;
           const available = order.slots - order.filledSlots;
           const fillPct = order.slots > 0 ? (order.filledSlots / order.slots) * 100 : 0;
@@ -299,7 +396,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Employer *</label>
                   <select value={editing.employerId} onChange={e => onEmployerChange(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white">
                     <option value="">-- Select Employer --</option>
-                    {MOCK_EMPLOYERS.filter(e => e.status !== 'blacklisted').map(e => (
+                    {employers.filter(e => e.status !== 'blacklisted').map(e => (
                       <option key={e.id} value={e.id}>{e.companyName} ({e.country}){e.status === 'suspended' ? ' ⚠️' : ''}</option>
                     ))}
                   </select>
@@ -381,9 +478,17 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={save} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Create Job Order' : 'Save Changes'}
+              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={save} disabled={isSaving} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Creating Job Order...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Create Job Order' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>

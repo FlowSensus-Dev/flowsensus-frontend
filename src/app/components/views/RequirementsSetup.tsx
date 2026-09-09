@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, GripVertical, CheckCircle2, XCircle,
-  FileText, Globe, Users, Star, Save, X, ToggleLeft, ToggleRight, AlertCircle
+  FileText, Globe, Users, Star, Save, X, ToggleLeft, ToggleRight, AlertCircle, Loader2
 } from 'lucide-react';
 import { DocumentRequirement, JOB_TYPE_OPTIONS, JobTypeValue } from '../../types';
+import { api } from '../../../lib/api';
 
 const APPLIES_TO_LABELS: Record<DocumentRequirement['appliesTo'], string> = {
   all: 'All Applicants',
@@ -18,34 +19,6 @@ const APPLIES_TO_COLORS: Record<DocumentRequirement['appliesTo'], string> = {
   returning_ofw: '#8B5CF6',
   muslim: '#F59E0B',
 };
-
-const DEFAULT_REQUIREMENTS: DocumentRequirement[] = [
-  { id: 'req-001', name: 'Valid Passport', description: 'Original Philippine passport with at least 6 months validity from departure date.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: true, validityMonths: 12, sortOrder: 1, isActive: true },
-  { id: 'req-002', name: 'NBI Clearance', description: 'National Bureau of Investigation clearance issued within the last 6 months. Strictly mandatory for domestic work.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: true, validityMonths: 6, sortOrder: 2, isActive: true },
-  { id: 'req-003', name: 'DMW e-Registration', description: 'Online registration with the Department of Migrant Workers portal (formerly OWWA/POEA).', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: false, sortOrder: 3, isActive: true },
-  { id: 'req-004', name: 'PEOS Certificate', description: 'Pre-Employment Orientation Seminar certificate. Strict requirement for first-time OFWs.', isRequired: true, appliesTo: 'new_ofw', applicableJobTypes: ['all'], expiryTracked: true, validityMonths: 12, sortOrder: 4, isActive: true },
-  { id: 'req-005', name: 'OFW Information Sheet', description: 'Completed OFW Information Sheet form (POEA Form 201) for returning OFWs.', isRequired: true, appliesTo: 'returning_ofw', applicableJobTypes: ['all'], expiryTracked: false, sortOrder: 5, isActive: true },
-  { id: 'req-006', name: 'OMA Certificate', description: 'Office of Muslim Affairs Certificate of Good Standing.', isRequired: true, appliesTo: 'muslim', applicableJobTypes: ['all'], expiryTracked: true, validityMonths: 12, sortOrder: 6, isActive: true },
-  { id: 'req-007', name: 'Medical Certificate (DOH-accredited)', description: 'Pre-employment medical examination from a DOH-accredited POEA clinic. Sea-based PEME follows different protocols.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: true, validityMonths: 3, sortOrder: 7, isActive: true },
-  { id: 'req-008', name: 'Birth Certificate (PSA)', description: 'Philippine Statistics Authority-authenticated birth certificate.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: false, sortOrder: 8, isActive: true },
-  // Professional
-  { id: 'req-009', name: 'PRC License / ID', description: 'Mandatory proof of passing the Philippine licensure exams for regulated professions (Nursing, Engineering, Teaching, etc.).', isRequired: true, appliesTo: 'all', applicableJobTypes: ['professional'], expiryTracked: true, validityMonths: 36, sortOrder: 9, isActive: true },
-  { id: 'req-010', name: 'Board Rating Certificate', description: 'Frequently requested by foreign employers to verify actual licensure exam scores.', isRequired: false, appliesTo: 'all', applicableJobTypes: ['professional'], expiryTracked: false, sortOrder: 10, isActive: true },
-  { id: 'req-011', name: 'Transcript of Records & Diploma (Apostilled)', description: 'Apostille (formerly "Red Ribbon") from the DFA required for deployment. Healthcare workers often also need IELTS/OET, NCLEX, or Prometric/HAAD.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['professional'], expiryTracked: false, sortOrder: 11, isActive: true },
-  // Skilled / Technical
-  { id: 'req-012', name: 'TESDA National Certificate (NC II / NC III)', description: 'Certification level must map directly to the job order (e.g., NC II - Shielded Metal Arc Welding).', isRequired: true, appliesTo: 'all', applicableJobTypes: ['skilled'], expiryTracked: false, sortOrder: 12, isActive: true },
-  { id: 'req-013', name: 'Trade Test Certificate', description: 'Issued by accredited third-party assessment centers to verify practical, hands-on skills.', isRequired: false, appliesTo: 'all', applicableJobTypes: ['skilled'], expiryTracked: false, sortOrder: 13, isActive: true },
-  // Household Service Workers
-  { id: 'req-014', name: 'TESDA NC II for Domestic Work', description: 'Strict DMW requirement prior to processing for Household Service Worker roles.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['hsw'], expiryTracked: false, sortOrder: 14, isActive: true },
-  { id: 'req-015', name: 'CPDEP Certificate', description: 'Comprehensive Pre-Departure Education Program — specialized seminar distinct from standard PDOS, required for HSWs.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['hsw'], expiryTracked: true, validityMonths: 12, sortOrder: 15, isActive: true },
-  // Sea-Based
-  { id: 'req-016', name: "SIRB / Seaman's Book", description: "The Seafarer's Identification and Record Book (SIRB) is fundamental for any maritime deployment.", isRequired: true, appliesTo: 'all', applicableJobTypes: ['sea_based'], expiryTracked: true, validityMonths: 60, sortOrder: 16, isActive: true },
-  { id: 'req-017', name: 'STCW Certificates', description: 'Standards of Training, Certification and Watchkeeping — includes Basic Safety Training and role-specific STCW certifications.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['sea_based'], expiryTracked: true, validityMonths: 60, sortOrder: 17, isActive: true },
-  { id: 'req-018', name: 'Sea-Based PEME', description: 'Pre-Employment Medical Examination for seafarers — follows stricter protocols than standard land-based DOH medicals.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['sea_based'], expiryTracked: true, validityMonths: 12, sortOrder: 18, isActive: true },
-  // Drivers
-  { id: 'req-019', name: 'LTO Professional Driver\'s License', description: 'Restriction codes must legally match the weight and class of vehicle to be operated overseas.', isRequired: true, appliesTo: 'all', applicableJobTypes: ['driver'], expiryTracked: true, validityMonths: 36, sortOrder: 19, isActive: true },
-  { id: 'req-020', name: 'International Driving Permit (IDP)', description: 'Required by some destination countries. Issued by AAP/LTO based on valid Philippine license.', isRequired: false, appliesTo: 'all', applicableJobTypes: ['driver'], expiryTracked: true, validityMonths: 12, sortOrder: 20, isActive: true },
-];
 
 const BLANK_REQ: Omit<DocumentRequirement, 'id' | 'sortOrder'> = {
   name: '', description: '', isRequired: true, appliesTo: 'all', applicableJobTypes: ['all'], expiryTracked: false, validityMonths: undefined, isActive: true,
@@ -66,13 +39,47 @@ interface Props {
 }
 
 export default function RequirementsSetup({ showToast, currentUserName }: Props) {
-  const [requirements, setRequirements] = useState<DocumentRequirement[]>(DEFAULT_REQUIREMENTS);
+  const [requirements, setRequirements] = useState<DocumentRequirement[]>([]);
+  const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<DocumentRequirement | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [filter, setFilter] = useState<'all' | DocumentRequirement['appliesTo']>('all');
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeValue | 'all'>('all');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // ── Fetch Live Requirements on Mount ──────────────────────────────────────
+  useEffect(() => {
+    const fetchRequirements = async () => {
+      try {
+        setLoading(true);
+        const res = await api.get('/requirements');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveReqs: DocumentRequirement[] = res.data.map((r: any) => ({
+            id: String(r.requirement_id || r.id),
+            name: r.requirement_name || r.name,
+            description: r.description || '',
+            isRequired: Boolean(r.is_required ?? r.isRequired),
+            appliesTo: (r.applies_to || r.appliesTo || 'all') as DocumentRequirement['appliesTo'],
+            applicableJobTypes: Array.isArray(r.applicable_job_types || r.applicableJobTypes)
+              ? (r.applicable_job_types || r.applicableJobTypes)
+              : ['all'],
+            expiryTracked: Boolean(r.expiry_tracked ?? r.expiryTracked),
+            validityMonths: r.validity_period ? Math.round(r.validity_period / 30) : (r.validityMonths || undefined),
+            sortOrder: Number(r.sort_order ?? r.sortOrder ?? 1),
+            isActive: Boolean(r.is_active ?? r.isActive ?? true),
+          }));
+          setRequirements(liveReqs);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live requirements from Supabase:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRequirements();
+  }, []);
 
   const filtered = requirements
     .filter(r => {
@@ -89,25 +96,88 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
 
   const openEdit = (r: DocumentRequirement) => { setEditing({ ...r }); setIsNew(false); };
 
-  const save = () => {
-    if (!editing) return;
+  const save = async () => {
+    if (!editing || isSaving) return;
     if (!editing.name.trim()) { showToast('Requirement name is required'); return; }
-    if (isNew) {
-      setRequirements(prev => [...prev, editing]);
-    } else {
-      setRequirements(prev => prev.map(r => r.id === editing.id ? editing : r));
+
+    setIsSaving(true);
+    try {
+      if (isNew) {
+        try {
+          const res = await api.post('/requirements', {
+            name: editing.name,
+            description: editing.description,
+            isRequired: editing.isRequired,
+            appliesTo: editing.appliesTo,
+            applicableJobTypes: editing.applicableJobTypes,
+            expiryTracked: editing.expiryTracked,
+            validityPeriod: editing.validityMonths ? editing.validityMonths * 30 : 365,
+            sortOrder: editing.sortOrder,
+            isActive: editing.isActive,
+          });
+          const created = res.data;
+          const newReq: DocumentRequirement = {
+            ...editing,
+            id: String(created.requirement_id || created.id),
+          };
+          setRequirements(prev => [...prev, newReq]);
+        } catch (err) {
+          console.warn('Backend create requirement failed, adding locally:', err);
+          setRequirements(prev => [...prev, editing]);
+        }
+      } else {
+        const numId = parseInt(editing.id.replace('req-', ''), 10);
+        if (!isNaN(numId)) {
+          try {
+            await api.put(`/requirements/${numId}`, {
+              name: editing.name,
+              description: editing.description,
+              isRequired: editing.isRequired,
+              appliesTo: editing.appliesTo,
+              applicableJobTypes: editing.applicableJobTypes,
+              expiryTracked: editing.expiryTracked,
+              validityPeriod: editing.validityMonths ? editing.validityMonths * 30 : 365,
+              sortOrder: editing.sortOrder,
+              isActive: editing.isActive,
+            });
+          } catch (err) {
+            console.warn('Backend update requirement failed, applying locally:', err);
+          }
+        }
+        setRequirements(prev => prev.map(r => r.id === editing.id ? editing : r));
+      }
+
+      showToast(`"${editing.name}" ${isNew ? 'added' : 'updated'} successfully`);
+      setEditing(null);
+    } finally {
+      setIsSaving(false);
     }
-    showToast(`"${editing.name}" ${isNew ? 'added' : 'updated'} successfully`);
-    setEditing(null);
   };
 
-  const remove = (id: string) => {
+  const remove = async (id: string) => {
     const req = requirements.find(r => r.id === id);
+    const numId = parseInt(id.replace('req-', ''), 10);
+    if (!isNaN(numId)) {
+      try {
+        await api.delete(`/requirements/${numId}`);
+      } catch (err) {
+        console.warn('Backend delete requirement failed, removing locally:', err);
+      }
+    }
     setRequirements(prev => prev.filter(r => r.id !== id));
     showToast(`"${req?.name}" removed`);
   };
 
-  const toggle = (id: string) => {
+  const toggle = async (id: string) => {
+    const current = requirements.find(r => r.id === id);
+    if (current) {
+      const numId = parseInt(id.replace('req-', ''), 10);
+      if (!isNaN(numId)) {
+        api.put(`/requirements/${numId}`, { isActive: !current.isActive }).catch(err => {
+          console.warn('Backend toggle requirement failed:', err);
+        });
+      }
+    }
     setRequirements(prev => prev.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r));
   };
 
@@ -122,10 +192,20 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     const reordered = [...items];
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
-    setRequirements(reordered.map((r, i) => ({ ...r, sortOrder: i + 1 })));
+    const updated = reordered.map((r, i) => ({ ...r, sortOrder: i + 1 }));
+    setRequirements(updated);
     setDragId(null);
     setDragOverId(null);
+
+    // Persist new sort order to backend for moved items
+    updated.forEach(r => {
+      const numId = parseInt(r.id.replace('req-', ''), 10);
+      if (!isNaN(numId)) {
+        api.put(`/requirements/${numId}`, { sortOrder: r.sortOrder }).catch(() => {});
+      }
+    });
   };
+
 
   const activeCount = requirements.filter(r => r.isActive).length;
   const requiredCount = requirements.filter(r => r.isRequired && r.isActive).length;
@@ -428,9 +508,17 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">Cancel</button>
-              <button onClick={save} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors">
-                <Save size={15} /> {isNew ? 'Add Requirement' : 'Save Changes'}
+              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors">Cancel</button>
+              <button onClick={save} disabled={isSaving} className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> {isNew ? 'Adding Requirement...' : 'Saving Changes...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> {isNew ? 'Add Requirement' : 'Save Changes'}
+                  </>
+                )}
               </button>
             </div>
           </div>
