@@ -376,6 +376,7 @@ export default function AppShell({
                     const found = applicants.find(
                       (a) =>
                         String(a.id || '').toLowerCase().includes(q) ||
+                        String(a.applicant_code || a.code || '').toLowerCase().includes(q) ||
                         String(a.name || '').toLowerCase().includes(q) ||
                         String(a.role || '').toLowerCase().includes(q)
                     );

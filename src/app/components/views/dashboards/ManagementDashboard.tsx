@@ -69,7 +69,7 @@ export default function ManagementDashboard({
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Stuck in Phase {applicant.phase}</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicant_code || applicant.code || applicant.id} • Stuck in Phase {applicant.phase}</p>
                     <p className="text-xs font-bold text-[#EF4444] uppercase mt-1">
                       ⚠ 7+ days without progress • Handler: {applicant.currentHandler}
                     </p>
@@ -151,7 +151,7 @@ export default function ManagementDashboard({
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
                     <p className="text-xs text-[#64748B]">
-                      {applicant.id} • {applicant.role} • CV awaiting quality control
+                      {applicant.applicant_code || applicant.code || applicant.id} • {applicant.role} • CV awaiting quality control
                     </p>
                   </div>
                 </div>

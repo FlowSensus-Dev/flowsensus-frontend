@@ -95,7 +95,7 @@ export default function RecruitmentDashboard({
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Returned from clinic</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicant_code || applicant.code || applicant.id} • Returned from clinic</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -140,7 +140,7 @@ export default function RecruitmentDashboard({
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Needs exam scoring</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicant_code || applicant.code || applicant.id} • Needs exam scoring</p>
                   </div>
                 </div>
                 <button

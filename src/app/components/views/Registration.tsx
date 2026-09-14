@@ -160,6 +160,10 @@ export default function Registration({
   const [activeSection, setActiveSection] = useState<string>('personal');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Derive current applicant tracking code for professional UI display
+  const currentApplicant = applicants.find(a => String(a.id) === String(selectedApplicantId));
+  const currentApplicantCode = currentApplicant?.applicant_code || currentApplicant?.code || (selectedApplicantId !== 'new' ? `Applicant #${selectedApplicantId}` : '');
+
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
@@ -170,8 +174,8 @@ export default function Registration({
         const res = await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
-            id: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
-            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            id: String(jo.job_order_id),
+            code: jo.job_order_code || jo.job_code || String(jo.job_order_id),
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
@@ -446,6 +450,8 @@ export default function Registration({
 
         const newApplicantRecord: ApplicantRecord = {
           id: newId,
+          code: createdData.applicant_code || newId,
+          applicant_code: createdData.applicant_code || newId,
           name: `${personal.firstName} ${personal.lastName}`.trim(),
           firstName: personal.firstName,
           middleName: personal.middleName,
@@ -492,7 +498,8 @@ export default function Registration({
           details: `Registered new applicant ${personal.lastName}, ${personal.firstName} (ID #${newId}) with active Phase 1 screening.`,
         });
 
-        showToast(`✓ New applicant "${personal.firstName} ${personal.lastName}" registered successfully! (ID: #${newId})`);
+        const displayCode = createdData.applicant_code || `#${newId}`;
+        showToast(`✓ New applicant "${personal.firstName} ${personal.lastName}" registered successfully! (${displayCode})`);
         resetBlankForm();
       } else {
         // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
@@ -545,7 +552,7 @@ export default function Registration({
           action: 'Profile Updated',
           performedBy: currentUserName,
           department: 'Recruitment',
-          details: `Updated profile details for applicant #${selectedApplicantId} (${personal.lastName}, ${personal.firstName}).`,
+          details: `Updated profile details for ${currentApplicantCode || ('applicant #' + selectedApplicantId)} (${personal.lastName}, ${personal.firstName}).`,
         });
 
         showToast(`✓ Profile for "${personal.firstName} ${personal.lastName}" updated successfully!`);
@@ -613,7 +620,7 @@ export default function Registration({
                   ? 'bg-emerald-200 text-emerald-800'
                   : 'bg-sky-200 text-sky-800'
               }`}>
-                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant #${selectedApplicantId}`}
+                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Candidate: ${currentApplicantCode || ('#' + selectedApplicantId)}`}
               </span>
               {selectedApplicantId === 'new' ? (
                 <span className="text-xs text-emerald-700 font-semibold">Clean intake form · Ready for encoding</span>
@@ -1259,7 +1266,7 @@ export default function Registration({
             </>
           ) : (
             <>
-              <Save size={16} /> Save Applicant #{selectedApplicantId} Changes
+              <Save size={16} /> Save {currentApplicantCode || `Applicant #${selectedApplicantId}`} Changes
             </>
           )}
         </button>

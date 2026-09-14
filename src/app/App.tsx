@@ -1056,7 +1056,8 @@ export default function App() {
         const res = await api.get('/applicants');
         if (res.data && Array.isArray(res.data)) {
           const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
-            const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || `Applicant #${item.applicant_id}`;
+            const appCode = item.applicant_code || '';
+            const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || appCode || `Applicant #${item.applicant_id}`;
             const parsedSkills = Array.isArray(item.skills)
               ? item.skills
               : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
@@ -1067,12 +1068,14 @@ export default function App() {
 
             return {
               id: String(item.applicant_id),
+              code: appCode,
+              applicant_code: appCode,
               name: fullName,
               firstName: item.first_name || '',
               middleName: item.middle_name || '',
               lastName: item.last_name || '',
               role: item.applied_role || 'Applicant',
-              jobOrder: item.job_order_id ? `JO-${item.job_order_id}` : (item.job_code || 'Unassigned'),
+              jobOrder: item.job_order_code || item.job_code || item.job_order_name || 'Unassigned',
               phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
               status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
               currentHandler: item.current_handler || 'System Agent',

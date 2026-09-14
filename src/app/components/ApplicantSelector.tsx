@@ -22,6 +22,7 @@ export default function ApplicantSelector({
     (applicant) =>
       applicant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       applicant.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (applicant.applicant_code || applicant.code || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       applicant.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -52,7 +53,7 @@ export default function ApplicantSelector({
             {selectedApplicant ? selectedApplicant.name : 'Select Applicant'}
           </p>
           <p className="text-xs text-[#64748B]">
-            {selectedApplicant ? `${selectedApplicant.id} • Phase ${selectedApplicant.phase}` : 'Choose an applicant to process'}
+            {selectedApplicant ? `${selectedApplicant.applicant_code || selectedApplicant.code || selectedApplicant.id} • Phase ${selectedApplicant.phase}` : 'Choose an applicant to process'}
           </p>
         </div>
         <div className="text-[#0EA5E9]">
@@ -118,7 +119,7 @@ export default function ApplicantSelector({
                         )}
                       </div>
                       <p className="text-xs text-[#64748B]">
-                        {applicant.id} • {applicant.role}
+                        {applicant.applicant_code || applicant.code || applicant.id} • {applicant.role}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-bold text-[#0EA5E9]">Phase {applicant.phase}</span>

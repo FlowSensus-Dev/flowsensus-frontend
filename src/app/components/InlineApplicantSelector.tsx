@@ -33,7 +33,7 @@ export default function InlineApplicantSelector({
             <optgroup label="── Existing Registered Applicants ──">
               {applicants.map((applicant) => (
                 <option key={applicant.id} value={applicant.id}>
-                  {applicant.id} - {applicant.name} ({applicant.role}) - Phase {applicant.phase}
+                  {applicant.applicant_code || applicant.code || applicant.id} - {applicant.name} ({applicant.role}) - Phase {applicant.phase}
                 </option>
               ))}
             </optgroup>

@@ -71,7 +71,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
           const mapped: JobOrder[] = ordersRes.value.data.map((jo: any) => ({
             id: String(jo.job_order_id),
-            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? String(jo.job_order_id) : 'Unassigned'),
             position: jo.position_title || jo.position || '',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerId: String(jo.employer_id),
@@ -134,7 +134,8 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
     const payload = {
       employer_id: parseInt(editing.employerId, 10) || 1,
       position_title: editing.position,
-      job_order_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
+      job_order_code: editing.code || undefined,
+      job_code: editing.code || undefined,
       slots_requested: editing.slots,
       slots_filled: editing.filledSlots,
       salary_range: editing.salaryRange,

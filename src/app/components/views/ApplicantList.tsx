@@ -37,6 +37,7 @@ export default function ApplicantList({
     const matchSearch = !search ||
       a.name.toLowerCase().includes(q) ||
       a.id.toLowerCase().includes(q) ||
+      (a.applicant_code || a.code || '').toLowerCase().includes(q) ||
       a.role.toLowerCase().includes(q) ||
       (a.jobOrder || '').toLowerCase().includes(q);
     const matchPhase =
@@ -158,7 +159,7 @@ export default function ApplicantList({
                         {a.isStopped && <OctagonX size={13} className="text-red-400 flex-shrink-0 mt-0.5" />}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5 truncate">{a.role}</p>
-                      <p className="text-[10px] font-mono text-slate-400 mt-0.5">{a.id}</p>
+                      <p className="text-[10px] font-mono text-slate-400 mt-0.5">{a.applicant_code || a.code || a.id}</p>
                     </div>
                     <ChevronRight size={14} className="text-slate-300 group-hover:text-[#0EA5E9] transition-colors flex-shrink-0 mt-1" />
                   </div>

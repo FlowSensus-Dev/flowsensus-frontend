@@ -177,10 +177,11 @@ export default function PredictiveForecast({
 
   const selectedApplicant = applicants.find((a) => String(a.id) === String(activeApplicantId)) ||
     applicants[0] || {
-      id: '1',
-      name: 'Juan Dela Cruz',
-      role: 'Industrial Welder',
-      jobOrder: 'JO-2026-0042 (Saudi Arabia)',
+      id: '',
+      applicant_code: '',
+      name: 'No Applicant Selected',
+      role: 'Unassigned',
+      jobOrder: 'Unassigned',
     };
 
   // Compute departure estimate based on backend total pipeline duration
@@ -311,12 +312,16 @@ export default function PredictiveForecast({
                 {applicantTimeline?.current_stage ? `Stage: ${applicantTimeline.current_stage}` : 'Active Applicant'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Applicant #{activeApplicantId} • {selectedApplicant.role}
+            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="font-mono font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                {selectedApplicant.applicant_code || selectedApplicant.code || (applicantTimeline as any)?.applicant_code || `Applicant #${activeApplicantId}`}
+              </span>
+              <span>•</span>
+              <span>{selectedApplicant.role}</span>
             </p>
           </div>
           <div className="text-xs font-bold uppercase tracking-wider text-sky-600 border border-sky-300 bg-sky-50/50 px-4 py-2 rounded-full w-fit">
-            {selectedApplicant.jobOrder || 'JO-2026-0042 (Al-Futtaim Engineering)'}
+            {selectedApplicant.jobOrder || 'Unassigned'}
           </div>
         </div>
 

@@ -41,7 +41,8 @@ CURRICULUM VITAE - EXPORT
 
 Personal Information:
 - Full Name: ${selectedApplicant.name}
-- Applicant ID: ${selectedApplicant.id}
+- Applicant Code: ${selectedApplicant.applicant_code || selectedApplicant.code || 'N/A'}
+- Internal ID: #${selectedApplicant.id}
 - Position Applied: ${selectedApplicant.role}
 - Job Order: ${selectedApplicant.jobOrder || 'N/A'}
 

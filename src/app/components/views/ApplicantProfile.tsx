@@ -240,7 +240,7 @@ export default function ApplicantProfile({
             <h2 className="text-xl font-bold text-white leading-tight">{applicant.name}</h2>
             <p className="text-[#0EA5E9] text-sm mt-0.5 font-medium">{applicant.role}</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
-              <span className="flex items-center gap-1"><IdCard size={11} /> {applicant.id}</span>
+              <span className="flex items-center gap-1"><IdCard size={11} /> {applicant.applicant_code || applicant.code || applicant.id}</span>
               {applicant.email && <span className="flex items-center gap-1"><Mail size={11} /> {applicant.email}</span>}
               {applicant.contact && <span className="flex items-center gap-1"><Phone size={11} /> {applicant.contact}</span>}
             </div>

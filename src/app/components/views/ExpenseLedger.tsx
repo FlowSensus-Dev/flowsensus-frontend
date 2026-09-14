@@ -109,7 +109,9 @@ export default function ExpenseLedger({
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-6">
             <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
             <p className="text-lg font-black text-[#0F172A]">{applicantDisplayName}</p>
-            <p className="text-xs text-[#64748B]">Applicant #{selectedApplicantId}</p>
+            <p className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded w-fit mt-1 border border-emerald-200">
+              {selectedApplicant?.applicant_code || selectedApplicant?.code || (selectedApplicantId ? `Applicant #${selectedApplicantId}` : '')}
+            </p>
           </div>
         </div>
 

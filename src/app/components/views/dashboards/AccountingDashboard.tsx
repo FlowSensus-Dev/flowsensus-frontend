@@ -81,11 +81,14 @@ export default function AccountingDashboard({
   }, {} as Record<string, number>);
 
   const topSpenders = Object.entries(expensePerApplicant)
-    .map(([id, amount]) => ({
-      applicantId: id,
-      applicantName: applicants.find((a) => a.id === id)?.name || `Applicant #${id}`,
-      amount,
-    }))
+    .map(([id, amount]) => {
+      const found = applicants.find((a) => a.id === id);
+      return {
+        applicantId: id,
+        applicantName: found?.name || found?.applicant_code || found?.code || `Applicant #${id}`,
+        amount,
+      };
+    })
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
@@ -515,8 +518,13 @@ export default function AccountingDashboard({
                       {initials}
                     </div>
                     <div>
-                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.id}`}</p>
-                      <p className="text-xs text-[#64748B]">{applicant.id} • Ready for pre-departure cash advance</p>
+                      <p className="font-bold text-[#0F172A]">{applicant.name || applicant.applicant_code || applicant.code || `Applicant #${applicant.id}`}</p>
+                      <p className="text-xs text-[#64748B] flex items-center gap-1.5 mt-0.5">
+                        <span className="font-mono font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          {applicant.applicant_code || applicant.code || `Applicant #${applicant.id}`}
+                        </span>
+                        <span>• Ready for pre-departure cash advance</span>
+                      </p>
                     </div>
                   </div>
                   <button

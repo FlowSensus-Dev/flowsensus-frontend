@@ -90,7 +90,7 @@ export default function Dashboard({ applicants = [], activityLogs = [], currentU
                   <div className="flex-1">
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
                     <p className="text-xs text-[#64748B]">
-                      {applicant.id} • {applicant.role}
+                      {applicant.applicant_code || applicant.code || applicant.id} • {applicant.role}
                     </p>
                   </div>
                 </div>

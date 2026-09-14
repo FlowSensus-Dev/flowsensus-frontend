@@ -183,27 +183,34 @@ Date: ${new Date().toLocaleString()}
           )}
         </div>
 
-        <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 mb-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
-              <p className="font-bold text-[#0F172A]">Juan Dela Cruz</p>
-              <p className="text-sm text-[#64748B]">Applicant #1 | Industrial Welder</p>
+        {/* Review Candidate Info */}
+        {(() => {
+          const currentApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
+          return (
+            <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 mb-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
+                  <p className="font-bold text-[#0F172A]">{currentApplicant?.name || 'Applicant'}</p>
+                  <p className="text-sm text-[#64748B] font-medium">
+                    <span className="font-mono text-slate-800 font-bold">{currentApplicant?.applicant_code || currentApplicant?.code || currentApplicant?.id}</span> | {currentApplicant?.role || 'Applicant'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Job Order Assignment</p>
+                  <p className="font-bold text-[#0F172A]">{currentApplicant?.jobOrder || 'Unassigned'}</p>
+                  <p className="text-sm text-[#64748B]">{currentApplicant?.status || 'In Pipeline'}</p>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-300">
+                <p className="text-xs font-bold text-[#64748B] uppercase mb-2">CV Summary (Read-Only)</p>
+                <p className="text-sm text-[#0F172A]">
+                  {currentApplicant?.phaseDescription || 'Experienced candidate active in deployment pipeline. Screening and document assessment in progress.'}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Target Employer</p>
-              <p className="font-bold text-[#0F172A]">Al-Futtaim Engineering</p>
-              <p className="text-sm text-[#64748B]">Saudi Arabia | JO-2026-0042</p>
-            </div>
-          </div>
-          <div className="mt-4 pt-4 border-t border-slate-300">
-            <p className="text-xs font-bold text-[#64748B] uppercase mb-2">CV Summary (Read-Only)</p>
-            <p className="text-sm text-[#0F172A]">
-              Experienced industrial welder with 5+ years in structural fabrication. TESDA NCII certified with
-              expertise in SMAW, GMAW, and FCAW processes. Strong safety record and blueprint reading skills.
-            </p>
-          </div>
-        </div>
+          );
+        })()}
 
 
         {bothActionsComplete && (

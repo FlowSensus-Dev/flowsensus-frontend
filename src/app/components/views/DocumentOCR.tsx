@@ -763,8 +763,8 @@ export default function DocumentOCR({
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                     System Ground Truth Record
                   </span>
-                  <span className="bg-slate-200 text-slate-700 font-mono text-[10px] px-2 py-0.5 rounded">
-                    Applicant #{ocrResult.system_data.applicant_id || activeApplicantId}
+                  <span className="bg-sky-100 text-sky-800 font-mono font-bold text-[10px] px-2 py-0.5 rounded border border-sky-200">
+                    {(ocrResult.system_data as any).applicant_code || (ocrResult.system_data.applicant_id ? `Applicant #${ocrResult.system_data.applicant_id}` : `Applicant #${activeApplicantId}`)}
                   </span>
                 </div>
                 <div className="space-y-3 text-xs">
