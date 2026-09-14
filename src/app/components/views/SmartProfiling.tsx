@@ -380,7 +380,7 @@ export default function SmartProfiling({
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="font-black text-[#0F172A] text-lg">{applicant.name}</h3>
-            <p className="text-sm text-[#64748B]">{applicant.id} | {applicant.role}</p>
+            <p className="text-sm text-[#64748B]">{applicant.applicantCode || applicant.id} | {applicant.role}</p>
           </div>
           {applicants.length > 1 && (
             <div className="flex items-center gap-2">

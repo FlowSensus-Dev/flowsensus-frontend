@@ -9,6 +9,7 @@ export interface WorkflowState {
 
 export interface ApplicantRecord {
   id: string;
+  applicantCode?: string;
   name: string;
   firstName?: string;
   middleName?: string;

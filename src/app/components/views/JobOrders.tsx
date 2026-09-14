@@ -36,11 +36,13 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
   const [reqInput, setReqInput] = useState('');
   const [certInput, setCertInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // ── Fetch Live Data on Mount ──────────────────────────────────────────────
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
       try {
+        setIsLoading(true);
         const [ordersRes, empRes] = await Promise.allSettled([
           api.get('/job-orders'),
           api.get('/employers'),
@@ -92,6 +94,8 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
         }
       } catch (err) {
         console.warn('Could not fetch live job orders, retaining default orders:', err);
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchLiveJobOrders();
@@ -257,7 +261,17 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
 
       {/* Job Order cards */}
       <div className="space-y-3">
-        {filtered.map(order => {
+        {isLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+            <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
+            <p>Loading job orders...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-16 text-center text-slate-400 text-sm">
+            No job orders found matching your search.
+          </div>
+        ) : (
+          filtered.map(order => {
           const meta = STATUS_META[order.status];
           const emp = employers.find(e => e.id === order.employerId);
           const isExpanded = expanded === order.id;
@@ -366,12 +380,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
               )}
             </div>
           );
-        })}
-        {filtered.length === 0 && (
-          <div className="bg-white rounded-xl border border-slate-200 py-16 text-center text-slate-400 text-sm">
-            No job orders found. Create one above.
-          </div>
-        )}
+        }))}
       </div>
 
       {/* Edit / Add Modal */}

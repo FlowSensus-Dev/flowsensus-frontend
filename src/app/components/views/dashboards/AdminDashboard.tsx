@@ -163,7 +163,7 @@ export default function AdminDashboard({ applicants, onViewApplicant, onNavigate
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Data mismatch detected</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} • Data mismatch detected</p>
                   </div>
                 </div>
                 <button
@@ -210,7 +210,7 @@ export default function AdminDashboard({ applicants, onViewApplicant, onNavigate
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Ready for visa processing</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} • Ready for visa processing</p>
                   </div>
                 </div>
                 <button

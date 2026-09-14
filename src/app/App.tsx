@@ -1072,6 +1072,7 @@ export default function App() {
 
             return {
               id: String(item.applicant_id),
+              applicantCode: item.applicant_code,
               name: fullName,
               firstName: item.first_name || '',
               middleName: item.middle_name || '',

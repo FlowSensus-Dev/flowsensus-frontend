@@ -515,8 +515,8 @@ export default function AccountingDashboard({
                       {initials}
                     </div>
                     <div>
-                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.id}`}</p>
-                      <p className="text-xs text-[#64748B]">{applicant.id} • Ready for pre-departure cash advance</p>
+                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.applicantCode || applicant.id}`}</p>
+                      <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} • Ready for pre-departure cash advance</p>
                     </div>
                   </div>
                   <button
