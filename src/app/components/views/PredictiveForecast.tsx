@@ -278,7 +278,7 @@ export default function PredictiveForecast({
             >
               {applicants.map((app) => (
                 <option key={app.id} value={app.id}>
-                  #{app.id} - {app.name} ({app.role || 'Applicant'})
+                  {app.applicantCode || `#${app.id}`} - {app.name} ({app.role || 'Applicant'})
                 </option>
               ))}
             </select>
@@ -312,7 +312,7 @@ export default function PredictiveForecast({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Applicant #{activeApplicantId} • {selectedApplicant.role}
+              Applicant {selectedApplicant.applicantCode || `#${activeApplicantId}`} • {selectedApplicant.role}
             </p>
           </div>
           <div className="text-xs font-bold uppercase tracking-wider text-sky-600 border border-sky-300 bg-sky-50/50 px-4 py-2 rounded-full w-fit">

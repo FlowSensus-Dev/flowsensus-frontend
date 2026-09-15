@@ -1009,6 +1009,126 @@ export default function App() {
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
+  // ── Live Backend Data Fetching ──────────────────────────────────────────
+  const fetchLiveBackendData = async () => {
+    // 1. Fetch live applicants from /applicants
+    try {
+      const res = await api.get('/applicants');
+      if (res.data && Array.isArray(res.data)) {
+        const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
+          const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
+          const parsedSkills = Array.isArray(item.skills)
+            ? item.skills
+            : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+          const parsedCerts = Array.isArray(item.certifications)
+            ? item.certifications
+            : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
+          const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
+
+          const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
+          const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
+
+          return {
+            id: String(item.applicant_id),
+            applicantCode: formattedApplicantCode,
+            name: fullName,
+            firstName: item.first_name || '',
+            middleName: item.middle_name || '',
+            lastName: item.last_name || '',
+            role: item.applied_role || 'Applicant',
+            jobOrder: formattedJobOrderCode,
+            selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
+            phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
+            status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
+            currentHandler: item.current_handler || 'System Agent',
+            currentDepartment: item.current_department || 'Recruitment',
+            lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+            phaseDescription: item.phase_description || 'Active in candidate pipeline',
+            presentAddress: item.present_address || '',
+            provincialAddress: item.provincial_address || '',
+            email: item.email || '',
+            contact: item.contact_number || '',
+            dateOfBirth: item.birth_date || '',
+            age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
+            sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
+            civilStatus: item.civil_status || 'Single',
+            citizenship: item.nationality || 'Filipino',
+            religion: item.religion || 'Roman Catholic',
+            height: item.height || "5'6\"",
+            weight: item.weight || '65 kg',
+            skills: parsedSkills,
+            certifications: parsedCerts,
+            workExperience: parsedWork,
+            address: item.present_address || item.provincial_address || 'Philippines',
+            employmentHistory: parsedWork.map((w: any, idx: number) => ({
+              id: `eh-${item.applicant_id}-${idx}`,
+              company: w.companyName || w.company || 'Previous Employer',
+              position: w.position || 'Worker',
+              dateStarted: w.startDate || '',
+              dateEnded: w.endDate || '',
+              country: w.country || 'Philippines',
+              isPresent: Boolean(w.isPresent),
+              reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
+            })),
+            employmentFlags: [],
+            testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+            matchScore: 90,
+          };
+        });
+        setApplicants(liveMapped);
+      }
+    } catch (err) {
+      console.warn('Backend applicants fetch error:', err);
+    }
+
+    // 2. Fetch live audit logs from /audit-logs
+    try {
+      const logsRes = await api.get('/audit-logs');
+      if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
+        const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
+          audit_log_id: l.audit_log_id,
+          applicant_id: l.applicant_id,
+          performed_by: l.performed_by,
+          created_at: l.created_at,
+          id: `LOG-${l.audit_log_id}`,
+          applicantId: l.applicant_id ? String(l.applicant_id) : '',
+          action: l.action,
+          performedBy: l.performed_by || 'System User',
+          department: l.department,
+          details: l.details,
+          timestamp: l.created_at || new Date().toISOString(),
+        }));
+        setActivityLogs(liveLogs);
+      }
+    } catch (err) {
+      console.warn('Backend audit logs unavailable:', err);
+    }
+
+    // 3. Fetch live financial records from /financial/records
+    try {
+      const expRes = await api.get('/financial/records');
+      if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
+        const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
+          id: `EXP-${r.financial_record_id}`,
+          applicantId: String(r.applicant_id),
+          category: r.category || 'processing',
+          type: r.payment_type || 'Processing Fee',
+          amount: r.amount || 0,
+          description: r.description || r.payment_type || '',
+          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          recordedBy: r.recorded_by_name || 'Mark Tan',
+          paymentMethod: 'Bank Transfer',
+          paidBy: 'Agency',
+          notes: r.description || '',
+          timestamp: r.created_at || new Date().toISOString(),
+        }));
+        setExpenses(liveExpenses);
+      }
+    } catch (err) {
+      console.warn('Backend financial records unavailable:', err);
+    }
+  };
+
   // Check active Supabase session and load live backend data on startup
   useEffect(() => {
     const checkSession = async () => {
@@ -1050,128 +1170,31 @@ export default function App() {
         }
       } catch (err) {
         console.error("Session check error:", err);
+      } finally {
+        fetchLiveBackendData();
       }
     };
+
     checkSession();
 
-    // ── Live Backend Data Fetching ──────────────────────────────────────────
-    const fetchLiveBackendData = async () => {
-      // 1. Fetch live applicants from /applicants
-      try {
-        const res = await api.get('/applicants');
-        if (res.data && Array.isArray(res.data)) {
-          const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
-            const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || `Applicant #${item.applicant_id}`;
-            const parsedSkills = Array.isArray(item.skills)
-              ? item.skills
-              : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
-            const parsedCerts = Array.isArray(item.certifications)
-              ? item.certifications
-              : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
-            const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
-
-            return {
-              id: String(item.applicant_id),
-              applicantCode: item.applicant_code,
-              name: fullName,
-              firstName: item.first_name || '',
-              middleName: item.middle_name || '',
-              lastName: item.last_name || '',
-              role: item.applied_role || 'Applicant',
-              jobOrder: item.job_order_id ? `JO-${item.job_order_id}` : (item.job_code || 'Unassigned'),
-              phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
-              status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
-              currentHandler: item.current_handler || 'System Agent',
-              currentDepartment: item.current_department || 'Recruitment',
-              lastUpdated: item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString(),
-              phaseDescription: item.phase_description || 'Active in candidate pipeline',
-              presentAddress: item.present_address || '',
-              provincialAddress: item.provincial_address || '',
-              email: item.email || '',
-              contact: item.contact_number || '',
-              dateOfBirth: item.birth_date || '',
-              age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
-              sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
-              civilStatus: item.civil_status || 'Single',
-              citizenship: item.nationality || 'Filipino',
-              religion: item.religion || 'Roman Catholic',
-              height: item.height || "5'6\"",
-              weight: item.weight || '65 kg',
-              skills: parsedSkills,
-              certifications: parsedCerts,
-              workExperience: parsedWork,
-              address: item.present_address || item.provincial_address || 'Philippines',
-              employmentHistory: parsedWork.map((w: any, idx: number) => ({
-                id: `eh-${item.applicant_id}-${idx}`,
-                company: w.companyName || w.company || 'Previous Employer',
-                position: w.position || 'Worker',
-                dateStarted: w.startDate || '',
-                dateEnded: w.endDate || '',
-                country: w.country || 'Philippines',
-                isPresent: Boolean(w.isPresent),
-                reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
-              })),
-              employmentFlags: [],
-              testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
-              matchScore: 90,
-            };
-          });
-          setApplicants(liveMapped);
-        }
-      } catch (err) {
-        console.warn('Backend applicants fetch error:', err);
+    // Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchLiveBackendData();
       }
+    });
 
-      // 2. Fetch live audit logs from /audit-logs
-      try {
-        const logsRes = await api.get('/audit-logs');
-        if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
-          const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
-            audit_log_id: l.audit_log_id,
-            applicant_id: l.applicant_id,
-            performed_by: l.performed_by,
-            created_at: l.created_at,
-            id: `LOG-${l.audit_log_id}`,
-            applicantId: l.applicant_id ? String(l.applicant_id) : '',
-            action: l.action,
-            performedBy: l.performed_by || 'System User',
-            department: l.department,
-            details: l.details,
-            timestamp: l.created_at || new Date().toISOString(),
-          }));
-          setActivityLogs(liveLogs);
-        }
-      } catch (err) {
-        console.warn('Backend audit logs unavailable:', err);
-      }
-
-      // 3. Fetch live financial records from /financial/records
-      try {
-        const expRes = await api.get('/financial/records');
-        if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
-          const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
-            id: `EXP-${r.financial_record_id}`,
-            applicantId: String(r.applicant_id),
-            category: r.category || 'processing',
-            type: r.payment_type || 'Processing Fee',
-            amount: r.amount || 0,
-            description: r.description || r.payment_type || '',
-            date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-            recordedBy: r.recorded_by_name || 'Mark Tan',
-            paymentMethod: 'Bank Transfer',
-            paidBy: 'Agency',
-            notes: r.description || '',
-            timestamp: r.created_at || new Date().toISOString(),
-          }));
-          setExpenses(liveExpenses);
-        }
-      } catch (err) {
-        console.warn('Backend financial records unavailable:', err);
-      }
+    return () => {
+      subscription.unsubscribe();
     };
-
-    fetchLiveBackendData();
   }, []);
+
+  // When switching into app view, ensure data is populated if empty
+  useEffect(() => {
+    if (view === "app" && applicants.length === 0) {
+      fetchLiveBackendData();
+    }
+  }, [view]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
     const timestamp = new Date().toISOString();
@@ -1210,6 +1233,9 @@ export default function App() {
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+
+    // Ensure live applicant data is immediately retrieved upon login
+    fetchLiveBackendData();
   };
 
   const handleLogout = async () => {
@@ -1230,6 +1256,7 @@ export default function App() {
     setCurrentUserRole(newRole);
     setCurrentUserRoles([newRole]);
     showAppView("app"); // Enter operational shell for the chosen role
+    fetchLiveBackendData();
     addActivityLog({
       applicantId: "",
       action: "Superadmin Role Switch",

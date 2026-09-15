@@ -81,11 +81,14 @@ export default function AccountingDashboard({
   }, {} as Record<string, number>);
 
   const topSpenders = Object.entries(expensePerApplicant)
-    .map(([id, amount]) => ({
-      applicantId: id,
-      applicantName: applicants.find((a) => a.id === id)?.name || `Applicant #${id}`,
-      amount,
-    }))
+    .map(([id, amount]) => {
+      const found = applicants.find((a) => a.id === id);
+      return {
+        applicantId: id,
+        applicantName: found?.name || (found?.applicantCode ? `Applicant ${found.applicantCode}` : `Applicant #${id}`),
+        amount,
+      };
+    })
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
@@ -101,9 +104,17 @@ export default function AccountingDashboard({
     const amountNum = parseFloat(quickExpense.amount);
     if (isNaN(amountNum) || amountNum <= 0) return;
 
+    const trimmedInput = quickExpense.applicantId.trim();
+    const matchedApp = applicants.find(
+      (a) =>
+        (a.applicantCode && a.applicantCode.toLowerCase() === trimmedInput.toLowerCase()) ||
+        String(a.id) === trimmedInput
+    );
+    const resolvedApplicantId = matchedApp ? String(matchedApp.id) : trimmedInput;
+
     const nowIso = new Date().toISOString();
     const expenseRecord: Omit<ExpenseRecord, 'id'> = {
-      applicantId: quickExpense.applicantId,
+      applicantId: resolvedApplicantId,
       category: quickExpense.category,
       type: quickExpense.category,
       amount: amountNum,
@@ -139,7 +150,7 @@ export default function AccountingDashboard({
       return;
     }
 
-    const headers = ['Date', 'Applicant ID', 'Category', 'Amount (PHP)', 'Payment Method', 'Paid By', 'Notes / Description'];
+    const headers = ['Date', 'Applicant Code / ID', 'Category', 'Amount (PHP)', 'Payment Method', 'Paid By', 'Notes / Description'];
     const clean = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
 
     const rows = expenses.map((exp: any) => {
@@ -150,9 +161,12 @@ export default function AccountingDashboard({
         formattedDate = isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString();
       }
 
+      const matchedApplicant = applicants.find((a) => String(a.id) === String(exp.applicantId));
+      const displayAppCode = matchedApplicant?.applicantCode || exp.applicantId || 'N/A';
+
       return [
         clean(formattedDate),
-        clean(exp.applicantId || 'N/A'),
+        clean(displayAppCode),
         clean(exp.category || exp.type || 'General Fee'),
         clean(exp.amount || 0),
         clean(exp.paymentMethod || exp.type || 'N/A'),
@@ -209,11 +223,11 @@ export default function AccountingDashboard({
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                Applicant ID
+                Applicant Code / ID
               </label>
               <input
                 type="text"
-                placeholder="e.g. 1, 2, 3"
+                placeholder="e.g. APP-2026-FP-00002 or 2"
                 value={quickExpense.applicantId}
                 onChange={(e) => setQuickExpense({ ...quickExpense, applicantId: e.target.value })}
                 className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#10B981] outline-none"
@@ -515,7 +529,7 @@ export default function AccountingDashboard({
                       {initials}
                     </div>
                     <div>
-                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.applicantCode || applicant.id}`}</p>
+                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant ${applicant.applicantCode || applicant.id}`}</p>
                       <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} • Ready for pre-departure cash advance</p>
                     </div>
                   </div>

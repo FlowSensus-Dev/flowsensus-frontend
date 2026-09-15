@@ -21,6 +21,7 @@ export default function ApplicantSelector({
   const filteredApplicants = applicants.filter(
     (applicant) =>
       applicant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (applicant.applicantCode && applicant.applicantCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
       applicant.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       applicant.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -52,7 +53,7 @@ export default function ApplicantSelector({
             {selectedApplicant ? selectedApplicant.name : 'Select Applicant'}
           </p>
           <p className="text-xs text-[#64748B]">
-            {selectedApplicant ? `${selectedApplicant.id} • Phase ${selectedApplicant.phase}` : 'Choose an applicant to process'}
+            {selectedApplicant ? `${selectedApplicant.applicantCode || selectedApplicant.id} • Phase ${selectedApplicant.phase}` : 'Choose an applicant to process'}
           </p>
         </div>
         <div className="text-[#0EA5E9]">
@@ -83,7 +84,7 @@ export default function ApplicantSelector({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name, ID, or role..."
+                  placeholder="Search by name, code, ID, or role..."
                   className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                   autoFocus
                 />
@@ -118,7 +119,7 @@ export default function ApplicantSelector({
                         )}
                       </div>
                       <p className="text-xs text-[#64748B]">
-                        {applicant.id} • {applicant.role}
+                        {applicant.applicantCode || applicant.id} • {applicant.role}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-bold text-[#0EA5E9]">Phase {applicant.phase}</span>

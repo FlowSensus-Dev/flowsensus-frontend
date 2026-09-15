@@ -73,7 +73,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
           const mapped: JobOrder[] = ordersRes.value.data.map((jo: any) => ({
             id: String(jo.job_order_id),
-            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             position: jo.position_title || jo.position || '',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerId: String(jo.employer_id),

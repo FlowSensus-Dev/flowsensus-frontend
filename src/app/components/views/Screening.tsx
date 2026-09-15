@@ -165,7 +165,7 @@ export default function Screening({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-sm text-[#0F172A]">{a.name}</span>
-                        <span className="text-xs text-slate-400 font-mono">{a.id}</span>
+                        <span className="text-xs text-slate-400 font-mono">{a.applicantCode || a.id}</span>
                         {activeFlags.length > 0 && (
                           <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
                             <Flag size={10} /> {activeFlags.length} unresolved flag{activeFlags.length > 1 ? 's' : ''} — resolve first
@@ -204,7 +204,7 @@ export default function Screening({
                     : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                   }
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-[#0F172A]">{a.name} <span className="font-mono text-slate-400 text-xs">{a.id}</span></p>
+                    <p className="font-bold text-sm text-[#0F172A]">{a.name} <span className="font-mono text-slate-400 text-xs">{a.applicantCode || a.id}</span></p>
                     <p className="text-xs text-slate-500 mt-0.5">{a.role}</p>
                   </div>
                   <span className="text-xs text-[#0EA5E9] bg-blue-50 px-2 py-0.5 rounded-full font-medium flex-shrink-0">{a.status}</span>
@@ -522,7 +522,7 @@ export default function Screening({
                 </label>
                 <input
                   type="text"
-                  value={selectedApplicant ? `${selectedApplicant.name} (${selectedApplicant.id})` : 'No applicant selected'}
+                  value={selectedApplicant ? `${selectedApplicant.name} (${selectedApplicant.applicantCode || selectedApplicant.id})` : 'No applicant selected'}
                   readOnly
                   className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm bg-slate-50 font-bold text-[#0F172A]"
                 />

@@ -93,6 +93,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     name: '',
     email: '',
     department: '',
+    contactNumber: '',
     role: 'Recruitment' as UserRole,
     roles: ['Recruitment'] as UserRole[],
     password: generateTempPassword(),
@@ -106,6 +107,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     email: string;
     role: string;
     department: string;
+    contactNumber: string;
     tempPass: string;
     emailDispatched?: boolean;
   } | null>(null);
@@ -128,6 +130,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         roleNames: chosenRoles,
         roleName: chosenRoles.join(', '),
         department: customDept,
+        contactNumber: newStaff.contactNumber,
         password: finalPassword,
         requirePasswordChange: newStaff.requirePasswordChange,
       });
@@ -161,6 +164,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         email: newStaff.email,
         role: chosenRoles.join(' & '),
         department: res.data?.department || res.data?.department_name || customDept,
+        contactNumber: newStaff.contactNumber,
         tempPass: finalPassword,
         emailDispatched: emailDispatched,
       });
@@ -170,6 +174,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         name: '',
         email: '',
         department: '',
+        contactNumber: '',
         role: 'Recruitment',
         roles: ['Recruitment'],
         password: generateTempPassword(),
@@ -480,6 +485,18 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
               </div>
               <div>
                 <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
+                  Contact Number
+                </label>
+                <input
+                  type="text"
+                  value={newStaff.contactNumber}
+                  onChange={(e) => setNewStaff({ ...newStaff, contactNumber: e.target.value })}
+                  className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
+                  placeholder="+63 917 123 4567"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
                   Department
                 </label>
                 <input
@@ -717,18 +734,25 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   <span>{copied ? 'Password Copied!' : 'Copy Password'}</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
-                    navigator.clipboard.writeText(onboardingMsg);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2500);
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-md shadow-sky-500/20 transition-colors"
-                >
-                  <Mail size={14} />
-                  <span>Copy Full Invite</span>
-                </button>
+                {createdCredentials.emailDispatched ? (
+                  <div className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-md shadow-emerald-500/20">
+                    <Check size={14} />
+                    <span>Invite Email Sent Automatically!</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
+                      navigator.clipboard.writeText(onboardingMsg);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2500);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-md shadow-sky-500/20 transition-colors"
+                  >
+                    <Mail size={14} />
+                    <span>Copy Full Invite</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium pt-1">

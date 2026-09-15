@@ -44,7 +44,7 @@ export default function SmartProfiling({
         const res = await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
-            id: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employer: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',

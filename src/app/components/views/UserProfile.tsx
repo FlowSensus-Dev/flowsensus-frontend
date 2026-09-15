@@ -22,7 +22,7 @@ export default function UserProfile({
   const [formData, setFormData] = useState({
     fullName: currentUserName,
     email: currentUserName.toLowerCase().replace(' ', '.') + '@flowsensus.com',
-    phone: '+63 917 555 1234',
+    phone: 'Not provided',
     department: currentUserRole === 'Recruitment' ? 'Recruitment' :
                  currentUserRole === 'Admin' ? 'Administration' :
                  currentUserRole === 'Accounting' ? 'Finance & Accounting' :
@@ -47,14 +47,14 @@ export default function UserProfile({
         if (accountEmail) {
           const { data } = await supabase
             .from('USER')
-            .select('user_id, full_name, email, department_id')
+            .select('user_id, full_name, email, department_id, phone_number, department(department_name)')
             .eq('email', accountEmail)
             .maybeSingle();
           dbUser = data;
         } else if (currentUserName) {
           const { data } = await supabase
             .from('USER')
-            .select('user_id, full_name, email, department_id')
+            .select('user_id, full_name, email, department_id, phone_number, department(department_name)')
             .ilike('full_name', `%${currentUserName}%`)
             .maybeSingle();
           dbUser = data;
@@ -83,6 +83,8 @@ export default function UserProfile({
             ...prev,
             fullName: dbUser?.full_name || user?.user_metadata?.full_name || prev.fullName,
             email: dbUser?.email || accountEmail || prev.email,
+            phone: dbUser?.phone_number || prev.phone,
+            department: dbUser?.department?.department_name || (Array.isArray(dbUser?.department) ? dbUser.department[0]?.department_name : null) || prev.department,
             employeeId: dbUser?.user_id
               ? `EMP-2026-${String(dbUser.user_id).padStart(3, '0')}`
               : prev.employeeId,

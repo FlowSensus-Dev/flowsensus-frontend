@@ -157,6 +157,7 @@ export default function Registration({
   updateApplicant, addApplicant, applicants = [],
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
+  const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
   const [activeSection, setActiveSection] = useState<string>('personal');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -170,8 +171,8 @@ export default function Registration({
         const res = await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
-            id: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
-            code: jo.job_order_code || jo.job_code || `JO-${jo.job_order_id}`,
+            id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
@@ -444,8 +445,11 @@ export default function Registration({
         const createdData = res.data;
         const newId = String(createdData.applicant_id);
 
+        const newApplicantCode = createdData.applicant_code || (createdData.applicant_id ? `APP-2026-FP-${String(createdData.applicant_id).padStart(5, '0')}` : undefined);
+
         const newApplicantRecord: ApplicantRecord = {
           id: newId,
+          applicantCode: newApplicantCode,
           name: `${personal.firstName} ${personal.lastName}`.trim(),
           firstName: personal.firstName,
           middleName: personal.middleName,
@@ -489,10 +493,10 @@ export default function Registration({
           action: 'New Applicant Registered',
           performedBy: currentUserName,
           department: 'Recruitment',
-          details: `Registered new applicant ${personal.lastName}, ${personal.firstName} (ID #${newId}) with active Phase 1 screening.`,
+          details: `Registered new applicant ${personal.lastName}, ${personal.firstName} (${newApplicantCode || `#${newId}`}) with active Phase 1 screening.`,
         });
 
-        showToast(`✓ New applicant "${personal.firstName} ${personal.lastName}" registered successfully! (ID: #${newId})`);
+        showToast(`✓ New applicant "${personal.firstName} ${personal.lastName}" registered successfully! (${newApplicantCode || `#${newId}`})`);
         resetBlankForm();
       } else {
         // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
@@ -545,7 +549,7 @@ export default function Registration({
           action: 'Profile Updated',
           performedBy: currentUserName,
           department: 'Recruitment',
-          details: `Updated profile details for applicant #${selectedApplicantId} (${personal.lastName}, ${personal.firstName}).`,
+          details: `Updated profile details for applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`} (${personal.lastName}, ${personal.firstName}).`,
         });
 
         showToast(`✓ Profile for "${personal.firstName} ${personal.lastName}" updated successfully!`);
@@ -576,14 +580,16 @@ export default function Registration({
   );
 
   return (
-    <div className="space-y-6 w-full">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
+    <div className="space-y-6 w-full max-w-7xl mx-auto pb-16">
+      {/* ── Page Header ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-[#0F172A] flex items-center gap-2">
-            <UserPlus className="w-6 h-6 text-[#0EA5E9]" /> Applicant Registration
+          <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
+            Candidate Registration
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Complete profile encoding for overseas deployment processing</p>
+          <p className="text-sm text-[#64748B] mt-1">
+            Complete Phase 1 intake profile, demographics, and initial documentation.
+          </p>
         </div>
         {hasBlockingFlags && (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-semibold">
@@ -613,7 +619,7 @@ export default function Registration({
                   ? 'bg-emerald-200 text-emerald-800'
                   : 'bg-sky-200 text-sky-800'
               }`}>
-                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant #${selectedApplicantId}`}
+                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`}`}
               </span>
               {selectedApplicantId === 'new' ? (
                 <span className="text-xs text-emerald-700 font-semibold">Clean intake form · Ready for encoding</span>
@@ -1259,7 +1265,7 @@ export default function Registration({
             </>
           ) : (
             <>
-              <Save size={16} /> Save Applicant #{selectedApplicantId} Changes
+              <Save size={16} /> Save Applicant {currentApplicant?.applicantCode || `#${selectedApplicantId}`} Changes
             </>
           )}
         </button>
