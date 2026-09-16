@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp,
   Calendar,
@@ -6,16 +6,13 @@ import {
   Check,
   RefreshCw,
   Zap,
-  Sliders,
-  ShieldCheck,
   Clock,
   Layers,
   Sparkles,
   Play,
-  ArrowRight,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
-import { ApplicantRecord } from '../../types';
+import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
 
 interface StageForecast {
   stage_name: string;
@@ -44,24 +41,6 @@ interface PipelineForecastData {
   dynamic_exceptions: DynamicException[];
 }
 
-interface ApplicantTimelineData {
-  applicant_id: number;
-  full_name: string;
-  agency_id: number;
-  country_id?: number;
-  current_stage: string;
-  current_stage_index: number;
-  completed_stages: string[];
-  remaining_stages: string[];
-  days_spent_in_current_stage: number;
-  active_exception_penalty: number;
-  predicted_remaining_days: number;
-  reference_date: string;
-  estimated_deployment_date: string;
-  is_fallback: boolean;
-  stage_breakdown: Record<string, number>;
-}
-
 interface PredictiveForecastProps {
   applicants?: ApplicantRecord[];
   selectedApplicantId?: string;
@@ -75,10 +54,12 @@ export default function PredictiveForecast({
   const [loading, setLoading] = useState<boolean>(true);
   const [backendError, setBackendError] = useState<string | null>(null);
 
-  // Individualized Applicant Timeline
+  // Candidate and Application Selection
   const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId);
-  const [applicantTimeline, setApplicantTimeline] = useState<ApplicantTimelineData | null>(null);
+  const [activeApplicationId, setActiveApplicationId] = useState<number | null>(null);
+  const [forecastResponse, setForecastResponse] = useState<ApplicationForecastResponse | null>(null);
   const [loadingApplicant, setLoadingApplicant] = useState<boolean>(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
 
   // Interactive Simulation State
   const [simStage, setSimStage] = useState<string>('Medical Clearance');
@@ -90,7 +71,41 @@ export default function PredictiveForecast({
   } | null>(null);
   const [simulating, setSimulating] = useState<boolean>(false);
 
-  const fetchForecast = async () => {
+  // Unique applicants for Target Candidate selector
+  const uniqueApplicants = useMemo(() => {
+    const map = new Map<string, ApplicantRecord>();
+    for (const app of applicants) {
+      if (!map.has(String(app.id))) {
+        map.set(String(app.id), app);
+      }
+    }
+    return Array.from(map.values());
+  }, [applicants]);
+
+  // All applications belonging to the currently selected applicant
+  const matchingApplications = useMemo(() => {
+    return applicants.filter(
+      (a) => String(a.id) === String(activeApplicantId) && typeof a.applicationId === 'number'
+    );
+  }, [applicants, activeApplicantId]);
+
+  // Application selection safety:
+  // - If exactly 1 application, use it automatically.
+  // - If > 1 application, require the user to select one (do not guess).
+  // - If 0 applications, clear selection.
+  useEffect(() => {
+    if (matchingApplications.length === 1) {
+      setActiveApplicationId(matchingApplications[0].applicationId!);
+    } else if (matchingApplications.length > 1) {
+      if (!matchingApplications.some((a) => a.applicationId === activeApplicationId)) {
+        setActiveApplicationId(null);
+      }
+    } else {
+      setActiveApplicationId(null);
+    }
+  }, [activeApplicantId, matchingApplications]);
+
+  const fetchPipeline = async () => {
     setLoading(true);
     setBackendError(null);
     try {
@@ -109,30 +124,49 @@ export default function PredictiveForecast({
     }
   };
 
-  const fetchApplicantForecast = async (appId: string | number) => {
-    const numericId = parseInt(String(appId), 10);
-    if (isNaN(numericId)) return;
+  const fetchApplicationForecast = async (appId: number) => {
     setLoadingApplicant(true);
+    setForecastError(null);
     try {
-      const res = await api.get(`/forecasting/applicant/${numericId}`);
-      setApplicantTimeline(res.data);
-    } catch (err) {
-      console.warn(`Could not load specific forecast for applicant ${numericId}:`, err);
-      setApplicantTimeline(null);
+      const res = await api.get(`/forecasting/application/${appId}`);
+      setForecastResponse(res.data);
+    } catch (err: any) {
+      console.warn(`Could not load forecast for application ${appId}:`, err);
+      setForecastResponse(null);
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setForecastError(detail);
+      } else if (err.response?.status === 404) {
+        setForecastError('Application or forecasting resource not found.');
+      } else if (err.response?.status === 409) {
+        setForecastError(detail || 'Application workflow phase has no confirmed forecasting mapping.');
+      } else {
+        setForecastError('Unable to load forecast for this application.');
+      }
     } finally {
       setLoadingApplicant(false);
     }
   };
 
   useEffect(() => {
-    fetchForecast();
+    fetchPipeline();
   }, []);
 
   useEffect(() => {
-    if (activeApplicantId) {
-      fetchApplicantForecast(activeApplicantId);
+    if (activeApplicationId) {
+      fetchApplicationForecast(activeApplicationId);
+    } else {
+      setForecastResponse(null);
+      setForecastError(null);
     }
-  }, [activeApplicantId]);
+  }, [activeApplicationId]);
+
+  const handleRefresh = () => {
+    fetchPipeline();
+    if (activeApplicationId) {
+      fetchApplicationForecast(activeApplicationId);
+    }
+  };
 
   const handleSimulate = async () => {
     if (!pipelineData) return;
@@ -157,14 +191,13 @@ export default function PredictiveForecast({
         forecast_delta_days: Number((newF - prevF).toFixed(2)),
       });
 
-      // Also refresh the overall pipeline and candidate forecasts
-      fetchForecast();
-      if (activeApplicantId) {
-        fetchApplicantForecast(activeApplicantId);
+      // Refresh baseline pipeline and application forecast
+      fetchPipeline();
+      if (activeApplicationId) {
+        fetchApplicationForecast(activeApplicationId);
       }
     } catch (err: any) {
       console.error('Simulation error:', err);
-      // Fallback local math in case backend simulate endpoint errors
       const newF = Number((simAlpha * simActual + (1 - simAlpha) * prev).toFixed(2));
       setSimResult({
         new_forecast_days: newF,
@@ -175,7 +208,9 @@ export default function PredictiveForecast({
     }
   };
 
-  const selectedApplicant = applicants.find((a) => String(a.id) === String(activeApplicantId)) ||
+  const selectedApplicant =
+    uniqueApplicants.find((a) => String(a.id) === String(activeApplicantId)) ||
+    applicants.find((a) => String(a.id) === String(activeApplicantId)) ||
     applicants[0] || {
       id: '1',
       name: 'Juan Dela Cruz',
@@ -183,23 +218,26 @@ export default function PredictiveForecast({
       jobOrder: 'JO-2026-0042 (Saudi Arabia)',
     };
 
-  // Compute departure estimate based on backend total pipeline duration
-  const totalDays = pipelineData?.total_pipeline_duration_days || 45.42;
-  const estimatedDate = new Date();
-  estimatedDate.setDate(estimatedDate.getDate() + Math.round(totalDays));
-  const fallbackFormattedEstimate = estimatedDate.toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const selectedApplicationRecord =
+    matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
+    (matchingApplications.length === 1 ? matchingApplications[0] : null);
 
-  const formattedEstimate = applicantTimeline?.estimated_deployment_date
-    ? new Date(applicantTimeline.estimated_deployment_date).toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-      })
-    : fallbackFormattedEstimate;
+  const totalDays = pipelineData?.total_pipeline_duration_days || 45.42;
+
+  const hasRecord = Boolean(forecastResponse?.record);
+  const formattedEstimate =
+    hasRecord && forecastResponse?.record?.estimated_deployment_date
+      ? new Date(forecastResponse.record.estimated_deployment_date).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : null;
+
+  const remainingDays =
+    hasRecord && forecastResponse?.record?.estimated_remaining_days !== undefined
+      ? `${forecastResponse.record.estimated_remaining_days.toFixed(1)} d`
+      : null;
 
   return (
     <div className="space-y-6 w-full pb-12">
@@ -216,11 +254,11 @@ export default function PredictiveForecast({
         </div>
 
         <button
-          onClick={fetchForecast}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={loading || loadingApplicant}
           className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-all"
         >
-          <RefreshCw size={14} className={loading ? 'animate-spin text-sky-500' : ''} />
+          <RefreshCw size={14} className={loading || loadingApplicant ? 'animate-spin text-sky-500' : ''} />
           <span>Refresh Live Forecast</span>
         </button>
       </div>
@@ -259,114 +297,210 @@ export default function PredictiveForecast({
         </div>
 
         <div className="flex items-center gap-2 text-xs font-semibold">
-          <span className="bg-white/80 border border-slate-200 px-3 py-1 rounded-full shadow-sm">
-            Total Pipeline: <strong>{totalDays.toFixed(1)} days</strong>
+          <span className="bg-white/80 border border-slate-200 px-3 py-1 rounded-full shadow-sm text-slate-600">
+            Agency Baseline Total: <strong>{totalDays.toFixed(1)} days</strong>
           </span>
         </div>
       </div>
 
       {/* Main Applicant Forecast Card */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
-        {/* Applicant Selector & Status */}
+        {/* Applicant & Application Selector */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700">Target Candidate:</span>
-            <select
-              value={activeApplicantId}
-              onChange={(e) => setActiveApplicantId(e.target.value)}
-              className="text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-sm"
-            >
-              {applicants.map((app) => (
-                <option key={app.id} value={app.id}>
-                  #{app.id} - {app.name} ({app.role || 'Applicant'})
-                </option>
-              ))}
-            </select>
-          </div>
-          {applicantTimeline ? (
-            <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-              <span className="inline-flex items-center gap-1 bg-sky-100 text-sky-800 text-[11px] font-bold px-2 py-0.5 rounded">
-                Current Stage: {applicantTimeline.current_stage}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Candidate Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700">Target Candidate:</span>
+              <select
+                value={activeApplicantId}
+                onChange={(e) => setActiveApplicantId(e.target.value)}
+                className="text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-sm"
+              >
+                {uniqueApplicants.map((app) => (
+                  <option key={app.id} value={app.id}>
+                    #{app.id} - {app.name} ({app.role || 'Applicant'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Application Selector (only shown if candidate has multiple applications) */}
+            {matchingApplications.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700">Job Application:</span>
+                <select
+                  value={activeApplicationId ?? ''}
+                  onChange={(e) => setActiveApplicationId(e.target.value ? Number(e.target.value) : null)}
+                  className="text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-sm"
+                >
+                  <option value="">-- Select Application to Forecast --</option>
+                  {matchingApplications.map((app) => (
+                    <option key={app.applicationId} value={app.applicationId}>
+                      Application #{app.applicationId} - {app.role || 'Applicant'} ({app.jobOrder || 'Unassigned'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {matchingApplications.length === 1 && (
+              <span className="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-600 text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-sm">
+                Application #{matchingApplications[0].applicationId}
+                {matchingApplications[0].jobOrder ? ` • ${matchingApplications[0].jobOrder}` : ''}
               </span>
-              {applicantTimeline.active_exception_penalty > 0 && (
-                <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded">
-                  Active Disruption: +{applicantTimeline.active_exception_penalty}d
+            )}
+          </div>
+
+          {forecastResponse ? (
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
+              {forecastResponse.current_stage && (
+                <span className="inline-flex items-center gap-1 bg-sky-100 text-sky-800 text-[11px] font-bold px-2 py-0.5 rounded">
+                  Current Stage: {forecastResponse.current_stage}
                 </span>
               )}
             </div>
           ) : (
             <span className="text-xs text-slate-400 italic">
-              {loadingApplicant ? 'Loading applicant projection...' : 'Showing agency pipeline baseline'}
+              {loadingApplicant
+                ? 'Loading application forecast...'
+                : matchingApplications.length === 0
+                ? 'No job application available'
+                : matchingApplications.length > 1 && !activeApplicationId
+                ? 'Select an application above'
+                : 'Showing agency pipeline baseline'}
             </span>
           )}
         </div>
 
+        {/* Informational / Safety Banners */}
+        {matchingApplications.length === 0 && (
+          <div className="mb-6 p-4 rounded-xl border border-amber-200 bg-amber-50/80 text-amber-900 text-xs flex items-center gap-2.5">
+            <AlertCircle size={16} className="text-amber-600 flex-shrink-0" />
+            <span className="font-semibold">No job application is available for this applicant.</span>
+          </div>
+        )}
+
+        {matchingApplications.length > 1 && !activeApplicationId && (
+          <div className="mb-6 p-4 rounded-xl border border-sky-200 bg-sky-50/80 text-sky-900 text-xs flex items-center gap-2.5">
+            <AlertCircle size={16} className="text-sky-600 flex-shrink-0" />
+            <span className="font-semibold">
+              This applicant has multiple job applications. Please select an application above to view its forecast.
+            </span>
+          </div>
+        )}
+
+        {forecastError && (
+          <div className="mb-6 p-4 rounded-xl border border-rose-200 bg-rose-50/80 text-rose-900 text-xs flex items-start gap-2.5">
+            <AlertCircle size={16} className="text-rose-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Forecast Notice</p>
+              <p className="mt-0.5">{forecastError}</p>
+            </div>
+          </div>
+        )}
+
+        {forecastResponse?.limitations && forecastResponse.limitations.length > 0 && (
+          <div className="mb-6 p-4 rounded-xl border border-amber-200 bg-amber-50/80 text-amber-900 text-xs flex items-start gap-2.5">
+            <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Forecast Limitations</p>
+              <ul className="list-disc list-inside mt-0.5 space-y-0.5">
+                {forecastResponse.limitations.map((lim, i) => (
+                  <li key={i}>{lim}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Selected Applicant Summary */}
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
           <div>
             <div className="flex items-center gap-2">
               <span className="font-black text-slate-900 text-2xl">
-                {applicantTimeline?.full_name || selectedApplicant.name}
+                {selectedApplicant.name}
               </span>
               <span className="bg-sky-50 text-sky-700 text-xs font-bold px-2 py-0.5 rounded border border-sky-200">
-                {applicantTimeline?.current_stage ? `Stage: ${applicantTimeline.current_stage}` : 'Active Applicant'}
+                {forecastResponse?.current_stage
+                  ? `Stage: ${forecastResponse.current_stage}`
+                  : selectedApplicationRecord?.status
+                  ? `Status: ${selectedApplicationRecord.status}`
+                  : 'Active Applicant'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Applicant #{activeApplicantId} • {selectedApplicant.role}
+              Applicant #{activeApplicantId}
+              {selectedApplicant.applicantCode ? ` (${selectedApplicant.applicantCode})` : ''}
+              {selectedApplicationRecord?.applicationId ? ` • Application #${selectedApplicationRecord.applicationId}` : ''}
+              {' • '}
+              {selectedApplicationRecord?.role || selectedApplicant.role}
             </p>
           </div>
           <div className="text-xs font-bold uppercase tracking-wider text-sky-600 border border-sky-300 bg-sky-50/50 px-4 py-2 rounded-full w-fit">
-            {selectedApplicant.jobOrder || 'JO-2026-0042 (Al-Futtaim Engineering)'}
+            {selectedApplicationRecord?.jobOrder || selectedApplicant.jobOrder || 'JO-2026-0042'}
           </div>
         </div>
 
-        {/* Dynamic Estimated Date */}
+        {/* Dynamic Estimated Date / Output Card */}
         <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white rounded-xl p-6 mb-8 relative overflow-hidden shadow-inner">
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.15),transparent)] pointer-events-none" />
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-widest mb-1">
                 <Calendar className="w-4 h-4" />
-                Individualized Algorithm Departure Date
+                Algorithm Deployment Forecast
               </div>
-              <h3 className="text-4xl sm:text-5xl font-black text-white tracking-tight">
-                {formattedEstimate}
+              <h3 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+                {formattedEstimate || (forecastError ? 'Forecast Unavailable' : 'ETA Unavailable')}
               </h3>
               <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
-                <Sparkles size={13} className="text-amber-400" />
-                {applicantTimeline
-                  ? `Personalized via PERT baselines + recursive SES updates (${applicantTimeline.predicted_remaining_days.toFixed(1)} remaining days)`
-                  : `Calculated via PERT prior baselines + SES learning with dynamic exception buffer (+${totalDays.toFixed(1)} days)`}
+                <Sparkles size={13} className="text-amber-400 flex-shrink-0" />
+                {hasRecord ? (
+                  `Personalized via PERT baselines + recursive SES updates (${remainingDays} remaining)`
+                ) : forecastResponse?.limitations && forecastResponse.limitations.length > 0 ? (
+                  `Limitation: ${forecastResponse.limitations.join('; ')}`
+                ) : forecastError ? (
+                  `Notice: ${forecastError}`
+                ) : matchingApplications.length === 0 ? (
+                  'No job application available for this applicant'
+                ) : matchingApplications.length > 1 && !activeApplicationId ? (
+                  'Select a job application above to compute estimated deployment'
+                ) : (
+                  'Reliable timeline forecast unavailable for this application'
+                )}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 md:border-l md:border-slate-700 md:pl-6 text-center">
               <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
                 <p className="text-[10px] uppercase font-bold text-slate-400">
-                  {applicantTimeline ? 'Remaining Days' : 'Total Duration'}
+                  Remaining Days
                 </p>
                 <p className="text-2xl font-black text-sky-400 mt-0.5">
-                  {applicantTimeline
-                    ? `${applicantTimeline.predicted_remaining_days.toFixed(1)} d`
-                    : `${totalDays.toFixed(1)} d`}
+                  {remainingDays || 'N/A'}
                 </p>
               </div>
               <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
                 <p className="text-[10px] uppercase font-bold text-slate-400">Learning Alpha (α)</p>
                 <p className="text-2xl font-black text-amber-400 mt-0.5">
-                  {pipelineData?.alpha_used || 0.35}
+                  {forecastResponse?.record?.ses_alpha_used ?? (pipelineData?.alpha_used || 0.35)}
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Stage Forecast Breakdown Table */}
+        {/* Agency Stage Baseline Table (Clearly presented as agency reference, not fake individual forecast) */}
         <div>
-          <h4 className="font-bold text-slate-900 text-sm mb-3 flex items-center gap-2">
-            <Layers size={16} className="text-sky-500" />
-            Stage-by-Stage PERT & Exponential Smoothing Forecast
-          </h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+              <Layers size={16} className="text-sky-500" />
+              Agency Stage-by-Stage Baseline (PERT & SES Reference)
+            </h4>
+            <span className="text-[11px] text-slate-500 font-medium">
+              Baseline Pipeline Total: <strong className="text-slate-800">{totalDays.toFixed(1)} days</strong>
+            </span>
+          </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-left text-xs">
@@ -429,7 +563,7 @@ export default function PredictiveForecast({
         </div>
       </div>
 
-      {/* Interactive Simulation Panel (Matching Simulation.html & Manager Controls) */}
+      {/* Interactive Simulation Panel */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
