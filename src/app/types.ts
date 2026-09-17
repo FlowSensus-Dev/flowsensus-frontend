@@ -9,6 +9,8 @@ export interface WorkflowState {
 
 export interface ApplicantRecord {
   id: string;
+  applicationId?: number;
+  applicantCode?: string;
   name: string;
   firstName?: string;
   middleName?: string;
@@ -314,4 +316,30 @@ export interface StaffAccount {
   department: string;
   status: 'active' | 'inactive';
   lastLogin?: string;
+}
+
+export interface ApplicationForecastRecord {
+  agency_id: number;
+  application_id: number;
+  applicant_id?: number | null;
+  generated_at: string;
+  estimated_remaining_days: number;
+  estimated_deployment_date: string | null;
+  ses_alpha_used: number;
+  confidence_level_used?: number | null;
+  confidence_lower_date?: string | null;
+  confidence_upper_date?: string | null;
+  model_version: string;
+}
+
+export interface ApplicationForecastResponse {
+  agency_id: number;
+  application_id: number;
+  applicant_id?: number | null;
+  current_stage?: string | null;
+  current_stage_index?: number | null;
+  days_spent_in_current_stage?: number | null;
+  stage_breakdown: Record<string, number>;
+  record?: ApplicationForecastRecord | null;
+  limitations: string[];
 }

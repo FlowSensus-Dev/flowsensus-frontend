@@ -205,11 +205,11 @@ export default function ManagementDashboard({
               <p className="text-xs text-[#64748B] mt-1">Predicted deployments (8-14 days)</p>
             </div>
 
-            {/* Algorithm Confidence */}
+            {/* Forecast Method */}
             <div className="bg-purple-50/50 rounded-lg p-4 border border-purple-200">
-              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-2">Algorithm Confidence</p>
-              <p className="text-2xl font-black text-[#8B5CF6]">87%</p>
-              <p className="text-xs text-[#64748B] mt-1">Based on historical completion rates</p>
+              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-2">Forecast Method</p>
+              <p className="text-2xl font-black text-[#8B5CF6]">PERT + SES</p>
+              <p className="text-xs text-[#64748B] mt-1">Application-level forecast with persisted SES learning</p>
             </div>
           </div>
 

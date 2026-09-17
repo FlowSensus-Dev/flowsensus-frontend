@@ -1072,6 +1072,8 @@ export default function App() {
 
             return {
               id: String(item.applicant_id),
+              applicationId: typeof item.application_id === 'number' ? item.application_id : (item.application_id ? Number(item.application_id) : undefined),
+              applicantCode: item.applicant_code || undefined,
               name: fullName,
               firstName: item.first_name || '',
               middleName: item.middle_name || '',
