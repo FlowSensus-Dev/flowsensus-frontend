@@ -69,11 +69,19 @@ export default function PredictiveForecast({
   const [simStage, setSimStage] = useState<string>('Medical Clearance');
   const [simActual, setSimActual] = useState<number>(8.5);
   const [simAlpha, setSimAlpha] = useState<number>(0.35);
+  const simAlphaInitialized = useRef(false);
   const [simResult, setSimResult] = useState<{
     new_forecast_days: number;
     forecast_delta_days: number;
   } | null>(null);
   const [simulating, setSimulating] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (pipelineData && !simAlphaInitialized.current) {
+      simAlphaInitialized.current = true;
+      setSimAlpha(pipelineData.alpha_used);
+    }
+  }, [pipelineData]);
 
   // Unique applicants for Target Candidate selector
   const uniqueApplicants = useMemo(() => {
@@ -656,6 +664,7 @@ export default function PredictiveForecast({
               step="0.05"
               value={simAlpha}
               onChange={(e) => {
+                simAlphaInitialized.current = true;
                 setSimAlpha(parseFloat(e.target.value));
                 setSimResult(null);
               }}
