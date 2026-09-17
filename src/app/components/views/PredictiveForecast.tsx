@@ -238,8 +238,11 @@ export default function PredictiveForecast({
   const totalDays = pipelineData?.total_pipeline_duration_days || 45.42;
 
   const hasRecord = Boolean(forecastResponse?.record);
+  const isDeployed =
+    (forecastResponse?.current_stage || '').toLowerCase() === 'deployed' ||
+    (selectedApplicationRecord?.status || '').toLowerCase() === 'deployed';
   const formattedEstimate =
-    hasRecord && forecastResponse?.record?.estimated_deployment_date
+    !isDeployed && hasRecord && forecastResponse?.record?.estimated_deployment_date
       ? new Date(forecastResponse.record.estimated_deployment_date).toLocaleDateString('en-US', {
           month: 'long',
           day: 'numeric',
@@ -470,14 +473,16 @@ export default function PredictiveForecast({
             <div>
               <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-widest mb-1">
                 <Calendar className="w-4 h-4" />
-                Algorithm Deployment Forecast
+                {isDeployed ? 'Deployment Status' : 'Algorithm Deployment Forecast'}
               </div>
               <h3 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                {formattedEstimate || (forecastError ? 'Forecast Unavailable' : 'ETA Unavailable')}
+                {isDeployed ? 'Deployed' : formattedEstimate || (forecastError ? 'Forecast Unavailable' : 'ETA Unavailable')}
               </h3>
               <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
                 <Sparkles size={13} className="text-amber-400 flex-shrink-0" />
-                {hasRecord ? (
+                {isDeployed ? (
+                  'Actual deployment date unavailable'
+                ) : hasRecord ? (
                   `Personalized via PERT baselines + recursive SES updates (${remainingDays} remaining)`
                 ) : forecastResponse?.limitations && forecastResponse.limitations.length > 0 ? (
                   `Limitation: ${forecastResponse.limitations.join('; ')}`

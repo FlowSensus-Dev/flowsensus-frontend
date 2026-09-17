@@ -324,7 +324,7 @@ export interface ApplicationForecastRecord {
   applicant_id?: number | null;
   generated_at: string;
   estimated_remaining_days: number;
-  estimated_deployment_date: string;
+  estimated_deployment_date: string | null;
   ses_alpha_used: number;
   confidence_level_used?: number | null;
   confidence_lower_date?: string | null;
