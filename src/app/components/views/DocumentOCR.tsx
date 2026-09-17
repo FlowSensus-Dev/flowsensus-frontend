@@ -56,6 +56,7 @@ interface OCRResult {
   };
   system_data: {
     applicant_id?: number;
+    applicant_code?: string;
     first_name?: string;
     last_name?: string;
     full_name?: string;
@@ -124,6 +125,7 @@ export default function DocumentOCR({
         const q = applicantSearch.toLowerCase();
         return (
           String(a.id).toLowerCase().includes(q) ||
+          (a.applicantCode && a.applicantCode.toLowerCase().includes(q)) ||
           a.name.toLowerCase().includes(q) ||
           (a.role && a.role.toLowerCase().includes(q)) ||
           (a.status && a.status.toLowerCase().includes(q))
@@ -371,14 +373,14 @@ export default function DocumentOCR({
               {/* If currently selected applicant is locked/searched (not in Phase 4+), show them selected with lock badge */}
               {activeApplicant && !isApplicantQualified && (
                 <option value={activeApplicant.id}>
-                  🔒 [LOCKED · Ph.{activeApplicant.phase}] #{activeApplicant.id} - {activeApplicant.name} ({activeApplicant.status})
+                  🔒 [LOCKED · Ph.{activeApplicant.phase}] {activeApplicant.applicantCode || `#${activeApplicant.id}`} - {activeApplicant.name} ({activeApplicant.status})
                 </option>
               )}
 
               {/* In the dropdown, ONLY show applicants who are for this phase (Phase 4+ / 5) */}
               {phaseQualifiedApplicants.map((app) => (
                 <option key={app.id} value={app.id}>
-                  #{app.id} - {app.name} (Ph.{app.phase} · {app.status} ✓ Ready)
+                  {app.applicantCode || `#${app.id}`} - {app.name} (Ph.{app.phase} · {app.status} ✓ Ready)
                 </option>
               ))}
 
@@ -451,7 +453,7 @@ export default function DocumentOCR({
                       >
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-slate-900 truncate">
-                            #{app.id} - {app.name}
+                            {app.applicantCode || `#${app.id}`} - {app.name}
                           </p>
                           <p className="text-[11px] text-slate-500 truncate">
                             {app.role || 'Candidate'} · Phase {app.phase} ({app.status})
@@ -534,7 +536,7 @@ export default function DocumentOCR({
                   >
                     <div>
                       <p className="text-xs font-bold text-slate-800 group-hover:text-purple-700">
-                        #{app.id} - {app.name}
+                        {app.applicantCode || `#${app.id}`} - {app.name}
                       </p>
                       <p className="text-[11px] text-slate-500">
                         Ph.{app.phase} · {app.status}
@@ -558,7 +560,7 @@ export default function DocumentOCR({
             <Lock size={12} /> Phase 5 Document Gate Active · OCR Locked
           </span>
           <h3 className="font-extrabold text-slate-900 text-xl mb-2">
-            Document OCR Locked for {activeApplicant?.name || 'Selected Applicant'} (#{activeApplicant?.id})
+            Document OCR Locked for {activeApplicant?.name || 'Selected Applicant'} ({activeApplicant?.applicantCode || (activeApplicant?.id ? `#${activeApplicant.id}` : '')})
           </h3>
           <p className="text-sm text-slate-600 max-w-lg mb-6 leading-relaxed">
             {activeApplicant ? (
@@ -585,7 +587,7 @@ export default function DocumentOCR({
                 }}
                 className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
               >
-                <span>Switch to {defaultQualified.name} (#{defaultQualified.id} · Ph.{defaultQualified.phase} {defaultQualified.status})</span>
+                <span>Switch to {defaultQualified.name} ({defaultQualified.applicantCode || `#${defaultQualified.id}`} · Ph.{defaultQualified.phase} {defaultQualified.status})</span>
               </button>
             )}
             <button
@@ -764,7 +766,7 @@ export default function DocumentOCR({
                     System Ground Truth Record
                   </span>
                   <span className="bg-slate-200 text-slate-700 font-mono text-[10px] px-2 py-0.5 rounded">
-                    Applicant #{ocrResult.system_data.applicant_id || activeApplicantId}
+                    Applicant {activeApplicant?.applicantCode || ocrResult.system_data?.applicant_code || (ocrResult.system_data?.applicant_id ? `#${ocrResult.system_data.applicant_id}` : `#${activeApplicantId}`)}
                   </span>
                 </div>
                 <div className="space-y-3 text-xs">

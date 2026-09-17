@@ -22,11 +22,8 @@ export default function UserProfile({
   const [formData, setFormData] = useState({
     fullName: currentUserName,
     email: currentUserName.toLowerCase().replace(' ', '.') + '@flowsensus.com',
-    phone: '+63 917 555 1234',
-    department: currentUserRole === 'Recruitment' ? 'Recruitment' :
-                 currentUserRole === 'Admin' ? 'Administration' :
-                 currentUserRole === 'Accounting' ? 'Finance & Accounting' :
-                 currentUserRole === 'Management' ? 'Management' : 'Applicant Services',
+    phone: 'Not provided',
+    department: 'Not provided',
     employeeId: 'EMP-2026-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
     joinDate: '',
   });
@@ -44,20 +41,31 @@ export default function UserProfile({
 
         // 2. Fetch corresponding database record from USER table
         let dbUser: any = null;
-        if (accountEmail) {
-          const { data } = await supabase
-            .from('USER')
-            .select('user_id, full_name, email, department_id')
-            .eq('email', accountEmail)
-            .maybeSingle();
-          dbUser = data;
-        } else if (currentUserName) {
-          const { data } = await supabase
-            .from('USER')
-            .select('user_id, full_name, email, department_id')
-            .ilike('full_name', `%${currentUserName}%`)
-            .maybeSingle();
-          dbUser = data;
+        if (accountEmail || currentUserName) {
+          const queryProfile = (fields: string) => {
+            const query = supabase.from('USER').select(fields);
+            return (accountEmail
+              ? query.eq('email', accountEmail)
+              : query.ilike('full_name', `%${currentUserName}%`)
+            ).maybeSingle();
+          };
+
+          try {
+            const { data, error } = await queryProfile(
+              'user_id, full_name, email, department_id, phone_number, department(department_name)'
+            );
+            if (error) throw error;
+            dbUser = data;
+          } catch (expandedError) {
+            console.warn('Expanded profile query failed; retrying base profile fields:', expandedError);
+            try {
+              const { data, error } = await queryProfile('user_id, full_name, email, department_id');
+              if (error) throw error;
+              dbUser = data;
+            } catch (baseError) {
+              console.warn('Base profile query also failed:', baseError);
+            }
+          }
         }
 
         // 3. Fallback to /users/me API if needed
@@ -83,6 +91,11 @@ export default function UserProfile({
             ...prev,
             fullName: dbUser?.full_name || user?.user_metadata?.full_name || prev.fullName,
             email: dbUser?.email || accountEmail || prev.email,
+            phone: dbUser?.phone_number || 'Not provided',
+            department: dbUser?.department?.department_name ||
+              (Array.isArray(dbUser?.department) ? dbUser.department[0]?.department_name : null) ||
+              dbUser?.department_name ||
+              (typeof dbUser?.department === 'string' ? dbUser.department : null) || 'Not provided',
             employeeId: dbUser?.user_id
               ? `EMP-2026-${String(dbUser.user_id).padStart(3, '0')}`
               : prev.employeeId,

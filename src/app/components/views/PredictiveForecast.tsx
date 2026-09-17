@@ -116,7 +116,8 @@ export default function PredictiveForecast({
   // All applications belonging to the currently selected applicant
   const matchingApplications = useMemo(() => {
     return applicants.filter(
-      (a) => String(a.id) === String(activeApplicantId) && typeof a.applicationId === 'number'
+      (a) => String(a.id) === String(activeApplicantId) &&
+        typeof a.applicationId === 'number' && Number.isSafeInteger(a.applicationId) && a.applicationId > 0
     );
   }, [applicants, activeApplicantId]);
 
@@ -159,7 +160,7 @@ export default function PredictiveForecast({
   };
 
   const fetchApplicationForecast = async (appId: number) => {
-    if (forecastApplicationId.current !== appId) return;
+    if (!Number.isSafeInteger(appId) || appId <= 0 || forecastApplicationId.current !== appId) return;
     const requestId = ++forecastRequestId.current;
     setForecastResponse(null);
     setLoadingApplicant(true);
@@ -277,7 +278,9 @@ export default function PredictiveForecast({
       : null;
 
   const remainingDays =
-    hasRecord && forecastResponse?.record?.estimated_remaining_days !== undefined
+    isDeployed
+      ? '0.0 d'
+      : hasRecord && forecastResponse?.record?.estimated_remaining_days !== undefined
       ? `${forecastResponse.record.estimated_remaining_days.toFixed(1)} d`
       : null;
 
@@ -369,7 +372,7 @@ export default function PredictiveForecast({
               >
                 {uniqueApplicants.map((app) => (
                   <option key={app.id} value={app.id}>
-                    #{app.id} - {app.name} ({app.role || 'Applicant'})
+                    {app.applicantCode || `#${app.id}`} - {app.name} ({app.role || 'Applicant'})
                   </option>
                 ))}
               </select>
@@ -480,8 +483,7 @@ export default function PredictiveForecast({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Applicant #{activeApplicantId}
-              {selectedApplicant.applicantCode ? ` (${selectedApplicant.applicantCode})` : ''}
+              Applicant {selectedApplicant.applicantCode || `#${activeApplicantId}`}
               {selectedApplicationRecord?.applicationId ? ` • Application #${selectedApplicationRecord.applicationId}` : ''}
               {' • '}
               {selectedApplicationRecord?.role || selectedApplicant.role}

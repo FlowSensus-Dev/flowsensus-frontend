@@ -19,13 +19,7 @@ interface UserManagementProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
 }
 
-const DEPT_ROLE_MAP: Record<string, { role: UserRole; dept: string; deptId: number }> = {
-  Recruitment: { role: 'Recruitment', dept: 'Recruitment', deptId: 2 },
-  Admin: { role: 'Admin', dept: 'Admin', deptId: 3 },
-  Accounting: { role: 'Accounting', dept: 'Accounting', deptId: 4 },
-  Management: { role: 'Management', dept: 'Management', deptId: 1 },
-  SuperAdmin: { role: 'Management', dept: 'Executive', deptId: 1 },
-};
+
 
 const SYSTEM_ROLES_CATALOG: { id: UserRole; label: string; desc: string; badgeColor: string; activeColor: string }[] = [
   { id: 'Recruitment', label: 'Recruitment', desc: 'Screening & Profiling', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
@@ -59,12 +53,11 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
               ? u.role_names
               : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
             const primaryRole = rawRoles[0] || 'Recruitment';
-            const mapped = DEPT_ROLE_MAP[primaryRole] || { role: 'Recruitment' as UserRole, dept: 'Recruitment', deptId: 2 };
             return {
               id: String(u.user_id),
               name: u.full_name || 'Staff Member',
               email: u.email,
-              department: u.department_name || u.department || (u.department_id === 1 ? 'Management' : u.department_id === 2 ? 'Recruitment' : u.department_id === 3 ? 'Admin' : u.department_id === 4 ? 'Accounting' : mapped.dept),
+              department: u.department_name || u.department || 'Unassigned',
               role: primaryRole,
               roles: rawRoles,
               status: u.status === 'Inactive' ? 'Inactive' : 'Active',
@@ -124,9 +117,8 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
 
     const chosenRoles = newStaff.roles && newStaff.roles.length > 0 ? newStaff.roles : [newStaff.role];
     const primaryRole = chosenRoles[0] || 'Recruitment';
-    const deptInfo = DEPT_ROLE_MAP[primaryRole] || { deptId: 2 };
     const finalPassword = newStaff.password.trim() || generateTempPassword();
-    const customDept = newStaff.department.trim() || deptInfo.dept;
+    const customDept = newStaff.department.trim();
     let emailDispatched = false;
 
     try {
@@ -136,7 +128,6 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         roleNames: chosenRoles,
         roleName: chosenRoles.join(', '),
         department: customDept,
-        departmentId: deptInfo.deptId,
         password: finalPassword,
         requirePasswordChange: newStaff.requirePasswordChange,
       });
@@ -169,7 +160,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         name: newStaff.name,
         email: newStaff.email,
         role: chosenRoles.join(' & '),
-        department: newStaff.department || deptInfo.dept,
+        department: res.data?.department || res.data?.department_name || customDept,
         tempPass: finalPassword,
         emailDispatched: emailDispatched,
       });
@@ -199,15 +190,13 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
     const numId = parseInt(selectedStaff.id, 10);
     const chosenRoles = editRoles && editRoles.length > 0 ? editRoles : [selectedStaff.role];
     const primaryRole = chosenRoles[0] || 'Recruitment';
-    const deptInfo = DEPT_ROLE_MAP[primaryRole] || { deptId: 2 };
 
     try {
-      let savedDept = (selectedStaff.department || '').trim() || deptInfo.dept;
+      let savedDept = (selectedStaff.department || '').trim();
       if (!isNaN(numId)) {
         const res = await api.put(`/users/${numId}`, {
           roleNames: chosenRoles,
           roleName: chosenRoles.join(', '),
-          departmentId: deptInfo.deptId,
           department: savedDept,
         });
         if (res.data?.department || res.data?.department_name) {
@@ -334,8 +323,24 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-medium">
-            {staff.map((staffMember) => (
-              <tr
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
+                    <p className="text-[#64748B] font-medium">Loading staff accounts...</p>
+                  </div>
+                </td>
+              </tr>
+            ) : staff.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-8 text-center text-[#64748B]">
+                  No staff accounts found.
+                </td>
+              </tr>
+            ) : (
+              staff.map((staffMember) => (
+                <tr
                 key={staffMember.id}
                 className={`hover:bg-slate-50 transition-colors ${
                   staffMember.status === 'Inactive' ? 'bg-slate-50/50 opacity-60' : ''
@@ -433,7 +438,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   </div>
                 </td>
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
       </div>
@@ -712,18 +717,25 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   <span>{copied ? 'Password Copied!' : 'Copy Password'}</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
-                    navigator.clipboard.writeText(onboardingMsg);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2500);
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-md shadow-sky-500/20 transition-colors"
-                >
-                  <Mail size={14} />
-                  <span>Copy Full Invite</span>
-                </button>
+                {createdCredentials.emailDispatched ? (
+                  <div className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-md shadow-emerald-500/20">
+                    <Check size={14} />
+                    <span>Invite Email Sent Automatically!</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
+                      navigator.clipboard.writeText(onboardingMsg);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2500);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-md shadow-sky-500/20 transition-colors"
+                  >
+                    <Mail size={14} />
+                    <span>Copy Full Invite</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium pt-1">

@@ -123,36 +123,6 @@ export default function LoginScreen({
 
   const selectedPortal = PORTALS.find((p) => p.key === portal);
 
-  // 1-Click Superadmin Login
-  const handleSuperadminQuickLogin = async () => {
-    setLoading(true);
-    setErrorMessage('');
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: 'admin@findstaff.ph',
-        password: 'AdminPassword2026!',
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      // Successfully authenticated via Supabase as Superadmin
-      onLogin('Management', 'Superadmin (admin@findstaff.ph)', undefined, true, [
-        'Management',
-        'Admin',
-        'Recruitment',
-        'Accounting',
-      ]);
-    } catch (err: any) {
-      console.error('Superadmin login error:', err);
-      setErrorMessage(
-        err.message || 'Authentication failed. Please check your credentials.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -329,46 +299,7 @@ export default function LoginScreen({
 
             {/* Content */}
             <div className="p-6 space-y-4">
-              {/* 👑 Superadmin 1-Click Fast Track Card */}
-              <div className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-slate-50 border-2 border-amber-400/60 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                <div className="flex items-start gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-md flex-shrink-0">
-                    <Crown size={20} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-black text-amber-700 uppercase tracking-wider">
-                        Master Access
-                      </span>
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded">
-                        Live Auth
-                      </span>
-                    </div>
-                    <p className="font-bold text-slate-900 text-sm">Superadmin Account</p>
-                    <p className="text-xs text-slate-600 mt-0.5 leading-snug">
-                      Access all platform operational modules with verified enterprise role-based authorization.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={handleSuperadminQuickLogin}
-                      className="mt-3 w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-lg shadow transition-all flex items-center justify-center gap-2"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 size={14} className="animate-spin text-slate-950" />
-                          <span>Authenticating...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles size={14} />
-                          <span>1-Click Sign In as Superadmin</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
+
 
               {errorMessage && (
                 <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2.5 rounded-lg text-xs flex items-start gap-2">
@@ -531,7 +462,7 @@ export default function LoginScreen({
                       <option value="">Select your applicant profile</option>
                       {applicants.map((app) => (
                         <option key={app.id} value={app.id}>
-                          {app.name} — ID: {app.id}
+                          {app.name} — {app.applicantCode || `ID: ${app.id}`}
                         </option>
                       ))}
                     </select>
