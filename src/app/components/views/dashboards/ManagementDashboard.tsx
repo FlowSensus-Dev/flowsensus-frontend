@@ -26,7 +26,7 @@ export default function ManagementDashboard({
 
   // Calculate performance metrics
   const totalActive = applicants.length;
-  const avgPhase = (applicants.reduce((sum, a) => sum + a.phase, 0) / applicants.length).toFixed(1);
+  const avgPhase = applicants.length > 0 ? (applicants.reduce((sum, a) => sum + a.phase, 0) / applicants.length).toFixed(1) : '0.0';
   const deploymentReady = applicants.filter((a) => a.phase === 5).length;
   const conversionRate = totalActive > 0 ? ((deploymentReady / totalActive) * 100).toFixed(0) : '0';
 
@@ -69,7 +69,7 @@ export default function ManagementDashboard({
                   </div>
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
-                    <p className="text-xs text-[#64748B]">{applicant.id} • Stuck in Phase {applicant.phase}</p>
+                    <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} • Stuck in Phase {applicant.phase}</p>
                     <p className="text-xs font-bold text-[#EF4444] uppercase mt-1">
                       ⚠ 7+ days without progress • Handler: {applicant.currentHandler}
                     </p>
@@ -151,7 +151,7 @@ export default function ManagementDashboard({
                   <div>
                     <p className="font-bold text-[#0F172A]">{applicant.name}</p>
                     <p className="text-xs text-[#64748B]">
-                      {applicant.id} • {applicant.role} • CV awaiting quality control
+                      {applicant.applicantCode || applicant.id} • {applicant.role} • CV awaiting quality control
                     </p>
                   </div>
                 </div>
@@ -205,11 +205,11 @@ export default function ManagementDashboard({
               <p className="text-xs text-[#64748B] mt-1">Predicted deployments (8-14 days)</p>
             </div>
 
-            {/* Algorithm Confidence */}
+            {/* Forecast Method */}
             <div className="bg-purple-50/50 rounded-lg p-4 border border-purple-200">
-              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-2">Algorithm Confidence</p>
-              <p className="text-2xl font-black text-[#8B5CF6]">87%</p>
-              <p className="text-xs text-[#64748B] mt-1">Based on historical completion rates</p>
+              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-2">Forecast Method</p>
+              <p className="text-2xl font-black text-[#8B5CF6]">PERT + SES</p>
+              <p className="text-xs text-[#64748B] mt-1">Application-level forecast with persisted SES learning</p>
             </div>
           </div>
 
@@ -232,7 +232,7 @@ export default function ManagementDashboard({
                     </div>
                     <div>
                       <p className="font-bold text-[#0F172A] text-sm">{applicant.name}</p>
-                      <p className="text-xs text-[#64748B]">{applicant.id}</p>
+                      <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id}</p>
                     </div>
                   </div>
                   <div className="text-right">

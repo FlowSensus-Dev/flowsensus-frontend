@@ -44,11 +44,13 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
   const [addingRemark, setAddingRemark] = useState<{ employerId: string; content: string; category: EmployerRemark['category'] } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingRemark, setIsSavingRemark] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // ── Fetch Live Employers on Mount ─────────────────────────────────────────
   useEffect(() => {
     const fetchEmployers = async () => {
       try {
+        setIsLoading(true);
         const res = await api.get('/employers');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveEmps: EmployerProfile[] = res.data.map((e: any) => ({
@@ -72,7 +74,9 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
           setEmployers(liveEmps);
         }
       } catch (err) {
-        console.warn('Could not fetch live employers, retaining cached data:', err);
+        console.warn('Could not fetch employers from Supabase:', err);
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchEmployers();
@@ -224,7 +228,17 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
 
       {/* Employer cards */}
       <div className="space-y-3">
-        {filtered.map(emp => {
+        {isLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+            <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
+            <p>Loading employer profiles...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 bg-white rounded-xl border border-slate-200">
+            No employers found matching your criteria.
+          </div>
+        ) : (
+          filtered.map(emp => {
           const meta = STATUS_META[emp.status];
           const isExpanded = expanded === emp.id;
           return (
@@ -323,12 +337,7 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
               )}
             </div>
           );
-        })}
-        {filtered.length === 0 && (
-          <div className="bg-white rounded-xl border border-slate-200 py-16 text-center text-slate-400 text-sm">
-            No employers found matching your search.
-          </div>
-        )}
+        }))}
       </div>
 
       {/* Add/Edit Employer Modal */}

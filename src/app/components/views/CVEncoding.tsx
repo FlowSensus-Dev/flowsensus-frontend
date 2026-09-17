@@ -41,7 +41,7 @@ CURRICULUM VITAE - EXPORT
 
 Personal Information:
 - Full Name: ${selectedApplicant.name}
-- Applicant ID: ${selectedApplicant.id}
+- Applicant Code: ${selectedApplicant.applicantCode || selectedApplicant.id}
 - Position Applied: ${selectedApplicant.role}
 - Job Order: ${selectedApplicant.jobOrder || 'N/A'}
 
@@ -91,7 +91,7 @@ Date Generated: ${new Date().toLocaleString()}
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CV-${selectedApplicant.name.replace(/\s+/g, '-')}-${selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `CV-${selectedApplicant.name.replace(/\s+/g, '-')}-${selectedApplicant.applicantCode || selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
     a.click();
     window.URL.revokeObjectURL(url);
 
@@ -100,7 +100,7 @@ Date Generated: ${new Date().toLocaleString()}
       action: 'CV Exported to PDF',
       performedBy: currentUserName,
       department: 'Recruitment',
-      details: `CV exported for ${selectedApplicant.name} (${selectedApplicant.id})`,
+      details: `CV exported for ${selectedApplicant.name} (${selectedApplicant.applicantCode || selectedApplicant.id})`,
     });
 
     showToast('✓ CV exported successfully');

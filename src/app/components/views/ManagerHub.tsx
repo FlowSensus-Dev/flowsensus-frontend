@@ -40,7 +40,7 @@ EMPLOYER APPROVAL REPORT
 
 Applicant Information:
 - Name: ${selectedApplicant.name}
-- ID: ${selectedApplicant.id}
+- Applicant Code: ${selectedApplicant.applicantCode || selectedApplicant.id}
 - Position: ${selectedApplicant.role}
 - Job Order: ${selectedApplicant.jobOrder || 'N/A'}
 
@@ -70,7 +70,7 @@ Date: ${new Date().toLocaleString()}
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `employer-approval-${selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `employer-approval-${selectedApplicant.applicantCode || selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
     a.click();
     window.URL.revokeObjectURL(url);
 
@@ -79,7 +79,7 @@ Date: ${new Date().toLocaleString()}
       action: 'Employer Approval Report Exported',
       performedBy: currentUserName,
       department: 'Management',
-      details: `Exported employer approval report for ${selectedApplicant.name} (${selectedApplicant.id})`,
+      details: `Exported employer approval report for ${selectedApplicant.name} (${selectedApplicant.applicantCode || selectedApplicant.id})`,
     });
 
     showToast('✓ Employer approval report exported successfully');
@@ -136,6 +136,7 @@ Date: ${new Date().toLocaleString()}
 
   const cvLocked = !workflow.medicalCleared;
   const bothActionsComplete = workflow.cvApproved && workflow.employerAccepted;
+  const currentApplicant = applicants.find((a) => a.id === selectedApplicantId) || applicants[0];
 
   return (
     <div className="space-y-6 w-full">
@@ -187,13 +188,13 @@ Date: ${new Date().toLocaleString()}
           <div className="grid grid-cols-2 gap-6">
             <div>
               <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
-              <p className="font-bold text-[#0F172A]">Juan Dela Cruz</p>
-              <p className="text-sm text-[#64748B]">Applicant #1 | Industrial Welder</p>
+              <p className="font-bold text-[#0F172A]">{currentApplicant?.name || 'Juan Dela Cruz'}</p>
+              <p className="text-sm text-[#64748B]">{currentApplicant?.applicantCode || (currentApplicant ? `Applicant #${currentApplicant.id}` : 'Applicant #1')} | {currentApplicant?.role || 'Industrial Welder'}</p>
             </div>
             <div>
               <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Target Employer</p>
               <p className="font-bold text-[#0F172A]">Al-Futtaim Engineering</p>
-              <p className="text-sm text-[#64748B]">Saudi Arabia | JO-2026-0042</p>
+              <p className="text-sm text-[#64748B]">{currentApplicant?.jobOrder || 'Saudi Arabia | JO-2026-0042'}</p>
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-slate-300">

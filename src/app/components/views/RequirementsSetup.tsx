@@ -314,7 +314,22 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               </tr>
             </thead>
             <tbody>
-              {filtered.map((req, idx) => (
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
+                      <p className="text-[#64748B] font-medium">Loading requirements...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-6 py-8 text-center text-[#64748B]">
+                    No requirements found matching your criteria.
+                  </td>
+                </tr>
+              ) : filtered.map((req, idx) => (
                 <tr
                   key={req.id}
                   draggable
@@ -389,9 +404,6 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No requirements found for this filter.</td></tr>
-              )}
             </tbody>
           </table>
         </div>

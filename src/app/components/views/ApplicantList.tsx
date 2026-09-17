@@ -36,6 +36,7 @@ export default function ApplicantList({
     const q = search.toLowerCase();
     const matchSearch = !search ||
       a.name.toLowerCase().includes(q) ||
+      (a.applicantCode || '').toLowerCase().includes(q) ||
       a.id.toLowerCase().includes(q) ||
       a.role.toLowerCase().includes(q) ||
       (a.jobOrder || '').toLowerCase().includes(q);
@@ -77,7 +78,7 @@ export default function ApplicantList({
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, ID, role, or job order…"
+            placeholder="Search by name, code, role, or job order…"
             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
           />
         </div>
@@ -158,7 +159,7 @@ export default function ApplicantList({
                         {a.isStopped && <OctagonX size={13} className="text-red-400 flex-shrink-0 mt-0.5" />}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5 truncate">{a.role}</p>
-                      <p className="text-[10px] font-mono text-slate-400 mt-0.5">{a.id}</p>
+                      <p className="text-[10px] font-mono text-slate-400 mt-0.5">{a.applicantCode || a.id}</p>
                     </div>
                     <ChevronRight size={14} className="text-slate-300 group-hover:text-[#0EA5E9] transition-colors flex-shrink-0 mt-1" />
                   </div>
