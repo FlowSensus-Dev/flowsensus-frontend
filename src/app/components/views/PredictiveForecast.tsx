@@ -31,6 +31,7 @@ interface DynamicException {
   stage_name: string;
   seed_penalty_days: number;
   current_weight_days: number;
+  observation_count: number;
 }
 
 interface PipelineForecastData {
@@ -704,7 +705,7 @@ export default function PredictiveForecast({
         </div>
       </div>
 
-      {/* Dynamic Exception Weights Learned Card */}
+      {/* Dynamic Exception Penalty Weights Card */}
       {pipelineData?.dynamic_exceptions && pipelineData.dynamic_exceptions.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
           <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center gap-2">
@@ -712,7 +713,7 @@ export default function PredictiveForecast({
             Dynamic Exception Penalty Buffer Weights
           </h3>
           <p className="text-xs text-slate-500 mb-4">
-            FlowSensus auto-learns delay penalties from historical disruption resolution durations rather than fixed arbitrary estimates.
+            FlowSensus uses configured seed/default penalties until completed exception observations enable adaptive learning from disruption resolution durations.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {pipelineData.dynamic_exceptions.map((ex) => (
@@ -734,6 +735,11 @@ export default function PredictiveForecast({
                     +{ex.current_weight_days.toFixed(1)} days
                   </span>
                 </div>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  {ex.observation_count === 0
+                    ? 'Configured seed/default · No completed exception learning yet'
+                    : `Learned/adaptive · ${ex.observation_count} completed observation${ex.observation_count === 1 ? '' : 's'}`}
+                </p>
               </div>
             ))}
           </div>
