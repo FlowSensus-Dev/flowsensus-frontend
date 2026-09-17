@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   TrendingUp,
   Calendar,
@@ -65,6 +65,8 @@ export default function PredictiveForecast({
   const [forecastResponse, setForecastResponse] = useState<ApplicationForecastResponse | null>(null);
   const [loadingApplicant, setLoadingApplicant] = useState<boolean>(false);
   const [forecastError, setForecastError] = useState<string | null>(null);
+  const forecastRequestId = useRef(0);
+  const forecastApplicationId = useRef<number | null>(null);
 
   // Interactive Simulation State
   const [simStage, setSimStage] = useState<string>('Medical Clearance');
@@ -157,12 +159,20 @@ export default function PredictiveForecast({
   };
 
   const fetchApplicationForecast = async (appId: number) => {
+    if (forecastApplicationId.current !== appId) return;
+    const requestId = ++forecastRequestId.current;
+    setForecastResponse(null);
     setLoadingApplicant(true);
     setForecastError(null);
     try {
       const res = await api.get(`/forecasting/application/${appId}`);
+      if (requestId !== forecastRequestId.current) return;
+      if (res.data.application_id !== appId) {
+        throw new Error('Forecast response does not match the requested application.');
+      }
       setForecastResponse(res.data);
     } catch (err: any) {
+      if (requestId !== forecastRequestId.current) return;
       console.warn(`Could not load forecast for application ${appId}:`, err);
       setForecastResponse(null);
       const detail = err.response?.data?.detail;
@@ -176,7 +186,7 @@ export default function PredictiveForecast({
         setForecastError('Unable to load forecast for this application.');
       }
     } finally {
-      setLoadingApplicant(false);
+      if (requestId === forecastRequestId.current) setLoadingApplicant(false);
     }
   };
 
@@ -184,13 +194,20 @@ export default function PredictiveForecast({
     fetchPipeline();
   }, []);
 
-  useEffect(() => {
+  // Clear the previous application before paint and invalidate requests on selection changes.
+  useLayoutEffect(() => {
+    forecastApplicationId.current = activeApplicationId;
     if (activeApplicationId) {
       fetchApplicationForecast(activeApplicationId);
     } else {
       setForecastResponse(null);
       setForecastError(null);
+      setLoadingApplicant(false);
     }
+    return () => {
+      forecastApplicationId.current = null;
+      ++forecastRequestId.current;
+    };
   }, [activeApplicationId]);
 
   const handleRefresh = () => {
