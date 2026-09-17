@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   TrendingUp,
   Calendar,
@@ -55,8 +55,12 @@ export default function PredictiveForecast({
   const [backendError, setBackendError] = useState<string | null>(null);
 
   // Candidate and Application Selection
-  const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId);
-  const [activeApplicationId, setActiveApplicationId] = useState<number | null>(null);
+  const [candidateId, setActiveApplicantId] = useState<string>(selectedApplicantId);
+  const incomingCandidateId = useRef(selectedApplicantId);
+  const [applicationSelection, setApplicationSelection] = useState<{
+    applicantId: string;
+    applicationId: number | null;
+  } | null>(null);
   const [forecastResponse, setForecastResponse] = useState<ApplicationForecastResponse | null>(null);
   const [loadingApplicant, setLoadingApplicant] = useState<boolean>(false);
   const [forecastError, setForecastError] = useState<string | null>(null);
@@ -82,6 +86,22 @@ export default function PredictiveForecast({
     return Array.from(map.values());
   }, [applicants]);
 
+  const incomingCandidateChanged = incomingCandidateId.current !== selectedApplicantId;
+  const selectedApplicant =
+    (incomingCandidateChanged
+      ? uniqueApplicants.find((a) => String(a.id) === String(selectedApplicantId))
+      : undefined) ||
+    uniqueApplicants.find((a) => String(a.id) === String(candidateId)) ||
+    uniqueApplicants.find((a) => String(a.id) === String(selectedApplicantId)) ||
+    uniqueApplicants[0];
+  const activeApplicantId = selectedApplicant ? String(selectedApplicant.id) : '';
+
+  // Reconcile invalid IDs after loading without resetting valid manual choices.
+  useEffect(() => {
+    incomingCandidateId.current = selectedApplicantId;
+    setActiveApplicantId(activeApplicantId);
+  }, [selectedApplicantId, activeApplicantId]);
+
   // All applications belonging to the currently selected applicant
   const matchingApplications = useMemo(() => {
     return applicants.filter(
@@ -93,17 +113,20 @@ export default function PredictiveForecast({
   // - If exactly 1 application, use it automatically.
   // - If > 1 application, require the user to select one (do not guess).
   // - If 0 applications, clear selection.
+  const activeApplicationId = matchingApplications.length === 1
+    ? matchingApplications[0].applicationId!
+    : applicationSelection?.applicantId === activeApplicantId &&
+      matchingApplications.some((a) => a.applicationId === applicationSelection.applicationId)
+    ? applicationSelection.applicationId
+    : null;
+
+  const setActiveApplicationId = (applicationId: number | null) => {
+    setApplicationSelection({ applicantId: activeApplicantId, applicationId });
+  };
+
   useEffect(() => {
-    if (matchingApplications.length === 1) {
-      setActiveApplicationId(matchingApplications[0].applicationId!);
-    } else if (matchingApplications.length > 1) {
-      if (!matchingApplications.some((a) => a.applicationId === activeApplicationId)) {
-        setActiveApplicationId(null);
-      }
-    } else {
-      setActiveApplicationId(null);
-    }
-  }, [activeApplicantId, matchingApplications]);
+    setApplicationSelection(null);
+  }, [activeApplicantId]);
 
   const fetchPipeline = async () => {
     setLoading(true);
@@ -208,16 +231,6 @@ export default function PredictiveForecast({
     }
   };
 
-  const selectedApplicant =
-    uniqueApplicants.find((a) => String(a.id) === String(activeApplicantId)) ||
-    applicants.find((a) => String(a.id) === String(activeApplicantId)) ||
-    applicants[0] || {
-      id: '1',
-      name: 'Juan Dela Cruz',
-      role: 'Industrial Welder',
-      jobOrder: 'JO-2026-0042 (Saudi Arabia)',
-    };
-
   const selectedApplicationRecord =
     matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
     (matchingApplications.length === 1 ? matchingApplications[0] : null);
@@ -238,6 +251,15 @@ export default function PredictiveForecast({
     hasRecord && forecastResponse?.record?.estimated_remaining_days !== undefined
       ? `${forecastResponse.record.estimated_remaining_days.toFixed(1)} d`
       : null;
+
+  if (!selectedApplicant) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-2xl font-bold text-slate-900">Predictive Timeline Forecast</h2>
+        <p className="text-sm text-slate-500">No applicants are available to forecast.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 w-full pb-12">
