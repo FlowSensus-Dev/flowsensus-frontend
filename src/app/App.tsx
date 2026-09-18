@@ -1079,7 +1079,7 @@ export default function App() {
   const [view, setView] = useState<AppView>("landing");
   
   const navigateTo = (nextView: AppView) => {
-    window.history.pushState({ view: nextView }, '', nextView === 'super-admin' ? '/super-admin' : '/');
+    window.history.pushState({ view: nextView }, '', '/');
     setView(nextView);
   };
 
@@ -1309,10 +1309,7 @@ export default function App() {
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
             setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
-            // SECURITY FIX: Only auto-route to superadmin if explicitly requested via URL
-            if (window.location.pathname === '/super-admin') {
-              showAppView("super-admin");
-            }
+            showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
