@@ -4,7 +4,6 @@ import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
 import EmployerPortal from "./components/EmployerPortal";
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from "./types";
-import SuperAdminBar from "./components/SuperAdminBar";
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
@@ -41,7 +40,28 @@ function toSubdomain(name: string): string {
 }
 
 // ─── Landing Page ─────────────────────────────────────────────────────────────
-function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignIn: () => void }) {
+// ─── Landing Page ─────────────────────────────────────────────────────────────
+interface LandingPageProps {
+  onRegister: () => void;
+  onSignIn: () => void;
+  currentUser?: string;
+  isSuperAdmin?: boolean;
+  onOpenDashboard?: () => void;
+  onLogout?: () => void;
+  sessionExpiredNotice?: boolean;
+  onDismissNotice?: () => void;
+}
+
+function LandingPage({
+  onRegister,
+  onSignIn,
+  currentUser,
+  isSuperAdmin,
+  onOpenDashboard,
+  onLogout,
+  sessionExpiredNotice,
+  onDismissNotice,
+}: LandingPageProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const featuresList = [
@@ -55,8 +75,24 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-['Inter',sans-serif]">
+      {/* Session Expired Security Notice Banner */}
+      {sessionExpiredNotice && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-500 text-slate-950 text-sm font-medium py-2.5 px-6 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-slate-950" />
+            <span>Session expired due to 30 minutes of inactivity. Please sign in again.</span>
+          </div>
+          <button
+            onClick={onDismissNotice}
+            className="text-slate-950 hover:text-white font-semibold text-xs bg-slate-950/20 hover:bg-slate-950/40 px-3 py-1 rounded transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0F172A]/95 backdrop-blur-sm border-b border-white/10">
+      <nav className={`fixed ${sessionExpiredNotice ? 'top-10' : 'top-0'} left-0 right-0 z-50 bg-[#0F172A]/95 backdrop-blur-sm border-b border-white/10 transition-all`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#0EA5E9] flex items-center justify-center">
@@ -72,15 +108,35 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
             <a href="#how" className="hover:text-white transition-colors">How It Works</a>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={onSignIn} className="hidden md:block text-sm text-slate-300 hover:text-white transition-colors px-4 py-2">
-              Sign In
-            </button>
-            <button
-              onClick={onRegister}
-              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-            >
-              Get Started
-            </button>
+            {currentUser ? (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onOpenDashboard}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  {isSuperAdmin ? 'Superadmin Console' : 'Go to Workspace'} <ArrowRight size={14} />
+                </button>
+                <button
+                  onClick={onLogout}
+                  className="hidden md:block text-xs text-slate-400 hover:text-rose-400 transition-colors px-2 py-1"
+                  title="Sign out"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <>
+                <button onClick={onSignIn} className="hidden md:block text-sm text-slate-300 hover:text-white transition-colors px-4 py-2">
+                  Sign In
+                </button>
+                <button
+                  onClick={onRegister}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+                >
+                  Get Started
+                </button>
+              </>
+            )}
             <button className="md:hidden text-slate-400 hover:text-white" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
@@ -91,7 +147,18 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
             <a href="#features" onClick={() => setMobileOpen(false)}>Features</a>
             <a href="#pricing" onClick={() => setMobileOpen(false)}>Pricing</a>
             <a href="#how" onClick={() => setMobileOpen(false)}>How It Works</a>
-            <button onClick={onSignIn} className="text-left">Sign In</button>
+            {currentUser ? (
+              <>
+                <button onClick={() => { setMobileOpen(false); onOpenDashboard?.(); }} className="text-left font-semibold text-[#0EA5E9]">
+                  {isSuperAdmin ? 'Superadmin Console →' : 'Go to Workspace →'}
+                </button>
+                <button onClick={() => { setMobileOpen(false); onLogout?.(); }} className="text-left text-rose-400 text-xs">
+                  Sign Out ({currentUser})
+                </button>
+              </>
+            ) : (
+              <button onClick={onSignIn} className="text-left">Sign In</button>
+            )}
           </div>
         )}
       </nav>
@@ -117,18 +184,37 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
                 through final boarding — with role-based workflows built specifically for POEA-licensed agencies.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  onClick={onRegister}
-                  className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
-                >
-                  Create Your Workspace <ArrowRight size={18} />
-                </button>
-                <button
-                  onClick={onSignIn}
-                  className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
-                >
-                  Sign In to Your Tenant
-                </button>
+                {currentUser ? (
+                  <>
+                    <button
+                      onClick={onOpenDashboard}
+                      className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base shadow-lg shadow-sky-500/20"
+                    >
+                      {isSuperAdmin ? 'Enter Superadmin Console' : 'Open Workspace'} <ArrowRight size={18} />
+                    </button>
+                    <button
+                      onClick={onLogout}
+                      className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Sign Out ({currentUser})
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={onRegister}
+                      className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Create Your Workspace <ArrowRight size={18} />
+                    </button>
+                    <button
+                      onClick={onSignIn}
+                      className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Sign In to Your Tenant
+                    </button>
+                  </>
+                )}
               </div>
               <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
                 <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> No credit card required</span>
@@ -991,10 +1077,26 @@ type AppView = "landing" | "register" | "provisioning" | "app" | "super-admin";
 
 export default function App() {
   const [view, setView] = useState<AppView>("landing");
-  const showAppView = (nextView: AppView) => {
-    window.history.replaceState(window.history.state, '', nextView === 'super-admin' ? '/super-admin' : '/');
+  
+  const navigateTo = (nextView: AppView) => {
+    window.history.pushState({ view: nextView }, '', '/');
     setView(nextView);
   };
+
+  const showAppView = (nextView: AppView) => navigateTo(nextView); // Keep for backwards compatibility within App.tsx
+
+  useEffect(() => {
+    window.history.replaceState({ view: "landing" }, '', '/');
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state && e.state.view) {
+        setView(e.state.view);
+      } else {
+        setView("landing");
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [registrationForm, setRegistrationForm] = useState<FormData | null>(null);
   const [tenantName, setTenantName] = useState("");
 
@@ -1004,6 +1106,7 @@ export default function App() {
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
+  const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
@@ -1021,6 +1124,7 @@ export default function App() {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
       setApplicants([]);
+      setApplicantsLoaded(false);
       setActivityLogs([]);
       setExpenses([]);
     }
@@ -1032,139 +1136,140 @@ export default function App() {
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
-    // 1. Fetch live applicants from /applicants
-    try {
-      const res = await api.get('/applicants');
-      if (!isCurrent()) return;
-      if (res.data && Array.isArray(res.data)) {
-        const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
-          const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
-          const parsedSkills = Array.isArray(item.skills)
-            ? item.skills
-            : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
-          const parsedCerts = Array.isArray(item.certifications)
-            ? item.certifications
-            : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
-          const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
 
-          const rawApplicationId = item.application_id;
-          const numericApplicationId = typeof rawApplicationId === 'number'
-            ? rawApplicationId
-            : typeof rawApplicationId === 'string' && /^\d+$/.test(rawApplicationId.trim())
-            ? Number(rawApplicationId.trim())
-            : undefined;
-          const applicationId = typeof numericApplicationId === 'number' && Number.isSafeInteger(numericApplicationId) && numericApplicationId > 0
-            ? numericApplicationId
-            : undefined;
+    // Fetch all resources in parallel
+    const [applicantsRes, logsRes, expRes] = await Promise.allSettled([
+      api.get('/applicants'),
+      api.get('/audit-logs'),
+      api.get('/financial/records')
+    ]);
 
-          const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
-          const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
+    if (!isCurrent()) return;
 
-          return {
-            id: String(item.applicant_id),
-            applicationId,
-            applicantCode: formattedApplicantCode,
-            name: fullName,
-            firstName: item.first_name || '',
-            middleName: item.middle_name || '',
-            lastName: item.last_name || '',
-            role: item.applied_role || 'Applicant',
-            jobOrder: formattedJobOrderCode,
-            selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
-            phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
-            status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
-            currentHandler: item.current_handler || 'System Agent',
-            currentDepartment: item.current_department || 'Recruitment',
-            lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
-            phaseDescription: item.phase_description || 'Active in candidate pipeline',
-            presentAddress: item.present_address || '',
-            provincialAddress: item.provincial_address || '',
-            email: item.email || '',
-            contact: item.contact_number || '',
-            dateOfBirth: item.birth_date || '',
-            age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
-            sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
-            civilStatus: item.civil_status || 'Single',
-            citizenship: item.nationality || 'Filipino',
-            religion: item.religion || 'Roman Catholic',
-            height: item.height || "5'6\"",
-            weight: item.weight || '65 kg',
-            skills: parsedSkills,
-            certifications: parsedCerts,
-            workExperience: parsedWork,
-            address: item.present_address || item.provincial_address || 'Philippines',
-            employmentHistory: parsedWork.map((w: any, idx: number) => ({
-              id: `eh-${item.applicant_id}-${idx}`,
-              company: w.companyName || w.company || 'Previous Employer',
-              position: w.position || 'Worker',
-              dateStarted: w.startDate || '',
-              dateEnded: w.endDate || '',
-              country: w.country || 'Philippines',
-              isPresent: Boolean(w.isPresent),
-              reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
-            })),
-            employmentFlags: [],
-            testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
-            matchScore: 90,
-          };
-        });
-        setApplicants(liveMapped);
-      }
-    } catch (err) {
-      console.warn('Backend applicants fetch error:', err);
+    // 1. Process applicants
+    if (applicantsRes.status === 'fulfilled' && applicantsRes.value.data && Array.isArray(applicantsRes.value.data)) {
+      const liveMapped: ApplicantRecord[] = applicantsRes.value.data.map((item: any) => {
+        const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
+        const parsedSkills = Array.isArray(item.skills)
+          ? item.skills
+          : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+        const parsedCerts = Array.isArray(item.certifications)
+          ? item.certifications
+          : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
+        const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
+
+        const rawApplicationId = item.application_id;
+        const numericApplicationId = typeof rawApplicationId === 'number'
+          ? rawApplicationId
+          : typeof rawApplicationId === 'string' && /^\d+$/.test(rawApplicationId.trim())
+          ? Number(rawApplicationId.trim())
+          : undefined;
+        const applicationId = typeof numericApplicationId === 'number' && Number.isSafeInteger(numericApplicationId) && numericApplicationId > 0
+          ? numericApplicationId
+          : undefined;
+
+        const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
+        const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
+
+        return {
+          id: String(item.applicant_id),
+          applicationId,
+          applicantCode: formattedApplicantCode,
+          name: fullName,
+          firstName: item.first_name || '',
+          middleName: item.middle_name || '',
+          lastName: item.last_name || '',
+          role: item.applied_role || 'Applicant',
+          jobOrder: formattedJobOrderCode,
+          selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
+          phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
+          status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
+          currentHandler: item.current_handler || 'System Agent',
+          currentDepartment: item.current_department || 'Recruitment',
+          lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+          phaseDescription: item.phase_description || 'Active in candidate pipeline',
+          presentAddress: item.present_address || '',
+          provincialAddress: item.provincial_address || '',
+          email: item.email || '',
+          contact: item.contact_number || '',
+          dateOfBirth: item.birth_date || '',
+          age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
+          sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
+          civilStatus: item.civil_status || 'Single',
+          citizenship: item.nationality || 'Filipino',
+          religion: item.religion || 'Roman Catholic',
+          height: item.height || "5'6\"",
+          weight: item.weight || '65 kg',
+          skills: parsedSkills,
+          certifications: parsedCerts,
+          workExperience: parsedWork,
+          address: item.present_address || item.provincial_address || 'Philippines',
+          employmentHistory: parsedWork.map((w: any, idx: number) => ({
+            id: `eh-${item.applicant_id}-${idx}`,
+            company: w.companyName || w.company || 'Previous Employer',
+            position: w.position || 'Worker',
+            dateStarted: w.startDate || '',
+            dateEnded: w.endDate || '',
+            country: w.country || 'Philippines',
+            isPresent: Boolean(w.isPresent),
+            reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
+          })),
+          employmentFlags: [],
+          testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          matchScore: 90,
+          photo: item.photo_url || item.photo || '',
+          photoDataUrl: item.photo_url || item.photo || '',
+        };
+      });
+      setApplicants(liveMapped);
+    } else if (applicantsRes.status === 'rejected') {
+      console.warn('Backend applicants fetch error:', applicantsRes.reason);
+    }
+    setApplicantsLoaded(true);
+
+    if (!isCurrent()) return;
+
+    // 2. Process logs
+    if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
+      const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
+        audit_log_id: l.audit_log_id,
+        applicant_id: l.applicant_id,
+        performed_by: l.performed_by,
+        created_at: l.created_at,
+        id: `LOG-${l.audit_log_id}`,
+        applicantId: l.applicant_id ? String(l.applicant_id) : '',
+        action: l.action,
+        performedBy: l.performed_by || 'System User',
+        department: l.department,
+        details: l.details,
+        timestamp: l.created_at || new Date().toISOString(),
+      }));
+      setActivityLogs(liveLogs);
+    } else if (logsRes.status === 'rejected') {
+      console.warn('Backend audit logs unavailable:', logsRes.reason);
     }
 
     if (!isCurrent()) return;
 
-    // 2. Fetch live audit logs from /audit-logs
-    try {
-      const logsRes = await api.get('/audit-logs');
-      if (!isCurrent()) return;
-      if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
-        const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
-          audit_log_id: l.audit_log_id,
-          applicant_id: l.applicant_id,
-          performed_by: l.performed_by,
-          created_at: l.created_at,
-          id: `LOG-${l.audit_log_id}`,
-          applicantId: l.applicant_id ? String(l.applicant_id) : '',
-          action: l.action,
-          performedBy: l.performed_by || 'System User',
-          department: l.department,
-          details: l.details,
-          timestamp: l.created_at || new Date().toISOString(),
-        }));
-        setActivityLogs(liveLogs);
-      }
-    } catch (err) {
-      console.warn('Backend audit logs unavailable:', err);
-    }
-
-    if (!isCurrent()) return;
-
-    // 3. Fetch live financial records from /financial/records
-    try {
-      const expRes = await api.get('/financial/records');
-      if (!isCurrent()) return;
-      if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
-        const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
-          id: `EXP-${r.financial_record_id}`,
-          applicantId: String(r.applicant_id),
-          category: r.category || 'processing',
-          type: r.payment_type || 'Processing Fee',
-          amount: r.amount || 0,
-          description: r.description || r.payment_type || '',
-          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-          recordedBy: r.recorded_by_name || 'Mark Tan',
-          paymentMethod: 'Bank Transfer',
-          paidBy: 'Agency',
-          notes: r.description || '',
-          timestamp: r.created_at || new Date().toISOString(),
-        }));
-        setExpenses(liveExpenses);
-      }
-    } catch (err) {
-      console.warn('Backend financial records unavailable:', err);
+    // 3. Process expenses
+    if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
+      const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
+        id: `EXP-${r.financial_record_id}`,
+        applicantId: String(r.applicant_id),
+        category: r.category || 'processing',
+        type: r.payment_type || 'Processing Fee',
+        amount: r.amount || 0,
+        description: r.description || r.payment_type || '',
+        date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+        recordedBy: r.recorded_by_name || 'Mark Tan',
+        paymentMethod: 'Bank Transfer',
+        paidBy: 'Agency',
+        notes: r.description || '',
+        timestamp: r.created_at || new Date().toISOString(),
+      }));
+      setExpenses(liveExpenses);
+    } else if (expRes.status === 'rejected') {
+      console.warn('Backend financial records unavailable:', expRes.reason);
     }
   };
 
@@ -1173,6 +1278,19 @@ export default function App() {
     liveMounted.current = true;
     const checkSession = async () => {
       try {
+        // SECURITY CHECK: Verify "Remember Me" policy
+        const rememberMe = localStorage.getItem('fs_remember_me');
+        const sessionActive = sessionStorage.getItem('fs_session_active');
+        if (rememberMe === 'false' && !sessionActive) {
+          // Browser was closed and reopened, but the user did not opt into "Remember Me".
+          // Invalidate the session immediately to prevent unauthorized access.
+          await supabase.auth.signOut();
+          localStorage.removeItem('fs_remember_me');
+          sessionStorage.removeItem('fs_session_active');
+          syncLiveSession(null);
+          return;
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
@@ -1180,16 +1298,17 @@ export default function App() {
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
+          // SECURITY FIX: Only trust app_metadata (service-role managed) or verified admin email.
+          // user_metadata is user-writable in Supabase and MUST NOT be trusted for role elevation.
           const isSuper = Boolean(
             session.user.app_metadata?.is_super_admin ||
-            session.user.user_metadata?.is_super_admin ||
-            email === "admin@findstaff.ph"
+            email.toLowerCase() === "admin@findstaff.ph"
           );
           if (isSuper) {
             setIsSuperAdmin(true);
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
-            setCurrentUserName("Superadmin (admin@findstaff.ph)");
+            setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
             showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
@@ -1208,7 +1327,10 @@ export default function App() {
               setCurrentUserRole(roles[0]);
               setCurrentUserRoles(roles);
               setCurrentUserName(userMeta.full_name || email || "Staff Member");
-              setView("app");
+              // SECURITY FIX: Only auto-route to app if explicitly requested via URL
+              if (window.location.pathname === '/app') {
+                navigateTo("app");
+              }
             }
           }
         }
@@ -1273,14 +1395,25 @@ export default function App() {
     name?: string,
     applicantId?: string,
     isSuper?: boolean,
-    roles?: UserRole[]
+    roles?: UserRole[],
+    rememberMe?: boolean
   ) => {
+    // Record session persistence preference
+    if (rememberMe) {
+      localStorage.setItem('fs_remember_me', 'true');
+      sessionStorage.setItem('fs_session_active', '1');
+    } else {
+      localStorage.setItem('fs_remember_me', 'false');
+      sessionStorage.setItem('fs_session_active', '1');
+    }
+
     if (isSuper) {
       setIsSuperAdmin(true);
       setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
+      showAppView("app");
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
@@ -1293,6 +1426,8 @@ export default function App() {
 
   const handleLogout = async () => {
     syncLiveSession(null);
+    localStorage.removeItem('fs_remember_me');
+    sessionStorage.removeItem('fs_session_active');
     try {
       await supabase.auth.signOut();
     } catch (err) {
@@ -1348,12 +1483,53 @@ export default function App() {
     }
   };
 
+  // ── Inactivity / Idle Session Security Timeout (30 min) ───────────────────
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
+
+  useEffect(() => {
+    if (!currentUserRole && !isSuperAdmin) return;
+
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+    let timer: any;
+
+    const performIdleLogout = () => {
+      handleLogout();
+      setSessionExpiredNotice(true);
+    };
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(performIdleLogout, IDLE_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [currentUserRole, isSuperAdmin]);
+
   // Landing
   if (view === "landing") {
     return (
       <LandingPage
-        onRegister={() => setView("register")}
-        onSignIn={() => setView("app")}
+        onRegister={() => navigateTo("register")}
+        onSignIn={() => navigateTo("app")}
+        currentUser={currentUserName}
+        isSuperAdmin={isSuperAdmin}
+        onOpenDashboard={() => {
+          if (isSuperAdmin) {
+            showAppView("super-admin");
+          } else {
+            showAppView("app");
+          }
+        }}
+        onLogout={handleLogout}
+        sessionExpiredNotice={sessionExpiredNotice}
+        onDismissNotice={() => setSessionExpiredNotice(false)}
       />
     );
   }
@@ -1362,11 +1538,11 @@ export default function App() {
   if (view === "register") {
     return (
       <RegistrationWizard
-        onBack={() => setView("landing")}
+        onBack={() => navigateTo("landing")}
         onComplete={(data) => {
           setRegistrationForm(data);
           setTenantName(data.agencyName);
-          setView("provisioning");
+          navigateTo("provisioning");
         }}
       />
     );
@@ -1377,7 +1553,7 @@ export default function App() {
     return (
       <ProvisioningScreen
         form={registrationForm}
-        onDone={() => { setView("app"); }}
+        onDone={() => { navigateTo("app"); }}
       />
     );
   }
@@ -1406,28 +1582,19 @@ export default function App() {
                 <CheckCircle2 size={15} />
                 Workspace for <strong>{tenantName}</strong> is active. Sign in to continue.
               </span>
-              <button onClick={() => { setView("landing"); setTenantName(""); }} className="text-white/80 hover:text-white underline text-xs">
+              <button onClick={() => { navigateTo("landing"); setTenantName(""); }} className="text-white/80 hover:text-white underline text-xs">
                 ← Back to site
               </button>
             </div>
           )}
-          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} />
+          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} onBack={() => { navigateTo("landing"); setTenantName(""); }} />
         </div>
       );
     }
 
     return (
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
-        {isSuperAdmin && (
-          <SuperAdminBar
-            currentUserRole={currentUserRole}
-            currentUserName={currentUserName}
-            onSwitchRole={handleSwitchSuperAdminRole}
-            onLogout={handleLogout}
-            onSuperAdminDashboard={() => showAppView('super-admin')}
-            backendOnline={true}
-          />
-        )}
+
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {currentUserRole === "Applicant" ? (
             <ApplicantPortal onLogout={handleLogout} />
@@ -1441,6 +1608,7 @@ export default function App() {
               workflow={workflow}
               updateWorkflow={updateWorkflow}
               applicants={applicants}
+              applicantsLoaded={applicantsLoaded}
               updateApplicant={updateApplicant}
               addApplicant={addApplicant}
               activityLogs={activityLogs}

@@ -158,8 +158,8 @@ export default function Screening({
                         : 'border-slate-200 hover:border-[#0EA5E9]/50 hover:shadow-sm'
                     }`}
                   >
-                    {a.photoDataUrl
-                      ? <img src={a.photoDataUrl} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    {(a.photoDataUrl || a.photo)
+                      ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                       : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                     }
                     <div className="flex-1 min-w-0">
@@ -199,8 +199,8 @@ export default function Screening({
                   onClick={() => openApplicant(a.id)}
                   className="w-full text-left bg-white rounded-xl border border-slate-200 hover:border-[#0EA5E9]/50 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all"
                 >
-                  {a.photoDataUrl
-                    ? <img src={a.photoDataUrl} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                  {(a.photoDataUrl || a.photo)
+                    ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                     : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                   }
                   <div className="flex-1 min-w-0">

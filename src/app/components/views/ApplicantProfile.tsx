@@ -228,8 +228,8 @@ export default function ApplicantProfile({
           </div>
         )}
         <div className="px-6 py-5 flex items-start gap-5">
-          {applicant.photoDataUrl
-            ? <img src={applicant.photoDataUrl} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
+          {(applicant.photoDataUrl || applicant.photo)
+            ? <img src={applicant.photoDataUrl || applicant.photo} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
             : (
               <div className="w-20 h-24 rounded-xl bg-white/10 border-2 border-white/20 flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
                 {applicant.name.split(' ').map(n => n[0]).join('').slice(0,2)}

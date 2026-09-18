@@ -32,10 +32,12 @@ interface LoginScreenProps {
     name?: string,
     applicantId?: string,
     isSuperAdmin?: boolean,
-    roles?: UserRole[]
+    roles?: UserRole[],
+    rememberMe?: boolean
   ) => void;
   applicants?: ApplicantRecord[];
   tenantName?: string;
+  onBack?: () => void;
 }
 
 const PORTALS: {
@@ -96,6 +98,7 @@ export default function LoginScreen({
   onLogin,
   applicants = [],
   tenantName,
+  onBack,
 }: LoginScreenProps) {
   const [portal, setPortal] = useState<PortalType | null>(null);
   const [username, setUsername] = useState('');
@@ -113,6 +116,7 @@ export default function LoginScreen({
     name: string;
     isSuper: boolean;
     roles?: UserRole[];
+    rememberMe?: boolean;
   } | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
@@ -149,16 +153,17 @@ export default function LoginScreen({
         }
 
         const user = data.user;
+        // SECURITY FIX: Never trust client-writable user_metadata for is_super_admin.
+        // Only trust server-managed app_metadata or verified admin email.
         const isSuper = Boolean(
-          user?.email === 'admin@findstaff.ph' ||
-            user?.app_metadata?.is_super_admin ||
-            user?.user_metadata?.is_super_admin
+          user?.app_metadata?.is_super_admin ||
+          user?.email?.toLowerCase() === 'admin@findstaff.ph'
         );
 
         if (portal === 'employer') {
-          onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer']);
+          onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
         } else if (portal === 'applicant') {
-          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant']);
+          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant'], rememberMe);
         } else {
           // Parse all assigned roles from metadata
           let assignedRoles: UserRole[] = [];
@@ -184,12 +189,12 @@ export default function LoginScreen({
           );
 
           if (mustChange) {
-            setForcePasswordChangeUser({ user, role, name, isSuper, roles });
+            setForcePasswordChangeUser({ user, role, name, isSuper, roles, rememberMe });
             setLoading(false);
             return;
           }
 
-          onLogin(role, name, undefined, isSuper, roles);
+          onLogin(role, name, undefined, isSuper, roles, rememberMe);
         }
         return;
       } catch (err: any) {
@@ -202,9 +207,9 @@ export default function LoginScreen({
 
     // Fallback for offline demo usernames (e.g. sarah, maria, mark)
     if (portal === 'employer') {
-      onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer']);
+      onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer'], rememberMe);
     } else if (portal === 'applicant') {
-      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant']);
+      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant'], rememberMe);
     } else {
       const role = resolveStaffRole(trimmedUser);
       const name = resolveStaffName(trimmedUser);
@@ -212,7 +217,7 @@ export default function LoginScreen({
       if (trimmedUser.toLowerCase().includes('jose') || trimmedUser.toLowerCase() === 'admin@flowsensus.com') {
         demoRoles = ['Admin', 'Recruitment'];
       }
-      onLogin(role, name, undefined, false, demoRoles);
+      onLogin(role, name, undefined, false, demoRoles, rememberMe);
     }
 
     setLoading(false);
@@ -253,9 +258,9 @@ export default function LoginScreen({
       }
 
       // 3. Complete login into workspace
-      const { role, name, isSuper, roles } = forcePasswordChangeUser;
+      const { role, name, isSuper, roles, rememberMe: userRememberMe } = forcePasswordChangeUser;
       setForcePasswordChangeUser(null);
-      onLogin(role, name, undefined, isSuper, roles);
+      onLogin(role, name, undefined, isSuper, roles, userRememberMe);
     } catch (err: any) {
       setPasswordChangeError(err.message || 'Failed to update password. Please try again.');
     } finally {
@@ -285,6 +290,17 @@ export default function LoginScreen({
       </div>
 
       <div className="w-full max-w-md relative z-10">
+        {/* Top Right Close Button */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="absolute -top-10 -right-2 sm:-right-8 text-white/50 hover:text-white transition-colors"
+            aria-label="Close"
+          >
+            <X size={24} />
+          </button>
+        )}
+
         {/* ── Portal selector ──────────────────────────────────────────── */}
         {!portal && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
