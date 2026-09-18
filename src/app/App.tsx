@@ -4,7 +4,6 @@ import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
 import EmployerPortal from "./components/EmployerPortal";
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from "./types";
-import SuperAdminBar from "./components/SuperAdminBar";
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
@@ -991,10 +990,26 @@ type AppView = "landing" | "register" | "provisioning" | "app" | "super-admin";
 
 export default function App() {
   const [view, setView] = useState<AppView>("landing");
-  const showAppView = (nextView: AppView) => {
-    window.history.replaceState(window.history.state, '', nextView === 'super-admin' ? '/super-admin' : '/');
+  
+  const navigateTo = (nextView: AppView) => {
+    window.history.pushState({ view: nextView }, '', nextView === 'super-admin' ? '/super-admin' : '/');
     setView(nextView);
   };
+
+  const showAppView = (nextView: AppView) => navigateTo(nextView); // Keep for backwards compatibility within App.tsx
+
+  useEffect(() => {
+    window.history.replaceState({ view: "landing" }, '', '/');
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state && e.state.view) {
+        setView(e.state.view);
+      } else {
+        setView("landing");
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [registrationForm, setRegistrationForm] = useState<FormData | null>(null);
   const [tenantName, setTenantName] = useState("");
 
@@ -1004,6 +1019,7 @@ export default function App() {
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
+  const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
@@ -1021,6 +1037,7 @@ export default function App() {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
       setApplicants([]);
+      setApplicantsLoaded(false);
       setActivityLogs([]);
       setExpenses([]);
     }
@@ -1032,139 +1049,138 @@ export default function App() {
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
-    // 1. Fetch live applicants from /applicants
-    try {
-      const res = await api.get('/applicants');
-      if (!isCurrent()) return;
-      if (res.data && Array.isArray(res.data)) {
-        const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
-          const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
-          const parsedSkills = Array.isArray(item.skills)
-            ? item.skills
-            : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
-          const parsedCerts = Array.isArray(item.certifications)
-            ? item.certifications
-            : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
-          const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
 
-          const rawApplicationId = item.application_id;
-          const numericApplicationId = typeof rawApplicationId === 'number'
-            ? rawApplicationId
-            : typeof rawApplicationId === 'string' && /^\d+$/.test(rawApplicationId.trim())
-            ? Number(rawApplicationId.trim())
-            : undefined;
-          const applicationId = typeof numericApplicationId === 'number' && Number.isSafeInteger(numericApplicationId) && numericApplicationId > 0
-            ? numericApplicationId
-            : undefined;
+    // Fetch all resources in parallel
+    const [applicantsRes, logsRes, expRes] = await Promise.allSettled([
+      api.get('/applicants'),
+      api.get('/audit-logs'),
+      api.get('/financial/records')
+    ]);
 
-          const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
-          const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
+    if (!isCurrent()) return;
 
-          return {
-            id: String(item.applicant_id),
-            applicationId,
-            applicantCode: formattedApplicantCode,
-            name: fullName,
-            firstName: item.first_name || '',
-            middleName: item.middle_name || '',
-            lastName: item.last_name || '',
-            role: item.applied_role || 'Applicant',
-            jobOrder: formattedJobOrderCode,
-            selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
-            phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
-            status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
-            currentHandler: item.current_handler || 'System Agent',
-            currentDepartment: item.current_department || 'Recruitment',
-            lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
-            phaseDescription: item.phase_description || 'Active in candidate pipeline',
-            presentAddress: item.present_address || '',
-            provincialAddress: item.provincial_address || '',
-            email: item.email || '',
-            contact: item.contact_number || '',
-            dateOfBirth: item.birth_date || '',
-            age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
-            sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
-            civilStatus: item.civil_status || 'Single',
-            citizenship: item.nationality || 'Filipino',
-            religion: item.religion || 'Roman Catholic',
-            height: item.height || "5'6\"",
-            weight: item.weight || '65 kg',
-            skills: parsedSkills,
-            certifications: parsedCerts,
-            workExperience: parsedWork,
-            address: item.present_address || item.provincial_address || 'Philippines',
-            employmentHistory: parsedWork.map((w: any, idx: number) => ({
-              id: `eh-${item.applicant_id}-${idx}`,
-              company: w.companyName || w.company || 'Previous Employer',
-              position: w.position || 'Worker',
-              dateStarted: w.startDate || '',
-              dateEnded: w.endDate || '',
-              country: w.country || 'Philippines',
-              isPresent: Boolean(w.isPresent),
-              reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
-            })),
-            employmentFlags: [],
-            testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
-            matchScore: 90,
-          };
-        });
-        setApplicants(liveMapped);
-      }
-    } catch (err) {
-      console.warn('Backend applicants fetch error:', err);
+    // 1. Process applicants
+    if (applicantsRes.status === 'fulfilled' && applicantsRes.value.data && Array.isArray(applicantsRes.value.data)) {
+      const liveMapped: ApplicantRecord[] = applicantsRes.value.data.map((item: any) => {
+        const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
+        const parsedSkills = Array.isArray(item.skills)
+          ? item.skills
+          : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+        const parsedCerts = Array.isArray(item.certifications)
+          ? item.certifications
+          : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
+        const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
+
+        const rawApplicationId = item.application_id;
+        const numericApplicationId = typeof rawApplicationId === 'number'
+          ? rawApplicationId
+          : typeof rawApplicationId === 'string' && /^\d+$/.test(rawApplicationId.trim())
+          ? Number(rawApplicationId.trim())
+          : undefined;
+        const applicationId = typeof numericApplicationId === 'number' && Number.isSafeInteger(numericApplicationId) && numericApplicationId > 0
+          ? numericApplicationId
+          : undefined;
+
+        const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
+        const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
+
+        return {
+          id: String(item.applicant_id),
+          applicationId,
+          applicantCode: formattedApplicantCode,
+          name: fullName,
+          firstName: item.first_name || '',
+          middleName: item.middle_name || '',
+          lastName: item.last_name || '',
+          role: item.applied_role || 'Applicant',
+          jobOrder: formattedJobOrderCode,
+          selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
+          phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
+          status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
+          currentHandler: item.current_handler || 'System Agent',
+          currentDepartment: item.current_department || 'Recruitment',
+          lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+          phaseDescription: item.phase_description || 'Active in candidate pipeline',
+          presentAddress: item.present_address || '',
+          provincialAddress: item.provincial_address || '',
+          email: item.email || '',
+          contact: item.contact_number || '',
+          dateOfBirth: item.birth_date || '',
+          age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
+          sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
+          civilStatus: item.civil_status || 'Single',
+          citizenship: item.nationality || 'Filipino',
+          religion: item.religion || 'Roman Catholic',
+          height: item.height || "5'6\"",
+          weight: item.weight || '65 kg',
+          skills: parsedSkills,
+          certifications: parsedCerts,
+          workExperience: parsedWork,
+          address: item.present_address || item.provincial_address || 'Philippines',
+          employmentHistory: parsedWork.map((w: any, idx: number) => ({
+            id: `eh-${item.applicant_id}-${idx}`,
+            company: w.companyName || w.company || 'Previous Employer',
+            position: w.position || 'Worker',
+            dateStarted: w.startDate || '',
+            dateEnded: w.endDate || '',
+            country: w.country || 'Philippines',
+            isPresent: Boolean(w.isPresent),
+            reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
+          })),
+          employmentFlags: [],
+          testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          matchScore: 90,
+        };
+      });
+      setApplicants(liveMapped);
+    } else if (applicantsRes.status === 'rejected') {
+      console.warn('Backend applicants fetch error:', applicantsRes.reason);
+    }
+    setApplicantsLoaded(true);
+
+    if (!isCurrent()) return;
+
+    // 2. Process logs
+    if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
+      const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
+        audit_log_id: l.audit_log_id,
+        applicant_id: l.applicant_id,
+        performed_by: l.performed_by,
+        created_at: l.created_at,
+        id: `LOG-${l.audit_log_id}`,
+        applicantId: l.applicant_id ? String(l.applicant_id) : '',
+        action: l.action,
+        performedBy: l.performed_by || 'System User',
+        department: l.department,
+        details: l.details,
+        timestamp: l.created_at || new Date().toISOString(),
+      }));
+      setActivityLogs(liveLogs);
+    } else if (logsRes.status === 'rejected') {
+      console.warn('Backend audit logs unavailable:', logsRes.reason);
     }
 
     if (!isCurrent()) return;
 
-    // 2. Fetch live audit logs from /audit-logs
-    try {
-      const logsRes = await api.get('/audit-logs');
-      if (!isCurrent()) return;
-      if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
-        const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
-          audit_log_id: l.audit_log_id,
-          applicant_id: l.applicant_id,
-          performed_by: l.performed_by,
-          created_at: l.created_at,
-          id: `LOG-${l.audit_log_id}`,
-          applicantId: l.applicant_id ? String(l.applicant_id) : '',
-          action: l.action,
-          performedBy: l.performed_by || 'System User',
-          department: l.department,
-          details: l.details,
-          timestamp: l.created_at || new Date().toISOString(),
-        }));
-        setActivityLogs(liveLogs);
-      }
-    } catch (err) {
-      console.warn('Backend audit logs unavailable:', err);
-    }
-
-    if (!isCurrent()) return;
-
-    // 3. Fetch live financial records from /financial/records
-    try {
-      const expRes = await api.get('/financial/records');
-      if (!isCurrent()) return;
-      if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
-        const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
-          id: `EXP-${r.financial_record_id}`,
-          applicantId: String(r.applicant_id),
-          category: r.category || 'processing',
-          type: r.payment_type || 'Processing Fee',
-          amount: r.amount || 0,
-          description: r.description || r.payment_type || '',
-          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-          recordedBy: r.recorded_by_name || 'Mark Tan',
-          paymentMethod: 'Bank Transfer',
-          paidBy: 'Agency',
-          notes: r.description || '',
-          timestamp: r.created_at || new Date().toISOString(),
-        }));
-        setExpenses(liveExpenses);
-      }
-    } catch (err) {
-      console.warn('Backend financial records unavailable:', err);
+    // 3. Process expenses
+    if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
+      const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
+        id: `EXP-${r.financial_record_id}`,
+        applicantId: String(r.applicant_id),
+        category: r.category || 'processing',
+        type: r.payment_type || 'Processing Fee',
+        amount: r.amount || 0,
+        description: r.description || r.payment_type || '',
+        date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+        recordedBy: r.recorded_by_name || 'Mark Tan',
+        paymentMethod: 'Bank Transfer',
+        paidBy: 'Agency',
+        notes: r.description || '',
+        timestamp: r.created_at || new Date().toISOString(),
+      }));
+      setExpenses(liveExpenses);
+    } else if (expRes.status === 'rejected') {
+      console.warn('Backend financial records unavailable:', expRes.reason);
     }
   };
 
@@ -1208,7 +1224,7 @@ export default function App() {
               setCurrentUserRole(roles[0]);
               setCurrentUserRoles(roles);
               setCurrentUserName(userMeta.full_name || email || "Staff Member");
-              setView("app");
+              navigateTo("app");
             }
           }
         }
@@ -1352,8 +1368,8 @@ export default function App() {
   if (view === "landing") {
     return (
       <LandingPage
-        onRegister={() => setView("register")}
-        onSignIn={() => setView("app")}
+        onRegister={() => navigateTo("register")}
+        onSignIn={() => navigateTo("app")}
       />
     );
   }
@@ -1362,11 +1378,11 @@ export default function App() {
   if (view === "register") {
     return (
       <RegistrationWizard
-        onBack={() => setView("landing")}
+        onBack={() => navigateTo("landing")}
         onComplete={(data) => {
           setRegistrationForm(data);
           setTenantName(data.agencyName);
-          setView("provisioning");
+          navigateTo("provisioning");
         }}
       />
     );
@@ -1377,7 +1393,7 @@ export default function App() {
     return (
       <ProvisioningScreen
         form={registrationForm}
-        onDone={() => { setView("app"); }}
+        onDone={() => { navigateTo("app"); }}
       />
     );
   }
@@ -1406,28 +1422,19 @@ export default function App() {
                 <CheckCircle2 size={15} />
                 Workspace for <strong>{tenantName}</strong> is active. Sign in to continue.
               </span>
-              <button onClick={() => { setView("landing"); setTenantName(""); }} className="text-white/80 hover:text-white underline text-xs">
+              <button onClick={() => { navigateTo("landing"); setTenantName(""); }} className="text-white/80 hover:text-white underline text-xs">
                 ← Back to site
               </button>
             </div>
           )}
-          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} />
+          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} onBack={() => { navigateTo("landing"); setTenantName(""); }} />
         </div>
       );
     }
 
     return (
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
-        {isSuperAdmin && (
-          <SuperAdminBar
-            currentUserRole={currentUserRole}
-            currentUserName={currentUserName}
-            onSwitchRole={handleSwitchSuperAdminRole}
-            onLogout={handleLogout}
-            onSuperAdminDashboard={() => showAppView('super-admin')}
-            backendOnline={true}
-          />
-        )}
+
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {currentUserRole === "Applicant" ? (
             <ApplicantPortal onLogout={handleLogout} />
@@ -1441,6 +1448,7 @@ export default function App() {
               workflow={workflow}
               updateWorkflow={updateWorkflow}
               applicants={applicants}
+              applicantsLoaded={applicantsLoaded}
               updateApplicant={updateApplicant}
               addApplicant={addApplicant}
               activityLogs={activityLogs}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Bell, LogOut, Info } from 'lucide-react';
+import { Search, Bell, LogOut, Info, Crown } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
@@ -60,6 +60,7 @@ interface AppShellProps {
   workflow: WorkflowState;
   updateWorkflow: (updates: Partial<WorkflowState>) => void;
   applicants: ApplicantRecord[];
+  applicantsLoaded?: boolean;
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   addApplicant?: (newApplicant: ApplicantRecord) => void;
   activityLogs: ActivityLog[];
@@ -78,6 +79,7 @@ export default function AppShell({
   workflow,
   updateWorkflow,
   applicants,
+  applicantsLoaded,
   updateApplicant,
   addApplicant,
   activityLogs,
@@ -88,16 +90,35 @@ export default function AppShell({
   isSuperAdmin,
   onSuperAdminDashboard,
 }: AppShellProps) {
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
+  const [currentView, setCurrentView] = useState<ViewType>(() => {
+    const saved = localStorage.getItem('flowsensus_current_view');
+    return (saved as ViewType) || 'dashboard';
+  });
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string>(() => {
+    return localStorage.getItem('flowsensus_selected_applicant') || 'new';
+  });
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
+  // Persist currentView to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('flowsensus_current_view', currentView);
+  }, [currentView]);
+
+  // Persist selectedApplicantId to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedApplicantId) {
+      localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
+    }
+  }, [selectedApplicantId]);
+
   // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
   useEffect(() => {
     if (applicants.length > 0 && (!selectedApplicantId || (selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))))) {
-      setSelectedApplicantId(String(applicants[0].id));
+      const fallbackId = String(applicants[0].id);
+      setSelectedApplicantId(fallbackId);
+      localStorage.setItem('flowsensus_selected_applicant', fallbackId);
     }
   }, [applicants, selectedApplicantId]);
 
@@ -318,7 +339,7 @@ export default function AppShell({
           />
         );
       case 'forecast':
-        return <PredictiveForecast applicants={applicants} selectedApplicantId={selectedApplicantId} />;
+        return <PredictiveForecast applicants={applicants} applicantsLoaded={applicantsLoaded} selectedApplicantId={selectedApplicantId} />;
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
@@ -401,6 +422,16 @@ export default function AppShell({
             </div>
           </div>
           <div className="flex items-center gap-6 ml-4">
+            {isSuperAdmin && onSuperAdminDashboard && (
+              <button
+                onClick={onSuperAdminDashboard}
+                className="flex text-xs font-extrabold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 hover:border-amber-400 px-3 py-1.5 rounded-full items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                title="Return to Superadmin Multi-Tenant Dashboard"
+              >
+                <Crown size={13} className="text-amber-600" />
+                <span className="hidden sm:inline">Super Admin Console</span>
+              </button>
+            )}
             <button
               onClick={() => setCurrentView('profile')}
               className="hidden md:flex text-xs font-bold text-[#0F172A] bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200 hover:border-[#0EA5E9] hover:bg-[#0EA5E9]/5 transition-all cursor-pointer"

@@ -239,7 +239,7 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
           </div>
         ) : (
           filtered.map(emp => {
-          const meta = STATUS_META[emp.status];
+          const meta = STATUS_META[emp.status] || { label: emp.status || 'Unknown', color: '#94A3B8', icon: <Clock size={13} /> };
           const isExpanded = expanded === emp.id;
           return (
             <div key={emp.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">

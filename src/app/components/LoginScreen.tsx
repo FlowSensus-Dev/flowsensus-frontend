@@ -36,6 +36,7 @@ interface LoginScreenProps {
   ) => void;
   applicants?: ApplicantRecord[];
   tenantName?: string;
+  onBack?: () => void;
 }
 
 const PORTALS: {
@@ -96,6 +97,7 @@ export default function LoginScreen({
   onLogin,
   applicants = [],
   tenantName,
+  onBack,
 }: LoginScreenProps) {
   const [portal, setPortal] = useState<PortalType | null>(null);
   const [username, setUsername] = useState('');
@@ -285,6 +287,17 @@ export default function LoginScreen({
       </div>
 
       <div className="w-full max-w-md relative z-10">
+        {/* Top Right Close Button */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="absolute -top-10 -right-2 sm:-right-8 text-white/50 hover:text-white transition-colors"
+            aria-label="Close"
+          >
+            <X size={24} />
+          </button>
+        )}
+
         {/* ── Portal selector ──────────────────────────────────────────── */}
         {!portal && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-100">

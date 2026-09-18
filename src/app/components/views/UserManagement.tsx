@@ -21,7 +21,22 @@ interface UserManagementProps {
 
 
 
-const SYSTEM_ROLES_CATALOG: { id: UserRole; label: string; desc: string; badgeColor: string; activeColor: string }[] = [
+interface AvailableRole {
+  id: UserRole;
+  label: string;
+  desc: string;
+  badgeColor: string;
+  activeColor: string;
+}
+
+const ROLE_STYLE_MAP: Record<string, { badgeColor: string; activeColor: string }> = {
+  Recruitment: { badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
+  Admin: { badgeColor: 'bg-purple-50 text-purple-700 border-purple-200', activeColor: 'border-purple-400 bg-purple-50 text-purple-900' },
+  Accounting: { badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200', activeColor: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
+  Management: { badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
+};
+
+const DEFAULT_ROLES_CATALOG: AvailableRole[] = [
   { id: 'Recruitment', label: 'Recruitment', desc: 'Screening & Profiling', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
   { id: 'Admin', label: 'Admin', desc: 'Agency Setup & Visas', badgeColor: 'bg-purple-50 text-purple-700 border-purple-200', activeColor: 'border-purple-400 bg-purple-50 text-purple-900' },
   { id: 'Accounting', label: 'Accounting', desc: 'Ledger & Expenses', badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200', activeColor: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
@@ -39,13 +54,41 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>(DEFAULT_ROLES_CATALOG);
   const [staff, setStaff] = useState<StaffAccount[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ── Fetch Live Staff from Supabase on Mount ──────────────────────────────
-  useEffect(() => {
-    const fetchStaff = async () => {
-      try {
-        setLoading(true);
+  // ── Fetch Live Staff & Available Roles from Backend on Mount ─────────────
+  const fetchStaffAndRoles = async () => {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+
+        // 1. Fetch available roles directly from the Supabase role table via backend
+        try {
+          const rolesRes = await api.get('/users/roles');
+          if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
+            const mappedRoles: AvailableRole[] = rolesRes.data.map((r: any) => {
+              const sysRole = (r.system_role || r.role_name) as UserRole;
+              const style = ROLE_STYLE_MAP[sysRole] || {
+                badgeColor: 'bg-slate-50 text-slate-700 border-slate-200',
+                activeColor: 'border-slate-400 bg-slate-50 text-slate-900',
+              };
+              return {
+                id: sysRole,
+                label: r.role_name || sysRole,
+                desc: r.description || `${sysRole} permissions`,
+                badgeColor: style.badgeColor,
+                activeColor: style.activeColor,
+              };
+            });
+            setAvailableRoles(mappedRoles);
+          }
+        } catch (roleErr) {
+          console.warn('Could not fetch roles from backend, using default catalog:', roleErr);
+        }
+
+        // 2. Fetch live users
         const res = await api.get('/users');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveStaff: StaffAccount[] = res.data.map((u: any) => {
@@ -66,13 +109,16 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
           });
           setStaff(liveStaff);
         }
-      } catch (err) {
-        console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStaff();
+    } catch (err: any) {
+      console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
+      setErrorMsg(err?.response?.data?.detail || err.message || 'Failed to fetch staff accounts. Please try logging in again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStaffAndRoles();
   }, []);
 
   const generateTempPassword = () => {
@@ -193,6 +239,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
 
     try {
       let savedDept = (selectedStaff.department || '').trim();
+      let updatedRoles = chosenRoles;
       if (!isNaN(numId)) {
         const res = await api.put(`/users/${numId}`, {
           roleNames: chosenRoles,
@@ -202,12 +249,15 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         if (res.data?.department || res.data?.department_name) {
           savedDept = res.data.department || res.data.department_name;
         }
+        if (res.data?.role_names && Array.isArray(res.data.role_names) && res.data.role_names.length > 0) {
+          updatedRoles = res.data.role_names;
+        }
       }
 
       setStaff(
         staff.map((s) =>
           s.id === selectedStaff.id
-            ? { ...s, role: primaryRole, roles: chosenRoles, department: savedDept }
+            ? { ...s, role: updatedRoles[0] || primaryRole, roles: updatedRoles, department: savedDept }
             : s
         )
       );
@@ -217,13 +267,15 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         action: 'Staff Roles Updated',
         performedBy: currentUserName,
         department: 'Management',
-        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${chosenRoles.join(', ')}`,
+        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${updatedRoles.join(', ')}`,
       });
 
       setShowEditModal(false);
       setSelectedStaff(null);
-    } catch (err) {
-      console.warn('Backend update user failed:', err);
+    } catch (err: any) {
+      console.error('Backend update user failed:', err);
+      const errMsg = err?.response?.data?.detail || err.message || 'Failed to update staff roles. Please check backend connectivity.';
+      alert(errMsg);
     } finally {
       setIsEditing(false);
     }
@@ -329,6 +381,19 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   <div className="flex flex-col items-center justify-center">
                     <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
                     <p className="text-[#64748B] font-medium">Loading staff accounts...</p>
+                  </div>
+                </td>
+              </tr>
+            ) : errorMsg ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center text-red-500">
+                    <ShieldOff className="w-8 h-8 mb-3 opacity-80" />
+                    <p className="font-bold text-sm mb-1">Error Loading Accounts</p>
+                    <p className="text-xs text-red-400 mb-4">{errorMsg}</p>
+                    <button onClick={fetchStaffAndRoles} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
+                      Retry
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -503,7 +568,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                  {availableRoles.map((r) => {
                     const isChecked = (newStaff.roles || []).includes(r.id);
                     return (
                       <button
@@ -803,7 +868,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                  {availableRoles.map((r) => {
                     const isChecked = (editRoles || []).includes(r.id);
                     return (
                       <button
