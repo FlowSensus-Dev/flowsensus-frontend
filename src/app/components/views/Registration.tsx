@@ -3,7 +3,8 @@ import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
-  Save, User, FileCheck, Upload, Briefcase, Loader2
+  Save, User, FileCheck, Upload, Briefcase, Loader2,
+  GraduationCap, Award, BookOpen, Languages as LanguagesIcon
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -117,11 +118,27 @@ const EDU_LEVELS = ['Elementary', 'Junior High School', 'Senior High School', 'V
 const LANG_COMPETENCY = ['Basic', 'Conversational', 'Proficient', 'Fluent', 'Native'];
 
 // ─── Section component ─────────────────────────────────────────────────────────
-function Section({ title, children, accent = false }: { title: string; children: React.ReactNode; accent?: boolean }) {
+function Section({
+  title,
+  children,
+  accent = false,
+  icon,
+  badge,
+}: {
+  title: string;
+  children: React.ReactNode;
+  accent?: boolean;
+  icon?: React.ReactNode;
+  badge?: React.ReactNode;
+}) {
   return (
-    <div className={`rounded-xl border ${accent ? 'border-[#0EA5E9]/30 bg-[#0EA5E9]/5' : 'border-slate-200 bg-white'} overflow-hidden`}>
-      <div className={`px-5 py-3 border-b ${accent ? 'border-[#0EA5E9]/20 bg-[#0EA5E9]/10' : 'border-slate-100 bg-slate-50'}`}>
-        <h3 className={`text-sm font-bold ${accent ? 'text-[#0284C7]' : 'text-[#0F172A]'} uppercase tracking-wider`}>{title}</h3>
+    <div className={`rounded-xl border ${accent ? 'border-[#0EA5E9]/30 bg-[#0EA5E9]/5' : 'border-slate-200 bg-white'} overflow-hidden shadow-sm`}>
+      <div className={`px-5 py-3.5 border-b ${accent ? 'border-[#0EA5E9]/20 bg-[#0EA5E9]/10' : 'border-slate-100 bg-slate-50/80'} flex items-center justify-between flex-wrap gap-2`}>
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-[#0EA5E9]">{icon}</span>}
+          <h3 className={`text-sm font-bold ${accent ? 'text-[#0284C7]' : 'text-[#0F172A]'} uppercase tracking-wider`}>{title}</h3>
+        </div>
+        {badge}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -579,8 +596,37 @@ export default function Registration({
     </div>
   );
 
+  const scrollToSection = (id: string) => {
+    setActiveSection(id);
+    const el = document.getElementById(`section-${id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const secId = entry.target.id.replace('section-', '');
+            setActiveSection(secId);
+          }
+        });
+      },
+      { rootMargin: '-15% 0px -65% 0px', threshold: 0 }
+    );
+
+    sections.forEach((s) => {
+      const el = document.getElementById(`section-${s.id}`);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto pb-16">
+    <div className="space-y-8 w-full pb-24">
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -700,37 +746,78 @@ export default function Registration({
         })()}
       </div>
 
-      {/* Section Nav */}
-      <div className="space-y-2">
-        <div className="flex gap-1 flex-wrap bg-slate-100 p-1 rounded-xl">
-          {sections.map(s => (
+      {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-[#F1F5F9]/95 backdrop-blur-md py-2 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline">
+              Sections:
+            </span>
+            {sections.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => scrollToSection(s.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeSection === s.id
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
+                } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+              >
+                {s.label}
+                {s.id === 'personal' ? (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-100/80 text-emerald-700'
+                  }`}>
+                    Required *
+                  </span>
+                ) : (
+                  <span className={`text-[10px] font-normal ${activeSection === s.id ? 'text-slate-300' : 'text-slate-400'}`}>
+                    Optional
+                  </span>
+                )}
+                {s.id === 'employment' && activeFlagCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                    {activeFlagCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 pr-1">
             <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeSection === s.id ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+              type="button"
+              onClick={handleSave}
+              disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer ${
+                hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none'
+                  : selectedApplicantId === 'new'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white'
+              }`}
             >
-              {s.label}
-              {s.id === 'personal' ? (
-                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded">Required *</span>
+              {isSubmitting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : selectedApplicantId === 'new' ? (
+                <UserPlus size={13} />
               ) : (
-                <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+                <Save size={13} />
               )}
-              {s.id === 'employment' && activeFlagCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">{activeFlagCount}</span>
-              )}
+              <span>{selectedApplicantId === 'new' ? 'Register Candidate' : 'Save Changes'}</span>
             </button>
-          ))}
+          </div>
         </div>
-        <p className="text-xs text-slate-500 px-1">
-          <strong className="text-slate-600">Intake Note:</strong> Only <strong>First Name</strong> and <strong>Last Name</strong> in <em>Personal Info</em> are required to register. Other sections (Identifications, Education, Certificates, Work History) can be encoded now or completed during Phase 1 processing.
+
+        <p className="text-xs text-slate-500 px-1 hidden md:block">
+          <strong className="text-slate-600">Single-page Intake:</strong> Scroll through to complete candidate details. Only <strong>First Name</strong> and <strong>Last Name</strong> in <em>Personal Info</em> are required to register.
         </p>
       </div>
 
       {/* ── Personal Info ────────────────────────────────────────────────────── */}
-      {activeSection === 'personal' && (
-        <Section title="Personal Information">
+      <div id="section-personal" className="scroll-mt-28">
+        <Section title="Personal Information" icon={<User size={16} />} badge={<span className="text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">Required *</span>}>
           <div className="flex gap-6">
             {/* Photo */}
             <div className="flex-shrink-0">
@@ -831,11 +918,11 @@ export default function Registration({
             </div>
           </div>
         </Section>
-      )}
+      </div>
 
       {/* ── Identifications ────────────────────────────────────────────────────── */}
-      {activeSection === 'identifications' && (
-        <Section title="Government & Other Identifications">
+      <div id="section-identifications" className="scroll-mt-28">
+        <Section title="Government & Other Identifications" icon={<FileCheck size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {ids.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -879,11 +966,11 @@ export default function Registration({
             <Plus size={15} /> Add Identification
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Education ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'education' && (
-        <Section title="Educational Background">
+      <div id="section-education" className="scroll-mt-28">
+        <Section title="Educational Background" icon={<GraduationCap size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {education.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -916,11 +1003,11 @@ export default function Registration({
             <Plus size={15} /> Add Education Level
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Certificates ──────────────────────────────────────────────────────── */}
-      {activeSection === 'certificates' && (
-        <Section title="Certifications / Licenses">
+      <div id="section-certificates" className="scroll-mt-28">
+        <Section title="Certifications / Licenses" icon={<Award size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {certs.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -960,11 +1047,11 @@ export default function Registration({
             <Plus size={15} /> Add Certificate
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Trainings ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'trainings' && (
-        <Section title="Trainings Attended">
+      <div id="section-trainings" className="scroll-mt-28">
+        <Section title="Trainings Attended" icon={<BookOpen size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {trainings.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1004,11 +1091,11 @@ export default function Registration({
             <Plus size={15} /> Add Training
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Languages ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'languages' && (
-        <Section title="Language Proficiency">
+      <div id="section-languages" className="scroll-mt-28">
+        <Section title="Language Proficiency" icon={<LanguagesIcon size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {languages.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1041,12 +1128,11 @@ export default function Registration({
             <Plus size={15} /> Add Language
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Employment History ────────────────────────────────────────────────── */}
-      {activeSection === 'employment' && (
-        <div className="space-y-4">
-          <Section title="Work Experience / Employment History">
+      <div id="section-employment" className="scroll-mt-28 space-y-4">
+        <Section title="Work Experience / Employment History" icon={<Briefcase size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {employment.length} recorded</span>}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[700px]">
                 <thead>
@@ -1219,19 +1305,18 @@ export default function Registration({
               <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Save / Register Button */}
-      <div className="flex items-center justify-between pt-4 border-t border-slate-200 gap-4 flex-wrap">
-        <div className="text-xs text-slate-400">
+      <div className="flex items-center justify-between pt-6 border-t border-slate-200 gap-4 flex-wrap bg-white p-5 rounded-xl shadow-sm border">
+        <div className="text-xs text-slate-500">
           {hasBlockingFlags ? (
             <span className="text-red-500 font-semibold flex items-center gap-1.5">
               <ShieldAlert size={14} /> Resolve all {activeFlagCount} flag{activeFlagCount > 1 ? 's' : ''} in Work Experience before saving
             </span>
           ) : employment.length > 0 && !flagsAnalyzed ? (
             <span className="flex items-center gap-1.5 text-amber-600 font-medium">
-              <AlertCircle size={14} /> Run Employment Flag Check on Work Experience tab before saving
+              <AlertCircle size={14} /> Run Employment Flag Check in Work Experience section before saving
             </span>
           ) : !personal.firstName.trim() || !personal.lastName.trim() ? (
             <span className="text-amber-600 font-medium flex items-center gap-1.5">
