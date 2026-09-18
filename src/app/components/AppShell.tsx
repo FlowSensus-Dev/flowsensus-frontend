@@ -99,7 +99,6 @@ export default function AppShell({
   });
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
   // Persist currentView to localStorage whenever it changes
   useEffect(() => {
@@ -432,38 +431,8 @@ export default function AppShell({
       {/* Main Content Area */}
       <div className="flex-1 h-full flex flex-col overflow-hidden relative">
         {/* Top Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 absolute left-4 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={globalSearchQuery}
-                onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && globalSearchQuery.trim()) {
-                    const q = globalSearchQuery.toLowerCase();
-                    const found = applicants.find(
-                      (a) =>
-                        String(a.applicantCode || '').toLowerCase().includes(q) ||
-                        String(a.id || '').toLowerCase().includes(q) ||
-                        String(a.name || '').toLowerCase().includes(q) ||
-                        String(a.role || '').toLowerCase().includes(q)
-                    );
-                    if (found) {
-                      handleViewApplicant(found.id);
-                      setGlobalSearchQuery('');
-                    } else {
-                      showToastNotification(`No applicant found matching "${globalSearchQuery}"`);
-                    }
-                  }
-                }}
-
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-[#0EA5E9] outline-none transition-all placeholder:text-slate-500 font-medium"
-                placeholder="Search applicant code or name (press Enter)..."
-              />
-            </div>
-          </div>
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
+          <div className="flex items-center gap-4 flex-1"></div>
           <div className="flex items-center gap-6 ml-4">
             {isSuperAdmin && onSuperAdminDashboard && (
               <button
