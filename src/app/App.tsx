@@ -40,7 +40,28 @@ function toSubdomain(name: string): string {
 }
 
 // ─── Landing Page ─────────────────────────────────────────────────────────────
-function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignIn: () => void }) {
+// ─── Landing Page ─────────────────────────────────────────────────────────────
+interface LandingPageProps {
+  onRegister: () => void;
+  onSignIn: () => void;
+  currentUser?: string;
+  isSuperAdmin?: boolean;
+  onOpenDashboard?: () => void;
+  onLogout?: () => void;
+  sessionExpiredNotice?: boolean;
+  onDismissNotice?: () => void;
+}
+
+function LandingPage({
+  onRegister,
+  onSignIn,
+  currentUser,
+  isSuperAdmin,
+  onOpenDashboard,
+  onLogout,
+  sessionExpiredNotice,
+  onDismissNotice,
+}: LandingPageProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const featuresList = [
@@ -54,8 +75,24 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-['Inter',sans-serif]">
+      {/* Session Expired Security Notice Banner */}
+      {sessionExpiredNotice && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-500 text-slate-950 text-sm font-medium py-2.5 px-6 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-slate-950" />
+            <span>Session expired due to 30 minutes of inactivity. Please sign in again.</span>
+          </div>
+          <button
+            onClick={onDismissNotice}
+            className="text-slate-950 hover:text-white font-semibold text-xs bg-slate-950/20 hover:bg-slate-950/40 px-3 py-1 rounded transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0F172A]/95 backdrop-blur-sm border-b border-white/10">
+      <nav className={`fixed ${sessionExpiredNotice ? 'top-10' : 'top-0'} left-0 right-0 z-50 bg-[#0F172A]/95 backdrop-blur-sm border-b border-white/10 transition-all`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#0EA5E9] flex items-center justify-center">
@@ -71,15 +108,35 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
             <a href="#how" className="hover:text-white transition-colors">How It Works</a>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={onSignIn} className="hidden md:block text-sm text-slate-300 hover:text-white transition-colors px-4 py-2">
-              Sign In
-            </button>
-            <button
-              onClick={onRegister}
-              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-            >
-              Get Started
-            </button>
+            {currentUser ? (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onOpenDashboard}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  {isSuperAdmin ? 'Superadmin Console' : 'Go to Workspace'} <ArrowRight size={14} />
+                </button>
+                <button
+                  onClick={onLogout}
+                  className="hidden md:block text-xs text-slate-400 hover:text-rose-400 transition-colors px-2 py-1"
+                  title="Sign out"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <>
+                <button onClick={onSignIn} className="hidden md:block text-sm text-slate-300 hover:text-white transition-colors px-4 py-2">
+                  Sign In
+                </button>
+                <button
+                  onClick={onRegister}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+                >
+                  Get Started
+                </button>
+              </>
+            )}
             <button className="md:hidden text-slate-400 hover:text-white" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
@@ -90,7 +147,18 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
             <a href="#features" onClick={() => setMobileOpen(false)}>Features</a>
             <a href="#pricing" onClick={() => setMobileOpen(false)}>Pricing</a>
             <a href="#how" onClick={() => setMobileOpen(false)}>How It Works</a>
-            <button onClick={onSignIn} className="text-left">Sign In</button>
+            {currentUser ? (
+              <>
+                <button onClick={() => { setMobileOpen(false); onOpenDashboard?.(); }} className="text-left font-semibold text-[#0EA5E9]">
+                  {isSuperAdmin ? 'Superadmin Console →' : 'Go to Workspace →'}
+                </button>
+                <button onClick={() => { setMobileOpen(false); onLogout?.(); }} className="text-left text-rose-400 text-xs">
+                  Sign Out ({currentUser})
+                </button>
+              </>
+            ) : (
+              <button onClick={onSignIn} className="text-left">Sign In</button>
+            )}
           </div>
         )}
       </nav>
@@ -116,18 +184,37 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
                 through final boarding — with role-based workflows built specifically for POEA-licensed agencies.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  onClick={onRegister}
-                  className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
-                >
-                  Create Your Workspace <ArrowRight size={18} />
-                </button>
-                <button
-                  onClick={onSignIn}
-                  className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
-                >
-                  Sign In to Your Tenant
-                </button>
+                {currentUser ? (
+                  <>
+                    <button
+                      onClick={onOpenDashboard}
+                      className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base shadow-lg shadow-sky-500/20"
+                    >
+                      {isSuperAdmin ? 'Enter Superadmin Console' : 'Open Workspace'} <ArrowRight size={18} />
+                    </button>
+                    <button
+                      onClick={onLogout}
+                      className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Sign Out ({currentUser})
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={onRegister}
+                      className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Create Your Workspace <ArrowRight size={18} />
+                    </button>
+                    <button
+                      onClick={onSignIn}
+                      className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
+                    >
+                      Sign In to Your Tenant
+                    </button>
+                  </>
+                )}
               </div>
               <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
                 <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> No credit card required</span>
@@ -1191,6 +1278,19 @@ export default function App() {
     liveMounted.current = true;
     const checkSession = async () => {
       try {
+        // SECURITY CHECK: Verify "Remember Me" policy
+        const rememberMe = localStorage.getItem('fs_remember_me');
+        const sessionActive = sessionStorage.getItem('fs_session_active');
+        if (rememberMe === 'false' && !sessionActive) {
+          // Browser was closed and reopened, but the user did not opt into "Remember Me".
+          // Invalidate the session immediately to prevent unauthorized access.
+          await supabase.auth.signOut();
+          localStorage.removeItem('fs_remember_me');
+          sessionStorage.removeItem('fs_session_active');
+          syncLiveSession(null);
+          return;
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
@@ -1198,16 +1298,21 @@ export default function App() {
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
+          // SECURITY FIX: Only trust app_metadata (service-role managed) or verified admin email.
+          // user_metadata is user-writable in Supabase and MUST NOT be trusted for role elevation.
           const isSuper = Boolean(
             session.user.app_metadata?.is_super_admin ||
-            session.user.user_metadata?.is_super_admin
+            email.toLowerCase() === "admin@findstaff.ph"
           );
           if (isSuper) {
             setIsSuperAdmin(true);
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
             setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
-            showAppView("super-admin");
+            // SECURITY FIX: Only auto-route to superadmin if explicitly requested via URL
+            if (window.location.pathname === '/super-admin') {
+              showAppView("super-admin");
+            }
           } else {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
@@ -1225,7 +1330,10 @@ export default function App() {
               setCurrentUserRole(roles[0]);
               setCurrentUserRoles(roles);
               setCurrentUserName(userMeta.full_name || email || "Staff Member");
-              navigateTo("app");
+              // SECURITY FIX: Only auto-route to app if explicitly requested via URL
+              if (window.location.pathname === '/app') {
+                navigateTo("app");
+              }
             }
           }
         }
@@ -1290,14 +1398,25 @@ export default function App() {
     name?: string,
     applicantId?: string,
     isSuper?: boolean,
-    roles?: UserRole[]
+    roles?: UserRole[],
+    rememberMe?: boolean
   ) => {
+    // Record session persistence preference
+    if (rememberMe) {
+      localStorage.setItem('fs_remember_me', 'true');
+      sessionStorage.setItem('fs_session_active', '1');
+    } else {
+      localStorage.setItem('fs_remember_me', 'false');
+      sessionStorage.setItem('fs_session_active', '1');
+    }
+
     if (isSuper) {
       setIsSuperAdmin(true);
       setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
+      showAppView("app");
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
@@ -1310,6 +1429,8 @@ export default function App() {
 
   const handleLogout = async () => {
     syncLiveSession(null);
+    localStorage.removeItem('fs_remember_me');
+    sessionStorage.removeItem('fs_session_active');
     try {
       await supabase.auth.signOut();
     } catch (err) {
@@ -1365,12 +1486,53 @@ export default function App() {
     }
   };
 
+  // ── Inactivity / Idle Session Security Timeout (30 min) ───────────────────
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
+
+  useEffect(() => {
+    if (!currentUserRole && !isSuperAdmin) return;
+
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+    let timer: any;
+
+    const performIdleLogout = () => {
+      handleLogout();
+      setSessionExpiredNotice(true);
+    };
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(performIdleLogout, IDLE_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [currentUserRole, isSuperAdmin]);
+
   // Landing
   if (view === "landing") {
     return (
       <LandingPage
         onRegister={() => navigateTo("register")}
         onSignIn={() => navigateTo("app")}
+        currentUser={currentUserName}
+        isSuperAdmin={isSuperAdmin}
+        onOpenDashboard={() => {
+          if (isSuperAdmin) {
+            showAppView("super-admin");
+          } else {
+            showAppView("app");
+          }
+        }}
+        onLogout={handleLogout}
+        sessionExpiredNotice={sessionExpiredNotice}
+        onDismissNotice={() => setSessionExpiredNotice(false)}
       />
     );
   }

@@ -242,6 +242,28 @@ export default function Registration({
   const [personal, setPersonal] = useState(BLANK_PERSONAL);
   const setP = (k: string, v: string) => setPersonal(p => ({ ...p, [k]: v }));
 
+  const handleRemovePhoto = async () => {
+    if (!photo) return;
+    const photoToDelete = photo;
+    setPhoto('');
+
+    if (photoToDelete.startsWith('http')) {
+      try {
+        await api.delete('/applicants/photo', {
+          data: {
+            photo_url: photoToDelete,
+            applicant_id: selectedApplicantId !== 'new' ? parseInt(selectedApplicantId, 10) : undefined,
+          },
+        });
+        showToast('Photo removed.');
+      } catch (err) {
+        console.warn('Could not delete photo from Supabase Storage:', err);
+      }
+    } else {
+      showToast('Photo removed.');
+    }
+  };
+
   const calcAge = (dob: string) => {
     if (!dob) return '';
     const diff = Date.now() - new Date(dob).getTime();
@@ -677,18 +699,18 @@ export default function Registration({
         const numericId = parseInt(selectedApplicantId, 10);
         if (!isNaN(numericId)) {
           await api.put(`/applicants/${numericId}`, {
-            first_name: personal.firstName,
-            middle_name: personal.middleName,
-            last_name: personal.lastName,
-            email: personal.email,
-            contact_number: personal.contact,
-            birth_date: personal.dateOfBirth,
-            gender: personal.sex,
-            sex: personal.sex,
-            civil_status: personal.civilStatus,
-            present_address: personal.presentAddress,
-            provincial_address: personal.provincialAddress,
-            applied_role: personal.role,
+            first_name: personal.firstName.trim(),
+            middle_name: personal.middleName?.trim() || null,
+            last_name: personal.lastName.trim(),
+            email: personal.email?.trim() || null,
+            contact_number: personal.contact?.trim() || null,
+            birth_date: personal.dateOfBirth || null,
+            gender: personal.sex || null,
+            sex: personal.sex || null,
+            civil_status: personal.civilStatus || null,
+            present_address: personal.presentAddress?.trim() || null,
+            provincial_address: personal.provincialAddress?.trim() || null,
+            applied_role: personal.role?.trim() || null,
             skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
             photo_url: photo ? photo : null,
           });
@@ -1022,13 +1044,13 @@ export default function Registration({
                   });
                   if (uploadRes.data?.url) {
                     setPhoto(uploadRes.data.url);
-                    showToast('Photo uploaded to Supabase Storage.');
+                    showToast('Photo updated.');
                   }
                 } catch (uploadErr) {
                   console.warn('Supabase storage photo upload fallback:', uploadErr);
                 }
               }} />
-              {photo && <button onClick={() => setPhoto('')} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center">Remove</button>}
+              {photo && <button type="button" onClick={handleRemovePhoto} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center transition-colors">Remove</button>}
             </div>
 
             {/* Fields */}
