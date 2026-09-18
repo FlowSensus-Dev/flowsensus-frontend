@@ -145,8 +145,8 @@ export default function ApplicantList({
                 <div className="p-4">
                   <div className="flex items-start gap-3">
                     {/* Avatar */}
-                    {a.photoDataUrl
-                      ? <img src={a.photoDataUrl} alt="photo" className="w-12 h-14 rounded-lg object-cover flex-shrink-0 border border-slate-100" />
+                    {(a.photoDataUrl || a.photo)
+                      ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-12 h-14 rounded-lg object-cover flex-shrink-0 border border-slate-100" />
                       : (
                         <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-slate-400 text-sm flex-shrink-0">
                           {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}

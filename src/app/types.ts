@@ -48,6 +48,7 @@ export interface ApplicantRecord {
   workExperience?: WorkExperience[];
 
   // New structured profile fields
+  photo?: string;
   photoDataUrl?: string;
   identifications?: IdentificationRecord[];
   education?: EducationRecord[];

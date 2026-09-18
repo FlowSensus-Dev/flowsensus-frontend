@@ -1130,6 +1130,8 @@ export default function App() {
           employmentFlags: [],
           testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
           matchScore: 90,
+          photo: item.photo_url || item.photo || '',
+          photoDataUrl: item.photo_url || item.photo || '',
         };
       });
       setApplicants(liveMapped);

@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
   Save, User, FileCheck, Upload, Briefcase, Loader2,
-  GraduationCap, Award, BookOpen, Languages as LanguagesIcon
+  GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -204,7 +204,7 @@ export default function Registration({
     fetchLiveJobOrders();
   }, []);
 
-  // Proof document upload helper
+  // Proof document upload helper (uploads directly to Supabase Storage)
   const proofUpload = (
     onFile: (dataUrl: string, name: string) => void,
     existingName?: string
@@ -212,12 +212,28 @@ export default function Registration({
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*,.pdf,.doc,.docx';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
+
+      // Local preview immediately
       const reader = new FileReader();
       reader.onload = (ev) => onFile(ev.target?.result as string, file.name);
       reader.readAsDataURL(file);
+
+      // Upload directly to Supabase Storage
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/applicants/upload-document', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        if (res.data?.url) {
+          onFile(res.data.url, file.name);
+        }
+      } catch (err) {
+        console.warn('Document upload to Supabase fallback:', err);
+      }
     };
     input.click();
   };
@@ -234,13 +250,13 @@ export default function Registration({
 
   // ── Identifications ───────────────────────────────────────────────────────
   const [ids, setIds] = useState<IdentificationRecord[]>([]);
-  const addId = () => setIds(p => [...p, { id: `id-${Date.now()}`, type: 'Passport', identificationNo: '', expiryDate: '' }]);
+  const addId = () => setIds(p => [...p, { id: `id-${Date.now()}`, type: '', identificationNo: '', expiryDate: '' }]);
   const setId = (id: string, k: keyof IdentificationRecord, v: string) => setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeId = (id: string) => setIds(p => p.filter(x => x.id !== id));
 
   // ── Education ─────────────────────────────────────────────────────────────
   const [education, setEducation] = useState<EducationRecord[]>([]);
-  const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: 'College', school: '', course: '', yearGraduated: '' }]);
+  const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: '', school: '', course: '', yearGraduated: '' }]);
   const setEdu = (id: string, k: keyof EducationRecord, v: string) => setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeEdu = (id: string) => setEducation(p => p.filter(x => x.id !== id));
 
@@ -334,6 +350,7 @@ export default function Registration({
         setFlags([]);
         setFlagsAnalyzed(false);
       }
+      setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
     }
   }, [selectedApplicantId, applicants]);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -396,6 +413,143 @@ export default function Registration({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ── Form State & Changes Tracking ────────────────────────────────────────
+  const isFormFilled = Boolean(
+    personal.firstName.trim() ||
+    personal.middleName.trim() ||
+    personal.lastName.trim() ||
+    personal.email.trim() ||
+    personal.contact.trim() ||
+    personal.dateOfBirth.trim() ||
+    personal.weight.trim() ||
+    personal.height.trim() ||
+    personal.presentAddress.trim() ||
+    personal.provincialAddress.trim() ||
+    personal.role.trim() ||
+    selectedJobOrderId ||
+    photo ||
+    ids.length > 0 ||
+    education.length > 0 ||
+    certs.length > 0 ||
+    trainings.length > 0 ||
+    languages.length > 0 ||
+    employment.length > 0
+  );
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (selectedApplicantId === 'new') return isFormFilled;
+    const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+    if (!app) return false;
+    return (
+      personal.firstName !== (app.firstName || '') ||
+      personal.middleName !== (app.middleName || '') ||
+      personal.lastName !== (app.lastName || '') ||
+      personal.email !== (app.email || '') ||
+      personal.contact !== (app.contact || '') ||
+      personal.dateOfBirth !== (app.dateOfBirth || '') ||
+      personal.sex !== (app.sex || 'Male') ||
+      personal.religion !== (app.religion || 'Roman Catholic') ||
+      personal.civilStatus !== (app.civilStatus || 'Single') ||
+      personal.weight !== (app.weight || '') ||
+      personal.height !== (app.height || '') ||
+      personal.presentAddress !== (app.presentAddress || '') ||
+      personal.provincialAddress !== (app.provincialAddress || '') ||
+      personal.role !== (app.role || '') ||
+      selectedJobOrderId !== (app.selectedJobOrderId || '') ||
+      photo !== (app.photo || app.photoDataUrl || '') ||
+      JSON.stringify(ids) !== JSON.stringify(app.identifications || []) ||
+      JSON.stringify(education) !== JSON.stringify(app.education || []) ||
+      JSON.stringify(certs) !== JSON.stringify(app.certificateRecords || []) ||
+      JSON.stringify(trainings) !== JSON.stringify(app.trainings || []) ||
+      JSON.stringify(languages) !== JSON.stringify(app.languageRecords || []) ||
+      JSON.stringify(employment) !== JSON.stringify(app.employmentHistory || [])
+    );
+  }, [
+    selectedApplicantId, applicants, personal, selectedJobOrderId,
+    photo, ids, education, certs, trainings, languages, employment, isFormFilled
+  ]);
+
+  // Cancel button only appears if an applicant is selected or if user has started typing/making changes
+  const showCancelButton = selectedApplicantId !== 'new' || isFormFilled;
+
+  // ── Section Completion Tracking & Quick Scroll ───────────────────────────
+  const sectionStatus = useMemo(() => {
+    return {
+      personal: Boolean(personal.firstName.trim() && personal.lastName.trim()),
+      identifications: ids.length > 0,
+      education: education.length > 0,
+      certificates: certs.length > 0,
+      trainings: trainings.length > 0,
+      languages: languages.length > 0,
+      employment: employment.length > 0,
+    };
+  }, [personal, ids, education, certs, trainings, languages, employment]);
+
+  const completedCount = useMemo(() => {
+    return Object.values(sectionStatus).filter(Boolean).length;
+  }, [sectionStatus]);
+
+  const progressPercent = Math.round((completedCount / 7) * 100);
+
+  const scrollToBottom = () => {
+    const el = document.getElementById('section-save-actions');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  // ── Cancel / Discard Changes ──────────────────────────────────────────────
+  const handleCancel = () => {
+    if (selectedApplicantId === 'new') {
+      resetBlankForm();
+      showToast('Intake form cleared.');
+    } else {
+      const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+      if (hasUnsavedChanges && app) {
+        setPersonal({
+          firstName: app.firstName || '',
+          middleName: app.middleName || '',
+          lastName: app.lastName || '',
+          email: app.email || '',
+          contact: app.contact || '',
+          dateOfBirth: app.dateOfBirth || '',
+          age: String(app.age || ''),
+          sex: app.sex || 'Male',
+          religion: app.religion || 'Roman Catholic',
+          civilStatus: app.civilStatus || 'Single',
+          weight: app.weight || '',
+          height: app.height || '',
+          presentAddress: app.presentAddress || '',
+          provincialAddress: app.provincialAddress || '',
+          role: app.role || '',
+        });
+        setSelectedJobOrderId(app.selectedJobOrderId || '');
+        setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
+        setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
+        setCerts(app.certificateRecords && app.certificateRecords.length > 0 ? [...app.certificateRecords] : []);
+        setTrainings(app.trainings && app.trainings.length > 0 ? [...app.trainings] : []);
+        setLanguages(app.languageRecords && app.languageRecords.length > 0 ? [...app.languageRecords] : []);
+        setEmployment(app.employmentHistory && app.employmentHistory.length > 0 ? [...app.employmentHistory] : []);
+        if (app.employmentFlags && app.employmentFlags.length > 0) {
+          setFlags([...app.employmentFlags]);
+          setFlagsAnalyzed(true);
+        } else {
+          setFlags([]);
+          setFlagsAnalyzed(false);
+        }
+        setPhoto(app.photo || app.photoDataUrl || '');
+        setResolvingFlagId(null);
+        setSelectedQuickReason('');
+        setCustomReason('');
+        showToast(`Unsaved changes discarded for ${app.applicantCode || app.name}. Original profile restored.`);
+      } else {
+        setSelectedApplicantId('new');
+        resetBlankForm();
+        showToast('Returned to blank registration mode.');
+      }
+    }
+  };
+
   // ── Save Profile (Create New or Update Existing) ──────────────────────────
   const handleSave = async () => {
     if (!personal.firstName.trim() || !personal.lastName.trim()) {
@@ -451,6 +605,7 @@ export default function Registration({
             isOverseas: e.country !== 'Philippines',
             responsibilities: e.reasonForLeaving ? [e.reasonForLeaving] : []
           })),
+          photo_url: photo || undefined,
           current_phase: 1,
           status: 'Initial Screening',
           current_handler: currentUserName,
@@ -473,6 +628,8 @@ export default function Registration({
           lastName: personal.lastName,
           role: personal.role || 'Applicant',
           jobOrder: selectedJobOrderId ? (() => { const jo = openJobOrders.find(j => j.id === selectedJobOrderId); return jo ? `${jo.code} (${jo.employerName})` : 'Unassigned'; })() : 'Unassigned',
+          photo: photo || createdData.photo_url || '',
+          photoDataUrl: photo || createdData.photo_url || '',
           phase: 1,
           status: 'Initial Screening',
           currentHandler: currentUserName,
@@ -533,6 +690,7 @@ export default function Registration({
             provincial_address: personal.provincialAddress,
             applied_role: personal.role,
             skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+            photo_url: photo ? photo : null,
           });
         }
 
@@ -546,6 +704,8 @@ export default function Registration({
             contact: personal.contact,
             dateOfBirth: personal.dateOfBirth,
             age: parseInt(personal.age, 10) || 30,
+            photo: photo,
+            photoDataUrl: photo,
             sex: personal.sex as 'Male' | 'Female',
             religion: personal.religion,
             civilStatus: personal.civilStatus as any,
@@ -745,61 +905,87 @@ export default function Registration({
 
       {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
       <div className="sticky top-0 z-30 bg-[#F1F5F9]/95 backdrop-blur-md py-2 -mt-1">
-        <div className="flex items-center justify-between gap-2 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline">
+        <div className="flex items-center justify-between gap-3 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline flex-shrink-0">
               Sections:
             </span>
-            {sections.map(s => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => scrollToSection(s.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${activeSection === s.id
-                    ? 'bg-[#0F172A] text-white shadow-sm'
-                    : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
-                  } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
-              >
-                {s.label}
-                {s.id === 'personal' ? (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-100/80 text-emerald-700'
-                    }`}>
-                    Required *
-                  </span>
-                ) : (
-                  <span className={`text-[10px] font-normal ${activeSection === s.id ? 'text-slate-300' : 'text-slate-400'}`}>
-                    Optional
-                  </span>
-                )}
-                {s.id === 'employment' && activeFlagCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
-                    {activeFlagCount}
-                  </span>
-                )}
-              </button>
-            ))}
+            {sections.map(s => {
+              const isFilled = sectionStatus[s.id as keyof typeof sectionStatus];
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => scrollToSection(s.id)}
+                  className={`flex-1 min-w-fit px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${activeSection === s.id
+                      ? 'bg-[#0F172A] text-white shadow-sm'
+                      : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
+                    } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+                >
+                  <span>{s.label}</span>
+                  {s.id === 'personal' ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : isFilled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                      {isFilled ? '✓ Required' : 'Required *'}
+                    </span>
+                  ) : isFilled ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-50 text-emerald-600'}`}>
+                      ✓
+                    </span>
+                  ) : null}
+                  {s.id === 'employment' && activeFlagCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                      {activeFlagCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="flex items-center gap-2 pr-1">
+          {/* Right: Progress & Quick Navigation */}
+          <div className="flex items-center gap-2.5 flex-shrink-0 pr-1">
+            {/* Candidate / Intake Mode Pill */}
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium">
+              {selectedApplicantId === 'new' ? (
+                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> New Intake
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-slate-700">
+                  <span className="font-mono text-sky-700 font-bold">{currentApplicant?.applicantCode || `#${selectedApplicantId}`}</span>
+                  {currentApplicant?.name && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="truncate max-w-[110px] font-semibold">{currentApplicant.name}</span>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+
+            {/* Progress Bar & Counter */}
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200" title="Overall form sections filled">
+              <div className="w-14 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                {completedCount}/7 Done
+              </span>
+            </div>
+
+            {/* Quick Jump to Bottom Actions */}
             <button
               type="button"
-              onClick={handleSave}
-              disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none'
-                  : selectedApplicantId === 'new'
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white'
-                }`}
+              onClick={scrollToBottom}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+              title="Jump to Save & Actions at bottom"
             >
-              {isSubmitting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : selectedApplicantId === 'new' ? (
-                <UserPlus size={13} />
-              ) : (
-                <Save size={13} />
-              )}
-              <span>{selectedApplicantId === 'new' ? 'Register Candidate' : 'Save Changes'}</span>
+              <span>Bottom</span>
+              <ArrowDown size={12} />
             </button>
           </div>
         </div>
@@ -820,11 +1006,27 @@ export default function Registration({
                   : <div className="text-center p-2"><Camera size={24} className="text-slate-300 mx-auto mb-1" /><span className="text-[10px] text-slate-400">1×1 Photo</span></div>
                 }
               </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => {
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async e => {
                 const f = e.target.files?.[0]; if (!f) return;
+                // Preview immediately locally
                 const reader = new FileReader();
                 reader.onload = ev => setPhoto(ev.target?.result as string);
                 reader.readAsDataURL(f);
+
+                // Upload directly to Supabase Storage
+                try {
+                  const formData = new FormData();
+                  formData.append('file', f);
+                  const uploadRes = await api.post('/applicants/upload-photo', formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                  });
+                  if (uploadRes.data?.url) {
+                    setPhoto(uploadRes.data.url);
+                    showToast('Photo uploaded to Supabase Storage.');
+                  }
+                } catch (uploadErr) {
+                  console.warn('Supabase storage photo upload fallback:', uploadErr);
+                }
               }} />
               {photo && <button onClick={() => setPhoto('')} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center">Remove</button>}
             </div>
@@ -912,7 +1114,7 @@ export default function Registration({
 
       {/* ── Identifications ────────────────────────────────────────────────────── */}
       <div id="section-identifications" className="scroll-mt-28">
-        <Section title="Government & Other Identifications" icon={<FileCheck size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {ids.length} recorded</span>}>
+        <Section title="Government & Other Identifications" icon={<FileCheck size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{ids.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -929,7 +1131,8 @@ export default function Registration({
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className={td}>
                       <select className={inp} value={row.type} onChange={e => setId(row.id, 'type', e.target.value)}>
-                        {ID_TYPES.map(t => <option key={t}>{t}</option>)}
+                        <option value="">-- Select Identification Type --</option>
+                        {ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
                     <td className={td}><input className={inp} value={row.identificationNo} onChange={e => setId(row.id, 'identificationNo', e.target.value)} placeholder="ID / Serial Number" /></td>
@@ -960,7 +1163,7 @@ export default function Registration({
 
       {/* ── Education ─────────────────────────────────────────────────────────── */}
       <div id="section-education" className="scroll-mt-28">
-        <Section title="Educational Background" icon={<GraduationCap size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {education.length} recorded</span>}>
+        <Section title="Educational Background" icon={<GraduationCap size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{education.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -977,7 +1180,8 @@ export default function Registration({
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className={td}>
                       <select className={inp} value={row.level} onChange={e => setEdu(row.id, 'level', e.target.value)}>
-                        {EDU_LEVELS.map(l => <option key={l}>{l}</option>)}
+                        <option value="">-- Select Education Level --</option>
+                        {EDU_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                       </select>
                     </td>
                     <td className={td}><input className={inp} value={row.school} onChange={e => setEdu(row.id, 'school', e.target.value)} placeholder="School / University name" /></td>
@@ -997,7 +1201,7 @@ export default function Registration({
 
       {/* ── Certificates ──────────────────────────────────────────────────────── */}
       <div id="section-certificates" className="scroll-mt-28">
-        <Section title="Certifications / Licenses" icon={<Award size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {certs.length} recorded</span>}>
+        <Section title="Certifications / Licenses" icon={<Award size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{certs.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1041,7 +1245,7 @@ export default function Registration({
 
       {/* ── Trainings ─────────────────────────────────────────────────────────── */}
       <div id="section-trainings" className="scroll-mt-28">
-        <Section title="Trainings Attended" icon={<BookOpen size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {trainings.length} recorded</span>}>
+        <Section title="Trainings Attended" icon={<BookOpen size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{trainings.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1085,7 +1289,7 @@ export default function Registration({
 
       {/* ── Languages ─────────────────────────────────────────────────────────── */}
       <div id="section-languages" className="scroll-mt-28">
-        <Section title="Language Proficiency" icon={<LanguagesIcon size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {languages.length} recorded</span>}>
+        <Section title="Language Proficiency" icon={<LanguagesIcon size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{languages.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1122,7 +1326,7 @@ export default function Registration({
 
       {/* ── Employment History ────────────────────────────────────────────────── */}
       <div id="section-employment" className="scroll-mt-28 space-y-4">
-        <Section title="Work Experience / Employment History" icon={<Briefcase size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {employment.length} recorded</span>}>
+        <Section title="Work Experience / Employment History" icon={<Briefcase size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{employment.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1296,7 +1500,7 @@ export default function Registration({
       </div>
 
       {/* Save / Register Button */}
-      <div className="flex items-center justify-between pt-6 border-t border-slate-200 gap-4 flex-wrap bg-white p-5 rounded-xl shadow-sm border">
+      <div id="section-save-actions" className="flex items-center justify-between pt-6 border-t border-slate-200 gap-4 flex-wrap bg-white p-5 rounded-xl shadow-sm border">
         <div className="text-xs text-slate-500">
           {hasBlockingFlags ? (
             <span className="text-red-500 font-semibold flex items-center gap-1.5">
@@ -1316,31 +1520,44 @@ export default function Registration({
             </span>
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
-              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-              : selectedApplicantId === 'new'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
-                : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
-            }`}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}
-            </>
-          ) : selectedApplicantId === 'new' ? (
-            <>
-              <UserPlus size={16} /> Register New Applicant
-            </>
-          ) : (
-            <>
-              <Save size={16} /> Save Applicant {currentApplicant?.applicantCode || `#${selectedApplicantId}`} Changes
-            </>
+        <div className="flex items-center gap-3">
+          {showCancelButton && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isSubmitting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer animate-in fade-in duration-150"
+              title={selectedApplicantId === 'new' ? 'Clear form' : hasUnsavedChanges ? 'Discard unsaved changes' : 'Cancel selection'}
+            >
+              <X size={16} /> Cancel
+            </button>
           )}
-        </button>
+          <button
+            onClick={handleSave}
+            disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                : selectedApplicantId === 'new'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
+                  : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
+              }`}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}
+              </>
+            ) : selectedApplicantId === 'new' ? (
+              <>
+                <UserPlus size={16} /> Register New Applicant
+              </>
+            ) : (
+              <>
+                <Save size={16} /> Save Applicant {currentApplicant?.applicantCode || `#${selectedApplicantId}`} Changes
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
