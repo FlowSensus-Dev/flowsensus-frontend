@@ -477,7 +477,9 @@ export default function AppShell({
         </div>
 
         {/* Views Container */}
-        <div className="flex-1 overflow-y-auto p-8 relative">{renderView()}</div>
+        <div className="flex-1 overflow-y-auto px-6 sm:px-8 pb-8 relative">
+          <div className="pt-6">{renderView()}</div>
+        </div>
       </div>
     </div>
   );

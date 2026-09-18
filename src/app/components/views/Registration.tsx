@@ -17,8 +17,8 @@ import { api } from '../../../lib/api';
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
 
 const RED_FLAG_KEYWORDS = ['terminated', 'awol', 'dispute', 'dismissed', 'fired', 'absent without leave', 'medical leave', 'disciplinary'];
-const SENIOR_KEYWORDS   = ['manager', 'supervisor', 'director', 'head', 'chief', 'lead', 'senior', 'officer', 'superintendent'];
-const JUNIOR_KEYWORDS   = ['junior', 'assistant', 'helper', 'trainee', 'intern', 'rank and file', 'laborer', 'aide'];
+const SENIOR_KEYWORDS = ['manager', 'supervisor', 'director', 'head', 'chief', 'lead', 'senior', 'officer', 'superintendent'];
+const JUNIOR_KEYWORDS = ['junior', 'assistant', 'helper', 'trainee', 'intern', 'rank and file', 'laborer', 'aide'];
 
 function monthsBetween(a: string, b: string): number {
   const da = new Date(a), db = new Date(b);
@@ -100,17 +100,17 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
 }
 
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
-  gap:                  { label: 'Employment Gap',     icon: <Clock size={15} />,       color: '#F59E0B' },
-  short_stint:          { label: 'Short Tenure',       icon: <Zap size={15} />,          color: '#F97316' },
+  gap: { label: 'Employment Gap', icon: <Clock size={15} />, color: '#F59E0B' },
+  short_stint: { label: 'Short Tenure', icon: <Zap size={15} />, color: '#F97316' },
   red_flag_resignation: { label: 'Resignation Red Flag', icon: <ShieldAlert size={15} />, color: '#EF4444' },
-  overlap:              { label: 'Date Overlap',       icon: <GitMerge size={15} />,    color: '#8B5CF6' },
-  demotion:             { label: 'Possible Demotion',  icon: <TrendingDown size={15} />, color: '#EC4899' },
+  overlap: { label: 'Date Overlap', icon: <GitMerge size={15} />, color: '#8B5CF6' },
+  demotion: { label: 'Possible Demotion', icon: <TrendingDown size={15} />, color: '#EC4899' },
 };
 
 // ─── Shared input/table styles ─────────────────────────────────────────────────
 const inp = 'w-full border border-slate-200 px-2.5 py-1.5 text-sm focus:border-[#0EA5E9] focus:ring-1 focus:ring-[#0EA5E9]/20 outline-none rounded-lg bg-white';
-const th  = 'px-3 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50';
-const td  = 'px-3 py-2 text-sm align-middle';
+const th = 'px-3 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50';
+const td = 'px-3 py-2 text-sm align-middle';
 
 // ─── Identification Types ──────────────────────────────────────────────────────
 const ID_TYPES = ['Passport', 'OWWA', 'TESDA', "Seaman's Book", 'UMID', "Driver's License", 'SSS', 'PhilHealth', 'Postal ID', 'Voter\'s ID', 'PRC License'];
@@ -580,13 +580,13 @@ export default function Registration({
   };
 
   const sections = [
-    { id: 'personal',      label: 'Personal Info'   },
+    { id: 'personal', label: 'Personal Info' },
     { id: 'identifications', label: 'Identifications' },
-    { id: 'education',     label: 'Education'        },
-    { id: 'certificates',  label: 'Certificates'     },
-    { id: 'trainings',     label: 'Trainings'        },
-    { id: 'languages',     label: 'Languages'        },
-    { id: 'employment',    label: 'Work Experience'  },
+    { id: 'education', label: 'Education' },
+    { id: 'certificates', label: 'Certificates' },
+    { id: 'trainings', label: 'Trainings' },
+    { id: 'languages', label: 'Languages' },
+    { id: 'employment', label: 'Work Experience' },
   ];
 
   const ratingBar = (val: number, onChange: (n: number) => void) => (
@@ -626,7 +626,7 @@ export default function Registration({
   }, []);
 
   return (
-    <div className="space-y-8 w-full pb-24">
+    <div className="space-y-4 w-full pb-20">
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -645,26 +645,23 @@ export default function Registration({
       </div>
 
       {/* Mode Banner */}
-      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
-        selectedApplicantId === 'new'
+      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${selectedApplicantId === 'new'
           ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
           : 'bg-sky-50 border-sky-200 text-sky-900'
-      }`}>
+        }`}>
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${
-            selectedApplicantId === 'new'
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${selectedApplicantId === 'new'
               ? 'bg-emerald-600 text-white'
               : 'bg-[#0EA5E9] text-white'
-          }`}>
+            }`}>
             {selectedApplicantId === 'new' ? <UserPlus size={20} /> : <User size={20} />}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
-                selectedApplicantId === 'new'
+              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${selectedApplicantId === 'new'
                   ? 'bg-emerald-200 text-emerald-800'
                   : 'bg-sky-200 text-sky-800'
-              }`}>
+                }`}>
                 {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`}`}
               </span>
               {selectedApplicantId === 'new' ? (
@@ -747,7 +744,7 @@ export default function Registration({
       </div>
 
       {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-[#F1F5F9]/95 backdrop-blur-md py-2 space-y-2">
+      <div className="sticky top-0 z-30 bg-[#F1F5F9]/95 backdrop-blur-md py-2 -mt-1">
         <div className="flex items-center justify-between gap-2 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline">
@@ -758,17 +755,15 @@ export default function Registration({
                 key={s.id}
                 type="button"
                 onClick={() => scrollToSection(s.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeSection === s.id
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${activeSection === s.id
                     ? 'bg-[#0F172A] text-white shadow-sm'
                     : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
-                } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+                  } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
               >
                 {s.label}
                 {s.id === 'personal' ? (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                    activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-100/80 text-emerald-700'
-                  }`}>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-100/80 text-emerald-700'
+                    }`}>
                     Required *
                   </span>
                 ) : (
@@ -790,13 +785,12 @@ export default function Registration({
               type="button"
               onClick={handleSave}
               disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer ${
-                hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none'
                   : selectedApplicantId === 'new'
                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white'
-              }`}
+                }`}
             >
               {isSubmitting ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -809,14 +803,10 @@ export default function Registration({
             </button>
           </div>
         </div>
-
-        <p className="text-xs text-slate-500 px-1 hidden md:block">
-          <strong className="text-slate-600">Single-page Intake:</strong> Scroll through to complete candidate details. Only <strong>First Name</strong> and <strong>Last Name</strong> in <em>Personal Info</em> are required to register.
-        </p>
       </div>
 
       {/* ── Personal Info ────────────────────────────────────────────────────── */}
-      <div id="section-personal" className="scroll-mt-28">
+      <div id="section-personal" className="scroll-mt-20 !mt-2">
         <Section title="Personal Information" icon={<User size={16} />} badge={<span className="text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">Required *</span>}>
           <div className="flex gap-6">
             {/* Photo */}
@@ -947,13 +937,13 @@ export default function Registration({
                     <td className={td}>
                       {row.proofDocumentUrl
                         ? <div className="flex items-center gap-1.5">
-                            <FileCheck size={13} className="text-[#10B981] flex-shrink-0" />
-                            <span className="text-xs text-[#10B981] truncate max-w-[120px]" title={row.proofDocumentName}>{row.proofDocumentName}</span>
-                            <button onClick={() => setId(row.id, 'proofDocumentUrl', '')} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0"><X size={12} /></button>
-                          </div>
+                          <FileCheck size={13} className="text-[#10B981] flex-shrink-0" />
+                          <span className="text-xs text-[#10B981] truncate max-w-[120px]" title={row.proofDocumentName}>{row.proofDocumentName}</span>
+                          <button onClick={() => setId(row.id, 'proofDocumentUrl', '')} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0"><X size={12} /></button>
+                        </div>
                         : <button onClick={() => proofUpload((url, name) => { setId(row.id, 'proofDocumentUrl', url); setId(row.id, 'proofDocumentName', name); })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#0EA5E9] border border-dashed border-slate-200 hover:border-[#0EA5E9] px-2 py-1 rounded transition-all">
-                            <Upload size={11} /> Upload
-                          </button>
+                          <Upload size={11} /> Upload
+                        </button>
                       }
                     </td>
                     <td className={td}><button onClick={() => removeId(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
@@ -1133,178 +1123,176 @@ export default function Registration({
       {/* ── Employment History ────────────────────────────────────────────────── */}
       <div id="section-employment" className="scroll-mt-28 space-y-4">
         <Section title="Work Experience / Employment History" icon={<Briefcase size={16} />} badge={<span className="text-xs text-slate-400 font-medium">Optional · {employment.length} recorded</span>}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className={th}>Company / Employer</th>
-                    <th className={th}>Position / Designation</th>
-                    <th className={th}>Date Started</th>
-                    <th className={th}>Date Ended</th>
-                    <th className={th}>Country</th>
-                    <th className={th}>Reason for Leaving</th>
-                    <th className={th + ' text-center'}>Present</th>
-                    <th className={th + ' w-10'}></th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className={th}>Company / Employer</th>
+                  <th className={th}>Position / Designation</th>
+                  <th className={th}>Date Started</th>
+                  <th className={th}>Date Ended</th>
+                  <th className={th}>Country</th>
+                  <th className={th}>Reason for Leaving</th>
+                  <th className={th + ' text-center'}>Present</th>
+                  <th className={th + ' w-10'}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {employment.map(row => (
+                  <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && f.relatedJobIds.includes(row.id)) ? 'bg-red-50/40' : ''}`}>
+                    <td className={td}><input className={inp} value={row.company} onChange={e => setEmp(row.id, 'company', e.target.value)} placeholder="Company name" /></td>
+                    <td className={td}><input className={inp} value={row.position} onChange={e => setEmp(row.id, 'position', e.target.value)} placeholder="Job title" /></td>
+                    <td className={td}><input className={inp} type="date" value={row.dateStarted} onChange={e => setEmp(row.id, 'dateStarted', e.target.value)} /></td>
+                    <td className={td}>
+                      {row.isPresent
+                        ? <span className="text-xs text-[#10B981] font-semibold px-2 py-1 bg-emerald-50 rounded">Present</span>
+                        : <input className={inp} type="date" value={row.dateEnded} onChange={e => setEmp(row.id, 'dateEnded', e.target.value)} />
+                      }
+                    </td>
+                    <td className={td}><input className={inp} value={row.country} onChange={e => setEmp(row.id, 'country', e.target.value)} placeholder="PH / UAE…" /></td>
+                    <td className={td}><input className={`${inp} ${RED_FLAG_KEYWORDS.some(k => row.reasonForLeaving.toLowerCase().includes(k)) ? 'border-red-300 bg-red-50' : ''}`} value={row.reasonForLeaving} onChange={e => setEmp(row.id, 'reasonForLeaving', e.target.value)} placeholder="Reason for leaving" /></td>
+                    <td className={td + ' text-center'}>
+                      <input type="checkbox" checked={row.isPresent} onChange={e => setEmp(row.id, 'isPresent', e.target.checked)} />
+                    </td>
+                    <td className={td}><button onClick={() => removeEmp(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
                   </tr>
-                </thead>
-                <tbody>
-                  {employment.map(row => (
-                    <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && f.relatedJobIds.includes(row.id)) ? 'bg-red-50/40' : ''}`}>
-                      <td className={td}><input className={inp} value={row.company} onChange={e => setEmp(row.id, 'company', e.target.value)} placeholder="Company name" /></td>
-                      <td className={td}><input className={inp} value={row.position} onChange={e => setEmp(row.id, 'position', e.target.value)} placeholder="Job title" /></td>
-                      <td className={td}><input className={inp} type="date" value={row.dateStarted} onChange={e => setEmp(row.id, 'dateStarted', e.target.value)} /></td>
-                      <td className={td}>
-                        {row.isPresent
-                          ? <span className="text-xs text-[#10B981] font-semibold px-2 py-1 bg-emerald-50 rounded">Present</span>
-                          : <input className={inp} type="date" value={row.dateEnded} onChange={e => setEmp(row.id, 'dateEnded', e.target.value)} />
-                        }
-                      </td>
-                      <td className={td}><input className={inp} value={row.country} onChange={e => setEmp(row.id, 'country', e.target.value)} placeholder="PH / UAE…" /></td>
-                      <td className={td}><input className={`${inp} ${RED_FLAG_KEYWORDS.some(k => row.reasonForLeaving.toLowerCase().includes(k)) ? 'border-red-300 bg-red-50' : ''}`} value={row.reasonForLeaving} onChange={e => setEmp(row.id, 'reasonForLeaving', e.target.value)} placeholder="Reason for leaving" /></td>
-                      <td className={td + ' text-center'}>
-                        <input type="checkbox" checked={row.isPresent} onChange={e => setEmp(row.id, 'isPresent', e.target.checked)} />
-                      </td>
-                      <td className={td}><button onClick={() => removeEmp(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center gap-3 mt-3">
-              <button onClick={addEmp} className="flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
-                <Plus size={15} /> Add Employment
-              </button>
-              <button
-                onClick={runFlagEngine}
-                className="ml-auto flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-lg transition-colors"
-              >
-                <Flag size={15} /> Run Employment Flag Check
-              </button>
-            </div>
-          </Section>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <button onClick={addEmp} className="flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
+              <Plus size={15} /> Add Employment
+            </button>
+            <button
+              onClick={runFlagEngine}
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              <Flag size={15} /> Run Employment Flag Check
+            </button>
+          </div>
+        </Section>
 
-          {/* Flags Panel */}
-          {flagsAnalyzed && (
-            <div className={`rounded-xl border overflow-hidden ${flags.length === 0 ? 'border-emerald-200' : 'border-amber-200'}`}>
-              <div className={`px-5 py-3 flex items-center justify-between ${flags.length === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                <div className="flex items-center gap-2">
-                  {flags.length === 0
-                    ? <><CheckCircle2 size={16} className="text-emerald-600" /><span className="text-sm font-bold text-emerald-700">No concerns raised — employment history is clean</span></>
-                    : <><ShieldAlert size={16} className="text-amber-600" /><span className="text-sm font-bold text-amber-700">{flags.length} concern{flags.length > 1 ? 's' : ''} raised — {activeFlagCount} unresolved</span></>
-                  }
-                </div>
-                {activeFlagCount > 0 && (
-                  <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">All flags must be cleared before saving</span>
-                )}
+        {/* Flags Panel */}
+        {flagsAnalyzed && (
+          <div className={`rounded-xl border overflow-hidden ${flags.length === 0 ? 'border-emerald-200' : 'border-amber-200'}`}>
+            <div className={`px-5 py-3 flex items-center justify-between ${flags.length === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+              <div className="flex items-center gap-2">
+                {flags.length === 0
+                  ? <><CheckCircle2 size={16} className="text-emerald-600" /><span className="text-sm font-bold text-emerald-700">No concerns raised — employment history is clean</span></>
+                  : <><ShieldAlert size={16} className="text-amber-600" /><span className="text-sm font-bold text-amber-700">{flags.length} concern{flags.length > 1 ? 's' : ''} raised — {activeFlagCount} unresolved</span></>
+                }
               </div>
-              {flags.length > 0 && (
-                <div className="p-4 space-y-3 bg-white">
-                  {flags.map(flag => {
-                    const meta = FLAG_META[flag.type];
-                    const isOpen = resolvingFlagId === flag.id;
-                    const resolveReady = selectedQuickReason && (selectedQuickReason !== 'Other (see details below)' || customReason.trim());
-                    return (
-                      <div key={flag.id} className={`rounded-xl border transition-all overflow-hidden ${
-                        flag.dismissed ? 'opacity-70 border-slate-200 bg-slate-50' : isOpen ? 'border-[#0EA5E9] bg-white shadow-md' : 'border-amber-200 bg-amber-50/50 hover:border-amber-300'
-                      }`}>
-                        {/* Flag header — clickable */}
-                        <div
-                          className={`flex items-start gap-3 p-4 ${!flag.dismissed ? 'cursor-pointer' : ''}`}
-                          onClick={() => !flag.dismissed && openResolve(flag.id)}
-                        >
-                          <div className="mt-0.5 flex-shrink-0" style={{ color: flag.dismissed ? '#94a3b8' : meta.color }}>
-                            {meta.icon}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{
-                                background: flag.dismissed ? '#f1f5f9' : meta.color + '18',
-                                color: flag.dismissed ? '#94a3b8' : meta.color,
-                              }}>
-                                {meta.label}
-                              </span>
-                              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                                background: flag.severity === 'critical' && !flag.dismissed ? '#FEE2E2' : '#f1f5f9',
-                                color: flag.severity === 'critical' && !flag.dismissed ? '#EF4444' : '#94a3b8',
-                              }}>
-                                {flag.severity === 'critical' ? 'CRITICAL' : 'WARNING'}
-                              </span>
-                              {flag.dismissed && (
-                                <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                                  <CheckCircle2 size={11} /> Resolved
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-slate-700">{flag.description}</p>
-                            {flag.dismissed && flag.dismissalReason && (
-                              <p className="mt-1.5 text-xs text-slate-500 italic">
-                                <strong className="text-slate-600">Resolved by {flag.dismissedBy}:</strong> {flag.dismissalReason}
-                              </p>
-                            )}
-                          </div>
-                          {!flag.dismissed && (
-                            <span className={`text-xs flex-shrink-0 px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${isOpen ? 'bg-[#0EA5E9] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}>
-                              <MessageSquare size={11} /> {isOpen ? 'Cancel' : 'Resolve'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Inline resolution panel */}
-                        {isOpen && !flag.dismissed && (
-                          <div className="border-t border-[#0EA5E9]/20 bg-[#0EA5E9]/3 px-4 pb-4 pt-3 space-y-3">
-                            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Resolution Reason</p>
-                            <div className="flex flex-wrap gap-2">
-                              {QUICK_REASONS.map(r => (
-                                <button
-                                  key={r}
-                                  onClick={() => setSelectedQuickReason(r)}
-                                  className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${
-                                    selectedQuickReason === r
-                                      ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
-                                  }`}
-                                >
-                                  {r}
-                                </button>
-                              ))}
-                            </div>
-                            {(selectedQuickReason === 'Other (see details below)' || (selectedQuickReason && selectedQuickReason !== 'Other (see details below)')) && (
-                              <textarea
-                                value={customReason}
-                                onChange={e => setCustomReason(e.target.value)}
-                                rows={2}
-                                placeholder={selectedQuickReason === 'Other (see details below)' ? 'Describe the resolution…' : 'Additional details (optional)…'}
-                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none"
-                              />
-                            )}
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => { setResolvingFlagId(null); setSelectedQuickReason(''); setCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors">
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => resolveFlag(flag.id)}
-                                disabled={!resolveReady}
-                                className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
-                              >
-                                <CheckCircle2 size={13} /> Mark Resolved
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {activeFlagCount > 0 && (
+                <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">All flags must be cleared before saving</span>
               )}
             </div>
-          )}
+            {flags.length > 0 && (
+              <div className="p-4 space-y-3 bg-white">
+                {flags.map(flag => {
+                  const meta = FLAG_META[flag.type];
+                  const isOpen = resolvingFlagId === flag.id;
+                  const resolveReady = selectedQuickReason && (selectedQuickReason !== 'Other (see details below)' || customReason.trim());
+                  return (
+                    <div key={flag.id} className={`rounded-xl border transition-all overflow-hidden ${flag.dismissed ? 'opacity-70 border-slate-200 bg-slate-50' : isOpen ? 'border-[#0EA5E9] bg-white shadow-md' : 'border-amber-200 bg-amber-50/50 hover:border-amber-300'
+                      }`}>
+                      {/* Flag header — clickable */}
+                      <div
+                        className={`flex items-start gap-3 p-4 ${!flag.dismissed ? 'cursor-pointer' : ''}`}
+                        onClick={() => !flag.dismissed && openResolve(flag.id)}
+                      >
+                        <div className="mt-0.5 flex-shrink-0" style={{ color: flag.dismissed ? '#94a3b8' : meta.color }}>
+                          {meta.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{
+                              background: flag.dismissed ? '#f1f5f9' : meta.color + '18',
+                              color: flag.dismissed ? '#94a3b8' : meta.color,
+                            }}>
+                              {meta.label}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
+                              background: flag.severity === 'critical' && !flag.dismissed ? '#FEE2E2' : '#f1f5f9',
+                              color: flag.severity === 'critical' && !flag.dismissed ? '#EF4444' : '#94a3b8',
+                            }}>
+                              {flag.severity === 'critical' ? 'CRITICAL' : 'WARNING'}
+                            </span>
+                            {flag.dismissed && (
+                              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                                <CheckCircle2 size={11} /> Resolved
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-700">{flag.description}</p>
+                          {flag.dismissed && flag.dismissalReason && (
+                            <p className="mt-1.5 text-xs text-slate-500 italic">
+                              <strong className="text-slate-600">Resolved by {flag.dismissedBy}:</strong> {flag.dismissalReason}
+                            </p>
+                          )}
+                        </div>
+                        {!flag.dismissed && (
+                          <span className={`text-xs flex-shrink-0 px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${isOpen ? 'bg-[#0EA5E9] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}>
+                            <MessageSquare size={11} /> {isOpen ? 'Cancel' : 'Resolve'}
+                          </span>
+                        )}
+                      </div>
 
-          {!flagsAnalyzed && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-blue-700">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
-            </div>
-          )}
+                      {/* Inline resolution panel */}
+                      {isOpen && !flag.dismissed && (
+                        <div className="border-t border-[#0EA5E9]/20 bg-[#0EA5E9]/3 px-4 pb-4 pt-3 space-y-3">
+                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Resolution Reason</p>
+                          <div className="flex flex-wrap gap-2">
+                            {QUICK_REASONS.map(r => (
+                              <button
+                                key={r}
+                                onClick={() => setSelectedQuickReason(r)}
+                                className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${selectedQuickReason === r
+                                    ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
+                                  }`}
+                              >
+                                {r}
+                              </button>
+                            ))}
+                          </div>
+                          {(selectedQuickReason === 'Other (see details below)' || (selectedQuickReason && selectedQuickReason !== 'Other (see details below)')) && (
+                            <textarea
+                              value={customReason}
+                              onChange={e => setCustomReason(e.target.value)}
+                              rows={2}
+                              placeholder={selectedQuickReason === 'Other (see details below)' ? 'Describe the resolution…' : 'Additional details (optional)…'}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none"
+                            />
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setResolvingFlagId(null); setSelectedQuickReason(''); setCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors">
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => resolveFlag(flag.id)}
+                              disabled={!resolveReady}
+                              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
+                            >
+                              <CheckCircle2 size={13} /> Mark Resolved
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!flagsAnalyzed && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-blue-700">
+            <AlertCircle size={16} className="flex-shrink-0" />
+            <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
+          </div>
+        )}
       </div>
 
       {/* Save / Register Button */}
@@ -1331,13 +1319,12 @@ export default function Registration({
         <button
           onClick={handleSave}
           disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
-            hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
               ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
               : selectedApplicantId === 'new'
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
                 : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
-          }`}
+            }`}
         >
           {isSubmitting ? (
             <>

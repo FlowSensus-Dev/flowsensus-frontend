@@ -15,7 +15,7 @@ export default function InlineApplicantSelector({
   const selectedApplicant = applicants.find((a) => a.id === selectedApplicantId);
 
   return (
-    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4 mb-6">
+    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4">
       <div className="flex items-center gap-4">
         <UserCircle className="w-5 h-5 text-[#0EA5E9]" />
         <div className="flex-1">
