@@ -152,8 +152,7 @@ export default function LoginScreen({
 
         const user = data.user;
         const isSuper = Boolean(
-          user?.email === 'admin@findstaff.ph' ||
-            user?.app_metadata?.is_super_admin ||
+          user?.app_metadata?.is_super_admin ||
             user?.user_metadata?.is_super_admin
         );
 

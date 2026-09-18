@@ -1198,14 +1198,13 @@ export default function App() {
           const email = session.user.email || "";
           const isSuper = Boolean(
             session.user.app_metadata?.is_super_admin ||
-            session.user.user_metadata?.is_super_admin ||
-            email === "admin@findstaff.ph"
+            session.user.user_metadata?.is_super_admin
           );
           if (isSuper) {
             setIsSuperAdmin(true);
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
-            setCurrentUserName("Superadmin (admin@findstaff.ph)");
+            setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
             showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
