@@ -152,6 +152,49 @@ export default function AppShell({
 
     switch (currentView) {
       case 'dashboard':
+        if (isSuperAdmin) {
+          return (
+            <div className="space-y-12 pb-12">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Management Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Recruitment Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Admin & Visa Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         // Render role-specific dashboards
         switch (currentUserRole) {
           case 'Recruitment':
