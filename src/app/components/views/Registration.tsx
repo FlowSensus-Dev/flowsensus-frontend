@@ -190,9 +190,12 @@ export default function Registration({
           const liveOrders = res.data.map((jo: any) => ({
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+            jobOrderId: jo.job_order_id,
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+            employerId: jo.employer_id || jo.client_employer?.employer_id,
+            countryId: jo.country_id || jo.client_employer?.country_id,
             available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
           }));
           setOpenJobOrders(liveOrders);
@@ -352,7 +355,8 @@ export default function Registration({
         provincialAddress: app.provincialAddress || '',
         role: app.role || '',
       });
-      if (app.selectedJobOrderId) setSelectedJobOrderId(app.selectedJobOrderId);
+      const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
+      setSelectedJobOrderId(initialJo);
       if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
       else setIds([]);
       if (app.education && app.education.length > 0) setEducation(app.education);
@@ -477,7 +481,7 @@ export default function Registration({
       personal.presentAddress !== (app.presentAddress || '') ||
       personal.provincialAddress !== (app.provincialAddress || '') ||
       personal.role !== (app.role || '') ||
-      selectedJobOrderId !== (app.selectedJobOrderId || '') ||
+      selectedJobOrderId !== (app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '')) ||
       photo !== (app.photo || app.photoDataUrl || '') ||
       JSON.stringify(ids) !== JSON.stringify(app.identifications || []) ||
       JSON.stringify(education) !== JSON.stringify(app.education || []) ||
@@ -545,7 +549,8 @@ export default function Registration({
           provincialAddress: app.provincialAddress || '',
           role: app.role || '',
         });
-        setSelectedJobOrderId(app.selectedJobOrderId || '');
+        const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
+        setSelectedJobOrderId(initialJo);
         setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
         setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
         setCerts(app.certificateRecords && app.certificateRecords.length > 0 ? [...app.certificateRecords] : []);
@@ -599,7 +604,8 @@ export default function Registration({
     try {
       if (selectedApplicantId === 'new') {
         // ── CREATE NEW APPLICANT VIA POST /applicants ───────────────────────
-        const payload = {
+        const selectedJob = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
+        const payload: any = {
           first_name: personal.firstName.trim(),
           middle_name: personal.middleName.trim() || undefined,
           last_name: personal.lastName.trim(),
@@ -615,7 +621,12 @@ export default function Registration({
           weight: personal.weight || undefined,
           present_address: personal.presentAddress.trim() || undefined,
           provincial_address: personal.provincialAddress.trim() || undefined,
-          applied_role: personal.role.trim() || 'Applicant',
+          applied_role: personal.role.trim() || (selectedJob ? selectedJob.position : 'Applicant'),
+          job_order_code: selectedJob ? selectedJob.code : undefined,
+          job_order_name: selectedJob ? `${selectedJob.code} (${selectedJob.employerName})` : undefined,
+          job_order_id: selectedJob?.jobOrderId ? parseInt(String(selectedJob.jobOrderId), 10) : undefined,
+          employer_id: selectedJob?.employerId ? parseInt(String(selectedJob.employerId), 10) : undefined,
+          country_id: selectedJob?.countryId ? parseInt(String(selectedJob.countryId), 10) : undefined,
           skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           work_experience: employment.map(e => ({
@@ -648,8 +659,9 @@ export default function Registration({
           firstName: personal.firstName,
           middleName: personal.middleName,
           lastName: personal.lastName,
-          role: personal.role || 'Applicant',
-          jobOrder: selectedJobOrderId ? (() => { const jo = openJobOrders.find(j => j.id === selectedJobOrderId); return jo ? `${jo.code} (${jo.employerName})` : 'Unassigned'; })() : 'Unassigned',
+          role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
+          jobOrder: selectedJob ? selectedJob.code : 'Unassigned',
+          selectedJobOrderId: selectedJob ? selectedJob.code : undefined,
           photo: photo || createdData.photo_url || '',
           photoDataUrl: photo || createdData.photo_url || '',
           phase: 1,
@@ -697,8 +709,10 @@ export default function Registration({
       } else {
         // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
         const numericId = parseInt(selectedApplicantId, 10);
+        const selectedJob = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
+
         if (!isNaN(numericId)) {
-          await api.put(`/applicants/${numericId}`, {
+          const updatePayload: any = {
             first_name: personal.firstName.trim(),
             middle_name: personal.middleName?.trim() || null,
             last_name: personal.lastName.trim(),
@@ -710,10 +724,24 @@ export default function Registration({
             civil_status: personal.civilStatus || null,
             present_address: personal.presentAddress?.trim() || null,
             provincial_address: personal.provincialAddress?.trim() || null,
-            applied_role: personal.role?.trim() || null,
+            applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
             skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
             photo_url: photo ? photo : null,
-          });
+          };
+
+          if (selectedJob) {
+            updatePayload.job_order_code = selectedJob.code;
+            updatePayload.job_order_name = `${selectedJob.code} (${selectedJob.employerName})`;
+            if (selectedJob.jobOrderId) updatePayload.job_order_id = parseInt(String(selectedJob.jobOrderId), 10);
+            if (selectedJob.employerId) updatePayload.employer_id = parseInt(String(selectedJob.employerId), 10);
+            if (selectedJob.countryId) updatePayload.country_id = parseInt(String(selectedJob.countryId), 10);
+          } else if (selectedJobOrderId === '') {
+            updatePayload.job_order_code = null;
+            updatePayload.job_order_name = null;
+            updatePayload.job_order_id = null;
+          }
+
+          await api.put(`/applicants/${numericId}`, updatePayload);
         }
 
         if (updateApplicant) {
@@ -735,7 +763,9 @@ export default function Registration({
             height: personal.height,
             presentAddress: personal.presentAddress,
             provincialAddress: personal.provincialAddress,
-            role: personal.role,
+            role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
+            jobOrder: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? 'Unassigned' : (currentApplicant?.jobOrder || 'Unassigned')),
+            selectedJobOrderId: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? undefined : currentApplicant?.selectedJobOrderId),
             skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             employmentHistory: employment,

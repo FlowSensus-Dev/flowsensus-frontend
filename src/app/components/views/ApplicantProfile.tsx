@@ -248,8 +248,14 @@ export default function ApplicantProfile({
               <span className="text-xs px-2.5 py-1 bg-[#0EA5E9]/20 text-[#0EA5E9] rounded-full border border-[#0EA5E9]/30 font-semibold">
                 Phase {applicant.phase}: {applicant.status}
               </span>
-              {applicant.jobOrder && (
-                <span className="text-xs px-2.5 py-1 bg-white/10 text-white/70 rounded-full">{applicant.jobOrder}</span>
+              {applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? (
+                <span className="text-xs px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold flex items-center gap-1.5">
+                  <Briefcase size={11} /> {applicant.jobOrder}
+                </span>
+              ) : (
+                <span className="text-xs px-2.5 py-1 bg-slate-700/50 text-slate-300 rounded-full border border-slate-600/40 font-medium flex items-center gap-1.5">
+                  <Briefcase size={11} /> Unassigned
+                </span>
               )}
             </div>
           </div>
@@ -317,6 +323,8 @@ export default function ApplicantProfile({
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
             {[
+              { label: 'Assigned Job Order', val: applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? applicant.jobOrder : 'Unassigned' },
+              { label: 'Target Position',   val: applicant.role || '—' },
               { label: 'Date of Birth',  val: applicant.dateOfBirth },
               { label: 'Age',            val: applicant.age ? `${applicant.age} years old` : undefined },
               { label: 'Gender',         val: applicant.sex },
