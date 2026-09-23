@@ -23,6 +23,8 @@ import {
   SlidersHorizontal,
   Briefcase,
   Factory,
+  Crown,
+  ArrowRight,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
@@ -130,13 +132,14 @@ export default function Sidebar({
     : [currentUserRole];
 
   const hasAccess = (roles: UserRole[] | 'All'): boolean => {
+    if (isSuperAdmin) return true; // Super Admin has universal access to all agency modules
     if (roles === 'All') return true;
     return roles.some((r) => userRolesList.includes(r));
   };
 
-  const rolesDisplayText = userRolesList
-    .filter((r) => r && r !== 'Applicant' && r !== 'Employer')
-    .join(' & ') || currentUserRole || 'Staff';
+  const rolesDisplayText = isSuperAdmin
+    ? 'Super Admin Universal'
+    : (userRolesList.filter((r) => r && r !== 'Applicant' && r !== 'Employer').join(' & ') || currentUserRole || 'Staff');
 
   return (
     <aside className="w-[260px] h-full flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
@@ -148,7 +151,14 @@ export default function Sidebar({
 
       {/* Active Session */}
       <div className="px-6 py-4 border-b border-white/5 bg-black/10">
-        <p className="text-[10px] text-[#64748B] uppercase tracking-widest font-bold">Active Session</p>
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-[#64748B] uppercase tracking-widest font-bold">Active Session</p>
+          {isSuperAdmin && (
+            <span className="bg-amber-500/20 text-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1">
+              <Crown size={10} className="text-amber-400" /> SUPERADMIN
+            </span>
+          )}
+        </div>
         <div className="text-sm font-bold text-[#0EA5E9] mt-1 flex items-center gap-2 flex-wrap">
           <ShieldCheck className="w-4 h-4 flex-shrink-0" />
           <span>{rolesDisplayText} Ops</span>
@@ -157,6 +167,26 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 text-sm font-medium">
+        {/* Superadmin Dedicated Hub Module Access */}
+        {isSuperAdmin && onSuperAdminDashboard && (
+          <div className="mb-4 pb-3 border-b border-white/10">
+            <p className="text-[10px] uppercase tracking-widest text-amber-400 font-extrabold px-3 pb-2 flex items-center gap-1.5">
+              <Crown size={12} className="text-amber-400" /> Platform Superadmin
+            </p>
+            <button
+              onClick={onSuperAdminDashboard}
+              className="w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 transition-all bg-gradient-to-r from-amber-500/20 via-sky-500/10 to-transparent text-amber-300 border border-amber-500/40 hover:border-amber-400 hover:bg-amber-500/30 hover:text-white shadow-sm group cursor-pointer"
+              title="Return to Superadmin Multi-Tenant Dashboard"
+            >
+              <Building2 className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="font-bold text-xs block text-white truncate">Super Admin Console</span>
+                <span className="text-[10px] text-amber-300/90 block truncate">Tenants &amp; Overview</span>
+              </div>
+              <ArrowRight size={14} className="text-amber-400 group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
+            </button>
+          </div>
+        )}
         {/* Main Items */}
         {mainItems.map((item) => {
           const Icon = item.icon;

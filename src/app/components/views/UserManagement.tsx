@@ -40,38 +40,42 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [staff, setStaff] = useState<StaffAccount[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // ── Fetch Live Staff from Supabase on Mount ──────────────────────────────
-  useEffect(() => {
-    const fetchStaff = async () => {
-      try {
-        setLoading(true);
-        const res = await api.get('/users');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveStaff: StaffAccount[] = res.data.map((u: any) => {
-            const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
-              ? u.role_names
-              : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
-            const primaryRole = rawRoles[0] || 'Recruitment';
-            return {
-              id: String(u.user_id),
-              name: u.full_name || 'Staff Member',
-              email: u.email,
-              department: u.department_name || u.department || 'Unassigned',
-              role: primaryRole,
-              roles: rawRoles,
-              status: u.status === 'Inactive' ? 'Inactive' : 'Active',
-              createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
-            };
-          });
-          setStaff(liveStaff);
-        }
-      } catch (err) {
-        console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
-      } finally {
-        setLoading(false);
+  const fetchStaff = async () => {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      const res = await api.get('/users');
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const liveStaff: StaffAccount[] = res.data.map((u: any) => {
+          const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
+            ? u.role_names
+            : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
+          const primaryRole = rawRoles[0] || 'Recruitment';
+          return {
+            id: String(u.user_id),
+            name: u.full_name || 'Staff Member',
+            email: u.email,
+            department: u.department_name || u.department || 'Unassigned',
+            role: primaryRole,
+            roles: rawRoles,
+            status: u.status === 'Inactive' ? 'Inactive' : 'Active',
+            createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+          };
+        });
+        setStaff(liveStaff);
       }
-    };
+    } catch (err: any) {
+      console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
+      setErrorMsg(err?.response?.data?.detail || err?.message || 'Failed to fetch staff accounts. Please try logging in again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchStaff();
   }, []);
 
@@ -193,6 +197,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
 
     try {
       let savedDept = (selectedStaff.department || '').trim();
+      let updatedRoles = chosenRoles;
       if (!isNaN(numId)) {
         const res = await api.put(`/users/${numId}`, {
           roleNames: chosenRoles,
@@ -202,12 +207,15 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         if (res.data?.department || res.data?.department_name) {
           savedDept = res.data.department || res.data.department_name;
         }
+        if (res.data?.role_names && Array.isArray(res.data.role_names) && res.data.role_names.length > 0) {
+          updatedRoles = res.data.role_names;
+        }
       }
 
       setStaff(
         staff.map((s) =>
           s.id === selectedStaff.id
-            ? { ...s, role: primaryRole, roles: chosenRoles, department: savedDept }
+            ? { ...s, role: updatedRoles[0] || primaryRole, roles: updatedRoles, department: savedDept }
             : s
         )
       );
@@ -217,7 +225,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         action: 'Staff Roles Updated',
         performedBy: currentUserName,
         department: 'Management',
-        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${chosenRoles.join(', ')}`,
+        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${updatedRoles.join(', ')}`,
       });
 
       setShowEditModal(false);
@@ -329,6 +337,19 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   <div className="flex flex-col items-center justify-center">
                     <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
                     <p className="text-[#64748B] font-medium">Loading staff accounts...</p>
+                  </div>
+                </td>
+              </tr>
+            ) : errorMsg ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center text-red-500">
+                    <ShieldOff className="w-8 h-8 mb-3 opacity-80" />
+                    <p className="font-bold text-sm mb-1">Error Loading Accounts</p>
+                    <p className="text-xs text-red-400 mb-4">{errorMsg}</p>
+                    <button onClick={fetchStaff} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
+                      Retry
+                    </button>
                   </div>
                 </td>
               </tr>

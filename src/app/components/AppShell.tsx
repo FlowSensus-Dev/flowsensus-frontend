@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Bell, LogOut, Info } from 'lucide-react';
+import { Bell, LogOut, Info, Crown } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
@@ -60,6 +60,7 @@ interface AppShellProps {
   workflow: WorkflowState;
   updateWorkflow: (updates: Partial<WorkflowState>) => void;
   applicants: ApplicantRecord[];
+  applicantsLoaded?: boolean;
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   addApplicant?: (newApplicant: ApplicantRecord) => void;
   activityLogs: ActivityLog[];
@@ -78,6 +79,7 @@ export default function AppShell({
   workflow,
   updateWorkflow,
   applicants,
+  applicantsLoaded = true,
   updateApplicant,
   addApplicant,
   activityLogs,
@@ -92,7 +94,6 @@ export default function AppShell({
   const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
   // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
   useEffect(() => {
@@ -131,6 +132,50 @@ export default function AppShell({
 
     switch (currentView) {
       case 'dashboard':
+        // Super Admin sees all department dashboards combined
+        if (isSuperAdmin) {
+          return (
+            <div className="space-y-12 pb-12">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Management Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Recruitment Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Admin &amp; Visa Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         // Render role-specific dashboards
         switch (currentUserRole) {
           case 'Recruitment':
@@ -318,7 +363,7 @@ export default function AppShell({
           />
         );
       case 'forecast':
-        return <PredictiveForecast applicants={applicants} selectedApplicantId={selectedApplicantId} />;
+        return <PredictiveForecast applicants={applicants} applicantsLoaded={applicantsLoaded} selectedApplicantId={selectedApplicantId} />;
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
@@ -368,39 +413,19 @@ export default function AppShell({
       {/* Main Content Area */}
       <div className="flex-1 h-full flex flex-col overflow-hidden relative">
         {/* Top Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 absolute left-4 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={globalSearchQuery}
-                onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && globalSearchQuery.trim()) {
-                    const q = globalSearchQuery.toLowerCase();
-                    const found = applicants.find(
-                      (a) =>
-                        String(a.applicantCode || '').toLowerCase().includes(q) ||
-                        String(a.id || '').toLowerCase().includes(q) ||
-                        String(a.name || '').toLowerCase().includes(q) ||
-                        String(a.role || '').toLowerCase().includes(q)
-                    );
-                    if (found) {
-                      handleViewApplicant(found.id);
-                      setGlobalSearchQuery('');
-                    } else {
-                      showToastNotification(`No applicant found matching "${globalSearchQuery}"`);
-                    }
-                  }
-                }}
-
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-[#0EA5E9] outline-none transition-all placeholder:text-slate-500 font-medium"
-                placeholder="Search applicant code or name (press Enter)..."
-              />
-            </div>
-          </div>
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
+          <div className="flex items-center gap-4 flex-1"></div>
           <div className="flex items-center gap-6 ml-4">
+            {isSuperAdmin && onSuperAdminDashboard && (
+              <button
+                onClick={onSuperAdminDashboard}
+                className="flex text-xs font-extrabold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 hover:border-amber-400 px-3 py-1.5 rounded-full items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                title="Return to Superadmin Multi-Tenant Dashboard"
+              >
+                <Crown size={13} className="text-amber-600" />
+                <span className="hidden sm:inline">Super Admin Console</span>
+              </button>
+            )}
             <button
               onClick={() => setCurrentView('profile')}
               className="hidden md:flex text-xs font-bold text-[#0F172A] bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200 hover:border-[#0EA5E9] hover:bg-[#0EA5E9]/5 transition-all cursor-pointer"
@@ -434,7 +459,9 @@ export default function AppShell({
         </div>
 
         {/* Views Container */}
-        <div className="flex-1 overflow-y-auto p-8 relative">{renderView()}</div>
+        <div className="flex-1 overflow-y-auto px-6 sm:px-8 pb-8 relative">
+          <div className="pt-6">{renderView()}</div>
+        </div>
       </div>
     </div>
   );

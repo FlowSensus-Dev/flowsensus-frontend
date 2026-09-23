@@ -1004,6 +1004,7 @@ export default function App() {
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
+  const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
@@ -1015,12 +1016,15 @@ export default function App() {
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
+  const liveLoadInFlight = useRef<{ generation: number; requestId: number } | null>(null);
 
   const syncLiveSession = (userId: string | null) => {
     if (!liveSession.current.ready || liveSession.current.userId !== userId) {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
+      liveLoadInFlight.current = null;
       setApplicants([]);
+      setApplicantsLoaded(false);
       setActivityLogs([]);
       setExpenses([]);
     }
@@ -1029,9 +1033,12 @@ export default function App() {
   const fetchLiveBackendData = async () => {
     if (!liveMounted.current || !liveSession.current.userId) return;
     const generation = liveSession.current.generation;
+    if (liveLoadInFlight.current?.generation === generation) return;
     const requestId = ++liveRequestId.current;
+    liveLoadInFlight.current = { generation, requestId };
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
+    try {
     // 1. Fetch live applicants from /applicants
     try {
       const res = await api.get('/applicants');
@@ -1112,6 +1119,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Backend applicants fetch error:', err);
+    } finally {
+      if (isCurrent()) setApplicantsLoaded(true);
     }
 
     if (!isCurrent()) return;
@@ -1166,6 +1175,11 @@ export default function App() {
     } catch (err) {
       console.warn('Backend financial records unavailable:', err);
     }
+    } finally {
+      if (liveLoadInFlight.current?.requestId === requestId) {
+        liveLoadInFlight.current = null;
+      }
+    }
   };
 
   // Check active Supabase session and load live backend data on startup
@@ -1180,16 +1194,17 @@ export default function App() {
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
+          // SECURITY FIX: Only trust server-managed app_metadata.is_super_admin.
+          // user_metadata is user-writable and MUST NOT be trusted for Super Admin elevation.
+          // No email-based fallback — Super Admin must be provisioned via app_metadata.
           const isSuper = Boolean(
-            session.user.app_metadata?.is_super_admin ||
-            session.user.user_metadata?.is_super_admin ||
-            email === "admin@findstaff.ph"
+            session.user.app_metadata?.is_super_admin
           );
           if (isSuper) {
             setIsSuperAdmin(true);
             setCurrentUserRole("Management");
             setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
-            setCurrentUserName("Superadmin (admin@findstaff.ph)");
+            setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
             showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
@@ -1222,7 +1237,11 @@ export default function App() {
     checkSession();
 
     // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // STALE-RACE FIX: Skip INITIAL_SESSION — checkSession() already handles the
+    // startup fetch. Firing again here would launch a second concurrent GET
+    // /applicants that could later overwrite locally-applied PUT updates.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') return;
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user) {
         const generation = liveSession.current.generation;
@@ -1238,13 +1257,16 @@ export default function App() {
     return () => {
       liveMounted.current = false;
       ++liveRequestId.current;
+      liveLoadInFlight.current = null;
       subscription.unsubscribe();
     };
   }, []);
 
-  // When switching into app view, ensure data is populated if empty
+  // When switching into app view, ensure data is populated if not yet loaded.
+  // STALE-RACE FIX: Guard with !applicantsLoaded so this does not fire an extra
+  // concurrent GET while the startup/login fetch chain is already in-flight.
   useEffect(() => {
-    if (view === "app" && applicants.length === 0) {
+    if (view === "app" && !applicantsLoaded && applicants.length === 0) {
       fetchLiveBackendData();
     }
   }, [view]);
@@ -1273,7 +1295,8 @@ export default function App() {
     name?: string,
     applicantId?: string,
     isSuper?: boolean,
-    roles?: UserRole[]
+    roles?: UserRole[],
+    _rememberMe?: boolean
   ) => {
     if (isSuper) {
       setIsSuperAdmin(true);
@@ -1281,6 +1304,7 @@ export default function App() {
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
+      showAppView("app");
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
@@ -1326,6 +1350,10 @@ export default function App() {
 
   const updateWorkflow = (updates: Partial<WorkflowState>) => setWorkflow((prev) => ({ ...prev, ...updates }));
   const updateApplicant = (id: string, updates: Partial<ApplicantRecord>) => {
+    // STALE-RACE FIX: Bump liveRequestId so any GET /applicants that was in-flight
+    // before this PUT completes cannot overwrite the state we are about to set.
+    // The in-flight request will fail the isCurrent() check and be discarded.
+    ++liveRequestId.current;
     setApplicants((prev) => prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a));
   };
   const addApplicant = (newApplicant: ApplicantRecord) => {
@@ -1411,23 +1439,14 @@ export default function App() {
               </button>
             </div>
           )}
-          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} />
+          <LoginScreen onLogin={handleLogin} applicants={applicants} tenantName={tenantName} onBack={() => { setView("landing"); setTenantName(""); }} />
         </div>
       );
     }
 
     return (
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
-        {isSuperAdmin && (
-          <SuperAdminBar
-            currentUserRole={currentUserRole}
-            currentUserName={currentUserName}
-            onSwitchRole={handleSwitchSuperAdminRole}
-            onLogout={handleLogout}
-            onSuperAdminDashboard={() => showAppView('super-admin')}
-            backendOnline={true}
-          />
-        )}
+        {/* SuperAdminBar removed: Super Admin navigation is now handled inline in Sidebar and top bar */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {currentUserRole === "Applicant" ? (
             <ApplicantPortal onLogout={handleLogout} />
@@ -1441,6 +1460,7 @@ export default function App() {
               workflow={workflow}
               updateWorkflow={updateWorkflow}
               applicants={applicants}
+              applicantsLoaded={applicantsLoaded}
               updateApplicant={updateApplicant}
               addApplicant={addApplicant}
               activityLogs={activityLogs}

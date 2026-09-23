@@ -10,6 +10,7 @@ import {
   Layers,
   Sparkles,
   Play,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
@@ -44,11 +45,13 @@ interface PipelineForecastData {
 
 interface PredictiveForecastProps {
   applicants?: ApplicantRecord[];
+  applicantsLoaded?: boolean;
   selectedApplicantId?: string;
 }
 
 export default function PredictiveForecast({
   applicants = [],
+  applicantsLoaded = true,
   selectedApplicantId = '1',
 }: PredictiveForecastProps) {
   const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(null);
@@ -283,6 +286,15 @@ export default function PredictiveForecast({
       : hasRecord && forecastResponse?.record?.estimated_remaining_days !== undefined
       ? `${forecastResponse.record.estimated_remaining_days.toFixed(1)} d`
       : null;
+
+  if (!applicantsLoaded) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 flex flex-col justify-center items-center h-64">
+        <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
+        <p className="text-sm text-slate-500 mt-4 font-medium">Loading forecasting data...</p>
+      </div>
+    );
+  }
 
   if (!selectedApplicant) {
     return (

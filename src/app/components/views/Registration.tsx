@@ -161,6 +161,14 @@ export default function Registration({
   const [activeSection, setActiveSection] = useState<string>('personal');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── Draft protection ──────────────────────────────────────────────────────
+  // isDirty: true once the user edits any field after the last hydration.
+  // lastHydratedId: the applicant ID that was last used to populate the form.
+  // Both are refs so they don't trigger re-renders.
+  const isDirty = useRef(false);
+  const lastHydratedId = useRef<string>('');
+
+
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
@@ -207,7 +215,8 @@ export default function Registration({
 
   const [photo, setPhoto] = useState('');
   const [personal, setPersonal] = useState(BLANK_PERSONAL);
-  const setP = (k: string, v: string) => setPersonal(p => ({ ...p, [k]: v }));
+  // Mark the form dirty on every user-initiated field change.
+  const setP = (k: string, v: string) => { isDirty.current = true; setPersonal(p => ({ ...p, [k]: v })); };
 
   const calcAge = (dob: string) => {
     if (!dob) return '';
@@ -217,33 +226,33 @@ export default function Registration({
 
   // ── Identifications ───────────────────────────────────────────────────────
   const [ids, setIds] = useState<IdentificationRecord[]>([]);
-  const addId = () => setIds(p => [...p, { id: `id-${Date.now()}`, type: 'Passport', identificationNo: '', expiryDate: '' }]);
-  const setId = (id: string, k: keyof IdentificationRecord, v: string) => setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
-  const removeId = (id: string) => setIds(p => p.filter(x => x.id !== id));
+  const addId = () => { isDirty.current = true; setIds(p => [...p, { id: `id-${Date.now()}`, type: 'Passport', identificationNo: '', expiryDate: '' }]); };
+  const setId = (id: string, k: keyof IdentificationRecord, v: string) => { isDirty.current = true; setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
+  const removeId = (id: string) => { isDirty.current = true; setIds(p => p.filter(x => x.id !== id)); };
 
   // ── Education ─────────────────────────────────────────────────────────────
   const [education, setEducation] = useState<EducationRecord[]>([]);
-  const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: 'College', school: '', course: '', yearGraduated: '' }]);
-  const setEdu = (id: string, k: keyof EducationRecord, v: string) => setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
-  const removeEdu = (id: string) => setEducation(p => p.filter(x => x.id !== id));
+  const addEdu = () => { isDirty.current = true; setEducation(p => [...p, { id: `edu-${Date.now()}`, level: 'College', school: '', course: '', yearGraduated: '' }]); };
+  const setEdu = (id: string, k: keyof EducationRecord, v: string) => { isDirty.current = true; setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
+  const removeEdu = (id: string) => { isDirty.current = true; setEducation(p => p.filter(x => x.id !== id)); };
 
   // ── Certificates ──────────────────────────────────────────────────────────
   const [certs, setCerts] = useState<CertificateRecord[]>([]);
-  const addCert = () => setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]);
-  const setCert = (id: string, k: keyof CertificateRecord, v: string) => setCerts(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
-  const removeCert = (id: string) => setCerts(p => p.filter(x => x.id !== id));
+  const addCert = () => { isDirty.current = true; setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]); };
+  const setCert = (id: string, k: keyof CertificateRecord, v: string) => { isDirty.current = true; setCerts(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
+  const removeCert = (id: string) => { isDirty.current = true; setCerts(p => p.filter(x => x.id !== id)); };
 
   // ── Trainings ─────────────────────────────────────────────────────────────
   const [trainings, setTrainings] = useState<TrainingRecord[]>([]);
-  const addTraining = () => setTrainings(p => [...p, { id: `tr-${Date.now()}`, trainingName: '', certNo: '', duration: '', noOfHours: '', conductedBy: '', skillsAcquired: '' }]);
-  const setTraining = (id: string, k: keyof TrainingRecord, v: string) => setTrainings(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
-  const removeTraining = (id: string) => setTrainings(p => p.filter(x => x.id !== id));
+  const addTraining = () => { isDirty.current = true; setTrainings(p => [...p, { id: `tr-${Date.now()}`, trainingName: '', certNo: '', duration: '', noOfHours: '', conductedBy: '', skillsAcquired: '' }]); };
+  const setTraining = (id: string, k: keyof TrainingRecord, v: string) => { isDirty.current = true; setTrainings(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
+  const removeTraining = (id: string) => { isDirty.current = true; setTrainings(p => p.filter(x => x.id !== id)); };
 
   // ── Languages ─────────────────────────────────────────────────────────────
   const [languages, setLanguages] = useState<LanguageRecord[]>([]);
-  const addLang = () => setLanguages(p => [...p, { id: `lang-${Date.now()}`, language: '', competency: 'Basic', spokenRating: 5, writtenRating: 5 }]);
-  const setLang = (id: string, k: keyof LanguageRecord, v: string | number) => setLanguages(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
-  const removeLang = (id: string) => setLanguages(p => p.filter(x => x.id !== id));
+  const addLang = () => { isDirty.current = true; setLanguages(p => [...p, { id: `lang-${Date.now()}`, language: '', competency: 'Basic', spokenRating: 5, writtenRating: 5 }]); };
+  const setLang = (id: string, k: keyof LanguageRecord, v: string | number) => { isDirty.current = true; setLanguages(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
+  const removeLang = (id: string) => { isDirty.current = true; setLanguages(p => p.filter(x => x.id !== id)); };
 
   // ── Employment History ────────────────────────────────────────────────────
   const [employment, setEmployment] = useState<EmploymentRecord[]>([]);
@@ -252,6 +261,8 @@ export default function Registration({
 
   // ── Clear form helper ─────────────────────────────────────────────────────
   const resetBlankForm = () => {
+    isDirty.current = false;
+    lastHydratedId.current = '';
     setPersonal(BLANK_PERSONAL);
     setSelectedJobOrderId('');
     setIds([]);
@@ -265,6 +276,50 @@ export default function Registration({
     setPhoto('');
   };
 
+  // ── Hydrate form from a given applicant record ────────────────────────────
+  // Centralised so both effects and save-completion can call it.
+  const hydrateForm = (app: ApplicantRecord) => {
+    isDirty.current = false;
+    lastHydratedId.current = String(app.id);
+    setPersonal({
+      firstName: app.firstName || '',
+      middleName: app.middleName || '',
+      lastName: app.lastName || '',
+      email: app.email || '',
+      contact: app.contact || '',
+      dateOfBirth: app.dateOfBirth || '',
+      age: String(app.age || ''),
+      sex: app.sex || 'Male',
+      religion: app.religion || 'Roman Catholic',
+      civilStatus: app.civilStatus || 'Single',
+      weight: app.weight || '',
+      height: app.height || '',
+      presentAddress: app.presentAddress || '',
+      provincialAddress: app.provincialAddress || '',
+      role: app.role || '',
+    });
+    if (app.selectedJobOrderId) setSelectedJobOrderId(app.selectedJobOrderId);
+    if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
+    else setIds([]);
+    if (app.education && app.education.length > 0) setEducation(app.education);
+    else setEducation([]);
+    if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
+    else setCerts([]);
+    if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
+    else setTrainings([]);
+    if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
+    else setLanguages([]);
+    if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
+    else setEmployment([]);
+    if (app.employmentFlags && app.employmentFlags.length > 0) {
+      setFlags(app.employmentFlags);
+      setFlagsAnalyzed(true);
+    } else {
+      setFlags([]);
+      setFlagsAnalyzed(false);
+    }
+  };
+
   // ── Sync with prop when parent changes applicant selection ───────────────
   useEffect(() => {
     if (initialId) {
@@ -272,51 +327,37 @@ export default function Registration({
     }
   }, [initialId]);
 
-  // ── Sync form data when selecting applicant from prop ─────────────────────
+  // ── Sync form data when selected applicant ID changes ────────────────────
+  // DRAFT PROTECTION: This effect runs when selectedApplicantId changes OR
+  // when the applicants array reference changes (e.g. background GET refresh).
+  //
+  // Rules:
+  //   1. If selectedApplicantId changed from what we last hydrated →
+  //      always hydrate (intentional applicant switch). Clears dirty.
+  //   2. If only applicants changed but selectedApplicantId is the same →
+  //      skip hydration if isDirty — the user has unsaved edits that must
+  //      not be overwritten by a background GET /applicants response.
+  //   3. "new" mode always resets to blank immediately.
   useEffect(() => {
     if (selectedApplicantId === 'new') {
-      resetBlankForm();
+      if (lastHydratedId.current !== 'new') {
+        resetBlankForm();
+        lastHydratedId.current = 'new';
+      }
       return;
     }
+
+    const idChanged = lastHydratedId.current !== String(selectedApplicantId);
+
+    // Background array refresh on same applicant while form is dirty → skip.
+    if (!idChanged && isDirty.current) {
+      return;
+    }
+
+    // First hydration for this applicant, or intentional applicant switch.
     const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
     if (app) {
-      setPersonal({
-        firstName: app.firstName || '',
-        middleName: app.middleName || '',
-        lastName: app.lastName || '',
-        email: app.email || '',
-        contact: app.contact || '',
-        dateOfBirth: app.dateOfBirth || '',
-        age: String(app.age || ''),
-        sex: app.sex || 'Male',
-        religion: app.religion || 'Roman Catholic',
-        civilStatus: app.civilStatus || 'Single',
-        weight: app.weight || '',
-        height: app.height || '',
-        presentAddress: app.presentAddress || '',
-        provincialAddress: app.provincialAddress || '',
-        role: app.role || '',
-      });
-      if (app.selectedJobOrderId) setSelectedJobOrderId(app.selectedJobOrderId);
-      if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
-      else setIds([]);
-      if (app.education && app.education.length > 0) setEducation(app.education);
-      else setEducation([]);
-      if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
-      else setCerts([]);
-      if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
-      else setTrainings([]);
-      if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
-      else setLanguages([]);
-      if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
-      else setEmployment([]);
-      if (app.employmentFlags && app.employmentFlags.length > 0) {
-        setFlags(app.employmentFlags);
-        setFlagsAnalyzed(true);
-      } else {
-        setFlags([]);
-        setFlagsAnalyzed(false);
-      }
+      hydrateForm(app);
     }
   }, [selectedApplicantId, applicants]);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -337,12 +378,13 @@ export default function Registration({
     "Other (see details below)",
   ];
 
-  const addEmp = () => setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
+  const addEmp = () => { isDirty.current = true; setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]); };
   const setEmp = (id: string, k: keyof EmploymentRecord, v: string | boolean) => {
+    isDirty.current = true;
     setEmployment(p => p.map(x => x.id === id ? { ...x, [k]: v, ...(k === 'isPresent' && v ? { dateEnded: '' } : {}) } : x));
     setFlagsAnalyzed(false);
   };
-  const removeEmp = (id: string) => { setEmployment(p => p.filter(x => x.id !== id)); setFlagsAnalyzed(false); };
+  const removeEmp = (id: string) => { isDirty.current = true; setEmployment(p => p.filter(x => x.id !== id)); setFlagsAnalyzed(false); };
 
   const runFlagEngine = () => {
     const newFlags = analyzeEmployment(employment);
@@ -514,10 +556,16 @@ export default function Registration({
             civil_status: personal.civilStatus,
             present_address: personal.presentAddress,
             provincial_address: personal.provincialAddress,
-            applied_role: personal.role,
             skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
           });
         }
+
+        // DRAFT PROTECTION: Clear dirty flag so that the next background refresh
+        // is allowed to hydrate (the saved values are now authoritative).
+        // updateApplicant also bumps liveRequestId in App.tsx to invalidate
+        // any in-flight GET /applicants that predates this PUT.
+        isDirty.current = false;
+        lastHydratedId.current = String(selectedApplicantId);
 
         if (updateApplicant) {
           updateApplicant(selectedApplicantId, {
@@ -536,7 +584,6 @@ export default function Registration({
             height: personal.height,
             presentAddress: personal.presentAddress,
             provincialAddress: personal.provincialAddress,
-            role: personal.role,
             skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             employmentHistory: employment,
@@ -676,12 +723,13 @@ export default function Registration({
         </label>
         <select
           value={selectedJobOrderId}
+          disabled={selectedApplicantId !== 'new'}
           onChange={e => {
             setSelectedJobOrderId(e.target.value);
             const jo = openJobOrders.find(j => j.id === e.target.value);
             if (jo) setPersonal(p => ({ ...p, role: jo.position }));
           }}
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white disabled:cursor-not-allowed disabled:bg-slate-100"
         >
           <option value="">-- Select job order applicant is applying for --</option>
           {openJobOrders.map(jo => (
@@ -690,6 +738,9 @@ export default function Registration({
             </option>
           ))}
         </select>
+        {selectedApplicantId !== 'new' && (
+          <p className="mt-2 text-xs text-slate-500">Job order and target role belong to a specific application and cannot be changed in this profile form.</p>
+        )}
         {selectedJobOrderId && (() => {
           const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
           return jo ? (
@@ -826,7 +877,7 @@ export default function Registration({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Target Position / Role</label>
-                <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} placeholder="e.g. Industrial Welder" />
+                <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} disabled={selectedApplicantId !== 'new'} placeholder="e.g. Industrial Welder" />
               </div>
             </div>
           </div>
