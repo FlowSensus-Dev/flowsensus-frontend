@@ -132,7 +132,7 @@ function LandingPage({ onRegister, onSignIn }: { onRegister: () => void; onSignI
               </div>
               <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
                 <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> No credit card required</span>
-                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Subdomain provisioned instantly</span>
+                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Dedicated tenant workspaces</span>
                 <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Cancel any time</span>
               </div>
             </div>

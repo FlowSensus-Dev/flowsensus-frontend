@@ -11,32 +11,24 @@ import { api } from '../../lib/api';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type AdminView = 'overview' | 'tenants' | 'onboarding' | 'audit';
-type TenantStatus = 'active' | 'pending' | 'suspended';
-
-interface Tenant {
-  id: string; agencyName: string; licenseNo: string; gmName: string; email: string;
-  workspaceUrl: string; status: TenantStatus; onboardedDate: string; lastActive: string;
-  totalUsers: number; totalApplicants: number;
-}
 
 // Verified field names from GET /audit-logs AuditLogResponse schema
 interface LiveAuditLog {
   audit_log_id: number | null;
   action: string;
-  details: string;
-  performed_by: string | null;
-  department: string | null;
+  details: string | null;
   created_at: string | null;
-  applicant_id: number | string | null;
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const STATUS_CFG: Record<TenantStatus, { label: string; color: string; bg: string }> = {
-  active:    { label: 'Active',           color: '#10B981', bg: '#ECFDF5' },
-  pending:   { label: 'Pending Approval', color: '#F59E0B', bg: '#FFFBEB' },
-  suspended: { label: 'Suspended',        color: '#EF4444', bg: '#FEF2F2' },
-};
+function getStatusCfg(rawStatus: string | null) {
+  const s = (rawStatus || '').toLowerCase().trim();
+  if (s === 'active') return { label: 'Active', color: '#10B981', bg: '#ECFDF5' };
+  if (s === 'pending approval') return { label: 'Pending Approval', color: '#F59E0B', bg: '#FFFBEB' };
+  if (s === 'suspended') return { label: 'Suspended', color: '#EF4444', bg: '#FEF2F2' };
+  return { label: rawStatus || 'Unknown', color: '#64748B', bg: '#F1F5F9' };
+}
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'agency-name';
@@ -102,19 +94,19 @@ export default function SuperAdminDashboard({
 }: SuperAdminDashboardProps) {
   const [view, setView] = useState<AdminView>('overview');
 
-  // Tenant data — no list endpoint exists, stays empty
-  const [tenants] = useState<Tenant[]>([]);
+  // Agency Workspace data fetched from GET /agency-workspaces
+  const [agencies, setAgencies] = useState<any[]>([]);
+  const [agenciesLoading, setAgenciesLoading] = useState(false);
+  const [agenciesError, setAgenciesError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<TenantStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Staff users — fetched from verified GET /users
   const [staffCount, setStaffCount] = useState<number | null>(null);
   const [staffLoading, setStaffLoading] = useState(false);
 
-  // Agency Onboarding form — UI only, no fake success state
-  const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
-
-  // Fetch staff count on mount via verified GET /users
+  // Agency Onboarding form state
+  const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });  // Fetch staff count on mount via verified GET /users
   useEffect(() => {
     let cancelled = false;
     const fetchStaff = async () => {
@@ -134,18 +126,46 @@ export default function SuperAdminDashboard({
     return () => { cancelled = true; };
   }, []);
 
-  // Tenant metrics — all empty (no GET /agency-workspaces list endpoint)
+  // Fetch agencies on mount
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAgencies = async () => {
+      setAgenciesLoading(true);
+      setAgenciesError(null);
+      try {
+        const res = await api.get('/agency-workspaces');
+        if (!cancelled && res.data && Array.isArray(res.data)) {
+          setAgencies(res.data);
+        }
+      } catch (err: any) {
+        if (!cancelled) setAgenciesError(err.message || 'Failed to fetch workspaces');
+      } finally {
+        if (!cancelled) setAgenciesLoading(false);
+      }
+    };
+    fetchAgencies();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Tenant metrics
   const tenantMetrics = {
-    total:     '—',
-    active:    '—',
-    pending:   '—',
-    suspended: '—',
+    total: agencies.length,
+    active: agencies.filter(a => (a.workspace_status || '').toLowerCase().trim() === 'active').length,
+    pending: agencies.filter(a => (a.workspace_status || '').toLowerCase().trim() === 'pending approval').length,
+    suspended: agencies.filter(a => (a.workspace_status || '').toLowerCase().trim() === 'suspended').length,
   };
 
-  const filtered = tenants.filter(t => {
+  const filtered = agencies.filter(a => {
     const q = search.toLowerCase();
-    return (q === '' || t.agencyName.toLowerCase().includes(q) || t.licenseNo.toLowerCase().includes(q))
-      && (statusFilter === 'all' || t.status === statusFilter);
+    const name = (a.agency_name || '').toLowerCase();
+    const lic = (a.poea_license_no || '').toLowerCase();
+    const stat = (a.workspace_status || '').toLowerCase().trim();
+    const matchesSearch = q === '' || name.includes(q) || lic.includes(q);
+    const matchesStatus = statusFilter === 'all' ||
+      (statusFilter === 'active' && stat === 'active') ||
+      (statusFilter === 'pending' && stat === 'pending approval') ||
+      (statusFilter === 'suspended' && stat === 'suspended');
+    return matchesSearch && matchesStatus;
   });
 
   // App retains backend snake_case values alongside operational display fields.
@@ -154,10 +174,7 @@ export default function SuperAdminDashboard({
     audit_log_id:  log.audit_log_id ?? null,
     action:        log.action         ?? '—',
     details:       log.details        ?? '—',
-    performed_by:  log.audit_log_id != null ? log.performed_by ?? null : log.performedBy || null,
-    department:    log.department     ?? null,
     created_at:    log.audit_log_id != null ? log.created_at ?? null : log.timestamp || null,
-    applicant_id:  log.audit_log_id != null ? log.applicant_id ?? null : log.applicantId || null,
   }));
 
   // Live current date/time
@@ -287,18 +304,27 @@ export default function SuperAdminDashboard({
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Tenant metrics — no list endpoint exists → 0 / unavailable */}
                 {[
-                  { label: 'Total Agencies',    value: tenantMetrics.total,    icon: <Building2    size={17} />, color: '#6366F1', sub: 'No agency list endpoint' },
-                  { label: 'Active Workspaces', value: tenantMetrics.active,   icon: <CheckCircle2 size={17} />, color: '#10B981', sub: 'Unavailable' },
-                  { label: 'Pending Approval',  value: tenantMetrics.pending,  icon: <Clock        size={17} />, color: '#F59E0B', sub: 'Unavailable' },
-                  { label: 'Suspended',         value: tenantMetrics.suspended, icon: <AlertTriangle size={17} />, color: '#EF4444', sub: 'Unavailable' },
+                  { label: 'Total Agencies',    value: tenantMetrics.total,    icon: <Building2    size={17} />, color: '#6366F1', sub: 'From verified GET /agency-workspaces' },
+                  { label: 'Active Workspaces', value: tenantMetrics.active,   icon: <CheckCircle2 size={17} />, color: '#10B981', sub: 'Workspaces active' },
+                  { label: 'Pending Approval',  value: tenantMetrics.pending,  icon: <Clock        size={17} />, color: '#F59E0B', sub: 'Awaiting review' },
+                  { label: 'Suspended',         value: tenantMetrics.suspended, icon: <AlertTriangle size={17} />, color: '#EF4444', sub: 'Access disabled' },
                 ].map(m => (
                   <div key={m.label} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-slate-500 text-xs font-medium">{m.label}</p>
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: m.color + '18', color: m.color }}>{m.icon}</div>
                     </div>
-                    <p className="text-3xl font-black text-[#0F172A]">{m.value}</p>
-                    <p className="text-slate-400 text-xs mt-1">{m.sub}</p>
+                    {agenciesLoading ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Loader2 size={18} className="text-slate-400 animate-spin" />
+                        <span className="text-slate-400 text-sm">Loading…</span>
+                      </div>
+                    ) : agenciesError ? (
+                      <p className="text-xl font-bold text-red-500 text-sm">—</p>
+                    ) : (
+                      <p className="text-3xl font-black text-[#0F172A]">{m.value}</p>
+                    )}
+                    <p className="text-slate-400 text-xs mt-1">{agenciesError ? 'Failed to load' : m.sub}</p>
                   </div>
                 ))}
 
@@ -338,12 +364,22 @@ export default function SuperAdminDashboard({
                 </div>
               </div>
 
-              {/* Workspace Status Breakdown — no list endpoint */}
+              {/* Workspace Status Summary */}
               <div className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
-                <h3 className="font-bold text-[#0F172A] text-sm mb-4">Workspace Status Breakdown</h3>
-                <p className="text-slate-400 text-sm text-center py-4">
-                  No tenant data available — GET /agency-workspaces list endpoint not yet implemented
-                </p>
+                <h3 className="font-bold text-[#0F172A] text-sm mb-4">Workspace Status Overview</h3>
+                {agenciesLoading ? (
+                  <p className="text-slate-400 text-sm text-center py-4 flex items-center justify-center gap-2"><Loader2 className="animate-spin" size={16} /> Loading workspace data...</p>
+                ) : agenciesError ? (
+                  <p className="text-red-400 text-sm text-center py-4">Error loading workspace data: {agenciesError}</p>
+                ) : agencies.length === 0 ? (
+                  <p className="text-slate-400 text-sm text-center py-4">No agencies found.</p>
+                ) : (
+                  <div className="flex gap-4 items-center justify-around py-2">
+                    <div className="text-center"><p className="text-2xl font-bold text-[#10B981]">{tenantMetrics.active}</p><p className="text-xs text-slate-500">Active</p></div>
+                    <div className="text-center"><p className="text-2xl font-bold text-[#F59E0B]">{tenantMetrics.pending}</p><p className="text-xs text-slate-500">Pending</p></div>
+                    <div className="text-center"><p className="text-2xl font-bold text-[#EF4444]">{tenantMetrics.suspended}</p><p className="text-xs text-slate-500">Suspended</p></div>
+                  </div>
+                )}
               </div>
 
               {/* Recent System Activity — from activityLogs[] state (GET /audit-logs) */}
@@ -389,7 +425,7 @@ export default function SuperAdminDashboard({
                   />
                 </div>
                 <select
-                  value={statusFilter} onChange={e => setStatusFilter(e.target.value as TenantStatus | 'all')}
+                  value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                   className="px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6366F1] transition-all"
                 >
                   <option value="all">All Statuses</option>
@@ -404,31 +440,51 @@ export default function SuperAdminDashboard({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#F8FAFC] border-b border-slate-100">
-                        {['Agency', 'License No.', 'Workspace URL', 'Status', 'Onboarded', 'Last Active'].map(h => (
+                        {['Agency', 'License No.', 'Workspace URL', 'Status', 'Created'].map(h => (
                           <th key={h} className="text-left px-5 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {filtered.length === 0 ? (
+                      {agenciesLoading ? (
                         <tr>
-                          <td colSpan={6} className="px-5 py-10 text-center text-slate-400 text-sm">
-                            No records found — GET /agency-workspaces list endpoint not yet implemented
+                          <td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">
+                            <div className="flex items-center justify-center gap-2">
+                              <Loader2 className="animate-spin" size={18} /> Loading workspaces...
+                            </div>
+                          </td>
+                        </tr>
+                      ) : agenciesError ? (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-10 text-center text-red-400 text-sm">
+                            {agenciesError}
+                          </td>
+                        </tr>
+                      ) : agencies.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">
+                            No agencies/workspaces yet.
+                          </td>
+                        </tr>
+                      ) : filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">
+                            No matching records found.
                           </td>
                         </tr>
                       ) : filtered.map(t => {
-                        const cfg = STATUS_CFG[t.status];
+                        const cfg = getStatusCfg(t.workspace_status);
                         return (
-                          <tr key={t.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <tr key={t.agency_id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="px-5 py-3.5 max-w-[200px]">
-                              <p className="font-semibold text-[#0F172A] text-sm truncate">{t.agencyName}</p>
-                              <p className="text-slate-400 text-[11px] mt-0.5">{t.id} · {t.totalUsers} users · {t.totalApplicants} applicants</p>
+                              <p className="font-semibold text-[#0F172A] text-sm truncate">{t.agency_name || '—'}</p>
+                              <p className="text-slate-400 text-[11px] mt-0.5">ID: {t.agency_id}</p>
                             </td>
                             <td className="px-5 py-3.5">
-                              <span className="font-['JetBrains_Mono',monospace] text-xs text-slate-600 whitespace-nowrap">{t.licenseNo}</span>
+                              <span className="font-['JetBrains_Mono',monospace] text-xs text-slate-600 whitespace-nowrap">{t.poea_license_no || '—'}</span>
                             </td>
                             <td className="px-5 py-3.5">
-                              <span className="font-['JetBrains_Mono',monospace] text-xs text-[#6366F1]">{t.workspaceUrl}</span>
+                              <span className="font-['JetBrains_Mono',monospace] text-xs text-[#6366F1]">{t.workspace_url || '—'}</span>
                             </td>
                             <td className="px-5 py-3.5">
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap" style={{ color: cfg.color, background: cfg.bg }}>
@@ -436,8 +492,7 @@ export default function SuperAdminDashboard({
                                 {cfg.label}
                               </span>
                             </td>
-                            <td className="px-5 py-3.5 text-xs text-slate-500 whitespace-nowrap">{t.onboardedDate}</td>
-                            <td className="px-5 py-3.5 text-xs text-slate-500 whitespace-nowrap">{t.lastActive}</td>
+                            <td className="px-5 py-3.5 text-xs text-slate-500 whitespace-nowrap">{fmtTimestamp(t.created_at)}</td>
                           </tr>
                         );
                       })}
@@ -445,7 +500,7 @@ export default function SuperAdminDashboard({
                   </table>
                 </div>
                 <div className="px-5 py-3 border-t border-slate-100 bg-[#F8FAFC] text-xs text-slate-400">
-                  Showing {filtered.length} of {tenants.length} tenants
+                  Showing {filtered.length} of {agencies.length} tenants
                 </div>
               </div>
             </div>
@@ -454,11 +509,13 @@ export default function SuperAdminDashboard({
           {/* ── Agency Onboarding ────────────────────────────────────── */}
           {view === 'onboarding' && (
             <div className="grid lg:grid-cols-2 gap-6">
-              {/* Onboarding form — UI only, no backend POST connected tonight */}
+              {/* Onboarding form — UI only for platform operator data collection */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <h3 className="font-bold text-[#0F172A] text-base mb-1">Provision New Tenant Workspace</h3>
-                <p className="text-slate-500 text-xs mb-1">Creates a new agency workspace on the FlowSensus platform.</p>
-                <p className="text-amber-600 text-xs font-semibold mb-5">⚠ Backend provisioning not connected in this build. Form fields only.</p>
+                <h3 className="font-bold text-[#0F172A] text-base mb-1">Prepare New Tenant Workspace</h3>
+                <p className="text-slate-500 text-xs mb-1">Collect agency onboarding information for the FlowSensus platform.</p>
+                <p className="text-[#6366F1] text-xs font-semibold mb-5 bg-[#6366F1]/10 px-3 py-2 rounded border border-[#6366F1]/20">
+                  Tenant provisioning is not yet enabled. Agency onboarding information can be prepared here; workspace and administrator account provisioning require the platform onboarding service.
+                </p>
                 <form onSubmit={e => e.preventDefault()} className="space-y-4">
                   {[
                     { key: 'agencyName', label: 'Agency Name',            placeholder: 'Registered agency name' },
@@ -500,9 +557,9 @@ export default function SuperAdminDashboard({
                   <button
                     type="submit"
                     disabled
-                    className="w-full bg-slate-200 text-slate-400 font-semibold py-3 rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full bg-slate-200 text-slate-400 font-semibold py-3 rounded-xl cursor-not-allowed flex items-center justify-center gap-2 mt-4"
                   >
-                    Provision Workspace (Backend not connected) <ArrowRight size={16} />
+                    Provision Workspace <ArrowRight size={16} />
                   </button>
                 </form>
               </div>
@@ -513,9 +570,9 @@ export default function SuperAdminDashboard({
                   <ul className="space-y-3">
                     {[
                       'Agency holds a valid, non-expired POEA/DMW license',
-                      'B2B inquiry form has been submitted and reviewed',
-                      "General Manager's identity and corporate email confirmed",
-                      'No existing workspace exists for this license number',
+                      'Agency onboarding/request information has been reviewed',
+                      "General Manager identity and corporate email have been confirmed",
+                      'No existing workspace exists for the same license number',
                     ].map((item, i) => (
                       <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
                         <Check size={14} className="text-[#6366F1] flex-shrink-0 mt-0.5" />
@@ -525,13 +582,13 @@ export default function SuperAdminDashboard({
                   </ul>
                 </div>
                 <div className="bg-[#0B1628] rounded-xl p-5 border border-white/5">
-                  <p className="text-[#818CF8] text-[10px] font-bold uppercase tracking-widest mb-3">What happens on provision</p>
+                  <p className="text-[#818CF8] text-[10px] font-bold uppercase tracking-widest mb-3">Intended Provisioning Workflow</p>
                   <div className="space-y-3">
                     {[
-                      { step: '01', text: 'Workspace ID generated and isolated database schema created' },
-                      { step: '02', text: 'Subdomain registered and tenant routing configured' },
-                      { step: '03', text: 'Admin account created and credentials emailed to GM' },
-                      { step: '04', text: 'Tenant appears in Tenant Management as Active' },
+                      { step: '01', text: 'Agency workspace record is created and assigned a tenant identity' },
+                      { step: '02', text: 'Workspace access is configured for the agency' },
+                      { step: '03', text: 'Initial agency administrator access is provisioned' },
+                      { step: '04', text: 'Agency becomes available for platform-level tenant management' },
                     ].map(s => (
                       <div key={s.step} className="flex items-start gap-3">
                         <span className="font-['JetBrains_Mono',monospace] text-[#6366F1] font-bold text-xs flex-shrink-0 mt-px">{s.step}</span>
@@ -559,7 +616,7 @@ export default function SuperAdminDashboard({
                     <thead>
                       <tr className="bg-[#F8FAFC] border-b border-slate-100">
                         {/* Only columns that map to verified AuditLogResponse fields */}
-                        {['Log ID', 'Timestamp', 'Action', 'Performed By', 'Department', 'Applicant ID'].map(h => (
+                        {['Log ID', 'Timestamp', 'Action', 'Details'].map(h => (
                           <th key={h} className="text-left px-5 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -573,28 +630,22 @@ export default function SuperAdminDashboard({
                         </tr>
                       ) : liveAuditLogs.map((log, i) => (
                         <tr key={log.audit_log_id || i} className="hover:bg-[#F8FAFC] transition-colors">
-                          <td className="px-5 py-3.5">
+                          <td className="px-5 py-3.5 align-top">
                             <span className="font-['JetBrains_Mono',monospace] text-xs text-[#6366F1]">
                               {log.audit_log_id ?? '—'}
                             </span>
                           </td>
-                          <td className="px-5 py-3.5 whitespace-nowrap">
+                          <td className="px-5 py-3.5 align-top whitespace-nowrap">
                             <span className="font-['JetBrains_Mono',monospace] text-xs text-slate-500">
                               {fmtTimestamp(log.created_at)}
                             </span>
                           </td>
-                          <td className="px-5 py-3.5 whitespace-nowrap">
+                          <td className="px-5 py-3.5 align-top whitespace-nowrap">
                             <span className="text-sm font-medium text-[#0F172A]">{log.action}</span>
                           </td>
-                          <td className="px-5 py-3.5">
-                            <span className="text-xs text-slate-600">{log.performed_by || '—'}</span>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className="text-xs text-slate-500">{log.department || '—'}</span>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className="font-['JetBrains_Mono',monospace] text-xs text-slate-400">
-                              {log.applicant_id != null && log.applicant_id !== '' ? `#${log.applicant_id}` : '—'}
+                          <td className="px-5 py-3.5 align-top">
+                            <span className="text-xs text-slate-600 whitespace-pre-wrap">
+                              {log.details && log.details !== '—' ? log.details : '—'}
                             </span>
                           </td>
                         </tr>
