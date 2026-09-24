@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
 import Sidebar from './Sidebar';
@@ -70,6 +71,11 @@ interface AppShellProps {
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
+  globalStaff?: any[];
+  globalRoles?: any[];
+  globalPipelineForecast?: any;
 }
 
 export default function AppShell({
@@ -89,21 +95,29 @@ export default function AppShell({
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
+  globalJobOrders,
+  globalEmployers,
+  globalStaff,
+  globalRoles,
+  globalPipelineForecast,
 }: AppShellProps) {
-  const [currentView, setCurrentView] = useState<ViewType>(() => {
-    const saved = localStorage.getItem('flowsensus_current_view');
-    return (saved as ViewType) || 'dashboard';
-  });
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Extract current view from URL (e.g. /app/dashboard)
+  const pathParts = location.pathname.split('/');
+  const rawView = pathParts[2];
+  const currentView: ViewType = (rawView as ViewType) || 'dashboard';
+
+  const setCurrentView = (view: ViewType) => {
+    navigate(`/app/${view}`);
+  };
+
   const [selectedApplicantId, setSelectedApplicantId] = useState<string>(() => {
     return localStorage.getItem('flowsensus_selected_applicant') || 'new';
   });
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
-
-  // Persist currentView to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('flowsensus_current_view', currentView);
-  }, [currentView]);
 
   // Persist selectedApplicantId to localStorage whenever it changes
   useEffect(() => {
@@ -127,11 +141,6 @@ export default function AppShell({
     setTimeout(() => setShowToast(false), 3500);
   };
 
-  useEffect(() => {
-    if (currentUserRole) {
-      showToastNotification(`Authenticated via RBAC as ${currentUserName}`);
-    }
-  }, [currentUserRole, currentUserName]);
 
   const handleViewApplicant = (applicantId: string) => {
     setSelectedApplicantId(String(applicantId));
@@ -279,6 +288,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             addApplicant={addApplicant}
             applicants={applicants}
+            globalJobOrders={globalJobOrders}
           />
         );
       case 'screening':
@@ -304,6 +314,7 @@ export default function AppShell({
             selectedApplicantId={selectedApplicantId}
             onSelectApplicant={setSelectedApplicantId}
             workflow={workflow}
+            globalJobOrders={globalJobOrders}
           />
         );
 
@@ -381,13 +392,27 @@ export default function AppShell({
           />
         );
       case 'forecast':
-        return <PredictiveForecast applicants={applicants} applicantsLoaded={applicantsLoaded} selectedApplicantId={selectedApplicantId} />;
+        return (
+          <PredictiveForecast 
+            applicants={applicants} 
+            applicantsLoaded={applicantsLoaded} 
+            selectedApplicantId={selectedApplicantId} 
+            globalPipelineForecast={globalPipelineForecast}
+          />
+        );
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
         return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
       case 'users':
-        return <UserManagement currentUserName={currentUserName} addActivityLog={addActivityLog} />;
+        return (
+          <UserManagement 
+            currentUserName={currentUserName} 
+            addActivityLog={addActivityLog} 
+            globalStaff={globalStaff}
+            globalRoles={globalRoles}
+          />
+        );
       case 'profile':
         return (
           <UserProfile
@@ -402,9 +427,22 @@ export default function AppShell({
       case 'evaluation':
         return <EvaluationSetup showToast={showToastNotification} currentUserName={currentUserName} />;
       case 'joborders':
-        return <JobOrders showToast={showToastNotification} currentUserName={currentUserName} />;
+        return (
+          <JobOrders 
+            showToast={showToastNotification} 
+            currentUserName={currentUserName} 
+            globalJobOrders={globalJobOrders}
+            globalEmployers={globalEmployers}
+          />
+        );
       case 'employers':
-        return <EmployerProfiles showToast={showToastNotification} currentUserName={currentUserName} />;
+        return (
+          <EmployerProfiles 
+            showToast={showToastNotification} 
+            currentUserName={currentUserName} 
+            globalEmployers={globalEmployers}
+          />
+        );
       default:
         return (
           <Dashboard

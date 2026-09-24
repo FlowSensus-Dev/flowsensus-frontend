@@ -11,6 +11,7 @@ interface SmartProfilingProps {
   selectedApplicantId?: string;
   onSelectApplicant?: (applicantId: string) => void;
   workflow?: WorkflowState;
+  globalJobOrders?: any[];
 }
 
 export default function SmartProfiling({
@@ -21,6 +22,7 @@ export default function SmartProfiling({
   selectedApplicantId = '1',
   onSelectApplicant,
   workflow,
+  globalJobOrders,
 }: SmartProfilingProps) {
   const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId || '');
   const [selectedJobOrder, setSelectedJobOrder] = useState('');
@@ -41,7 +43,7 @@ export default function SmartProfiling({
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
       try {
-        const res = await api.get('/job-orders');
+        const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
@@ -63,7 +65,7 @@ export default function SmartProfiling({
       }
     };
     fetchLiveJobOrders();
-  }, []);
+  }, [globalJobOrders]);
 
   const isLocked = !workflow?.screeningPassed;
 

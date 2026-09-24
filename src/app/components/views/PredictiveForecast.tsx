@@ -47,12 +47,14 @@ interface PredictiveForecastProps {
   applicants?: ApplicantRecord[];
   applicantsLoaded?: boolean;
   selectedApplicantId?: string;
+  globalPipelineForecast?: any;
 }
 
 export default function PredictiveForecast({
   applicants = [],
   applicantsLoaded = true,
   selectedApplicantId = '1',
+  globalPipelineForecast,
 }: PredictiveForecastProps) {
   const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -147,7 +149,7 @@ export default function PredictiveForecast({
     setLoading(true);
     setBackendError(null);
     try {
-      const res = await api.get('/forecasting/pipeline');
+      const res = globalPipelineForecast ? { data: globalPipelineForecast } : await api.get('/forecasting/pipeline');
       setPipelineData(res.data);
       if (res.data.stages && res.data.stages.length > 0) {
         setSimStage(res.data.stages[1]?.stage_name || res.data.stages[0]?.stage_name);
@@ -196,7 +198,7 @@ export default function PredictiveForecast({
 
   useEffect(() => {
     fetchPipeline();
-  }, []);
+  }, [globalPipelineForecast]);
 
   // Clear the previous application before paint and invalidate requests on selection changes.
   useLayoutEffect(() => {

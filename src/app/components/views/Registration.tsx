@@ -154,6 +154,7 @@ interface RegistrationProps {
   updateApplicant?: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   addApplicant?: (newApplicant: ApplicantRecord) => void;
   applicants?: ApplicantRecord[];
+  globalJobOrders?: any[];
 }
 
 const BLANK_PERSONAL = {
@@ -172,6 +173,7 @@ export default function Registration({
   showToast, currentUserName, addActivityLog,
   selectedApplicantId: initialId = 'new',
   updateApplicant, addApplicant, applicants = [],
+  globalJobOrders,
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
   const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
@@ -185,7 +187,7 @@ export default function Registration({
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
       try {
-        const res = await api.get('/job-orders');
+        const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
@@ -205,7 +207,7 @@ export default function Registration({
       }
     };
     fetchLiveJobOrders();
-  }, []);
+  }, [globalJobOrders]);
 
   // Proof document upload helper (uploads directly to Supabase Storage)
   const proofUpload = (

@@ -4,10 +4,14 @@ import App from "./app/App.tsx";
 import "./styles/index.css";
 import { ErrorBoundary } from "./app/components/ErrorBoundary";
 
+import { BrowserRouter } from "react-router";
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
     </ErrorBoundary>
   </StrictMode>
 );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router";
 import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
@@ -1076,27 +1077,27 @@ function ProvisioningScreen({ form, onDone }: { form: FormData; onDone: () => vo
 type AppView = "landing" | "register" | "provisioning" | "app" | "super-admin";
 
 export default function App() {
-  const [view, setView] = useState<AppView>("landing");
-  
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  let view: AppView = "landing";
+  if (location.pathname.startsWith('/app')) view = "app";
+  else if (location.pathname.startsWith('/super-admin')) view = "super-admin";
+  else if (location.pathname.startsWith('/register')) view = "register";
+  else if (location.pathname.startsWith('/provisioning')) view = "provisioning";
+
   const navigateTo = (nextView: AppView) => {
-    window.history.pushState({ view: nextView }, '', '/');
-    setView(nextView);
+    let path = "/";
+    if (nextView === "app") {
+      // Preserve inner module path if navigating to app, otherwise default to /app
+      path = location.pathname.startsWith("/app/") ? location.pathname : "/app";
+    } else if (nextView !== "landing") {
+      path = `/${nextView}`;
+    }
+    navigate(path);
   };
 
   const showAppView = (nextView: AppView) => navigateTo(nextView); // Keep for backwards compatibility within App.tsx
-
-  useEffect(() => {
-    window.history.replaceState({ view: "landing" }, '', '/');
-    const handlePopState = (e: PopStateEvent) => {
-      if (e.state && e.state.view) {
-        setView(e.state.view);
-      } else {
-        setView("landing");
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
   const [registrationForm, setRegistrationForm] = useState<FormData | null>(null);
   const [tenantName, setTenantName] = useState("");
 
@@ -1111,6 +1112,13 @@ export default function App() {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // ── Global Shared Context Data ──────────────────────────────────────────
+  const [globalJobOrders, setGlobalJobOrders] = useState<any[] | null>(null);
+  const [globalEmployers, setGlobalEmployers] = useState<any[] | null>(null);
+  const [globalStaff, setGlobalStaff] = useState<any[] | null>(null);
+  const [globalRoles, setGlobalRoles] = useState<any[] | null>(null);
+  const [globalPipelineForecast, setGlobalPipelineForecast] = useState<any | null>(null);
 
   // ── Live Backend Data Fetching ──────────────────────────────────────────
   const liveSession = useRef<{ userId: string | null; generation: number; ready: boolean }>({
@@ -1138,10 +1146,15 @@ export default function App() {
       generation === liveSession.current.generation && requestId === liveRequestId.current;
 
     // Fetch all resources in parallel
-    const [applicantsRes, logsRes, expRes] = await Promise.allSettled([
+    const [applicantsRes, logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes] = await Promise.allSettled([
       api.get('/applicants'),
       api.get('/audit-logs'),
-      api.get('/financial/records')
+      api.get('/financial/records'),
+      api.get('/job-orders'),
+      api.get('/employers'),
+      api.get('/users'),
+      api.get('/users/roles'),
+      api.get('/forecasting/pipeline')
     ]);
 
     if (!isCurrent()) return;
@@ -1271,6 +1284,15 @@ export default function App() {
     } else if (expRes.status === 'rejected') {
       console.warn('Backend financial records unavailable:', expRes.reason);
     }
+    
+    if (!isCurrent()) return;
+
+    // 4. Populate global shared context to prevent duplicate fetches in child views
+    if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
+    if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
+    if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
+    if (rolesRes.status === 'fulfilled' && rolesRes.value.data) setGlobalRoles(rolesRes.value.data);
+    if (forecastRes.status === 'fulfilled' && forecastRes.value.data) setGlobalPipelineForecast(forecastRes.value.data);
   };
 
   // Check active Supabase session and load live backend data on startup
@@ -1344,7 +1366,7 @@ export default function App() {
     checkSession();
 
     // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user) {
         const generation = liveSession.current.generation;
@@ -1369,6 +1391,17 @@ export default function App() {
     if (view === "app" && applicants.length === 0) {
       fetchLiveBackendData();
     }
+  }, [view]);
+
+  // Background polling to silently refresh data every 30 seconds
+  useEffect(() => {
+    if (view !== "app" && view !== "super-admin") return;
+    
+    const interval = setInterval(() => {
+      fetchLiveBackendData();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [view]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
@@ -1618,6 +1651,11 @@ export default function App() {
               onLogout={handleLogout}
               isSuperAdmin={isSuperAdmin}
               onSuperAdminDashboard={() => showAppView('super-admin')}
+              globalJobOrders={globalJobOrders || undefined}
+              globalEmployers={globalEmployers || undefined}
+              globalStaff={globalStaff || undefined}
+              globalRoles={globalRoles || undefined}
+              globalPipelineForecast={globalPipelineForecast || undefined}
             />
           )}
         </div>

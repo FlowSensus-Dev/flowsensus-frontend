@@ -17,6 +17,8 @@ interface StaffAccount {
 interface UserManagementProps {
   currentUserName: string;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
+  globalStaff?: any[];
+  globalRoles?: any[];
 }
 
 
@@ -43,7 +45,7 @@ const DEFAULT_ROLES_CATALOG: AvailableRole[] = [
   { id: 'Management', label: 'Management', desc: 'Analytics & Hub', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
 ];
 
-export default function UserManagement({ currentUserName, addActivityLog }: UserManagementProps) {
+export default function UserManagement({ currentUserName, addActivityLog, globalStaff, globalRoles }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -66,7 +68,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
 
         // 1. Fetch available roles directly from the Supabase role table via backend
         try {
-          const rolesRes = await api.get('/users/roles');
+          const rolesRes = globalRoles ? { data: globalRoles } : await api.get('/users/roles');
           if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
             const mappedRoles: AvailableRole[] = rolesRes.data.map((r: any) => {
               const sysRole = (r.system_role || r.role_name) as UserRole;
@@ -89,7 +91,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
         }
 
         // 2. Fetch live users
-        const res = await api.get('/users');
+        const res = globalStaff ? { data: globalStaff } : await api.get('/users');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveStaff: StaffAccount[] = res.data.map((u: any) => {
             const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
