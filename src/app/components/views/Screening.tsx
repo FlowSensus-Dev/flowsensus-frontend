@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import api from '../../../lib/api';
 import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight, Loader2 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 
@@ -53,15 +54,103 @@ export default function Screening({
     setStopReason('');
   };
 
-  const [examScores, setExamScores] = useState({
-    englishProficiency: 85,
-    tradeSkills: 92,
-    iqAptitude: 75,
-    personalityEQ: 'Suitable' as 'Suitable' | 'Not Suitable' | 'Pending',
+  const [examScores, setExamScores] = useState<{
+    englishProficiency: number | string;
+    tradeSkills: number | string;
+    iqAptitude: number | string;
+    personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending';
+    employerSpecific: string;
+  }>({
+    englishProficiency: 0,
+    tradeSkills: 0,
+    iqAptitude: 0,
+    personalityEQ: 'Pending',
     employerSpecific: '',
   });
 
+  const [isSaving, setIsSaving] = useState(false);
   const selectedApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
+  const initializedForApplicantId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (selectedApplicant?.id !== initializedForApplicantId.current) {
+      if (selectedApplicant?.testScores) {
+        setExamScores({
+          englishProficiency: selectedApplicant.testScores.englishProficiency ?? 0,
+          tradeSkills: selectedApplicant.testScores.tradeSkills ?? 0,
+          iqAptitude: selectedApplicant.testScores.iqAptitude ?? 0,
+          personalityEQ: selectedApplicant.testScores.personalityEQ || 'Pending',
+          employerSpecific: selectedApplicant.testScores.employerSpecific || '',
+        });
+      } else {
+        setExamScores({
+          englishProficiency: 0,
+          tradeSkills: 0,
+          iqAptitude: 0,
+          personalityEQ: 'Pending',
+          employerSpecific: '',
+        });
+      }
+      initializedForApplicantId.current = selectedApplicant?.id || null;
+    }
+  }, [selectedApplicant]);
+
+  const handleScoreChange = (field: 'englishProficiency' | 'tradeSkills' | 'iqAptitude', val: string) => {
+    if (val === '') {
+      setExamScores({ ...examScores, [field]: '' });
+      return;
+    }
+    const parsed = parseInt(val, 10);
+    if (isNaN(parsed)) return;
+
+    if (parsed > 100) {
+      showToast('Score cannot exceed 100');
+      setExamScores({ ...examScores, [field]: 100 });
+      return;
+    }
+    if (parsed < 0) {
+      showToast('Score cannot be negative');
+      setExamScores({ ...examScores, [field]: 0 });
+      return;
+    }
+    
+    setExamScores({ ...examScores, [field]: parsed });
+  };
+
+  const handleSaveProgress = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const applicantId = selectedApplicant?.id;
+      if (!applicantId) throw new Error("No applicant selected");
+
+      const cleanScores = {
+        englishProficiency: Number(examScores.englishProficiency) || 0,
+        tradeSkills: Number(examScores.tradeSkills) || 0,
+        iqAptitude: Number(examScores.iqAptitude) || 0,
+        personalityEQ: examScores.personalityEQ,
+        employerSpecific: examScores.employerSpecific || undefined,
+      };
+
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          testScores: cleanScores
+        });
+      }
+
+      updateApplicant(applicantId, {
+        testScores: cleanScores
+      });
+
+      showToast('✓ Scores saved successfully.');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save scores to the server. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handlePass = () => {
     setShowModal(true);
@@ -72,22 +161,40 @@ export default function Screening({
     setIsGenerating(true);
     try {
       const applicantId = selectedApplicantId;
+      if (!applicantId) throw new Error("No applicant selected");
 
-      updateWorkflow({ screeningPassed: true });
-      updateApplicant(applicantId, {
+      const cleanScores = {
+        englishProficiency: Number(examScores.englishProficiency) || 0,
+        tradeSkills: Number(examScores.tradeSkills) || 0,
+        iqAptitude: Number(examScores.iqAptitude) || 0,
+        personalityEQ: examScores.personalityEQ,
+        employerSpecific: examScores.employerSpecific || undefined,
+      };
+
+      const updates = {
         phase: 2,
         status: 'Medical Clearance',
         currentHandler: 'Maria Santos',
         currentDepartment: 'Admin',
         phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
-        testScores: {
-          englishProficiency: examScores.englishProficiency,
-          tradeSkills: examScores.tradeSkills,
-          iqAptitude: examScores.iqAptitude,
-          personalityEQ: examScores.personalityEQ,
-          employerSpecific: examScores.employerSpecific || undefined,
-        },
-      });
+        testScores: cleanScores,
+      };
+
+      // Ensure the backend persists the change
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          current_phase: 2,
+          application_status: 'Medical Clearance',
+          current_handler: 'Maria Santos',
+          current_department: 'Admin',
+          phase_description: 'Medical referral generated, awaiting examination results from clinic',
+          testScores: updates.testScores
+        });
+      }
+
+      updateWorkflow({ screeningPassed: true });
+      updateApplicant(applicantId, updates);
 
       addActivityLog({
         applicantId,
@@ -99,15 +206,18 @@ export default function Screening({
 
       setShowModal(false);
       showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save scores to the server. Please try again.');
     } finally {
       setIsGenerating(false);
     }
   };
 
   // Calculate passing status
-  const englishPass = examScores.englishProficiency >= 60;
-  const tradePass = examScores.tradeSkills >= 70;
-  const iqPass = examScores.iqAptitude >= 50;
+  const englishPass = typeof examScores.englishProficiency === 'number' && examScores.englishProficiency >= 60;
+  const tradePass = typeof examScores.tradeSkills === 'number' && examScores.tradeSkills >= 70;
+  const iqPass = typeof examScores.iqAptitude === 'number' && examScores.iqAptitude >= 50;
   const eqPass = examScores.personalityEQ === 'Suitable';
 
   const allPassed = englishPass && tradePass && iqPass && eqPass;
@@ -262,10 +372,9 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.englishProficiency}
-                onChange={(e) =>
-                  setExamScores({ ...examScores, englishProficiency: parseInt(e.target.value) || 0 })
-                }
+                onChange={(e) => handleScoreChange('englishProficiency', e.target.value)}
                 max={100}
+                min={0}
                 className="w-32 border-2 border-slate-300 px-4 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
@@ -304,8 +413,9 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.tradeSkills}
-                onChange={(e) => setExamScores({ ...examScores, tradeSkills: parseInt(e.target.value) || 0 })}
+                onChange={(e) => handleScoreChange('tradeSkills', e.target.value)}
                 max={100}
+                min={0}
                 className="w-32 border-2 border-[#F59E0B] px-4 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
@@ -339,8 +449,9 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.iqAptitude}
-                onChange={(e) => setExamScores({ ...examScores, iqAptitude: parseInt(e.target.value) || 0 })}
+                onChange={(e) => handleScoreChange('iqAptitude', e.target.value)}
                 max={100}
+                min={0}
                 className="w-32 border-2 border-slate-300 px-4 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
@@ -421,6 +532,14 @@ export default function Screening({
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={handleSaveProgress}
+                disabled={isSaving}
+                className="px-5 py-3 border-2 border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
+                Save Progress
+              </button>
               <button
                 onClick={() => setShowStopModal(true)}
                 className="px-5 py-3 border-2 border-red-200 text-red-500 text-sm font-bold hover:bg-red-50 hover:border-red-400 rounded-lg flex items-center gap-2 transition-all"
