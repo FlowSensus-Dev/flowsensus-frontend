@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { Search, Bell, LogOut, Info, Crown } from 'lucide-react';
+import { Search, Bell, LogOut, Info, Crown, Loader2 } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
@@ -155,6 +155,15 @@ export default function AppShell({
   };
 
   const renderView = () => {
+    if (applicantsLoaded === false) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <Loader2 size={36} className="animate-spin mb-4 text-[#0EA5E9]" />
+          <p className="font-medium text-lg">Loading Workspace Data...</p>
+        </div>
+      );
+    }
+
     const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId)) || applicants[0];
 
 
@@ -393,10 +402,10 @@ export default function AppShell({
         );
       case 'forecast':
         return (
-          <PredictiveForecast 
-            applicants={applicants} 
-            applicantsLoaded={applicantsLoaded} 
-            selectedApplicantId={selectedApplicantId} 
+          <PredictiveForecast
+            applicants={applicants}
+            applicantsLoaded={applicantsLoaded}
+            selectedApplicantId={selectedApplicantId}
             globalPipelineForecast={globalPipelineForecast}
           />
         );
@@ -406,9 +415,9 @@ export default function AppShell({
         return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
       case 'users':
         return (
-          <UserManagement 
-            currentUserName={currentUserName} 
-            addActivityLog={addActivityLog} 
+          <UserManagement
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
             globalStaff={globalStaff}
             globalRoles={globalRoles}
           />
@@ -428,18 +437,18 @@ export default function AppShell({
         return <EvaluationSetup showToast={showToastNotification} currentUserName={currentUserName} />;
       case 'joborders':
         return (
-          <JobOrders 
-            showToast={showToastNotification} 
-            currentUserName={currentUserName} 
+          <JobOrders
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
             globalJobOrders={globalJobOrders}
             globalEmployers={globalEmployers}
           />
         );
       case 'employers':
         return (
-          <EmployerProfiles 
-            showToast={showToastNotification} 
-            currentUserName={currentUserName} 
+          <EmployerProfiles
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
             globalEmployers={globalEmployers}
           />
         );
@@ -506,9 +515,8 @@ export default function AppShell({
 
         {/* Toast Notification */}
         <div
-          className={`absolute top-20 right-8 bg-[#0F172A] text-white px-5 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-[#0EA5E9] transition-transform duration-300 ${
-            showToast ? 'translate-x-0' : 'translate-x-[150%]'
-          }`}
+          className={`absolute top-20 right-8 bg-[#0F172A] text-white px-5 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-[#0EA5E9] transition-transform duration-300 ${showToast ? 'translate-x-0' : 'translate-x-[150%]'
+            }`}
         >
           <Info className="w-5 h-5 text-[#0EA5E9]" />
           <span>{toastMessage}</span>

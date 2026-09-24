@@ -160,8 +160,8 @@ interface RegistrationProps {
 const BLANK_PERSONAL = {
   firstName: '', middleName: '', lastName: '',
   email: '', contact: '',
-  dateOfBirth: '', age: '', sex: 'Male',
-  religion: 'Roman Catholic', civilStatus: 'Single',
+  dateOfBirth: '', age: '', sex: '',
+  religion: '', civilStatus: '',
   weight: '', height: '',
   presentAddress: '',
   provincialAddress: '',
@@ -183,9 +183,12 @@ export default function Registration({
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
+  const [isLoadingJobOrders, setIsLoadingJobOrders] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
+      setIsLoadingJobOrders(true);
       try {
         const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
@@ -204,6 +207,8 @@ export default function Registration({
         }
       } catch (err) {
         console.warn('Could not fetch live job orders for registration:', err);
+      } finally {
+        setIsLoadingJobOrders(false);
       }
     };
     fetchLiveJobOrders();
@@ -860,21 +865,21 @@ export default function Registration({
 
       {/* Mode Banner */}
       <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${selectedApplicantId === 'new'
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          : 'bg-sky-50 border-sky-200 text-sky-900'
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+        : 'bg-sky-50 border-sky-200 text-sky-900'
         }`}>
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${selectedApplicantId === 'new'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-[#0EA5E9] text-white'
+            ? 'bg-emerald-600 text-white'
+            : 'bg-[#0EA5E9] text-white'
             }`}>
             {selectedApplicantId === 'new' ? <UserPlus size={20} /> : <User size={20} />}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${selectedApplicantId === 'new'
-                  ? 'bg-emerald-200 text-emerald-800'
-                  : 'bg-sky-200 text-sky-800'
+                ? 'bg-emerald-200 text-emerald-800'
+                : 'bg-sky-200 text-sky-800'
                 }`}>
                 {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`}`}
               </span>
@@ -940,7 +945,7 @@ export default function Registration({
           }}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
         >
-          <option value="">-- Select job order applicant is applying for --</option>
+          <option value="">{isLoadingJobOrders ? 'Loading job orders...' : '-- Select job order applicant is applying for --'}</option>
           {openJobOrders.map(jo => (
             <option key={jo.id} value={jo.id}>
               {jo.code} · {jo.position} · {jo.country} ({jo.employerName}) · {jo.available} slot{jo.available !== 1 ? 's' : ''} open
@@ -972,8 +977,8 @@ export default function Registration({
                   type="button"
                   onClick={() => scrollToSection(s.id)}
                   className={`flex-1 min-w-fit px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${activeSection === s.id
-                      ? 'bg-[#0F172A] text-white shadow-sm'
-                      : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
                     } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
                 >
                   <span>{s.label}</span>
@@ -1506,8 +1511,8 @@ export default function Registration({
                                 key={r}
                                 onClick={() => setSelectedQuickReason(r)}
                                 className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${selectedQuickReason === r
-                                    ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
+                                  ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
                                   }`}
                               >
                                 {r}
@@ -1590,10 +1595,10 @@ export default function Registration({
             onClick={handleSave}
             disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                : selectedApplicantId === 'new'
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
-                  : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
+              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+              : selectedApplicantId === 'new'
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
+                : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
               }`}
           >
             {isSubmitting ? (

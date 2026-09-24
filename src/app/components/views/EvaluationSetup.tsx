@@ -243,7 +243,16 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {tests.map(test => {
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center">
+                          <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
+                          <p className="text-[#64748B] font-medium">Loading evaluation templates...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : tests.map(test => {
                     const meta = TEST_TYPE_META[test.type];
                     return (
                       <tr key={test.id} className={`border-b border-slate-100 last:border-0 ${test.isActive ? 'hover:bg-slate-50' : 'opacity-50 bg-slate-50/50'}`}>

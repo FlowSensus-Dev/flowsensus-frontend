@@ -1145,23 +1145,14 @@ export default function App() {
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
 
-    // Fetch all resources in parallel
-    const [applicantsRes, logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes] = await Promise.allSettled([
-      api.get('/applicants'),
-      api.get('/audit-logs'),
-      api.get('/financial/records'),
-      api.get('/job-orders'),
-      api.get('/employers'),
-      api.get('/users'),
-      api.get('/users/roles'),
-      api.get('/forecasting/pipeline')
-    ]);
+    // Fetch ONLY critical resources first to unblock UI
+    try {
+      const applicantsRes = await api.get('/applicants');
+      if (!isCurrent()) return;
 
-    if (!isCurrent()) return;
-
-    // 1. Process applicants
-    if (applicantsRes.status === 'fulfilled' && applicantsRes.value.data && Array.isArray(applicantsRes.value.data)) {
-      const liveMapped: ApplicantRecord[] = applicantsRes.value.data.map((item: any) => {
+      // 1. Process applicants
+      if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
+      const liveMapped: ApplicantRecord[] = applicantsRes.data.map((item: any) => {
         const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
         const parsedSkills = Array.isArray(item.skills)
           ? item.skills
@@ -1235,15 +1226,31 @@ export default function App() {
         };
       });
       setApplicants(liveMapped);
-    } else if (applicantsRes.status === 'rejected') {
-      console.warn('Backend applicants fetch error:', applicantsRes.reason);
+      }
+    } catch (err) {
+      console.warn('Backend applicants fetch error:', err);
+    } finally {
+      if (isCurrent()) {
+        setApplicantsLoaded(true);
+      }
     }
-    setApplicantsLoaded(true);
 
     if (!isCurrent()) return;
 
-    // 2. Process logs
-    if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
+    // Deferred fetching for non-critical resources
+    Promise.allSettled([
+      api.get('/audit-logs'),
+      api.get('/financial/records'),
+      api.get('/job-orders'),
+      api.get('/employers'),
+      api.get('/users'),
+      api.get('/users/roles'),
+      api.get('/forecasting/pipeline')
+    ]).then(([logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes]) => {
+      if (!isCurrent()) return;
+
+      // 2. Process logs
+      if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
       const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
         audit_log_id: l.audit_log_id,
         applicant_id: l.applicant_id,
@@ -1287,12 +1294,13 @@ export default function App() {
     
     if (!isCurrent()) return;
 
-    // 4. Populate global shared context to prevent duplicate fetches in child views
-    if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
-    if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
-    if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
-    if (rolesRes.status === 'fulfilled' && rolesRes.value.data) setGlobalRoles(rolesRes.value.data);
-    if (forecastRes.status === 'fulfilled' && forecastRes.value.data) setGlobalPipelineForecast(forecastRes.value.data);
+      // 4. Populate global shared context to prevent duplicate fetches in child views
+      if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
+      if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
+      if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
+      if (rolesRes.status === 'fulfilled' && rolesRes.value.data) setGlobalRoles(rolesRes.value.data);
+      if (forecastRes.status === 'fulfilled' && forecastRes.value.data) setGlobalPipelineForecast(forecastRes.value.data);
+    });
   };
 
   // Check active Supabase session and load live backend data on startup
