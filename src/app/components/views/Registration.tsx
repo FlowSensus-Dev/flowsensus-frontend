@@ -338,9 +338,13 @@ export default function Registration({
   }, [initialId]);
 
   // ── Sync form data when selecting applicant from prop ─────────────────────
+  const initializedForApplicantId = useRef<string | null>(null);
   useEffect(() => {
+    if (initializedForApplicantId.current === selectedApplicantId) return;
+
     if (selectedApplicantId === 'new') {
       resetBlankForm();
+      initializedForApplicantId.current = 'new';
       return;
     }
     const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
@@ -384,6 +388,7 @@ export default function Registration({
         setFlagsAnalyzed(false);
       }
       setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
+      initializedForApplicantId.current = selectedApplicantId;
     }
   }, [selectedApplicantId, applicants]);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -635,16 +640,13 @@ export default function Registration({
           employer_id: selectedJob?.employerId ? parseInt(String(selectedJob.employerId), 10) : undefined,
           country_id: selectedJob?.countryId ? parseInt(String(selectedJob.countryId), 10) : undefined,
           skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
-          certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
-          work_experience: employment.map(e => ({
-            companyName: e.company,
-            position: e.position,
-            startDate: e.dateStarted,
-            endDate: e.dateEnded,
-            country: e.country,
-            isOverseas: e.country !== 'Philippines',
-            responsibilities: e.reasonForLeaving ? [e.reasonForLeaving] : []
-          })),
+          certifications: certs,
+          identifications: ids,
+          education: education,
+          trainings: trainings,
+          languages: languages,
+          employment_history: employment,
+          employment_flags: flags,
           photo_url: photo || undefined,
           current_phase: 1,
           status: 'Initial Screening',
@@ -733,6 +735,13 @@ export default function Registration({
             provincial_address: personal.provincialAddress?.trim() || null,
             applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
             skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+            certifications: certs,
+            identifications: ids,
+            education: education,
+            trainings: trainings,
+            languages: languages,
+            employment_history: employment,
+            employment_flags: flags,
             photo_url: photo ? photo : null,
           };
 
@@ -775,6 +784,11 @@ export default function Registration({
             selectedJobOrderId: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? undefined : currentApplicant?.selectedJobOrderId),
             skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+            identifications: ids,
+            education: education,
+            certificateRecords: certs,
+            trainings: trainings,
+            languageRecords: languages,
             employmentHistory: employment,
             employmentFlags: flags,
           });

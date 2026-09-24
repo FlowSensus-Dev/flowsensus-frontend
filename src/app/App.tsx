@@ -1206,9 +1206,14 @@ export default function App() {
           weight: item.weight || '65 kg',
           skills: parsedSkills,
           certifications: parsedCerts,
+          identifications: item.identifications || [],
+          education: item.education || [],
+          certificateRecords: item.certifications || parsedCerts,
+          trainings: item.trainings || [],
+          languageRecords: item.languages || [],
           workExperience: parsedWork,
           address: item.present_address || item.provincial_address || 'Philippines',
-          employmentHistory: parsedWork.map((w: any, idx: number) => ({
+          employmentHistory: item.employment_history || parsedWork.map((w: any, idx: number) => ({
             id: `eh-${item.applicant_id}-${idx}`,
             company: w.companyName || w.company || 'Previous Employer',
             position: w.position || 'Worker',
@@ -1218,8 +1223,8 @@ export default function App() {
             isPresent: Boolean(w.isPresent),
             reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
           })),
-          employmentFlags: [],
-          testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          employmentFlags: item.employment_flags || [],
+          testScores: item.test_scores || { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
           matchScore: 90,
           photo: item.photo_url || item.photo || '',
           photoDataUrl: item.photo_url || item.photo || '',
