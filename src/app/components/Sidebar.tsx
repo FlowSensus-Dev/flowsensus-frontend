@@ -122,7 +122,13 @@ export default function Sidebar({
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
         { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
-        { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
+      ],
+    },
+    {
+      title: 'Staff Administration',
+      roles: ['Admin', 'Management'],
+      items: [
+        { id: 'users', label: 'User Management', icon: Users, roles: ['Admin', 'Management'] },
       ],
     },
   ];

@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import type { FormEvent } from 'react';
+import { isAxiosError } from 'axios';
 import {
   Building2, BarChart3, ScrollText, UserPlus, LogOut, Search, Shield,
   Users, CheckCircle2, AlertTriangle, Clock, ArrowRight, Layers,
@@ -106,7 +108,82 @@ export default function SuperAdminDashboard({
   const [staffLoading, setStaffLoading] = useState(false);
 
   // Agency Onboarding form state
-  const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });  // Fetch staff count on mount via verified GET /users
+  const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
+  const provisioningLock = useRef(false);
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [agencyReload, setAgencyReload] = useState(0);
+  const [provisionResult, setProvisionResult] = useState<{
+    agencyName: string; workspaceUrl: string; email: string; temporaryPassword: string;
+  } | null>(null);
+  const [copyMessage, setCopyMessage] = useState('');
+
+  const handleProvision = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (provisioningLock.current || provisionResult) return;
+    setProvisionError(null);
+    const payload = {
+      agencyName: form.agencyName.trim(),
+      poeaLicenseNo: form.licenseNo.trim(),
+      workspaceUrl: `${form.slug.trim()}.flowsensus.com`,
+      workspaceStatus: 'Active',
+      adminFullName: form.gmName.trim(),
+      adminEmail: form.email.trim(),
+    };
+    if (!payload.agencyName || !payload.poeaLicenseNo || !payload.adminFullName || !payload.adminEmail || !form.slug.trim()) {
+      setProvisionError('Please complete all required fields, including the workspace URL.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.adminEmail)) {
+      setProvisionError('Please enter a valid corporate email address.');
+      return;
+    }
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(form.slug.trim())) {
+      setProvisionError('Use a workspace slug of 1–63 letters, numbers, or hyphens, starting and ending with a letter or number.');
+      return;
+    }
+    provisioningLock.current = true;
+    setProvisioning(true);
+    try {
+      const { data } = await api.post('/agency-workspaces/provision', payload);
+      setProvisionResult({
+        agencyName: data.agency?.agency_name || payload.agencyName,
+        workspaceUrl: data.agency?.workspace_url || payload.workspaceUrl,
+        email: data.admin.email,
+        temporaryPassword: data.admin.temporary_password,
+      });
+      setCopyMessage('');
+      setAgencyReload(value => value + 1);
+    } catch (error: unknown) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      const detail = isAxiosError(error) ? error.response?.data?.detail : undefined;
+      // Render only short, plain backend messages; never response objects or traces.
+      const safeDetail = typeof detail === 'string' && detail.length <= 300 &&
+        !/[\r\n]|traceback|stack trace|\bat\s+\S+\s*\(|<[^>]+>/i.test(detail);
+      setProvisionError(safeDetail ? detail : status === 403
+        ? 'The current account is not a verified Super Admin.'
+        : status === 400
+          ? 'Unable to provision this workspace. Check the license number and Admin email for duplicates.'
+          : status && status >= 500
+            ? 'Workspace provisioning failed on the server. Please try again later.'
+            : 'Unable to provision the workspace. Please check your connection and try again.');
+    } finally {
+      provisioningLock.current = false;
+      setProvisioning(false);
+    }
+  };
+
+  const copyTemporaryPassword = async () => {
+    if (!provisionResult) return;
+    try {
+      await navigator.clipboard.writeText(provisionResult.temporaryPassword);
+      setCopyMessage('Password copied.');
+    } catch {
+      setCopyMessage('Unable to copy. Please select and copy the password manually.');
+    }
+  };
+
+  // Fetch staff count on mount via verified GET /users
   useEffect(() => {
     let cancelled = false;
     const fetchStaff = async () => {
@@ -126,7 +203,7 @@ export default function SuperAdminDashboard({
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch agencies on mount
+  // Fetch agencies on mount and after successful provisioning.
   useEffect(() => {
     let cancelled = false;
     const fetchAgencies = async () => {
@@ -145,7 +222,7 @@ export default function SuperAdminDashboard({
     };
     fetchAgencies();
     return () => { cancelled = true; };
-  }, []);
+  }, [agencyReload]);
 
   // Tenant metrics
   const tenantMetrics = {
@@ -509,14 +586,36 @@ export default function SuperAdminDashboard({
           {/* ── Agency Onboarding ────────────────────────────────────── */}
           {view === 'onboarding' && (
             <div className="grid lg:grid-cols-2 gap-6">
-              {/* Onboarding form — UI only for platform operator data collection */}
+              {/* Agency workspace and tenant Admin provisioning */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <h3 className="font-bold text-[#0F172A] text-base mb-1">Prepare New Tenant Workspace</h3>
-                <p className="text-slate-500 text-xs mb-1">Collect agency onboarding information for the FlowSensus platform.</p>
+                <h3 className="font-bold text-[#0F172A] text-base mb-1">Provision New Tenant Workspace</h3>
+                <p className="text-slate-500 text-xs mb-1">Creates the agency workspace and tenant Admin account.</p>
                 <p className="text-[#6366F1] text-xs font-semibold mb-5 bg-[#6366F1]/10 px-3 py-2 rounded border border-[#6366F1]/20">
-                  Tenant provisioning is not yet enabled. Agency onboarding information can be prepared here; workspace and administrator account provisioning require the platform onboarding service.
+                  A temporary password is generated automatically and shown here after provisioning.
                 </p>
-                <form onSubmit={e => e.preventDefault()} className="space-y-4">
+                {provisionResult && (
+                  <div role="status" className="mb-5 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+                    <h4 className="font-bold mb-3">Workspace provisioned successfully</h4>
+                    <dl className="space-y-2 break-words">
+                      <div><dt className="font-semibold">Agency name</dt><dd>{provisionResult.agencyName}</dd></div>
+                      <div><dt className="font-semibold">Workspace URL</dt><dd>{provisionResult.workspaceUrl}</dd></div>
+                      <div><dt className="font-semibold">Tenant Admin email</dt><dd>{provisionResult.email}</dd></div>
+                      <div><dt className="font-semibold">Temporary password</dt><dd className="font-mono select-all whitespace-pre-wrap">{provisionResult.temporaryPassword}</dd></div>
+                    </dl>
+                    <p className="font-semibold mt-3">Password change required on first login</p>
+                    <button type="button" onClick={copyTemporaryPassword} className="mt-3 px-3 py-2 rounded-lg border border-emerald-300 font-semibold hover:bg-emerald-100">Copy temporary password</button>
+                    {copyMessage && <p className="mt-2 text-xs">{copyMessage}</p>}
+                    <p className="mt-3 text-xs">Keep these credentials securely before leaving or reloading this page.</p>
+                    <button type="button" onClick={() => {
+                      setProvisionResult(null);
+                      setCopyMessage('');
+                      setProvisionError(null);
+                      setForm({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
+                    }} className="mt-3 text-xs font-semibold underline">Provision another workspace (clear these credentials)</button>
+                  </div>
+                )}
+                <form onSubmit={handleProvision} noValidate className="space-y-4">
+                  <fieldset disabled={provisioning || !!provisionResult} className="space-y-4 disabled:opacity-60">
                   {[
                     { key: 'agencyName', label: 'Agency Name',            placeholder: 'Registered agency name' },
                     { key: 'licenseNo',  label: 'POEA / DMW License No.', placeholder: 'POEA-000-LB-MMYYYY-R' },
@@ -528,6 +627,8 @@ export default function SuperAdminDashboard({
                         {f.label} <span className="text-red-400 normal-case">*</span>
                       </label>
                       <input
+                        required
+                        aria-label={f.label}
                         type={f.key === 'email' ? 'email' : 'text'}
                         value={(form as Record<string, string>)[f.key]}
                         onChange={e => setForm(p => ({
@@ -546,6 +647,9 @@ export default function SuperAdminDashboard({
                     </label>
                     <div className="flex rounded-lg border border-slate-200 overflow-hidden focus-within:border-[#6366F1] focus-within:ring-2 focus-within:ring-[#6366F1]/20 transition-all">
                       <input
+                        required
+                        aria-label="Workspace slug"
+                        maxLength={63}
                         type="text" value={form.slug}
                         onChange={e => setForm(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
                         className="flex-1 px-3.5 py-2.5 text-sm focus:outline-none font-['JetBrains_Mono',monospace] bg-white"
@@ -554,12 +658,14 @@ export default function SuperAdminDashboard({
                       <span className="bg-slate-50 border-l border-slate-200 px-3.5 py-2.5 text-slate-400 text-xs font-['JetBrains_Mono',monospace] flex items-center whitespace-nowrap">.flowsensus.com</span>
                     </div>
                   </div>
+                  </fieldset>
+                  {provisionError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{provisionError}</p>}
                   <button
                     type="submit"
-                    disabled
-                    className="w-full bg-slate-200 text-slate-400 font-semibold py-3 rounded-xl cursor-not-allowed flex items-center justify-center gap-2 mt-4"
+                    disabled={provisioning || !!provisionResult}
+                    className="w-full bg-[#6366F1] text-white hover:bg-[#4F46E5] disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-semibold py-3 rounded-xl flex items-center justify-center gap-2 mt-4"
                   >
-                    Provision Workspace <ArrowRight size={16} />
+                    {provisioning ? <><Loader2 size={16} className="animate-spin" /> Provisioning Workspace...</> : <>Provision Workspace <ArrowRight size={16} /></>}
                   </button>
                 </form>
               </div>
@@ -582,13 +688,13 @@ export default function SuperAdminDashboard({
                   </ul>
                 </div>
                 <div className="bg-[#0B1628] rounded-xl p-5 border border-white/5">
-                  <p className="text-[#818CF8] text-[10px] font-bold uppercase tracking-widest mb-3">Intended Provisioning Workflow</p>
+                  <p className="text-[#818CF8] text-[10px] font-bold uppercase tracking-widest mb-3">What happens on provision</p>
                   <div className="space-y-3">
                     {[
-                      { step: '01', text: 'Agency workspace record is created and assigned a tenant identity' },
-                      { step: '02', text: 'Workspace access is configured for the agency' },
-                      { step: '03', text: 'Initial agency administrator access is provisioned' },
-                      { step: '04', text: 'Agency becomes available for platform-level tenant management' },
+                      { step: '01', text: 'Agency workspace record created' },
+                      { step: '02', text: 'Tenant identity assigned to the new agency' },
+                      { step: '03', text: 'Tenant Admin authentication account created' },
+                      { step: '04', text: 'Tenant Admin can sign in using the generated temporary password' },
                     ].map(s => (
                       <div key={s.step} className="flex items-start gap-3">
                         <span className="font-['JetBrains_Mono',monospace] text-[#6366F1] font-bold text-xs flex-shrink-0 mt-px">{s.step}</span>
