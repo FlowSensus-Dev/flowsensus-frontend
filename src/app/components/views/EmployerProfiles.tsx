@@ -32,9 +32,11 @@ const BLANK_EMPLOYER: Omit<EmployerProfile, 'id' | 'createdAt' | 'remarks' | 'to
 interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
+  employers?: any[];
+  refreshGlobalData?: () => void;
 }
 
-export default function EmployerProfiles({ showToast, currentUserName }: Props) {
+export default function EmployerProfiles({ showToast, currentUserName, employers: globalEmployers = [], refreshGlobalData }: Props) {
   const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployerProfile['status']>('all');
@@ -48,39 +50,28 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
 
   // ── Fetch Live Employers on Mount ─────────────────────────────────────────
   useEffect(() => {
-    const fetchEmployers = async () => {
-      try {
-        setIsLoading(true);
-        const res = await api.get('/employers');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveEmps: EmployerProfile[] = res.data.map((e: any) => ({
-            id: String(e.employer_id),
-            companyName: e.company_name,
-            country: e.country?.country_name || 'International',
-            industry: e.industry || 'General',
-            contactPerson: e.contact_person || '',
-            contactEmail: e.contact_email || '',
-            contactPhone: e.contact_phone || '',
-            address: e.address || '',
-            accreditationNo: e.accreditation_no || '',
-            accreditationExpiry: e.accreditation_expiry || '',
-            status: (e.registration_status || 'active').toLowerCase() as any,
-            rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
-            totalDeployed: e.total_deployed || 0,
-            activeJobOrders: e.active_job_orders || 0,
-            remarks: Array.isArray(e.remarks) ? e.remarks : [],
-            createdAt: e.created_at || '',
-          }));
-          setEmployers(liveEmps);
-        }
-      } catch (err) {
-        console.warn('Could not fetch employers from Supabase:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchEmployers();
-  }, []);
+    if (globalEmployers && globalEmployers.length > 0) {
+      const liveEmps: EmployerProfile[] = globalEmployers.map((e: any) => ({
+        id: String(e.employer_id),
+        companyName: e.company_name,
+        country: e.country?.country_name || 'International',
+        industry: e.industry || 'General',
+        contactPerson: e.contact_person || '',
+        contactEmail: e.contact_email || '',
+        contactPhone: e.contact_phone || '',
+        address: e.address || '',
+        accreditationNo: e.accreditation_no || '',
+        accreditationExpiry: e.accreditation_expiry || '',
+        status: (e.registration_status || 'active').toLowerCase() as any,
+        rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
+        totalDeployed: e.total_deployed || 0,
+        activeJobOrders: e.active_job_orders || 0,
+        remarks: Array.isArray(e.remarks) ? e.remarks : [],
+        createdAt: e.created_at || '',
+      }));
+      setEmployers(liveEmps);
+    }
+  }, [globalEmployers]);
 
   const filtered = employers.filter(e => {
     const q = search.toLowerCase();
@@ -136,6 +127,7 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
       showToast(`Saved locally: "${editing.companyName}"`);
       setEditing(null);
     } finally {
+      if (refreshGlobalData) refreshGlobalData();
       setIsSaving(false);
     }
   };
@@ -147,8 +139,9 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
       await api.delete(`/employers/${id}`);
       showToast(`"${e?.companyName}" removed from database`);
     } catch (err) {
-      console.warn('Backend delete error, removed locally:', err);
       showToast(`"${e?.companyName}" removed`);
+    } finally {
+      if (refreshGlobalData) refreshGlobalData();
     }
   };
 
@@ -166,8 +159,8 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
     try {
       await api.put(`/employers/${addingRemark.employerId}`, { remarks: updatedRemarks });
     } catch (err) {
-      console.warn('Could not persist remark to backend:', err);
     } finally {
+      if (refreshGlobalData) refreshGlobalData();
       setIsSavingRemark(false);
       setAddingRemark(null);
     }

@@ -1007,6 +1007,10 @@ export default function App() {
   const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [jobOrders, setJobOrders] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [agencyWorkspaces, setAgencyWorkspaces] = useState<any[]>([]);
+  const [employers, setEmployers] = useState<any[]>([]);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -1030,21 +1034,32 @@ export default function App() {
     }
   };
 
-  const fetchLiveBackendData = async () => {
+  const fetchLiveBackendData = async (force: boolean = false) => {
     if (!liveMounted.current || !liveSession.current.userId) return;
     const generation = liveSession.current.generation;
-    if (liveLoadInFlight.current?.generation === generation) return;
+    if (!force && liveLoadInFlight.current?.generation === generation) return;
+    
     const requestId = ++liveRequestId.current;
     liveLoadInFlight.current = { generation, requestId };
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
     try {
-    // 1. Fetch live applicants from /applicants
-    try {
-      const res = await api.get('/applicants');
+      // 1. Fetch live data concurrently
+      const [appRes, logsRes, expRes, joRes, usersRes, agencyRes, empRes] = await Promise.allSettled([
+        api.get('/applicants'),
+        api.get('/audit-logs'),
+        api.get('/financial/records'),
+        api.get('/job-orders'),
+        api.get('/users'),
+        api.get('/agency-workspaces'),
+        api.get('/employers')
+      ]);
+
       if (!isCurrent()) return;
-      if (res.data && Array.isArray(res.data)) {
-        const liveMapped: ApplicantRecord[] = res.data.map((item: any) => {
+
+      // Handle Applicants
+      if (appRes.status === 'fulfilled' && appRes.value.data && Array.isArray(appRes.value.data)) {
+        const liveMapped: ApplicantRecord[] = appRes.value.data.map((item: any) => {
           const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
           const parsedSkills = Array.isArray(item.skills)
             ? item.skills
@@ -1117,20 +1132,10 @@ export default function App() {
         });
         setApplicants(liveMapped);
       }
-    } catch (err) {
-      console.warn('Backend applicants fetch error:', err);
-    } finally {
-      if (isCurrent()) setApplicantsLoaded(true);
-    }
 
-    if (!isCurrent()) return;
-
-    // 2. Fetch live audit logs from /audit-logs
-    try {
-      const logsRes = await api.get('/audit-logs');
-      if (!isCurrent()) return;
-      if (logsRes.data && Array.isArray(logsRes.data) && logsRes.data.length > 0) {
-        const liveLogs: ActivityLog[] = logsRes.data.map((l: any) => ({
+      // Handle Audit Logs
+      if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data)) {
+        const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
           audit_log_id: l.audit_log_id,
           applicant_id: l.applicant_id,
           performed_by: l.performed_by,
@@ -1145,18 +1150,10 @@ export default function App() {
         }));
         setActivityLogs(liveLogs);
       }
-    } catch (err) {
-      console.warn('Backend audit logs unavailable:', err);
-    }
 
-    if (!isCurrent()) return;
-
-    // 3. Fetch live financial records from /financial/records
-    try {
-      const expRes = await api.get('/financial/records');
-      if (!isCurrent()) return;
-      if (expRes.data && Array.isArray(expRes.data) && expRes.data.length > 0) {
-        const liveExpenses: ExpenseRecord[] = expRes.data.map((r: any) => ({
+      // Handle Financial Records
+      if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data)) {
+        const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
           id: `EXP-${r.financial_record_id}`,
           applicantId: String(r.applicant_id),
           category: r.category || 'processing',
@@ -1172,12 +1169,33 @@ export default function App() {
         }));
         setExpenses(liveExpenses);
       }
-    } catch (err) {
-      console.warn('Backend financial records unavailable:', err);
-    }
+
+      // Handle Job Orders
+      if (joRes.status === 'fulfilled' && joRes.value.data && Array.isArray(joRes.value.data)) {
+        setJobOrders(joRes.value.data);
+      }
+
+      // Handle Users
+      if (usersRes.status === 'fulfilled' && usersRes.value.data && Array.isArray(usersRes.value.data)) {
+        setUsers(usersRes.value.data);
+      }
+
+      // Handle Agency Workspaces
+      if (agencyRes.status === 'fulfilled' && agencyRes.value.data && Array.isArray(agencyRes.value.data)) {
+        setAgencyWorkspaces(agencyRes.value.data);
+      }
+
+      // Handle Employers
+      if (empRes.status === 'fulfilled' && empRes.value.data && Array.isArray(empRes.value.data)) {
+        setEmployers(empRes.value.data);
+      }
+
     } finally {
-      if (liveLoadInFlight.current?.requestId === requestId) {
-        liveLoadInFlight.current = null;
+      if (isCurrent()) {
+        setApplicantsLoaded(true);
+        if (liveLoadInFlight.current?.requestId === requestId) {
+          liveLoadInFlight.current = null;
+        }
       }
     }
   };
@@ -1261,15 +1279,6 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
-
-  // When switching into app view, ensure data is populated if not yet loaded.
-  // STALE-RACE FIX: Guard with !applicantsLoaded so this does not fire an extra
-  // concurrent GET while the startup/login fetch chain is already in-flight.
-  useEffect(() => {
-    if (view === "app" && !applicantsLoaded && applicants.length === 0) {
-      fetchLiveBackendData();
-    }
-  }, [view]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
     const timestamp = new Date().toISOString();
@@ -1419,6 +1428,9 @@ export default function App() {
         currentUserName={currentUserName}
         applicants={applicants}
         activityLogs={activityLogs}
+        users={users}
+        agencyWorkspaces={agencyWorkspaces}
+        refreshGlobalData={() => fetchLiveBackendData(true)}
       />
     );
   }
@@ -1467,9 +1479,13 @@ export default function App() {
               addActivityLog={addActivityLog}
               expenses={expenses}
               addExpense={addExpense}
+              jobOrders={jobOrders}
+              users={users}
+              employers={employers}
               onLogout={handleLogout}
               isSuperAdmin={isSuperAdmin}
               onSuperAdminDashboard={() => showAppView('super-admin')}
+              refreshGlobalData={() => fetchLiveBackendData(true)}
             />
           )}
         </div>

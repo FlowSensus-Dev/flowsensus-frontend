@@ -21,7 +21,8 @@ export default function SmartProfiling({
   selectedApplicantId = '1',
   onSelectApplicant,
   workflow,
-}: SmartProfilingProps) {
+  jobOrders: globalJobOrders = [],
+}: SmartProfilingProps & { jobOrders?: any[] }) {
   const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId || '');
   const [selectedJobOrder, setSelectedJobOrder] = useState('');
   const [jobOrders, setJobOrders] = useState<any[]>([]);
@@ -37,33 +38,24 @@ export default function SmartProfiling({
     }
   }, [selectedApplicantId]);
 
-  // Fetch live job orders from backend
   useEffect(() => {
-    const fetchLiveJobOrders = async () => {
-      try {
-        const res = await api.get('/job-orders');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveOrders = res.data.map((jo: any) => ({
-            id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
-            position: jo.position_title || jo.position || 'General Position',
-            country: jo.client_employer?.country?.country_name || jo.country || 'International',
-            employer: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
-            employerId: jo.employer_id,
-            minExperience: jo.min_experience_years || 1,
-            keyDuties: Array.isArray(jo.required_skills) && jo.required_skills.length > 0
-              ? jo.required_skills
-              : ['Standard duties', 'Trade operations'],
-            certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : [],
-            languageRequirements: ['English (conversational)'],
-          }));
-          setJobOrders(liveOrders);
-        }
-      } catch (err) {
-        console.warn('Could not fetch live job orders for smart profiling, using defaults:', err);
-      }
-    };
-    fetchLiveJobOrders();
-  }, []);
+    if (globalJobOrders && globalJobOrders.length > 0) {
+      const liveOrders = globalJobOrders.map((jo: any) => ({
+        id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+        position: jo.position_title || jo.position || 'General Position',
+        country: jo.client_employer?.country?.country_name || jo.country || 'International',
+        employer: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+        employerId: jo.employer_id,
+        minExperience: jo.min_experience_years || 1,
+        keyDuties: Array.isArray(jo.required_skills) && jo.required_skills.length > 0
+          ? jo.required_skills
+          : ['Standard duties', 'Trade operations'],
+        certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : [],
+        languageRequirements: ['English (conversational)'],
+      }));
+      setJobOrders(liveOrders);
+    }
+  }, [globalJobOrders]);
 
   const isLocked = !workflow?.screeningPassed;
 

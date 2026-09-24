@@ -154,8 +154,8 @@ const BLANK_PERSONAL = {
 export default function Registration({
   showToast, currentUserName, addActivityLog,
   selectedApplicantId: initialId = 'new',
-  updateApplicant, addApplicant, applicants = [],
-}: RegistrationProps) {
+  updateApplicant, addApplicant, applicants = [], jobOrders = [],
+}: RegistrationProps & { jobOrders?: any[] }) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
   const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
   const [activeSection, setActiveSection] = useState<string>('personal');
@@ -174,26 +174,18 @@ export default function Registration({
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchLiveJobOrders = async () => {
-      try {
-        const res = await api.get('/job-orders');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveOrders = res.data.map((jo: any) => ({
-            id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
-            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
-            position: jo.position_title || jo.position || 'General Position',
-            country: jo.client_employer?.country?.country_name || jo.country || 'International',
-            employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
-            available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
-          }));
-          setOpenJobOrders(liveOrders);
-        }
-      } catch (err) {
-        console.warn('Could not fetch live job orders for registration:', err);
-      }
-    };
-    fetchLiveJobOrders();
-  }, []);
+    if (jobOrders && jobOrders.length > 0) {
+      const liveOrders = jobOrders.map((jo: any) => ({
+        id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+        code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+        position: jo.position_title || jo.position || 'General Position',
+        country: jo.client_employer?.country?.country_name || jo.country || 'International',
+        employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+        available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
+      }));
+      setOpenJobOrders(liveOrders);
+    }
+  }, [jobOrders]);
 
   // Proof document upload helper
   const proofUpload = (

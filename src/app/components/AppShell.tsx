@@ -70,6 +70,11 @@ interface AppShellProps {
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
+  jobOrders?: any[];
+  users?: any[];
+  agencyWorkspaces?: any[];
+  employers?: any[];
+  refreshGlobalData?: () => void;
 }
 
 export default function AppShell({
@@ -89,6 +94,11 @@ export default function AppShell({
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
+  jobOrders = [],
+  users = [],
+  agencyWorkspaces = [],
+  employers = [],
+  refreshGlobalData,
 }: AppShellProps) {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
@@ -261,6 +271,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             addApplicant={addApplicant}
             applicants={applicants}
+            jobOrders={jobOrders}
           />
         );
       case 'screening':
@@ -286,6 +297,7 @@ export default function AppShell({
             selectedApplicantId={selectedApplicantId}
             onSelectApplicant={setSelectedApplicantId}
             workflow={workflow}
+            jobOrders={jobOrders}
           />
         );
 
@@ -369,7 +381,7 @@ export default function AppShell({
       case 'reports':
         return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
       case 'users':
-        return <UserManagement currentUserName={currentUserName} addActivityLog={addActivityLog} />;
+        return <UserManagement currentUserName={currentUserName} addActivityLog={addActivityLog} users={users} refreshGlobalData={refreshGlobalData} />;
       case 'profile':
         return (
           <UserProfile
@@ -384,9 +396,9 @@ export default function AppShell({
       case 'evaluation':
         return <EvaluationSetup showToast={showToastNotification} currentUserName={currentUserName} />;
       case 'joborders':
-        return <JobOrders showToast={showToastNotification} currentUserName={currentUserName} />;
+        return <JobOrders showToast={showToastNotification} currentUserName={currentUserName} jobOrders={jobOrders} employers={employers} refreshGlobalData={refreshGlobalData} />;
       case 'employers':
-        return <EmployerProfiles showToast={showToastNotification} currentUserName={currentUserName} />;
+        return <EmployerProfiles showToast={showToastNotification} currentUserName={currentUserName} employers={employers} refreshGlobalData={refreshGlobalData} />;
       default:
         return (
           <Dashboard

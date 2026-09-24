@@ -18,6 +18,7 @@ interface LiveAuditLog {
   action: string;
   details: string | null;
   created_at: string | null;
+  department?: string | null;
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -81,6 +82,9 @@ interface SuperAdminDashboardProps {
   // Verified live data passed from App.tsx state
   applicants: ApplicantRecord[];
   activityLogs: ActivityLog[];
+  users?: any[];
+  agencyWorkspaces?: any[];
+  refreshGlobalData?: () => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -91,6 +95,9 @@ export default function SuperAdminDashboard({
   currentUserName,
   applicants,
   activityLogs,
+  users: globalUsers = [],
+  agencyWorkspaces: globalAgencies = [],
+  refreshGlobalData,
 }: SuperAdminDashboardProps) {
   const [view, setView] = useState<AdminView>('overview');
 
@@ -108,44 +115,16 @@ export default function SuperAdminDashboard({
   // Agency Onboarding form state
   const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });  // Fetch staff count on mount via verified GET /users
   useEffect(() => {
-    let cancelled = false;
-    const fetchStaff = async () => {
-      setStaffLoading(true);
-      try {
-        const res = await api.get('/users');
-        if (!cancelled && res.data && Array.isArray(res.data)) {
-          setStaffCount(res.data.length);
-        }
-      } catch {
-        if (!cancelled) setStaffCount(null);
-      } finally {
-        if (!cancelled) setStaffLoading(false);
-      }
-    };
-    fetchStaff();
-    return () => { cancelled = true; };
-  }, []);
+    if (globalUsers) {
+      setStaffCount(globalUsers.length);
+    }
+  }, [globalUsers]);
 
-  // Fetch agencies on mount
   useEffect(() => {
-    let cancelled = false;
-    const fetchAgencies = async () => {
-      setAgenciesLoading(true);
-      setAgenciesError(null);
-      try {
-        const res = await api.get('/agency-workspaces');
-        if (!cancelled && res.data && Array.isArray(res.data)) {
-          setAgencies(res.data);
-        }
-      } catch (err: any) {
-        if (!cancelled) setAgenciesError(err.message || 'Failed to fetch workspaces');
-      } finally {
-        if (!cancelled) setAgenciesLoading(false);
-      }
-    };
-    fetchAgencies();
-    return () => { cancelled = true; };
-  }, []);
+    if (globalAgencies) {
+      setAgencies(globalAgencies);
+    }
+  }, [globalAgencies]);
 
   // Tenant metrics
   const tenantMetrics = {

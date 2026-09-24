@@ -23,9 +23,12 @@ const BLANK_ORDER: Omit<JobOrder, 'id'> = {
 interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
+  jobOrders?: any[];
+  employers?: any[];
+  refreshGlobalData?: () => void;
 }
 
-export default function JobOrders({ showToast, currentUserName }: Props) {
+export default function JobOrders({ showToast, currentUserName, jobOrders: globalJobOrders = [], employers: globalEmployers = [], refreshGlobalData }: Props) {
   const [orders, setOrders] = useState<JobOrder[]>([]);
   const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
@@ -40,66 +43,53 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
 
   // ── Fetch Live Data on Mount ──────────────────────────────────────────────
   useEffect(() => {
-    const fetchLiveJobOrders = async () => {
-      try {
-        setIsLoading(true);
-        const [ordersRes, empRes] = await Promise.allSettled([
-          api.get('/job-orders'),
-          api.get('/employers'),
-        ]);
+    if (globalEmployers && globalEmployers.length > 0) {
+      const liveEmps: EmployerProfile[] = globalEmployers.map((e: any) => ({
+        id: String(e.employer_id),
+        companyName: e.company_name,
+        country: e.country?.country_name || 'International',
+        industry: e.industry || 'General',
+        contactPerson: e.contact_person || '',
+        contactEmail: e.contact_email || '',
+        contactPhone: e.contact_phone || '',
+        address: e.address || '',
+        accreditationNo: e.accreditation_no || '',
+        accreditationExpiry: e.accreditation_expiry || '',
+        status: (e.registration_status || 'active').toLowerCase() as any,
+        rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
+        totalDeployed: e.total_deployed || 0,
+        activeJobOrders: e.active_job_orders || 0,
+        remarks: Array.isArray(e.remarks) ? e.remarks : [],
+        createdAt: e.created_at || '',
+      }));
+      setEmployers(liveEmps);
+    }
+  }, [globalEmployers]);
 
-        if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
-          const liveEmps: EmployerProfile[] = empRes.value.data.map((e: any) => ({
-            id: String(e.employer_id),
-            companyName: e.company_name,
-            country: e.country?.country_name || 'International',
-            industry: e.industry || 'General',
-            contactPerson: e.contact_person || '',
-            contactEmail: e.contact_email || '',
-            contactPhone: e.contact_phone || '',
-            address: e.address || '',
-            accreditationNo: e.accreditation_no || '',
-            accreditationExpiry: e.accreditation_expiry || '',
-            status: (e.registration_status || 'active').toLowerCase() as any,
-            rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
-            totalDeployed: e.total_deployed || 0,
-            activeJobOrders: e.active_job_orders || 0,
-            remarks: Array.isArray(e.remarks) ? e.remarks : [],
-            createdAt: e.created_at || '',
-          }));
-          setEmployers(liveEmps);
-        }
-
-        if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
-          const mapped: JobOrder[] = ordersRes.value.data.map((jo: any) => ({
-            id: String(jo.job_order_id),
-            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
-            position: jo.position_title || jo.position || '',
-            country: jo.client_employer?.country?.country_name || jo.country || 'International',
-            employerId: String(jo.employer_id),
-            employerName: jo.client_employer?.company_name || jo.employer_name || '',
-            slots: jo.slots_requested || jo.total_slots || 1,
-            filledSlots: jo.slots_filled || jo.filled_slots || 0,
-            salaryRange: jo.salary_range || '',
-            contractDuration: jo.contract_duration || '2 years',
-            requirements: Array.isArray(jo.required_skills) ? jo.required_skills : (Array.isArray(jo.requirements) ? jo.requirements : []),
-            minExperience: jo.min_experience_years || 1,
-            certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
-            status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
-            datePosted: jo.date_posted || '',
-            deadline: jo.application_deadline || jo.deadline || '',
-            notes: jo.notes || '',
-          }));
-          setOrders(mapped);
-        }
-      } catch (err) {
-        console.warn('Could not fetch live job orders, retaining default orders:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchLiveJobOrders();
-  }, []);
+  useEffect(() => {
+    if (globalJobOrders && globalJobOrders.length > 0) {
+      const mapped: JobOrder[] = globalJobOrders.map((jo: any) => ({
+        id: String(jo.job_order_id),
+        code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+        position: jo.position_title || jo.position || '',
+        country: jo.client_employer?.country?.country_name || jo.country || 'International',
+        employerId: String(jo.employer_id),
+        employerName: jo.client_employer?.company_name || jo.employer_name || '',
+        slots: jo.slots_requested || jo.total_slots || 1,
+        filledSlots: jo.slots_filled || jo.filled_slots || 0,
+        salaryRange: jo.salary_range || '',
+        contractDuration: jo.contract_duration || '2 years',
+        requirements: Array.isArray(jo.required_skills) ? jo.required_skills : (Array.isArray(jo.requirements) ? jo.requirements : []),
+        minExperience: jo.min_experience_years || 1,
+        certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
+        status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
+        datePosted: jo.date_posted || '',
+        deadline: jo.application_deadline || jo.deadline || '',
+        notes: jo.notes || '',
+      }));
+      setOrders(mapped);
+    }
+  }, [globalJobOrders]);
 
   const filtered = orders.filter(o => {
     const q = search.toLowerCase();
@@ -170,6 +160,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
       showToast(`Saved locally: "${updatedEditing.code || updatedEditing.position}"`);
       setEditing(null);
     } finally {
+      if (refreshGlobalData) refreshGlobalData();
       setIsSaving(false);
     }
   };
@@ -183,6 +174,8 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
       showToast(`"${o?.code} ${o?.position}" removed`);
+    } finally {
+      if (refreshGlobalData) refreshGlobalData();
     }
   };
 
