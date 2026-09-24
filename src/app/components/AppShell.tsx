@@ -33,7 +33,6 @@ import EmployerProfiles from './views/EmployerProfiles';
 export type ViewType =
   | 'dashboard'
   | 'applicants'
-  | 'applicant'
   | 'registration'
   | 'screening'
   | 'profiling'
@@ -109,11 +108,24 @@ export default function AppShell({
   const rawView = pathParts[2];
   const currentView: ViewType = (rawView as ViewType) || 'dashboard';
 
-  const setCurrentView = (view: ViewType) => {
-    navigate(`/app/${view}`);
+  const setCurrentView = (view: ViewType | 'applicant') => {
+    if (view === 'applicant') {
+      navigate('/app/applicants');
+    } else {
+      if (view === 'applicants') {
+        setSelectedApplicantId(null);
+      }
+      navigate(`/app/${view}`);
+    }
   };
 
-  const [selectedApplicantId, setSelectedApplicantId] = useState<string>(() => {
+  useEffect(() => {
+    if (rawView === 'applicant') {
+      navigate('/app/applicants', { replace: true });
+    }
+  }, [rawView, navigate]);
+
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(() => {
     return localStorage.getItem('flowsensus_selected_applicant') || 'new';
   });
   const [toastMessage, setToastMessage] = useState('');
@@ -123,12 +135,14 @@ export default function AppShell({
   useEffect(() => {
     if (selectedApplicantId) {
       localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
+    } else {
+      localStorage.removeItem('flowsensus_selected_applicant');
     }
   }, [selectedApplicantId]);
 
   // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
   useEffect(() => {
-    if (applicants.length > 0 && (!selectedApplicantId || (selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))))) {
+    if (applicants.length > 0 && selectedApplicantId && selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))) {
       const fallbackId = String(applicants[0].id);
       setSelectedApplicantId(fallbackId);
       localStorage.setItem('flowsensus_selected_applicant', fallbackId);
@@ -144,7 +158,7 @@ export default function AppShell({
 
   const handleViewApplicant = (applicantId: string) => {
     setSelectedApplicantId(String(applicantId));
-    setCurrentView('applicant');
+    navigate('/app/applicants');
   };
 
   const handleNavigate = (view: ViewType) => {
@@ -266,25 +280,14 @@ export default function AppShell({
             onViewApplicant={handleViewApplicant}
             currentUserName={currentUserName}
             onNavigate={handleNavigate}
-          />
-        );
-      case 'applicant':
-        if (!selectedApplicant) {
-          return (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-              <p className="text-slate-500 font-medium">No applicant selected or loaded yet.</p>
-            </div>
-          );
-        }
-        return (
-          <ApplicantProfile
-            applicant={selectedApplicant}
-            activityLogs={activityLogs.filter((log) => selectedApplicant && String(log.applicantId) === String(selectedApplicant.id))}
-            expenses={expenses.filter((exp) => selectedApplicant && String(exp.applicantId) === String(selectedApplicant.id))}
+            selectedApplicantId={selectedApplicantId || undefined}
+            onClearSelection={() => setSelectedApplicantId(null)}
+            activityLogs={activityLogs}
+            expenses={expenses}
             updateApplicant={updateApplicant}
-            currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
+            onEditApplicant={() => setCurrentView('registration')}
           />
         );
       case 'registration':
@@ -293,7 +296,7 @@ export default function AppShell({
             showToast={showToastNotification}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             updateApplicant={updateApplicant}
             addApplicant={addApplicant}
             applicants={applicants}
@@ -309,7 +312,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -320,7 +323,7 @@ export default function AppShell({
             applicants={applicants}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             onSelectApplicant={setSelectedApplicantId}
             workflow={workflow}
             globalJobOrders={globalJobOrders}
@@ -335,7 +338,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -357,7 +360,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -368,7 +371,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -383,7 +386,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -397,7 +400,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
           />
         );
       case 'forecast':
@@ -405,7 +408,7 @@ export default function AppShell({
           <PredictiveForecast
             applicants={applicants}
             applicantsLoaded={applicantsLoaded}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             globalPipelineForecast={globalPipelineForecast}
           />
         );

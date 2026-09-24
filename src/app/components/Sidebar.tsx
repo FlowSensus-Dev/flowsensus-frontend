@@ -63,7 +63,6 @@ export default function Sidebar({
   const mainItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: 'All' },
     { id: 'applicants', label: 'Applicant List', icon: UsersIcon, roles: 'All' },
-    { id: 'applicant', label: 'Applicant Profile', icon: FolderSearch, roles: 'All' },
   ];
 
   const navGroups: NavGroup[] = [
