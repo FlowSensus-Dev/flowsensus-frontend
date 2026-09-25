@@ -20,6 +20,7 @@ interface LiveAuditLog {
   action: string;
   details: string | null;
   created_at: string | null;
+  department?: string;
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -66,12 +67,12 @@ interface RoleOption {
 }
 
 const ROLE_OPTS: RoleOption[] = [
-  { role: 'Management',  label: 'Management',      icon: Briefcase  },
-  { role: 'Recruitment', label: 'Recruitment',      icon: Users      },
-  { role: 'Admin',       label: 'Admin / Visa',     icon: Settings   },
-  { role: 'Accounting',  label: 'Accounting',       icon: Receipt    },
-  { role: 'Employer',    label: 'Employer Portal',  icon: Building2  },
-  { role: 'Applicant',   label: 'Applicant Portal', icon: User       },
+  { role: 'Management', label: 'Management', icon: Briefcase },
+  { role: 'Recruitment', label: 'Recruitment', icon: Users },
+  { role: 'Admin', label: 'Admin / Visa', icon: Settings },
+  { role: 'Accounting', label: 'Accounting', icon: Receipt },
+  { role: 'Employer', label: 'Employer Portal', icon: Building2 },
+  { role: 'Applicant', label: 'Applicant Portal', icon: User },
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -248,10 +249,11 @@ export default function SuperAdminDashboard({
   // App retains backend snake_case values alongside operational display fields.
   // Local activity has no backend audit ID and is not claimed to be persisted.
   const liveAuditLogs: LiveAuditLog[] = activityLogs.map((log: ActivityLog & Partial<LiveAuditLog>) => ({
-    audit_log_id:  log.audit_log_id ?? null,
-    action:        log.action         ?? '—',
-    details:       log.details        ?? '—',
-    created_at:    log.audit_log_id != null ? log.created_at ?? null : log.timestamp || null,
+    audit_log_id: log.audit_log_id ?? null,
+    action: log.action ?? '—',
+    details: log.details ?? '—',
+    created_at: log.audit_log_id != null ? log.created_at ?? null : log.timestamp || null,
+    department: log.department,
   }));
 
   // Live current date/time
@@ -262,17 +264,17 @@ export default function SuperAdminDashboard({
   });
 
   const NAV = [
-    { key: 'overview'    as AdminView, label: 'Overview',          icon: <BarChart3  size={17} /> },
-    { key: 'tenants'     as AdminView, label: 'Tenant Management', icon: <Building2  size={17} /> },
-    { key: 'onboarding'  as AdminView, label: 'Agency Onboarding', icon: <UserPlus   size={17} /> },
-    { key: 'audit'       as AdminView, label: 'Audit Ledger',      icon: <ScrollText size={17} /> },
+    { key: 'overview' as AdminView, label: 'Overview', icon: <BarChart3 size={17} /> },
+    { key: 'tenants' as AdminView, label: 'Tenant Management', icon: <Building2 size={17} /> },
+    { key: 'onboarding' as AdminView, label: 'Agency Onboarding', icon: <UserPlus size={17} /> },
+    { key: 'audit' as AdminView, label: 'Audit Ledger', icon: <ScrollText size={17} /> },
   ];
 
   const TITLES: Record<AdminView, string> = {
-    overview:   'Platform Overview',
-    tenants:    'Tenant Management',
+    overview: 'Platform Overview',
+    tenants: 'Tenant Management',
     onboarding: 'Agency Onboarding',
-    audit:      'Super Admin Audit Ledger',
+    audit: 'Super Admin Audit Ledger',
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -304,11 +306,10 @@ export default function SuperAdminDashboard({
             <button
               key={item.key}
               onClick={() => setView(item.key)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
-                view === item.key
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${view === item.key
                   ? 'bg-[#6366F1] text-white shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
+                }`}
             >
               {item.icon}
               {item.label}
@@ -381,10 +382,10 @@ export default function SuperAdminDashboard({
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Tenant metrics — no list endpoint exists → 0 / unavailable */}
                 {[
-                  { label: 'Total Agencies',    value: tenantMetrics.total,    icon: <Building2    size={17} />, color: '#6366F1', sub: 'From verified GET /agency-workspaces' },
-                  { label: 'Active Workspaces', value: tenantMetrics.active,   icon: <CheckCircle2 size={17} />, color: '#10B981', sub: 'Workspaces active' },
-                  { label: 'Pending Approval',  value: tenantMetrics.pending,  icon: <Clock        size={17} />, color: '#F59E0B', sub: 'Awaiting review' },
-                  { label: 'Suspended',         value: tenantMetrics.suspended, icon: <AlertTriangle size={17} />, color: '#EF4444', sub: 'Access disabled' },
+                  { label: 'Total Agencies', value: tenantMetrics.total, icon: <Building2 size={17} />, color: '#6366F1', sub: 'From verified GET /agency-workspaces' },
+                  { label: 'Active Workspaces', value: tenantMetrics.active, icon: <CheckCircle2 size={17} />, color: '#10B981', sub: 'Workspaces active' },
+                  { label: 'Pending Approval', value: tenantMetrics.pending, icon: <Clock size={17} />, color: '#F59E0B', sub: 'Awaiting review' },
+                  { label: 'Suspended', value: tenantMetrics.suspended, icon: <AlertTriangle size={17} />, color: '#EF4444', sub: 'Access disabled' },
                 ].map(m => (
                   <div key={m.label} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
                     <div className="flex items-center justify-between mb-3">
@@ -616,48 +617,48 @@ export default function SuperAdminDashboard({
                 )}
                 <form onSubmit={handleProvision} noValidate className="space-y-4">
                   <fieldset disabled={provisioning || !!provisionResult} className="space-y-4 disabled:opacity-60">
-                  {[
-                    { key: 'agencyName', label: 'Agency Name',            placeholder: 'Registered agency name' },
-                    { key: 'licenseNo',  label: 'POEA / DMW License No.', placeholder: 'POEA-000-LB-MMYYYY-R' },
-                    { key: 'gmName',     label: "General Manager's Name", placeholder: 'Full name of authorized GM' },
-                    { key: 'email',      label: 'Corporate Email',         placeholder: 'gm@youragency.ph' },
-                  ].map(f => (
-                    <div key={f.key}>
+                    {[
+                      { key: 'agencyName', label: 'Agency Name', placeholder: 'Registered agency name' },
+                      { key: 'licenseNo', label: 'POEA / DMW License No.', placeholder: 'POEA-000-LB-MMYYYY-R' },
+                      { key: 'gmName', label: "General Manager's Name", placeholder: 'Full name of authorized GM' },
+                      { key: 'email', label: 'Corporate Email', placeholder: 'gm@youragency.ph' },
+                    ].map(f => (
+                      <div key={f.key}>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                          {f.label} <span className="text-red-400 normal-case">*</span>
+                        </label>
+                        <input
+                          required
+                          aria-label={f.label}
+                          type={f.key === 'email' ? 'email' : 'text'}
+                          value={(form as Record<string, string>)[f.key]}
+                          onChange={e => setForm(p => ({
+                            ...p,
+                            [f.key]: e.target.value,
+                            ...(f.key === 'agencyName' ? { slug: toSlug(e.target.value) } : {}),
+                          }))}
+                          className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6366F1] focus:ring-2 focus:ring-[#6366F1]/20 transition-all"
+                          placeholder={f.placeholder}
+                        />
+                      </div>
+                    ))}
+                    <div>
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                        {f.label} <span className="text-red-400 normal-case">*</span>
+                        Workspace URL
                       </label>
-                      <input
-                        required
-                        aria-label={f.label}
-                        type={f.key === 'email' ? 'email' : 'text'}
-                        value={(form as Record<string, string>)[f.key]}
-                        onChange={e => setForm(p => ({
-                          ...p,
-                          [f.key]: e.target.value,
-                          ...(f.key === 'agencyName' ? { slug: toSlug(e.target.value) } : {}),
-                        }))}
-                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6366F1] focus:ring-2 focus:ring-[#6366F1]/20 transition-all"
-                        placeholder={f.placeholder}
-                      />
+                      <div className="flex rounded-lg border border-slate-200 overflow-hidden focus-within:border-[#6366F1] focus-within:ring-2 focus-within:ring-[#6366F1]/20 transition-all">
+                        <input
+                          required
+                          aria-label="Workspace slug"
+                          maxLength={63}
+                          type="text" value={form.slug}
+                          onChange={e => setForm(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                          className="flex-1 px-3.5 py-2.5 text-sm focus:outline-none font-['JetBrains_Mono',monospace] bg-white"
+                          placeholder="agency-name"
+                        />
+                        <span className="bg-slate-50 border-l border-slate-200 px-3.5 py-2.5 text-slate-400 text-xs font-['JetBrains_Mono',monospace] flex items-center whitespace-nowrap">.flowsensus.com</span>
+                      </div>
                     </div>
-                  ))}
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
-                      Workspace URL
-                    </label>
-                    <div className="flex rounded-lg border border-slate-200 overflow-hidden focus-within:border-[#6366F1] focus-within:ring-2 focus-within:ring-[#6366F1]/20 transition-all">
-                      <input
-                        required
-                        aria-label="Workspace slug"
-                        maxLength={63}
-                        type="text" value={form.slug}
-                        onChange={e => setForm(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
-                        className="flex-1 px-3.5 py-2.5 text-sm focus:outline-none font-['JetBrains_Mono',monospace] bg-white"
-                        placeholder="agency-name"
-                      />
-                      <span className="bg-slate-50 border-l border-slate-200 px-3.5 py-2.5 text-slate-400 text-xs font-['JetBrains_Mono',monospace] flex items-center whitespace-nowrap">.flowsensus.com</span>
-                    </div>
-                  </div>
                   </fieldset>
                   {provisionError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{provisionError}</p>}
                   <button
