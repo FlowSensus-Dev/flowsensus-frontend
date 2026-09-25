@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import api from '../../../lib/api';
+import { Microscope, FileCheck2, ClipboardCheck, OctagonX, X, ArrowLeft, User, Briefcase, Flag, Clock, ChevronRight, Loader2, IdCard, Mail, Phone } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 
 interface ScreeningProps {
@@ -53,15 +54,103 @@ export default function Screening({
     setStopReason('');
   };
 
-  const [examScores, setExamScores] = useState({
-    englishProficiency: 85,
-    tradeSkills: 92,
-    iqAptitude: 75,
-    personalityEQ: 'Suitable' as 'Suitable' | 'Not Suitable' | 'Pending',
+  const [examScores, setExamScores] = useState<{
+    englishProficiency: number | string;
+    tradeSkills: number | string;
+    iqAptitude: number | string;
+    personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending';
+    employerSpecific: string;
+  }>({
+    englishProficiency: 0,
+    tradeSkills: 0,
+    iqAptitude: 0,
+    personalityEQ: 'Pending',
     employerSpecific: '',
   });
 
+  const [isSaving, setIsSaving] = useState(false);
   const selectedApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
+  const initializedForApplicantId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (selectedApplicant?.id !== initializedForApplicantId.current) {
+      if (selectedApplicant?.testScores) {
+        setExamScores({
+          englishProficiency: selectedApplicant.testScores.englishProficiency ?? 0,
+          tradeSkills: selectedApplicant.testScores.tradeSkills ?? 0,
+          iqAptitude: selectedApplicant.testScores.iqAptitude ?? 0,
+          personalityEQ: selectedApplicant.testScores.personalityEQ || 'Pending',
+          employerSpecific: selectedApplicant.testScores.employerSpecific || '',
+        });
+      } else {
+        setExamScores({
+          englishProficiency: 0,
+          tradeSkills: 0,
+          iqAptitude: 0,
+          personalityEQ: 'Pending',
+          employerSpecific: '',
+        });
+      }
+      initializedForApplicantId.current = selectedApplicant?.id || null;
+    }
+  }, [selectedApplicant]);
+
+  const handleScoreChange = (field: 'englishProficiency' | 'tradeSkills' | 'iqAptitude', val: string) => {
+    if (val === '') {
+      setExamScores({ ...examScores, [field]: '' });
+      return;
+    }
+    const parsed = parseInt(val, 10);
+    if (isNaN(parsed)) return;
+
+    if (parsed > 100) {
+      showToast('Score cannot exceed 100');
+      setExamScores({ ...examScores, [field]: 100 });
+      return;
+    }
+    if (parsed < 0) {
+      showToast('Score cannot be negative');
+      setExamScores({ ...examScores, [field]: 0 });
+      return;
+    }
+    
+    setExamScores({ ...examScores, [field]: parsed });
+  };
+
+  const handleSaveProgress = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const applicantId = selectedApplicant?.id;
+      if (!applicantId) throw new Error("No applicant selected");
+
+      const cleanScores = {
+        englishProficiency: Number(examScores.englishProficiency) || 0,
+        tradeSkills: Number(examScores.tradeSkills) || 0,
+        iqAptitude: Number(examScores.iqAptitude) || 0,
+        personalityEQ: examScores.personalityEQ,
+        employerSpecific: examScores.employerSpecific || undefined,
+      };
+
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          testScores: cleanScores
+        });
+      }
+
+      updateApplicant(applicantId, {
+        testScores: cleanScores
+      });
+
+      showToast('✓ Scores saved successfully.');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save scores to the server. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handlePass = () => {
     setShowModal(true);
@@ -72,22 +161,40 @@ export default function Screening({
     setIsGenerating(true);
     try {
       const applicantId = selectedApplicantId;
+      if (!applicantId) throw new Error("No applicant selected");
 
-      updateWorkflow({ screeningPassed: true });
-      updateApplicant(applicantId, {
+      const cleanScores = {
+        englishProficiency: Number(examScores.englishProficiency) || 0,
+        tradeSkills: Number(examScores.tradeSkills) || 0,
+        iqAptitude: Number(examScores.iqAptitude) || 0,
+        personalityEQ: examScores.personalityEQ,
+        employerSpecific: examScores.employerSpecific || undefined,
+      };
+
+      const updates = {
         phase: 2,
         status: 'Medical Clearance',
         currentHandler: 'Maria Santos',
         currentDepartment: 'Admin',
         phaseDescription: 'Medical referral generated, awaiting examination results from clinic',
-        testScores: {
-          englishProficiency: examScores.englishProficiency,
-          tradeSkills: examScores.tradeSkills,
-          iqAptitude: examScores.iqAptitude,
-          personalityEQ: examScores.personalityEQ,
-          employerSpecific: examScores.employerSpecific || undefined,
-        },
-      });
+        testScores: cleanScores,
+      };
+
+      // Ensure the backend persists the change
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          current_phase: 2,
+          application_status: 'Medical Clearance',
+          current_handler: 'Maria Santos',
+          current_department: 'Admin',
+          phase_description: 'Medical referral generated, awaiting examination results from clinic',
+          testScores: updates.testScores
+        });
+      }
+
+      updateWorkflow({ screeningPassed: true });
+      updateApplicant(applicantId, updates);
 
       addActivityLog({
         applicantId,
@@ -99,15 +206,18 @@ export default function Screening({
 
       setShowModal(false);
       showToast('✓ Screening passed! Medical referral generated and recruiter signature logged.');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save scores to the server. Please try again.');
     } finally {
       setIsGenerating(false);
     }
   };
 
   // Calculate passing status
-  const englishPass = examScores.englishProficiency >= 60;
-  const tradePass = examScores.tradeSkills >= 70;
-  const iqPass = examScores.iqAptitude >= 50;
+  const englishPass = typeof examScores.englishProficiency === 'number' && examScores.englishProficiency >= 60;
+  const tradePass = typeof examScores.tradeSkills === 'number' && examScores.tradeSkills >= 70;
+  const iqPass = typeof examScores.iqAptitude === 'number' && examScores.iqAptitude >= 50;
   const eqPass = examScores.personalityEQ === 'Suitable';
 
   const allPassed = englishPass && tradePass && iqPass && eqPass;
@@ -158,8 +268,8 @@ export default function Screening({
                         : 'border-slate-200 hover:border-[#0EA5E9]/50 hover:shadow-sm'
                     }`}
                   >
-                    {a.photoDataUrl
-                      ? <img src={a.photoDataUrl} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    {(a.photoDataUrl || a.photo)
+                      ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                       : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                     }
                     <div className="flex-1 min-w-0">
@@ -199,8 +309,8 @@ export default function Screening({
                   onClick={() => openApplicant(a.id)}
                   className="w-full text-left bg-white rounded-xl border border-slate-200 hover:border-[#0EA5E9]/50 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all"
                 >
-                  {a.photoDataUrl
-                    ? <img src={a.photoDataUrl} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                  {(a.photoDataUrl || a.photo)
+                    ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                     : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                   }
                   <div className="flex-1 min-w-0">
@@ -224,13 +334,58 @@ export default function Screening({
       <button onClick={() => setListView(true)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#0EA5E9] transition-colors font-medium">
         <ArrowLeft size={16} /> Back to applicant list
       </button>
-      <div>
-        <h2 className="text-2xl font-bold text-[#0F172A] flex items-center gap-2">
-          <Microscope className="w-6 h-6 text-[#0EA5E9]" /> Screening Panel
-        </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          {selectedApplicant ? `${selectedApplicant.name} · ${selectedApplicant.role}` : 'No applicant selected'}
-        </p>
+      {/* ── Profile Header card ──────────────────────────────────────────────── */}
+      <div className="bg-[#0F172A] rounded-2xl overflow-hidden shadow-sm border border-slate-800">
+        <div className="px-6 py-5 flex items-start gap-5">
+          {(selectedApplicant.photoDataUrl || selectedApplicant.photo)
+            ? <img src={selectedApplicant.photoDataUrl || selectedApplicant.photo} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
+            : (
+              <div className="w-20 h-24 rounded-xl bg-white/10 border-2 border-white/20 flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
+                {selectedApplicant.name.split(' ').map(n => n[0]).join('').slice(0,2)}
+              </div>
+            )
+          }
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-white leading-tight">{selectedApplicant.name}</h2>
+            </div>
+            <p className="text-[#0EA5E9] text-sm mt-0.5 font-medium">{selectedApplicant.role}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
+              <span className="flex items-center gap-1"><IdCard size={11} /> {selectedApplicant.applicantCode || selectedApplicant.id}</span>
+              {selectedApplicant.email && <span className="flex items-center gap-1"><Mail size={11} /> {selectedApplicant.email}</span>}
+              {selectedApplicant.contact && <span className="flex items-center gap-1"><Phone size={11} /> {selectedApplicant.contact}</span>}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <span className="text-xs px-2.5 py-1 bg-[#0EA5E9]/20 text-[#0EA5E9] rounded-full border border-[#0EA5E9]/30 font-semibold">
+                Phase {selectedApplicant.phase}: {selectedApplicant.status}
+              </span>
+              {selectedApplicant.jobOrder && selectedApplicant.jobOrder !== 'Unassigned' ? (
+                <span className="text-xs px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold flex items-center gap-1.5">
+                  <Briefcase size={11} /> {selectedApplicant.jobOrder}
+                </span>
+              ) : (
+                <span className="text-xs px-2.5 py-1 bg-slate-700/50 text-slate-300 rounded-full border border-slate-600/40 font-medium flex items-center gap-1.5">
+                  <Briefcase size={11} /> Unassigned
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="text-right text-xs text-white/40">
+              <p>Handler: {selectedApplicant.currentHandler}</p>
+              <p className="mt-0.5">{selectedApplicant.currentDepartment}</p>
+              <p className="mt-0.5 italic">{selectedApplicant.lastUpdated}</p>
+            </div>
+            {!selectedApplicant.isStopped && (
+              <button
+                onClick={() => setShowStopModal(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
+              >
+                <OctagonX size={13} /> Stop Processing
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Test Scorecard */}
@@ -242,7 +397,7 @@ export default function Screening({
 
         <div className="space-y-6">
           {/* 1. English Proficiency Test */}
-          <div className="bg-slate-50 p-5 rounded-lg border-2 border-slate-200">
+          <div className="bg-[#0EA5E9]/5 p-5 rounded-lg border-2 border-[#0EA5E9]/20">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="font-bold text-[#0F172A] text-sm">1. English Proficiency Test</p>
@@ -262,11 +417,10 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.englishProficiency}
-                onChange={(e) =>
-                  setExamScores({ ...examScores, englishProficiency: parseInt(e.target.value) || 0 })
-                }
+                onChange={(e) => handleScoreChange('englishProficiency', e.target.value)}
                 max={100}
-                className="w-32 border-2 border-slate-300 px-4 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center"
+                min={0}
+                className="w-32 border-2 border-[#0EA5E9]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -281,7 +435,7 @@ export default function Screening({
           </div>
 
           {/* 2. Trade/Skills Test - MOST CRITICAL */}
-          <div className="bg-amber-50 p-5 rounded-lg border-2 border-[#F59E0B]">
+          <div className="bg-[#F59E0B]/5 p-5 rounded-lg border-2 border-[#F59E0B]/20">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
@@ -304,9 +458,10 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.tradeSkills}
-                onChange={(e) => setExamScores({ ...examScores, tradeSkills: parseInt(e.target.value) || 0 })}
+                onChange={(e) => handleScoreChange('tradeSkills', e.target.value)}
                 max={100}
-                className="w-32 border-2 border-[#F59E0B] px-4 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center"
+                min={0}
+                className="w-32 border-2 border-[#F59E0B]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -319,7 +474,7 @@ export default function Screening({
           </div>
 
           {/* 3. IQ / Aptitude Test */}
-          <div className="bg-slate-50 p-5 rounded-lg border-2 border-slate-200">
+          <div className="bg-[#8B5CF6]/5 p-5 rounded-lg border-2 border-[#8B5CF6]/20">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="font-bold text-[#0F172A] text-sm">3. IQ / Aptitude Test</p>
@@ -339,9 +494,10 @@ export default function Screening({
               <input
                 type="number"
                 value={examScores.iqAptitude}
-                onChange={(e) => setExamScores({ ...examScores, iqAptitude: parseInt(e.target.value) || 0 })}
+                onChange={(e) => handleScoreChange('iqAptitude', e.target.value)}
                 max={100}
-                className="w-32 border-2 border-slate-300 px-4 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center"
+                min={0}
+                className="w-32 border-2 border-[#8B5CF6]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -354,7 +510,7 @@ export default function Screening({
           </div>
 
           {/* 4. Personality / EQ Assessment */}
-          <div className="bg-slate-50 p-5 rounded-lg border-2 border-slate-200">
+          <div className="bg-[#14B8A6]/5 p-5 rounded-lg border-2 border-[#14B8A6]/20">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="font-bold text-[#0F172A] text-sm">4. Personality / EQ Assessment</p>
@@ -378,7 +534,7 @@ export default function Screening({
                   personalityEQ: e.target.value as 'Suitable' | 'Not Suitable' | 'Pending',
                 })
               }
-              className="w-full border-2 border-slate-300 px-4 py-3 rounded-lg text-sm font-bold focus:border-[#0EA5E9] outline-none"
+              className="w-full border-2 border-[#14B8A6]/30 px-4 py-3 rounded-lg text-sm font-bold text-[#14B8A6] focus:border-[#14B8A6] outline-none"
             >
               <option value="Pending">⏱ Pending Assessment</option>
               <option value="Suitable">✓ Suitable</option>
@@ -422,11 +578,12 @@ export default function Screening({
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setShowStopModal(true)}
-                className="px-5 py-3 border-2 border-red-200 text-red-500 text-sm font-bold hover:bg-red-50 hover:border-red-400 rounded-lg flex items-center gap-2 transition-all"
+                onClick={handleSaveProgress}
+                disabled={isSaving}
+                className="px-5 py-3 border-2 border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50"
               >
-                <OctagonX className="w-4 h-4" />
-                Stop Processing
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
+                Save Progress
               </button>
               <button
                 onClick={handlePass}

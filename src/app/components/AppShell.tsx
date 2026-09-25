@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Bell, LogOut, Info, Crown } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router';
+import { Search, Bell, LogOut, Info, Crown, Loader2 } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
@@ -32,7 +33,6 @@ import EmployerProfiles from './views/EmployerProfiles';
 export type ViewType =
   | 'dashboard'
   | 'applicants'
-  | 'applicant'
   | 'registration'
   | 'screening'
   | 'profiling'
@@ -70,6 +70,11 @@ interface AppShellProps {
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
+  globalStaff?: any[];
+  globalRoles?: any[];
+  globalPipelineForecast?: any;
 }
 
 export default function AppShell({
@@ -79,7 +84,7 @@ export default function AppShell({
   workflow,
   updateWorkflow,
   applicants,
-  applicantsLoaded = true,
+  applicantsLoaded,
   updateApplicant,
   addApplicant,
   activityLogs,
@@ -89,16 +94,58 @@ export default function AppShell({
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
+  globalJobOrders,
+  globalEmployers,
+  globalStaff,
+  globalRoles,
+  globalPipelineForecast,
 }: AppShellProps) {
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [selectedApplicantId, setSelectedApplicantId] = useState<string>('new');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Extract current view from URL (e.g. /app/dashboard)
+  const pathParts = location.pathname.split('/');
+  const rawView = pathParts[2];
+  const currentView: ViewType = (rawView as ViewType) || 'dashboard';
+
+  const setCurrentView = (view: ViewType | 'applicant') => {
+    if (view === 'applicant') {
+      navigate('/app/applicants');
+    } else {
+      if (view === 'applicants') {
+        setSelectedApplicantId(null);
+      }
+      navigate(`/app/${view}`);
+    }
+  };
+
+  useEffect(() => {
+    if (rawView === 'applicant') {
+      navigate('/app/applicants', { replace: true });
+    }
+  }, [rawView, navigate]);
+
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(() => {
+    return localStorage.getItem('flowsensus_selected_applicant') || 'new';
+  });
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
 
+  // Persist selectedApplicantId to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedApplicantId) {
+      localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
+    } else {
+      localStorage.removeItem('flowsensus_selected_applicant');
+    }
+  }, [selectedApplicantId]);
+
   // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
   useEffect(() => {
-    if (applicants.length > 0 && (!selectedApplicantId || (selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))))) {
-      setSelectedApplicantId(String(applicants[0].id));
+    if (applicants.length > 0 && selectedApplicantId && selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))) {
+      const fallbackId = String(applicants[0].id);
+      setSelectedApplicantId(fallbackId);
+      localStorage.setItem('flowsensus_selected_applicant', fallbackId);
     }
   }, [applicants, selectedApplicantId]);
 
@@ -108,15 +155,10 @@ export default function AppShell({
     setTimeout(() => setShowToast(false), 3500);
   };
 
-  useEffect(() => {
-    if (currentUserRole) {
-      showToastNotification(`Authenticated via RBAC as ${currentUserName}`);
-    }
-  }, [currentUserRole, currentUserName]);
 
   const handleViewApplicant = (applicantId: string) => {
     setSelectedApplicantId(String(applicantId));
-    setCurrentView('applicant');
+    navigate('/app/applicants');
   };
 
   const handleNavigate = (view: ViewType) => {
@@ -127,12 +169,20 @@ export default function AppShell({
   };
 
   const renderView = () => {
+    if (applicantsLoaded === false) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <Loader2 size={36} className="animate-spin mb-4 text-[#0EA5E9]" />
+          <p className="font-medium text-lg">Loading Workspace Data...</p>
+        </div>
+      );
+    }
+
     const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId)) || applicants[0];
 
 
     switch (currentView) {
       case 'dashboard':
-        // Super Admin sees all department dashboards combined
         if (isSuperAdmin) {
           return (
             <div className="space-y-12 pb-12">
@@ -157,7 +207,7 @@ export default function AppShell({
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <h2 className="text-lg font-bold text-slate-800">Admin &amp; Visa Dashboard</h2>
+                  <h2 className="text-lg font-bold text-slate-800">Admin & Visa Dashboard</h2>
                 </div>
                 <div className="p-6">
                   <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
@@ -230,25 +280,14 @@ export default function AppShell({
             onViewApplicant={handleViewApplicant}
             currentUserName={currentUserName}
             onNavigate={handleNavigate}
-          />
-        );
-      case 'applicant':
-        if (!selectedApplicant) {
-          return (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-              <p className="text-slate-500 font-medium">No applicant selected or loaded yet.</p>
-            </div>
-          );
-        }
-        return (
-          <ApplicantProfile
-            applicant={selectedApplicant}
-            activityLogs={activityLogs.filter((log) => selectedApplicant && String(log.applicantId) === String(selectedApplicant.id))}
-            expenses={expenses.filter((exp) => selectedApplicant && String(exp.applicantId) === String(selectedApplicant.id))}
+            selectedApplicantId={selectedApplicantId || undefined}
+            onClearSelection={() => setSelectedApplicantId(null)}
+            activityLogs={activityLogs}
+            expenses={expenses}
             updateApplicant={updateApplicant}
-            currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
+            onEditApplicant={() => setCurrentView('registration')}
           />
         );
       case 'registration':
@@ -257,10 +296,11 @@ export default function AppShell({
             showToast={showToastNotification}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             updateApplicant={updateApplicant}
             addApplicant={addApplicant}
             applicants={applicants}
+            globalJobOrders={globalJobOrders}
           />
         );
       case 'screening':
@@ -272,7 +312,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -283,9 +323,10 @@ export default function AppShell({
             applicants={applicants}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             onSelectApplicant={setSelectedApplicantId}
             workflow={workflow}
+            globalJobOrders={globalJobOrders}
           />
         );
 
@@ -297,7 +338,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -319,7 +360,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -330,7 +371,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -345,7 +386,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
           />
         );
@@ -359,17 +400,31 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
-            selectedApplicantId={selectedApplicantId}
+            selectedApplicantId={selectedApplicantId || undefined}
           />
         );
       case 'forecast':
-        return <PredictiveForecast applicants={applicants} applicantsLoaded={applicantsLoaded} selectedApplicantId={selectedApplicantId} />;
+        return (
+          <PredictiveForecast
+            applicants={applicants}
+            applicantsLoaded={applicantsLoaded}
+            selectedApplicantId={selectedApplicantId || undefined}
+            globalPipelineForecast={globalPipelineForecast}
+          />
+        );
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
         return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
       case 'users':
-        return <UserManagement currentUserName={currentUserName} addActivityLog={addActivityLog} />;
+        return (
+          <UserManagement
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            globalStaff={globalStaff}
+            globalRoles={globalRoles}
+          />
+        );
       case 'profile':
         return (
           <UserProfile
@@ -384,9 +439,22 @@ export default function AppShell({
       case 'evaluation':
         return <EvaluationSetup showToast={showToastNotification} currentUserName={currentUserName} />;
       case 'joborders':
-        return <JobOrders showToast={showToastNotification} currentUserName={currentUserName} />;
+        return (
+          <JobOrders
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            globalJobOrders={globalJobOrders}
+            globalEmployers={globalEmployers}
+          />
+        );
       case 'employers':
-        return <EmployerProfiles showToast={showToastNotification} currentUserName={currentUserName} />;
+        return (
+          <EmployerProfiles
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            globalEmployers={globalEmployers}
+          />
+        );
       default:
         return (
           <Dashboard
@@ -450,9 +518,8 @@ export default function AppShell({
 
         {/* Toast Notification */}
         <div
-          className={`absolute top-20 right-8 bg-[#0F172A] text-white px-5 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-[#0EA5E9] transition-transform duration-300 ${
-            showToast ? 'translate-x-0' : 'translate-x-[150%]'
-          }`}
+          className={`absolute top-20 right-8 bg-[#0F172A] text-white px-5 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-[#0EA5E9] transition-transform duration-300 ${showToast ? 'translate-x-0' : 'translate-x-[150%]'
+            }`}
         >
           <Info className="w-5 h-5 text-[#0EA5E9]" />
           <span>{toastMessage}</span>

@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
-  Save, User, FileCheck, Upload, Briefcase, Loader2
+  Save, User, FileCheck, Upload, Briefcase, Loader2,
+  GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -16,8 +17,8 @@ import { api } from '../../../lib/api';
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
 
 const RED_FLAG_KEYWORDS = ['terminated', 'awol', 'dispute', 'dismissed', 'fired', 'absent without leave', 'medical leave', 'disciplinary'];
-const SENIOR_KEYWORDS   = ['manager', 'supervisor', 'director', 'head', 'chief', 'lead', 'senior', 'officer', 'superintendent'];
-const JUNIOR_KEYWORDS   = ['junior', 'assistant', 'helper', 'trainee', 'intern', 'rank and file', 'laborer', 'aide'];
+const SENIOR_KEYWORDS = ['manager', 'supervisor', 'director', 'head', 'chief', 'lead', 'senior', 'officer', 'superintendent'];
+const JUNIOR_KEYWORDS = ['junior', 'assistant', 'helper', 'trainee', 'intern', 'rank and file', 'laborer', 'aide'];
 
 function monthsBetween(a: string, b: string): number {
   const da = new Date(a), db = new Date(b);
@@ -99,17 +100,17 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
 }
 
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
-  gap:                  { label: 'Employment Gap',     icon: <Clock size={15} />,       color: '#F59E0B' },
-  short_stint:          { label: 'Short Tenure',       icon: <Zap size={15} />,          color: '#F97316' },
+  gap: { label: 'Employment Gap', icon: <Clock size={15} />, color: '#F59E0B' },
+  short_stint: { label: 'Short Tenure', icon: <Zap size={15} />, color: '#F97316' },
   red_flag_resignation: { label: 'Resignation Red Flag', icon: <ShieldAlert size={15} />, color: '#EF4444' },
-  overlap:              { label: 'Date Overlap',       icon: <GitMerge size={15} />,    color: '#8B5CF6' },
-  demotion:             { label: 'Possible Demotion',  icon: <TrendingDown size={15} />, color: '#EC4899' },
+  overlap: { label: 'Date Overlap', icon: <GitMerge size={15} />, color: '#8B5CF6' },
+  demotion: { label: 'Possible Demotion', icon: <TrendingDown size={15} />, color: '#EC4899' },
 };
 
 // ─── Shared input/table styles ─────────────────────────────────────────────────
 const inp = 'w-full border border-slate-200 px-2.5 py-1.5 text-sm focus:border-[#0EA5E9] focus:ring-1 focus:ring-[#0EA5E9]/20 outline-none rounded-lg bg-white';
-const th  = 'px-3 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50';
-const td  = 'px-3 py-2 text-sm align-middle';
+const th = 'px-3 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50';
+const td = 'px-3 py-2 text-sm align-middle';
 
 // ─── Identification Types ──────────────────────────────────────────────────────
 const ID_TYPES = ['Passport', 'OWWA', 'TESDA', "Seaman's Book", 'UMID', "Driver's License", 'SSS', 'PhilHealth', 'Postal ID', 'Voter\'s ID', 'PRC License'];
@@ -117,11 +118,27 @@ const EDU_LEVELS = ['Elementary', 'Junior High School', 'Senior High School', 'V
 const LANG_COMPETENCY = ['Basic', 'Conversational', 'Proficient', 'Fluent', 'Native'];
 
 // ─── Section component ─────────────────────────────────────────────────────────
-function Section({ title, children, accent = false }: { title: string; children: React.ReactNode; accent?: boolean }) {
+function Section({
+  title,
+  children,
+  accent = false,
+  icon,
+  badge,
+}: {
+  title: string;
+  children: React.ReactNode;
+  accent?: boolean;
+  icon?: React.ReactNode;
+  badge?: React.ReactNode;
+}) {
   return (
-    <div className={`rounded-xl border ${accent ? 'border-[#0EA5E9]/30 bg-[#0EA5E9]/5' : 'border-slate-200 bg-white'} overflow-hidden`}>
-      <div className={`px-5 py-3 border-b ${accent ? 'border-[#0EA5E9]/20 bg-[#0EA5E9]/10' : 'border-slate-100 bg-slate-50'}`}>
-        <h3 className={`text-sm font-bold ${accent ? 'text-[#0284C7]' : 'text-[#0F172A]'} uppercase tracking-wider`}>{title}</h3>
+    <div className={`rounded-xl border ${accent ? 'border-[#0EA5E9]/30 bg-[#0EA5E9]/5' : 'border-slate-200 bg-white'} overflow-hidden shadow-sm`}>
+      <div className={`px-5 py-3.5 border-b ${accent ? 'border-[#0EA5E9]/20 bg-[#0EA5E9]/10' : 'border-slate-100 bg-slate-50/80'} flex items-center justify-between flex-wrap gap-2`}>
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-[#0EA5E9]">{icon}</span>}
+          <h3 className={`text-sm font-bold ${accent ? 'text-[#0284C7]' : 'text-[#0F172A]'} uppercase tracking-wider`}>{title}</h3>
+        </div>
+        {badge}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -137,13 +154,14 @@ interface RegistrationProps {
   updateApplicant?: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   addApplicant?: (newApplicant: ApplicantRecord) => void;
   applicants?: ApplicantRecord[];
+  globalJobOrders?: any[];
 }
 
 const BLANK_PERSONAL = {
   firstName: '', middleName: '', lastName: '',
   email: '', contact: '',
-  dateOfBirth: '', age: '', sex: 'Male',
-  religion: 'Roman Catholic', civilStatus: 'Single',
+  dateOfBirth: '', age: '', sex: '',
+  religion: '', civilStatus: '',
   weight: '', height: '',
   presentAddress: '',
   provincialAddress: '',
@@ -155,47 +173,48 @@ export default function Registration({
   showToast, currentUserName, addActivityLog,
   selectedApplicantId: initialId = 'new',
   updateApplicant, addApplicant, applicants = [],
+  globalJobOrders,
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
   const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
   const [activeSection, setActiveSection] = useState<string>('personal');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Draft protection ──────────────────────────────────────────────────────
-  // isDirty: true once the user edits any field after the last hydration.
-  // lastHydratedId: the applicant ID that was last used to populate the form.
-  // Both are refs so they don't trigger re-renders.
-  const isDirty = useRef(false);
-  const lastHydratedId = useRef<string>('');
-
-
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
+  const [isLoadingJobOrders, setIsLoadingJobOrders] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
+      setIsLoadingJobOrders(true);
       try {
-        const res = await api.get('/job-orders');
+        const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+            jobOrderId: jo.job_order_id,
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
             employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
+            employerId: jo.employer_id || jo.client_employer?.employer_id,
+            countryId: jo.country_id || jo.client_employer?.country_id,
             available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
           }));
           setOpenJobOrders(liveOrders);
         }
       } catch (err) {
         console.warn('Could not fetch live job orders for registration:', err);
+      } finally {
+        setIsLoadingJobOrders(false);
       }
     };
     fetchLiveJobOrders();
-  }, []);
+  }, [globalJobOrders]);
 
-  // Proof document upload helper
+  // Proof document upload helper (uploads directly to Supabase Storage)
   const proofUpload = (
     onFile: (dataUrl: string, name: string) => void,
     existingName?: string
@@ -203,20 +222,57 @@ export default function Registration({
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*,.pdf,.doc,.docx';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
+
+      // Local preview immediately
       const reader = new FileReader();
       reader.onload = (ev) => onFile(ev.target?.result as string, file.name);
       reader.readAsDataURL(file);
+
+      // Upload directly to Supabase Storage
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/applicants/upload-document', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        if (res.data?.url) {
+          onFile(res.data.url, file.name);
+        }
+      } catch (err) {
+        console.warn('Document upload to Supabase fallback:', err);
+      }
     };
     input.click();
   };
 
   const [photo, setPhoto] = useState('');
   const [personal, setPersonal] = useState(BLANK_PERSONAL);
-  // Mark the form dirty on every user-initiated field change.
-  const setP = (k: string, v: string) => { isDirty.current = true; setPersonal(p => ({ ...p, [k]: v })); };
+  const setP = (k: string, v: string) => setPersonal(p => ({ ...p, [k]: v }));
+
+  const handleRemovePhoto = async () => {
+    if (!photo) return;
+    const photoToDelete = photo;
+    setPhoto('');
+
+    if (photoToDelete.startsWith('http')) {
+      try {
+        await api.delete('/applicants/photo', {
+          data: {
+            photo_url: photoToDelete,
+            applicant_id: selectedApplicantId !== 'new' ? parseInt(selectedApplicantId, 10) : undefined,
+          },
+        });
+        showToast('Photo removed.');
+      } catch (err) {
+        console.warn('Could not delete photo from Supabase Storage:', err);
+      }
+    } else {
+      showToast('Photo removed.');
+    }
+  };
 
   const calcAge = (dob: string) => {
     if (!dob) return '';
@@ -226,33 +282,33 @@ export default function Registration({
 
   // ── Identifications ───────────────────────────────────────────────────────
   const [ids, setIds] = useState<IdentificationRecord[]>([]);
-  const addId = () => { isDirty.current = true; setIds(p => [...p, { id: `id-${Date.now()}`, type: 'Passport', identificationNo: '', expiryDate: '' }]); };
-  const setId = (id: string, k: keyof IdentificationRecord, v: string) => { isDirty.current = true; setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
-  const removeId = (id: string) => { isDirty.current = true; setIds(p => p.filter(x => x.id !== id)); };
+  const addId = () => setIds(p => [...p, { id: `id-${Date.now()}`, type: '', identificationNo: '', expiryDate: '' }]);
+  const setId = (id: string, k: keyof IdentificationRecord, v: string) => setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeId = (id: string) => setIds(p => p.filter(x => x.id !== id));
 
   // ── Education ─────────────────────────────────────────────────────────────
   const [education, setEducation] = useState<EducationRecord[]>([]);
-  const addEdu = () => { isDirty.current = true; setEducation(p => [...p, { id: `edu-${Date.now()}`, level: 'College', school: '', course: '', yearGraduated: '' }]); };
-  const setEdu = (id: string, k: keyof EducationRecord, v: string) => { isDirty.current = true; setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
-  const removeEdu = (id: string) => { isDirty.current = true; setEducation(p => p.filter(x => x.id !== id)); };
+  const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: '', school: '', course: '', yearGraduated: '' }]);
+  const setEdu = (id: string, k: keyof EducationRecord, v: string) => setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeEdu = (id: string) => setEducation(p => p.filter(x => x.id !== id));
 
   // ── Certificates ──────────────────────────────────────────────────────────
   const [certs, setCerts] = useState<CertificateRecord[]>([]);
-  const addCert = () => { isDirty.current = true; setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]); };
-  const setCert = (id: string, k: keyof CertificateRecord, v: string) => { isDirty.current = true; setCerts(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
-  const removeCert = (id: string) => { isDirty.current = true; setCerts(p => p.filter(x => x.id !== id)); };
+  const addCert = () => setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]);
+  const setCert = (id: string, k: keyof CertificateRecord, v: string) => setCerts(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeCert = (id: string) => setCerts(p => p.filter(x => x.id !== id));
 
   // ── Trainings ─────────────────────────────────────────────────────────────
   const [trainings, setTrainings] = useState<TrainingRecord[]>([]);
-  const addTraining = () => { isDirty.current = true; setTrainings(p => [...p, { id: `tr-${Date.now()}`, trainingName: '', certNo: '', duration: '', noOfHours: '', conductedBy: '', skillsAcquired: '' }]); };
-  const setTraining = (id: string, k: keyof TrainingRecord, v: string) => { isDirty.current = true; setTrainings(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
-  const removeTraining = (id: string) => { isDirty.current = true; setTrainings(p => p.filter(x => x.id !== id)); };
+  const addTraining = () => setTrainings(p => [...p, { id: `tr-${Date.now()}`, trainingName: '', certNo: '', duration: '', noOfHours: '', conductedBy: '', skillsAcquired: '' }]);
+  const setTraining = (id: string, k: keyof TrainingRecord, v: string) => setTrainings(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeTraining = (id: string) => setTrainings(p => p.filter(x => x.id !== id));
 
   // ── Languages ─────────────────────────────────────────────────────────────
   const [languages, setLanguages] = useState<LanguageRecord[]>([]);
-  const addLang = () => { isDirty.current = true; setLanguages(p => [...p, { id: `lang-${Date.now()}`, language: '', competency: 'Basic', spokenRating: 5, writtenRating: 5 }]); };
-  const setLang = (id: string, k: keyof LanguageRecord, v: string | number) => { isDirty.current = true; setLanguages(p => p.map(x => x.id === id ? { ...x, [k]: v } : x)); };
-  const removeLang = (id: string) => { isDirty.current = true; setLanguages(p => p.filter(x => x.id !== id)); };
+  const addLang = () => setLanguages(p => [...p, { id: `lang-${Date.now()}`, language: '', competency: 'Basic', spokenRating: 5, writtenRating: 5 }]);
+  const setLang = (id: string, k: keyof LanguageRecord, v: string | number) => setLanguages(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeLang = (id: string) => setLanguages(p => p.filter(x => x.id !== id));
 
   // ── Employment History ────────────────────────────────────────────────────
   const [employment, setEmployment] = useState<EmploymentRecord[]>([]);
@@ -261,8 +317,6 @@ export default function Registration({
 
   // ── Clear form helper ─────────────────────────────────────────────────────
   const resetBlankForm = () => {
-    isDirty.current = false;
-    lastHydratedId.current = '';
     setPersonal(BLANK_PERSONAL);
     setSelectedJobOrderId('');
     setIds([]);
@@ -276,50 +330,6 @@ export default function Registration({
     setPhoto('');
   };
 
-  // ── Hydrate form from a given applicant record ────────────────────────────
-  // Centralised so both effects and save-completion can call it.
-  const hydrateForm = (app: ApplicantRecord) => {
-    isDirty.current = false;
-    lastHydratedId.current = String(app.id);
-    setPersonal({
-      firstName: app.firstName || '',
-      middleName: app.middleName || '',
-      lastName: app.lastName || '',
-      email: app.email || '',
-      contact: app.contact || '',
-      dateOfBirth: app.dateOfBirth || '',
-      age: String(app.age || ''),
-      sex: app.sex || 'Male',
-      religion: app.religion || 'Roman Catholic',
-      civilStatus: app.civilStatus || 'Single',
-      weight: app.weight || '',
-      height: app.height || '',
-      presentAddress: app.presentAddress || '',
-      provincialAddress: app.provincialAddress || '',
-      role: app.role || '',
-    });
-    if (app.selectedJobOrderId) setSelectedJobOrderId(app.selectedJobOrderId);
-    if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
-    else setIds([]);
-    if (app.education && app.education.length > 0) setEducation(app.education);
-    else setEducation([]);
-    if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
-    else setCerts([]);
-    if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
-    else setTrainings([]);
-    if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
-    else setLanguages([]);
-    if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
-    else setEmployment([]);
-    if (app.employmentFlags && app.employmentFlags.length > 0) {
-      setFlags(app.employmentFlags);
-      setFlagsAnalyzed(true);
-    } else {
-      setFlags([]);
-      setFlagsAnalyzed(false);
-    }
-  };
-
   // ── Sync with prop when parent changes applicant selection ───────────────
   useEffect(() => {
     if (initialId) {
@@ -327,37 +337,58 @@ export default function Registration({
     }
   }, [initialId]);
 
-  // ── Sync form data when selected applicant ID changes ────────────────────
-  // DRAFT PROTECTION: This effect runs when selectedApplicantId changes OR
-  // when the applicants array reference changes (e.g. background GET refresh).
-  //
-  // Rules:
-  //   1. If selectedApplicantId changed from what we last hydrated →
-  //      always hydrate (intentional applicant switch). Clears dirty.
-  //   2. If only applicants changed but selectedApplicantId is the same →
-  //      skip hydration if isDirty — the user has unsaved edits that must
-  //      not be overwritten by a background GET /applicants response.
-  //   3. "new" mode always resets to blank immediately.
+  // ── Sync form data when selecting applicant from prop ─────────────────────
+  const initializedForApplicantId = useRef<string | null>(null);
   useEffect(() => {
+    if (initializedForApplicantId.current === selectedApplicantId) return;
+
     if (selectedApplicantId === 'new') {
-      if (lastHydratedId.current !== 'new') {
-        resetBlankForm();
-        lastHydratedId.current = 'new';
-      }
+      resetBlankForm();
+      initializedForApplicantId.current = 'new';
       return;
     }
-
-    const idChanged = lastHydratedId.current !== String(selectedApplicantId);
-
-    // Background array refresh on same applicant while form is dirty → skip.
-    if (!idChanged && isDirty.current) {
-      return;
-    }
-
-    // First hydration for this applicant, or intentional applicant switch.
     const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
     if (app) {
-      hydrateForm(app);
+      setPersonal({
+        firstName: app.firstName || '',
+        middleName: app.middleName || '',
+        lastName: app.lastName || '',
+        email: app.email || '',
+        contact: app.contact || '',
+        dateOfBirth: app.dateOfBirth || '',
+        age: String(app.age || ''),
+        sex: app.sex || 'Male',
+        religion: app.religion || 'Roman Catholic',
+        civilStatus: app.civilStatus || 'Single',
+        weight: app.weight || '',
+        height: app.height || '',
+        presentAddress: app.presentAddress || '',
+        provincialAddress: app.provincialAddress || '',
+        role: app.role || '',
+      });
+      const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
+      setSelectedJobOrderId(initialJo);
+      if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
+      else setIds([]);
+      if (app.education && app.education.length > 0) setEducation(app.education);
+      else setEducation([]);
+      if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
+      else setCerts([]);
+      if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
+      else setTrainings([]);
+      if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
+      else setLanguages([]);
+      if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
+      else setEmployment([]);
+      if (app.employmentFlags && app.employmentFlags.length > 0) {
+        setFlags(app.employmentFlags);
+        setFlagsAnalyzed(true);
+      } else {
+        setFlags([]);
+        setFlagsAnalyzed(false);
+      }
+      setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
+      initializedForApplicantId.current = selectedApplicantId;
     }
   }, [selectedApplicantId, applicants]);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -378,13 +409,12 @@ export default function Registration({
     "Other (see details below)",
   ];
 
-  const addEmp = () => { isDirty.current = true; setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]); };
+  const addEmp = () => setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
   const setEmp = (id: string, k: keyof EmploymentRecord, v: string | boolean) => {
-    isDirty.current = true;
     setEmployment(p => p.map(x => x.id === id ? { ...x, [k]: v, ...(k === 'isPresent' && v ? { dateEnded: '' } : {}) } : x));
     setFlagsAnalyzed(false);
   };
-  const removeEmp = (id: string) => { isDirty.current = true; setEmployment(p => p.filter(x => x.id !== id)); setFlagsAnalyzed(false); };
+  const removeEmp = (id: string) => { setEmployment(p => p.filter(x => x.id !== id)); setFlagsAnalyzed(false); };
 
   const runFlagEngine = () => {
     const newFlags = analyzeEmployment(employment);
@@ -421,6 +451,144 @@ export default function Registration({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ── Form State & Changes Tracking ────────────────────────────────────────
+  const isFormFilled = Boolean(
+    personal.firstName.trim() ||
+    personal.middleName.trim() ||
+    personal.lastName.trim() ||
+    personal.email.trim() ||
+    personal.contact.trim() ||
+    personal.dateOfBirth.trim() ||
+    personal.weight.trim() ||
+    personal.height.trim() ||
+    personal.presentAddress.trim() ||
+    personal.provincialAddress.trim() ||
+    personal.role.trim() ||
+    selectedJobOrderId ||
+    photo ||
+    ids.length > 0 ||
+    education.length > 0 ||
+    certs.length > 0 ||
+    trainings.length > 0 ||
+    languages.length > 0 ||
+    employment.length > 0
+  );
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (selectedApplicantId === 'new') return isFormFilled;
+    const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+    if (!app) return false;
+    return (
+      personal.firstName !== (app.firstName || '') ||
+      personal.middleName !== (app.middleName || '') ||
+      personal.lastName !== (app.lastName || '') ||
+      personal.email !== (app.email || '') ||
+      personal.contact !== (app.contact || '') ||
+      personal.dateOfBirth !== (app.dateOfBirth || '') ||
+      personal.sex !== (app.sex || 'Male') ||
+      personal.religion !== (app.religion || 'Roman Catholic') ||
+      personal.civilStatus !== (app.civilStatus || 'Single') ||
+      personal.weight !== (app.weight || '') ||
+      personal.height !== (app.height || '') ||
+      personal.presentAddress !== (app.presentAddress || '') ||
+      personal.provincialAddress !== (app.provincialAddress || '') ||
+      personal.role !== (app.role || '') ||
+      selectedJobOrderId !== (app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '')) ||
+      photo !== (app.photo || app.photoDataUrl || '') ||
+      JSON.stringify(ids) !== JSON.stringify(app.identifications || []) ||
+      JSON.stringify(education) !== JSON.stringify(app.education || []) ||
+      JSON.stringify(certs) !== JSON.stringify(app.certificateRecords || []) ||
+      JSON.stringify(trainings) !== JSON.stringify(app.trainings || []) ||
+      JSON.stringify(languages) !== JSON.stringify(app.languageRecords || []) ||
+      JSON.stringify(employment) !== JSON.stringify(app.employmentHistory || [])
+    );
+  }, [
+    selectedApplicantId, applicants, personal, selectedJobOrderId,
+    photo, ids, education, certs, trainings, languages, employment, isFormFilled
+  ]);
+
+  // Cancel button only appears if an applicant is selected or if user has started typing/making changes
+  const showCancelButton = selectedApplicantId !== 'new' || isFormFilled;
+
+  // ── Section Completion Tracking & Quick Scroll ───────────────────────────
+  const sectionStatus = useMemo(() => {
+    return {
+      personal: Boolean(personal.firstName.trim() && personal.lastName.trim()),
+      identifications: ids.length > 0,
+      education: education.length > 0,
+      certificates: certs.length > 0,
+      trainings: trainings.length > 0,
+      languages: languages.length > 0,
+      employment: employment.length > 0,
+    };
+  }, [personal, ids, education, certs, trainings, languages, employment]);
+
+  const completedCount = useMemo(() => {
+    return Object.values(sectionStatus).filter(Boolean).length;
+  }, [sectionStatus]);
+
+  const progressPercent = Math.round((completedCount / 7) * 100);
+
+  const scrollToBottom = () => {
+    const el = document.getElementById('section-save-actions');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  // ── Cancel / Discard Changes ──────────────────────────────────────────────
+  const handleCancel = () => {
+    if (selectedApplicantId === 'new') {
+      resetBlankForm();
+      showToast('Intake form cleared.');
+    } else {
+      const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+      if (hasUnsavedChanges && app) {
+        setPersonal({
+          firstName: app.firstName || '',
+          middleName: app.middleName || '',
+          lastName: app.lastName || '',
+          email: app.email || '',
+          contact: app.contact || '',
+          dateOfBirth: app.dateOfBirth || '',
+          age: String(app.age || ''),
+          sex: app.sex || 'Male',
+          religion: app.religion || 'Roman Catholic',
+          civilStatus: app.civilStatus || 'Single',
+          weight: app.weight || '',
+          height: app.height || '',
+          presentAddress: app.presentAddress || '',
+          provincialAddress: app.provincialAddress || '',
+          role: app.role || '',
+        });
+        const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
+        setSelectedJobOrderId(initialJo);
+        setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
+        setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
+        setCerts(app.certificateRecords && app.certificateRecords.length > 0 ? [...app.certificateRecords] : []);
+        setTrainings(app.trainings && app.trainings.length > 0 ? [...app.trainings] : []);
+        setLanguages(app.languageRecords && app.languageRecords.length > 0 ? [...app.languageRecords] : []);
+        setEmployment(app.employmentHistory && app.employmentHistory.length > 0 ? [...app.employmentHistory] : []);
+        if (app.employmentFlags && app.employmentFlags.length > 0) {
+          setFlags([...app.employmentFlags]);
+          setFlagsAnalyzed(true);
+        } else {
+          setFlags([]);
+          setFlagsAnalyzed(false);
+        }
+        setPhoto(app.photo || app.photoDataUrl || '');
+        setResolvingFlagId(null);
+        setSelectedQuickReason('');
+        setCustomReason('');
+        showToast(`Unsaved changes discarded for ${app.applicantCode || app.name}. Original profile restored.`);
+      } else {
+        setSelectedApplicantId('new');
+        resetBlankForm();
+        showToast('Returned to blank registration mode.');
+      }
+    }
+  };
+
   // ── Save Profile (Create New or Update Existing) ──────────────────────────
   const handleSave = async () => {
     if (!personal.firstName.trim() || !personal.lastName.trim()) {
@@ -448,7 +616,8 @@ export default function Registration({
     try {
       if (selectedApplicantId === 'new') {
         // ── CREATE NEW APPLICANT VIA POST /applicants ───────────────────────
-        const payload = {
+        const selectedJob = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
+        const payload: any = {
           first_name: personal.firstName.trim(),
           middle_name: personal.middleName.trim() || undefined,
           last_name: personal.lastName.trim(),
@@ -464,18 +633,21 @@ export default function Registration({
           weight: personal.weight || undefined,
           present_address: personal.presentAddress.trim() || undefined,
           provincial_address: personal.provincialAddress.trim() || undefined,
-          applied_role: personal.role.trim() || 'Applicant',
+          applied_role: personal.role.trim() || (selectedJob ? selectedJob.position : 'Applicant'),
+          job_order_code: selectedJob ? selectedJob.code : undefined,
+          job_order_name: selectedJob ? `${selectedJob.code} (${selectedJob.employerName})` : undefined,
+          job_order_id: selectedJob?.jobOrderId ? parseInt(String(selectedJob.jobOrderId), 10) : undefined,
+          employer_id: selectedJob?.employerId ? parseInt(String(selectedJob.employerId), 10) : undefined,
+          country_id: selectedJob?.countryId ? parseInt(String(selectedJob.countryId), 10) : undefined,
           skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
-          certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
-          work_experience: employment.map(e => ({
-            companyName: e.company,
-            position: e.position,
-            startDate: e.dateStarted,
-            endDate: e.dateEnded,
-            country: e.country,
-            isOverseas: e.country !== 'Philippines',
-            responsibilities: e.reasonForLeaving ? [e.reasonForLeaving] : []
-          })),
+          certifications: certs,
+          identifications: ids,
+          education: education,
+          trainings: trainings,
+          languages: languages,
+          employment_history: employment,
+          employment_flags: flags,
+          photo_url: photo || undefined,
           current_phase: 1,
           status: 'Initial Screening',
           current_handler: currentUserName,
@@ -496,8 +668,11 @@ export default function Registration({
           firstName: personal.firstName,
           middleName: personal.middleName,
           lastName: personal.lastName,
-          role: personal.role || 'Applicant',
-          jobOrder: selectedJobOrderId ? (() => { const jo = openJobOrders.find(j => j.id === selectedJobOrderId); return jo ? `${jo.code} (${jo.employerName})` : 'Unassigned'; })() : 'Unassigned',
+          role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
+          jobOrder: selectedJob ? selectedJob.code : 'Unassigned',
+          selectedJobOrderId: selectedJob ? selectedJob.code : undefined,
+          photo: photo || createdData.photo_url || '',
+          photoDataUrl: photo || createdData.photo_url || '',
           phase: 1,
           status: 'Initial Screening',
           currentHandler: currentUserName,
@@ -543,29 +718,47 @@ export default function Registration({
       } else {
         // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
         const numericId = parseInt(selectedApplicantId, 10);
-        if (!isNaN(numericId)) {
-          await api.put(`/applicants/${numericId}`, {
-            first_name: personal.firstName,
-            middle_name: personal.middleName,
-            last_name: personal.lastName,
-            email: personal.email,
-            contact_number: personal.contact,
-            birth_date: personal.dateOfBirth,
-            gender: personal.sex,
-            sex: personal.sex,
-            civil_status: personal.civilStatus,
-            present_address: personal.presentAddress,
-            provincial_address: personal.provincialAddress,
-            skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
-          });
-        }
+        const selectedJob = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
 
-        // DRAFT PROTECTION: Clear dirty flag so that the next background refresh
-        // is allowed to hydrate (the saved values are now authoritative).
-        // updateApplicant also bumps liveRequestId in App.tsx to invalidate
-        // any in-flight GET /applicants that predates this PUT.
-        isDirty.current = false;
-        lastHydratedId.current = String(selectedApplicantId);
+        if (!isNaN(numericId)) {
+          const updatePayload: any = {
+            first_name: personal.firstName.trim(),
+            middle_name: personal.middleName?.trim() || null,
+            last_name: personal.lastName.trim(),
+            email: personal.email?.trim() || null,
+            contact_number: personal.contact?.trim() || null,
+            birth_date: personal.dateOfBirth || null,
+            gender: personal.sex || null,
+            sex: personal.sex || null,
+            civil_status: personal.civilStatus || null,
+            present_address: personal.presentAddress?.trim() || null,
+            provincial_address: personal.provincialAddress?.trim() || null,
+            applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
+            skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+            certifications: certs,
+            identifications: ids,
+            education: education,
+            trainings: trainings,
+            languages: languages,
+            employment_history: employment,
+            employment_flags: flags,
+            photo_url: photo ? photo : null,
+          };
+
+          if (selectedJob) {
+            updatePayload.job_order_code = selectedJob.code;
+            updatePayload.job_order_name = `${selectedJob.code} (${selectedJob.employerName})`;
+            if (selectedJob.jobOrderId) updatePayload.job_order_id = parseInt(String(selectedJob.jobOrderId), 10);
+            if (selectedJob.employerId) updatePayload.employer_id = parseInt(String(selectedJob.employerId), 10);
+            if (selectedJob.countryId) updatePayload.country_id = parseInt(String(selectedJob.countryId), 10);
+          } else if (selectedJobOrderId === '') {
+            updatePayload.job_order_code = null;
+            updatePayload.job_order_name = null;
+            updatePayload.job_order_id = null;
+          }
+
+          await api.put(`/applicants/${numericId}`, updatePayload);
+        }
 
         if (updateApplicant) {
           updateApplicant(selectedApplicantId, {
@@ -577,6 +770,8 @@ export default function Registration({
             contact: personal.contact,
             dateOfBirth: personal.dateOfBirth,
             age: parseInt(personal.age, 10) || 30,
+            photo: photo,
+            photoDataUrl: photo,
             sex: personal.sex as 'Male' | 'Female',
             religion: personal.religion,
             civilStatus: personal.civilStatus as any,
@@ -584,8 +779,16 @@ export default function Registration({
             height: personal.height,
             presentAddress: personal.presentAddress,
             provincialAddress: personal.provincialAddress,
+            role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
+            jobOrder: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? 'Unassigned' : (currentApplicant?.jobOrder || 'Unassigned')),
+            selectedJobOrderId: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? undefined : currentApplicant?.selectedJobOrderId),
             skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+            identifications: ids,
+            education: education,
+            certificateRecords: certs,
+            trainings: trainings,
+            languageRecords: languages,
             employmentHistory: employment,
             employmentFlags: flags,
           });
@@ -610,13 +813,13 @@ export default function Registration({
   };
 
   const sections = [
-    { id: 'personal',      label: 'Personal Info'   },
+    { id: 'personal', label: 'Personal Info' },
     { id: 'identifications', label: 'Identifications' },
-    { id: 'education',     label: 'Education'        },
-    { id: 'certificates',  label: 'Certificates'     },
-    { id: 'trainings',     label: 'Trainings'        },
-    { id: 'languages',     label: 'Languages'        },
-    { id: 'employment',    label: 'Work Experience'  },
+    { id: 'education', label: 'Education' },
+    { id: 'certificates', label: 'Certificates' },
+    { id: 'trainings', label: 'Trainings' },
+    { id: 'languages', label: 'Languages' },
+    { id: 'employment', label: 'Work Experience' },
   ];
 
   const ratingBar = (val: number, onChange: (n: number) => void) => (
@@ -626,8 +829,37 @@ export default function Registration({
     </div>
   );
 
+  const scrollToSection = (id: string) => {
+    setActiveSection(id);
+    const el = document.getElementById(`section-${id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const secId = entry.target.id.replace('section-', '');
+            setActiveSection(secId);
+          }
+        });
+      },
+      { rootMargin: '-15% 0px -65% 0px', threshold: 0 }
+    );
+
+    sections.forEach((s) => {
+      const el = document.getElementById(`section-${s.id}`);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto pb-16">
+    <div className="space-y-4 w-full pb-20">
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -646,26 +878,23 @@ export default function Registration({
       </div>
 
       {/* Mode Banner */}
-      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
-        selectedApplicantId === 'new'
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          : 'bg-sky-50 border-sky-200 text-sky-900'
-      }`}>
+      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${selectedApplicantId === 'new'
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+        : 'bg-sky-50 border-sky-200 text-sky-900'
+        }`}>
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${
-            selectedApplicantId === 'new'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-[#0EA5E9] text-white'
-          }`}>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${selectedApplicantId === 'new'
+            ? 'bg-emerald-600 text-white'
+            : 'bg-[#0EA5E9] text-white'
+            }`}>
             {selectedApplicantId === 'new' ? <UserPlus size={20} /> : <User size={20} />}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
-                selectedApplicantId === 'new'
-                  ? 'bg-emerald-200 text-emerald-800'
-                  : 'bg-sky-200 text-sky-800'
-              }`}>
+              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${selectedApplicantId === 'new'
+                ? 'bg-emerald-200 text-emerald-800'
+                : 'bg-sky-200 text-sky-800'
+                }`}>
                 {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`}`}
               </span>
               {selectedApplicantId === 'new' ? (
@@ -723,24 +952,20 @@ export default function Registration({
         </label>
         <select
           value={selectedJobOrderId}
-          disabled={selectedApplicantId !== 'new'}
           onChange={e => {
             setSelectedJobOrderId(e.target.value);
             const jo = openJobOrders.find(j => j.id === e.target.value);
             if (jo) setPersonal(p => ({ ...p, role: jo.position }));
           }}
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white disabled:cursor-not-allowed disabled:bg-slate-100"
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
         >
-          <option value="">-- Select job order applicant is applying for --</option>
+          <option value="">{isLoadingJobOrders ? 'Loading job orders...' : '-- Select job order applicant is applying for --'}</option>
           {openJobOrders.map(jo => (
             <option key={jo.id} value={jo.id}>
               {jo.code} · {jo.position} · {jo.country} ({jo.employerName}) · {jo.available} slot{jo.available !== 1 ? 's' : ''} open
             </option>
           ))}
         </select>
-        {selectedApplicantId !== 'new' && (
-          <p className="mt-2 text-xs text-slate-500">Job order and target role belong to a specific application and cannot be changed in this profile form.</p>
-        )}
         {selectedJobOrderId && (() => {
           const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
           return jo ? (
@@ -751,37 +976,97 @@ export default function Registration({
         })()}
       </div>
 
-      {/* Section Nav */}
-      <div className="space-y-2">
-        <div className="flex gap-1 flex-wrap bg-slate-100 p-1 rounded-xl">
-          {sections.map(s => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeSection === s.id ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
-            >
-              {s.label}
-              {s.id === 'personal' ? (
-                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100/80 px-1.5 py-0.5 rounded">Required *</span>
+      {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
+      <div className="sticky top-0 z-30 bg-[#F1F5F9]/95 backdrop-blur-md py-2 -mt-1">
+        <div className="flex items-center justify-between gap-3 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline flex-shrink-0">
+              Sections:
+            </span>
+            {sections.map(s => {
+              const isFilled = sectionStatus[s.id as keyof typeof sectionStatus];
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => scrollToSection(s.id)}
+                  className={`flex-1 min-w-fit px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${activeSection === s.id
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
+                    } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
+                >
+                  <span>{s.label}</span>
+                  {s.id === 'personal' ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : isFilled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                      {isFilled ? '✓ Required' : 'Required *'}
+                    </span>
+                  ) : isFilled ? (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-50 text-emerald-600'}`}>
+                      ✓
+                    </span>
+                  ) : null}
+                  {s.id === 'employment' && activeFlagCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                      {activeFlagCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Right: Progress & Quick Navigation */}
+          <div className="flex items-center gap-2.5 flex-shrink-0 pr-1">
+            {/* Candidate / Intake Mode Pill */}
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium">
+              {selectedApplicantId === 'new' ? (
+                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> New Intake
+                </span>
               ) : (
-                <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+                <span className="flex items-center gap-1 text-slate-700">
+                  <span className="font-mono text-sky-700 font-bold">{currentApplicant?.applicantCode || `#${selectedApplicantId}`}</span>
+                  {currentApplicant?.name && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="truncate max-w-[110px] font-semibold">{currentApplicant.name}</span>
+                    </>
+                  )}
+                </span>
               )}
-              {s.id === 'employment' && activeFlagCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">{activeFlagCount}</span>
-              )}
+            </div>
+
+            {/* Progress Bar & Counter */}
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200" title="Overall form sections filled">
+              <div className="w-14 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                {completedCount}/7 Done
+              </span>
+            </div>
+
+            {/* Quick Jump to Bottom Actions */}
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+              title="Jump to Save & Actions at bottom"
+            >
+              <span>Bottom</span>
+              <ArrowDown size={12} />
             </button>
-          ))}
+          </div>
         </div>
-        <p className="text-xs text-slate-500 px-1">
-          <strong className="text-slate-600">Intake Note:</strong> Only <strong>First Name</strong> and <strong>Last Name</strong> in <em>Personal Info</em> are required to register. Other sections (Identifications, Education, Certificates, Work History) can be encoded now or completed during Phase 1 processing.
-        </p>
       </div>
 
       {/* ── Personal Info ────────────────────────────────────────────────────── */}
-      {activeSection === 'personal' && (
-        <Section title="Personal Information">
+      <div id="section-personal" className="scroll-mt-20 !mt-2">
+        <Section title="Personal Information" icon={<User size={16} />} badge={<span className="text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">Required *</span>}>
           <div className="flex gap-6">
             {/* Photo */}
             <div className="flex-shrink-0">
@@ -794,13 +1079,29 @@ export default function Registration({
                   : <div className="text-center p-2"><Camera size={24} className="text-slate-300 mx-auto mb-1" /><span className="text-[10px] text-slate-400">1×1 Photo</span></div>
                 }
               </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => {
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async e => {
                 const f = e.target.files?.[0]; if (!f) return;
+                // Preview immediately locally
                 const reader = new FileReader();
                 reader.onload = ev => setPhoto(ev.target?.result as string);
                 reader.readAsDataURL(f);
+
+                // Upload directly to Supabase Storage
+                try {
+                  const formData = new FormData();
+                  formData.append('file', f);
+                  const uploadRes = await api.post('/applicants/upload-photo', formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                  });
+                  if (uploadRes.data?.url) {
+                    setPhoto(uploadRes.data.url);
+                    showToast('Photo updated.');
+                  }
+                } catch (uploadErr) {
+                  console.warn('Supabase storage photo upload fallback:', uploadErr);
+                }
               }} />
-              {photo && <button onClick={() => setPhoto('')} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center">Remove</button>}
+              {photo && <button type="button" onClick={handleRemovePhoto} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center transition-colors">Remove</button>}
             </div>
 
             {/* Fields */}
@@ -877,16 +1178,16 @@ export default function Registration({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Target Position / Role</label>
-                <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} disabled={selectedApplicantId !== 'new'} placeholder="e.g. Industrial Welder" />
+                <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} placeholder="e.g. Industrial Welder" />
               </div>
             </div>
           </div>
         </Section>
-      )}
+      </div>
 
       {/* ── Identifications ────────────────────────────────────────────────────── */}
-      {activeSection === 'identifications' && (
-        <Section title="Government & Other Identifications">
+      <div id="section-identifications" className="scroll-mt-28">
+        <Section title="Government & Other Identifications" icon={<FileCheck size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{ids.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -903,7 +1204,8 @@ export default function Registration({
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className={td}>
                       <select className={inp} value={row.type} onChange={e => setId(row.id, 'type', e.target.value)}>
-                        {ID_TYPES.map(t => <option key={t}>{t}</option>)}
+                        <option value="">-- Select Identification Type --</option>
+                        {ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
                     <td className={td}><input className={inp} value={row.identificationNo} onChange={e => setId(row.id, 'identificationNo', e.target.value)} placeholder="ID / Serial Number" /></td>
@@ -911,13 +1213,13 @@ export default function Registration({
                     <td className={td}>
                       {row.proofDocumentUrl
                         ? <div className="flex items-center gap-1.5">
-                            <FileCheck size={13} className="text-[#10B981] flex-shrink-0" />
-                            <span className="text-xs text-[#10B981] truncate max-w-[120px]" title={row.proofDocumentName}>{row.proofDocumentName}</span>
-                            <button onClick={() => setId(row.id, 'proofDocumentUrl', '')} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0"><X size={12} /></button>
-                          </div>
+                          <FileCheck size={13} className="text-[#10B981] flex-shrink-0" />
+                          <span className="text-xs text-[#10B981] truncate max-w-[120px]" title={row.proofDocumentName}>{row.proofDocumentName}</span>
+                          <button onClick={() => setId(row.id, 'proofDocumentUrl', '')} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0"><X size={12} /></button>
+                        </div>
                         : <button onClick={() => proofUpload((url, name) => { setId(row.id, 'proofDocumentUrl', url); setId(row.id, 'proofDocumentName', name); })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#0EA5E9] border border-dashed border-slate-200 hover:border-[#0EA5E9] px-2 py-1 rounded transition-all">
-                            <Upload size={11} /> Upload
-                          </button>
+                          <Upload size={11} /> Upload
+                        </button>
                       }
                     </td>
                     <td className={td}><button onClick={() => removeId(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
@@ -930,11 +1232,11 @@ export default function Registration({
             <Plus size={15} /> Add Identification
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Education ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'education' && (
-        <Section title="Educational Background">
+      <div id="section-education" className="scroll-mt-28">
+        <Section title="Educational Background" icon={<GraduationCap size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{education.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -951,7 +1253,8 @@ export default function Registration({
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className={td}>
                       <select className={inp} value={row.level} onChange={e => setEdu(row.id, 'level', e.target.value)}>
-                        {EDU_LEVELS.map(l => <option key={l}>{l}</option>)}
+                        <option value="">-- Select Education Level --</option>
+                        {EDU_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                       </select>
                     </td>
                     <td className={td}><input className={inp} value={row.school} onChange={e => setEdu(row.id, 'school', e.target.value)} placeholder="School / University name" /></td>
@@ -967,11 +1270,11 @@ export default function Registration({
             <Plus size={15} /> Add Education Level
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Certificates ──────────────────────────────────────────────────────── */}
-      {activeSection === 'certificates' && (
-        <Section title="Certifications / Licenses">
+      <div id="section-certificates" className="scroll-mt-28">
+        <Section title="Certifications / Licenses" icon={<Award size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{certs.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1011,11 +1314,11 @@ export default function Registration({
             <Plus size={15} /> Add Certificate
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Trainings ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'trainings' && (
-        <Section title="Trainings Attended">
+      <div id="section-trainings" className="scroll-mt-28">
+        <Section title="Trainings Attended" icon={<BookOpen size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{trainings.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -1055,11 +1358,11 @@ export default function Registration({
             <Plus size={15} /> Add Training
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Languages ─────────────────────────────────────────────────────────── */}
-      {activeSection === 'languages' && (
-        <Section title="Language Proficiency">
+      <div id="section-languages" className="scroll-mt-28">
+        <Section title="Language Proficiency" icon={<LanguagesIcon size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{languages.length} recorded</span>}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1092,197 +1395,193 @@ export default function Registration({
             <Plus size={15} /> Add Language
           </button>
         </Section>
-      )}
+      </div>
 
       {/* ── Employment History ────────────────────────────────────────────────── */}
-      {activeSection === 'employment' && (
-        <div className="space-y-4">
-          <Section title="Work Experience / Employment History">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className={th}>Company / Employer</th>
-                    <th className={th}>Position / Designation</th>
-                    <th className={th}>Date Started</th>
-                    <th className={th}>Date Ended</th>
-                    <th className={th}>Country</th>
-                    <th className={th}>Reason for Leaving</th>
-                    <th className={th + ' text-center'}>Present</th>
-                    <th className={th + ' w-10'}></th>
+      <div id="section-employment" className="scroll-mt-28 space-y-4">
+        <Section title="Work Experience / Employment History" icon={<Briefcase size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{employment.length} recorded</span>}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className={th}>Company / Employer</th>
+                  <th className={th}>Position / Designation</th>
+                  <th className={th}>Date Started</th>
+                  <th className={th}>Date Ended</th>
+                  <th className={th}>Country</th>
+                  <th className={th}>Reason for Leaving</th>
+                  <th className={th + ' text-center'}>Present</th>
+                  <th className={th + ' w-10'}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {employment.map(row => (
+                  <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && f.relatedJobIds.includes(row.id)) ? 'bg-red-50/40' : ''}`}>
+                    <td className={td}><input className={inp} value={row.company} onChange={e => setEmp(row.id, 'company', e.target.value)} placeholder="Company name" /></td>
+                    <td className={td}><input className={inp} value={row.position} onChange={e => setEmp(row.id, 'position', e.target.value)} placeholder="Job title" /></td>
+                    <td className={td}><input className={inp} type="date" value={row.dateStarted} onChange={e => setEmp(row.id, 'dateStarted', e.target.value)} /></td>
+                    <td className={td}>
+                      {row.isPresent
+                        ? <span className="text-xs text-[#10B981] font-semibold px-2 py-1 bg-emerald-50 rounded">Present</span>
+                        : <input className={inp} type="date" value={row.dateEnded} onChange={e => setEmp(row.id, 'dateEnded', e.target.value)} />
+                      }
+                    </td>
+                    <td className={td}><input className={inp} value={row.country} onChange={e => setEmp(row.id, 'country', e.target.value)} placeholder="PH / UAE…" /></td>
+                    <td className={td}><input className={`${inp} ${RED_FLAG_KEYWORDS.some(k => row.reasonForLeaving.toLowerCase().includes(k)) ? 'border-red-300 bg-red-50' : ''}`} value={row.reasonForLeaving} onChange={e => setEmp(row.id, 'reasonForLeaving', e.target.value)} placeholder="Reason for leaving" /></td>
+                    <td className={td + ' text-center'}>
+                      <input type="checkbox" checked={row.isPresent} onChange={e => setEmp(row.id, 'isPresent', e.target.checked)} />
+                    </td>
+                    <td className={td}><button onClick={() => removeEmp(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
                   </tr>
-                </thead>
-                <tbody>
-                  {employment.map(row => (
-                    <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && f.relatedJobIds.includes(row.id)) ? 'bg-red-50/40' : ''}`}>
-                      <td className={td}><input className={inp} value={row.company} onChange={e => setEmp(row.id, 'company', e.target.value)} placeholder="Company name" /></td>
-                      <td className={td}><input className={inp} value={row.position} onChange={e => setEmp(row.id, 'position', e.target.value)} placeholder="Job title" /></td>
-                      <td className={td}><input className={inp} type="date" value={row.dateStarted} onChange={e => setEmp(row.id, 'dateStarted', e.target.value)} /></td>
-                      <td className={td}>
-                        {row.isPresent
-                          ? <span className="text-xs text-[#10B981] font-semibold px-2 py-1 bg-emerald-50 rounded">Present</span>
-                          : <input className={inp} type="date" value={row.dateEnded} onChange={e => setEmp(row.id, 'dateEnded', e.target.value)} />
-                        }
-                      </td>
-                      <td className={td}><input className={inp} value={row.country} onChange={e => setEmp(row.id, 'country', e.target.value)} placeholder="PH / UAE…" /></td>
-                      <td className={td}><input className={`${inp} ${RED_FLAG_KEYWORDS.some(k => row.reasonForLeaving.toLowerCase().includes(k)) ? 'border-red-300 bg-red-50' : ''}`} value={row.reasonForLeaving} onChange={e => setEmp(row.id, 'reasonForLeaving', e.target.value)} placeholder="Reason for leaving" /></td>
-                      <td className={td + ' text-center'}>
-                        <input type="checkbox" checked={row.isPresent} onChange={e => setEmp(row.id, 'isPresent', e.target.checked)} />
-                      </td>
-                      <td className={td}><button onClick={() => removeEmp(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center gap-3 mt-3">
-              <button onClick={addEmp} className="flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
-                <Plus size={15} /> Add Employment
-              </button>
-              <button
-                onClick={runFlagEngine}
-                className="ml-auto flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-lg transition-colors"
-              >
-                <Flag size={15} /> Run Employment Flag Check
-              </button>
-            </div>
-          </Section>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <button onClick={addEmp} className="flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
+              <Plus size={15} /> Add Employment
+            </button>
+            <button
+              onClick={runFlagEngine}
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              <Flag size={15} /> Run Employment Flag Check
+            </button>
+          </div>
+        </Section>
 
-          {/* Flags Panel */}
-          {flagsAnalyzed && (
-            <div className={`rounded-xl border overflow-hidden ${flags.length === 0 ? 'border-emerald-200' : 'border-amber-200'}`}>
-              <div className={`px-5 py-3 flex items-center justify-between ${flags.length === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                <div className="flex items-center gap-2">
-                  {flags.length === 0
-                    ? <><CheckCircle2 size={16} className="text-emerald-600" /><span className="text-sm font-bold text-emerald-700">No concerns raised — employment history is clean</span></>
-                    : <><ShieldAlert size={16} className="text-amber-600" /><span className="text-sm font-bold text-amber-700">{flags.length} concern{flags.length > 1 ? 's' : ''} raised — {activeFlagCount} unresolved</span></>
-                  }
-                </div>
-                {activeFlagCount > 0 && (
-                  <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">All flags must be cleared before saving</span>
-                )}
+        {/* Flags Panel */}
+        {flagsAnalyzed && (
+          <div className={`rounded-xl border overflow-hidden ${flags.length === 0 ? 'border-emerald-200' : 'border-amber-200'}`}>
+            <div className={`px-5 py-3 flex items-center justify-between ${flags.length === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+              <div className="flex items-center gap-2">
+                {flags.length === 0
+                  ? <><CheckCircle2 size={16} className="text-emerald-600" /><span className="text-sm font-bold text-emerald-700">No concerns raised — employment history is clean</span></>
+                  : <><ShieldAlert size={16} className="text-amber-600" /><span className="text-sm font-bold text-amber-700">{flags.length} concern{flags.length > 1 ? 's' : ''} raised — {activeFlagCount} unresolved</span></>
+                }
               </div>
-              {flags.length > 0 && (
-                <div className="p-4 space-y-3 bg-white">
-                  {flags.map(flag => {
-                    const meta = FLAG_META[flag.type];
-                    const isOpen = resolvingFlagId === flag.id;
-                    const resolveReady = selectedQuickReason && (selectedQuickReason !== 'Other (see details below)' || customReason.trim());
-                    return (
-                      <div key={flag.id} className={`rounded-xl border transition-all overflow-hidden ${
-                        flag.dismissed ? 'opacity-70 border-slate-200 bg-slate-50' : isOpen ? 'border-[#0EA5E9] bg-white shadow-md' : 'border-amber-200 bg-amber-50/50 hover:border-amber-300'
-                      }`}>
-                        {/* Flag header — clickable */}
-                        <div
-                          className={`flex items-start gap-3 p-4 ${!flag.dismissed ? 'cursor-pointer' : ''}`}
-                          onClick={() => !flag.dismissed && openResolve(flag.id)}
-                        >
-                          <div className="mt-0.5 flex-shrink-0" style={{ color: flag.dismissed ? '#94a3b8' : meta.color }}>
-                            {meta.icon}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{
-                                background: flag.dismissed ? '#f1f5f9' : meta.color + '18',
-                                color: flag.dismissed ? '#94a3b8' : meta.color,
-                              }}>
-                                {meta.label}
-                              </span>
-                              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                                background: flag.severity === 'critical' && !flag.dismissed ? '#FEE2E2' : '#f1f5f9',
-                                color: flag.severity === 'critical' && !flag.dismissed ? '#EF4444' : '#94a3b8',
-                              }}>
-                                {flag.severity === 'critical' ? 'CRITICAL' : 'WARNING'}
-                              </span>
-                              {flag.dismissed && (
-                                <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                                  <CheckCircle2 size={11} /> Resolved
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-slate-700">{flag.description}</p>
-                            {flag.dismissed && flag.dismissalReason && (
-                              <p className="mt-1.5 text-xs text-slate-500 italic">
-                                <strong className="text-slate-600">Resolved by {flag.dismissedBy}:</strong> {flag.dismissalReason}
-                              </p>
-                            )}
-                          </div>
-                          {!flag.dismissed && (
-                            <span className={`text-xs flex-shrink-0 px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${isOpen ? 'bg-[#0EA5E9] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}>
-                              <MessageSquare size={11} /> {isOpen ? 'Cancel' : 'Resolve'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Inline resolution panel */}
-                        {isOpen && !flag.dismissed && (
-                          <div className="border-t border-[#0EA5E9]/20 bg-[#0EA5E9]/3 px-4 pb-4 pt-3 space-y-3">
-                            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Resolution Reason</p>
-                            <div className="flex flex-wrap gap-2">
-                              {QUICK_REASONS.map(r => (
-                                <button
-                                  key={r}
-                                  onClick={() => setSelectedQuickReason(r)}
-                                  className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${
-                                    selectedQuickReason === r
-                                      ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
-                                  }`}
-                                >
-                                  {r}
-                                </button>
-                              ))}
-                            </div>
-                            {(selectedQuickReason === 'Other (see details below)' || (selectedQuickReason && selectedQuickReason !== 'Other (see details below)')) && (
-                              <textarea
-                                value={customReason}
-                                onChange={e => setCustomReason(e.target.value)}
-                                rows={2}
-                                placeholder={selectedQuickReason === 'Other (see details below)' ? 'Describe the resolution…' : 'Additional details (optional)…'}
-                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none"
-                              />
-                            )}
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => { setResolvingFlagId(null); setSelectedQuickReason(''); setCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors">
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => resolveFlag(flag.id)}
-                                disabled={!resolveReady}
-                                className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
-                              >
-                                <CheckCircle2 size={13} /> Mark Resolved
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {activeFlagCount > 0 && (
+                <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">All flags must be cleared before saving</span>
               )}
             </div>
-          )}
+            {flags.length > 0 && (
+              <div className="p-4 space-y-3 bg-white">
+                {flags.map(flag => {
+                  const meta = FLAG_META[flag.type];
+                  const isOpen = resolvingFlagId === flag.id;
+                  const resolveReady = selectedQuickReason && (selectedQuickReason !== 'Other (see details below)' || customReason.trim());
+                  return (
+                    <div key={flag.id} className={`rounded-xl border transition-all overflow-hidden ${flag.dismissed ? 'opacity-70 border-slate-200 bg-slate-50' : isOpen ? 'border-[#0EA5E9] bg-white shadow-md' : 'border-amber-200 bg-amber-50/50 hover:border-amber-300'
+                      }`}>
+                      {/* Flag header — clickable */}
+                      <div
+                        className={`flex items-start gap-3 p-4 ${!flag.dismissed ? 'cursor-pointer' : ''}`}
+                        onClick={() => !flag.dismissed && openResolve(flag.id)}
+                      >
+                        <div className="mt-0.5 flex-shrink-0" style={{ color: flag.dismissed ? '#94a3b8' : meta.color }}>
+                          {meta.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{
+                              background: flag.dismissed ? '#f1f5f9' : meta.color + '18',
+                              color: flag.dismissed ? '#94a3b8' : meta.color,
+                            }}>
+                              {meta.label}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
+                              background: flag.severity === 'critical' && !flag.dismissed ? '#FEE2E2' : '#f1f5f9',
+                              color: flag.severity === 'critical' && !flag.dismissed ? '#EF4444' : '#94a3b8',
+                            }}>
+                              {flag.severity === 'critical' ? 'CRITICAL' : 'WARNING'}
+                            </span>
+                            {flag.dismissed && (
+                              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                                <CheckCircle2 size={11} /> Resolved
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-700">{flag.description}</p>
+                          {flag.dismissed && flag.dismissalReason && (
+                            <p className="mt-1.5 text-xs text-slate-500 italic">
+                              <strong className="text-slate-600">Resolved by {flag.dismissedBy}:</strong> {flag.dismissalReason}
+                            </p>
+                          )}
+                        </div>
+                        {!flag.dismissed && (
+                          <span className={`text-xs flex-shrink-0 px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${isOpen ? 'bg-[#0EA5E9] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}>
+                            <MessageSquare size={11} /> {isOpen ? 'Cancel' : 'Resolve'}
+                          </span>
+                        )}
+                      </div>
 
-          {!flagsAnalyzed && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-blue-700">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
-            </div>
-          )}
-        </div>
-      )}
+                      {/* Inline resolution panel */}
+                      {isOpen && !flag.dismissed && (
+                        <div className="border-t border-[#0EA5E9]/20 bg-[#0EA5E9]/3 px-4 pb-4 pt-3 space-y-3">
+                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Resolution Reason</p>
+                          <div className="flex flex-wrap gap-2">
+                            {QUICK_REASONS.map(r => (
+                              <button
+                                key={r}
+                                onClick={() => setSelectedQuickReason(r)}
+                                className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${selectedQuickReason === r
+                                  ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'
+                                  }`}
+                              >
+                                {r}
+                              </button>
+                            ))}
+                          </div>
+                          {(selectedQuickReason === 'Other (see details below)' || (selectedQuickReason && selectedQuickReason !== 'Other (see details below)')) && (
+                            <textarea
+                              value={customReason}
+                              onChange={e => setCustomReason(e.target.value)}
+                              rows={2}
+                              placeholder={selectedQuickReason === 'Other (see details below)' ? 'Describe the resolution…' : 'Additional details (optional)…'}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none"
+                            />
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setResolvingFlagId(null); setSelectedQuickReason(''); setCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors">
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => resolveFlag(flag.id)}
+                              disabled={!resolveReady}
+                              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
+                            >
+                              <CheckCircle2 size={13} /> Mark Resolved
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!flagsAnalyzed && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-blue-700">
+            <AlertCircle size={16} className="flex-shrink-0" />
+            <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
+          </div>
+        )}
+      </div>
 
       {/* Save / Register Button */}
-      <div className="flex items-center justify-between pt-4 border-t border-slate-200 gap-4 flex-wrap">
-        <div className="text-xs text-slate-400">
+      <div id="section-save-actions" className="flex items-center justify-between pt-6 border-t border-slate-200 gap-4 flex-wrap bg-white p-5 rounded-xl shadow-sm border">
+        <div className="text-xs text-slate-500">
           {hasBlockingFlags ? (
             <span className="text-red-500 font-semibold flex items-center gap-1.5">
               <ShieldAlert size={14} /> Resolve all {activeFlagCount} flag{activeFlagCount > 1 ? 's' : ''} in Work Experience before saving
             </span>
           ) : employment.length > 0 && !flagsAnalyzed ? (
             <span className="flex items-center gap-1.5 text-amber-600 font-medium">
-              <AlertCircle size={14} /> Run Employment Flag Check on Work Experience tab before saving
+              <AlertCircle size={14} /> Run Employment Flag Check in Work Experience section before saving
             </span>
           ) : !personal.firstName.trim() || !personal.lastName.trim() ? (
             <span className="text-amber-600 font-medium flex items-center gap-1.5">
@@ -1294,32 +1593,44 @@ export default function Registration({
             </span>
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
-            hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+        <div className="flex items-center gap-3">
+          {showCancelButton && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isSubmitting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer animate-in fade-in duration-150"
+              title={selectedApplicantId === 'new' ? 'Clear form' : hasUnsavedChanges ? 'Discard unsaved changes' : 'Cancel selection'}
+            >
+              <X size={16} /> Cancel
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
               ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
               : selectedApplicantId === 'new'
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
                 : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
-          }`}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}
-            </>
-          ) : selectedApplicantId === 'new' ? (
-            <>
-              <UserPlus size={16} /> Register New Applicant
-            </>
-          ) : (
-            <>
-              <Save size={16} /> Save Applicant {currentApplicant?.applicantCode || `#${selectedApplicantId}`} Changes
-            </>
-          )}
-        </button>
+              }`}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}
+              </>
+            ) : selectedApplicantId === 'new' ? (
+              <>
+                <UserPlus size={16} /> Register New Applicant
+              </>
+            ) : (
+              <>
+                <Save size={16} /> Save Applicant {currentApplicant?.applicantCode || `#${selectedApplicantId}`} Changes
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

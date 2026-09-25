@@ -10,20 +10,27 @@ export const api = axios.create({
   },
 });
 
+let cachedSessionToken = null;
+
+// Listen to auth changes once and store the session locally
+supabase.auth.onAuthStateChange((_event, session) => {
+  cachedSessionToken = session?.access_token || null;
+});
+
+// Grab initial session immediately without blocking the interceptor
+supabase.auth.getSession().then(({ data: { session } }) => {
+  if (!cachedSessionToken && session?.access_token) {
+    cachedSessionToken = session.access_token;
+  }
+}).catch(err => console.error("Error fetching initial Supabase session:", err));
+
 // 🚀 THE INTERCEPTOR: Runs automatically before every single backend request
 api.interceptors.request.use(
-  async (config) => {
-    // 1. Ask Supabase if there is a currently logged-in user
-    const { data: { session }, error } = await supabase.auth.getSession();
-
-    if (error) {
-      console.error("Error fetching Supabase session:", error.message);
-    }
-
-    // 2. If a user is logged in, grab their secure token and attach it to the request.
-    // Otherwise, attach dev_token fallback so development and testing proceed seamlessly.
-    if (session && session.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+  (config) => {
+    // We use the cached token directly (synchronous) instead of awaiting getSession()
+    // This prevents cross-tab locking overhead and massive request latency.
+    if (cachedSessionToken) {
+      config.headers.Authorization = `Bearer ${cachedSessionToken}`;
     } else {
       config.headers.Authorization = `Bearer dev_token`;
     }

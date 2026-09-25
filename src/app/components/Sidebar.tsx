@@ -63,7 +63,6 @@ export default function Sidebar({
   const mainItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: 'All' },
     { id: 'applicants', label: 'Applicant List', icon: UsersIcon, roles: 'All' },
-    { id: 'applicant', label: 'Applicant Profile', icon: FolderSearch, roles: 'All' },
   ];
 
   const navGroups: NavGroup[] = [
@@ -122,13 +121,7 @@ export default function Sidebar({
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
         { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
-      ],
-    },
-    {
-      title: 'Staff Administration',
-      roles: ['Admin', 'Management'],
-      items: [
-        { id: 'users', label: 'User Management', icon: Users, roles: ['Admin', 'Management'] },
+        { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
       ],
     },
   ];
@@ -187,7 +180,7 @@ export default function Sidebar({
               <Building2 className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <span className="font-bold text-xs block text-white truncate">Super Admin Console</span>
-                <span className="text-[10px] text-amber-300/90 block truncate">Tenants &amp; Overview</span>
+                <span className="text-[10px] text-amber-300/90 block truncate">Tenants & Overview</span>
               </div>
               <ArrowRight size={14} className="text-amber-400 group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
             </button>

@@ -11,6 +11,7 @@ interface SmartProfilingProps {
   selectedApplicantId?: string;
   onSelectApplicant?: (applicantId: string) => void;
   workflow?: WorkflowState;
+  globalJobOrders?: any[];
 }
 
 export default function SmartProfiling({
@@ -21,10 +22,12 @@ export default function SmartProfiling({
   selectedApplicantId = '1',
   onSelectApplicant,
   workflow,
+  globalJobOrders,
 }: SmartProfilingProps) {
   const [activeApplicantId, setActiveApplicantId] = useState<string>(selectedApplicantId || '');
   const [selectedJobOrder, setSelectedJobOrder] = useState('');
   const [jobOrders, setJobOrders] = useState<any[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(false);
 
   const [matchingEval, setMatchingEval] = useState<any | null>(null);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
@@ -40,8 +43,9 @@ export default function SmartProfiling({
   // Fetch live job orders from backend
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
+      setIsLoadingJobs(true);
       try {
-        const res = await api.get('/job-orders');
+        const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
@@ -60,10 +64,12 @@ export default function SmartProfiling({
         }
       } catch (err) {
         console.warn('Could not fetch live job orders for smart profiling, using defaults:', err);
+      } finally {
+        setIsLoadingJobs(false);
       }
     };
     fetchLiveJobOrders();
-  }, []);
+  }, [globalJobOrders]);
 
   const isLocked = !workflow?.screeningPassed;
 
@@ -443,7 +449,7 @@ export default function SmartProfiling({
           disabled={isLocked}
           className="w-full border-2 border-slate-200 px-4 py-3 rounded-lg text-sm focus:border-[#F59E0B] outline-none font-medium disabled:opacity-50"
         >
-          <option value="">-- Select Job Order --</option>
+          <option value="">{isLoadingJobs ? 'Loading job orders...' : '-- Select Job Order --'}</option>
           {jobOrders.map((jo) => (
             <option key={jo.id} value={jo.id}>
               {jo.id} - {jo.position} ({jo.country}) - {jo.employer}

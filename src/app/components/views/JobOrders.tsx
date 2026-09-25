@@ -23,9 +23,11 @@ const BLANK_ORDER: Omit<JobOrder, 'id'> = {
 interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
 }
 
-export default function JobOrders({ showToast, currentUserName }: Props) {
+export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers }: Props) {
   const [orders, setOrders] = useState<JobOrder[]>([]);
   const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
@@ -44,8 +46,8 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
       try {
         setIsLoading(true);
         const [ordersRes, empRes] = await Promise.allSettled([
-          api.get('/job-orders'),
-          api.get('/employers'),
+          globalJobOrders ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
+          globalEmployers ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
         ]);
 
         if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
@@ -99,7 +101,7 @@ export default function JobOrders({ showToast, currentUserName }: Props) {
       }
     };
     fetchLiveJobOrders();
-  }, []);
+  }, [globalJobOrders, globalEmployers]);
 
   const filtered = orders.filter(o => {
     const q = search.toLowerCase();

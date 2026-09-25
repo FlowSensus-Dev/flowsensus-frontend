@@ -32,9 +32,10 @@ const BLANK_EMPLOYER: Omit<EmployerProfile, 'id' | 'createdAt' | 'remarks' | 'to
 interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
+  globalEmployers?: any[];
 }
 
-export default function EmployerProfiles({ showToast, currentUserName }: Props) {
+export default function EmployerProfiles({ showToast, currentUserName, globalEmployers }: Props) {
   const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployerProfile['status']>('all');
@@ -51,7 +52,7 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
     const fetchEmployers = async () => {
       try {
         setIsLoading(true);
-        const res = await api.get('/employers');
+        const res = globalEmployers ? { data: globalEmployers } : await api.get('/employers');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveEmps: EmployerProfile[] = res.data.map((e: any) => ({
             id: String(e.employer_id),
@@ -80,7 +81,7 @@ export default function EmployerProfiles({ showToast, currentUserName }: Props) 
       }
     };
     fetchEmployers();
-  }, []);
+  }, [globalEmployers]);
 
   const filtered = employers.filter(e => {
     const q = search.toLowerCase();

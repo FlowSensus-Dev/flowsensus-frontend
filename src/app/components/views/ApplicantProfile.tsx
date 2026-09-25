@@ -4,7 +4,8 @@ import {
   FileCheck, FileX, ChevronUp, MapPin, Phone, Mail, Globe,
   Briefcase, GraduationCap, Award, Languages,
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
-  Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X
+  Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
+  ArrowLeft, ChevronLeft, ChevronRight, Edit2
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType } from '../../types';
 
@@ -65,6 +66,12 @@ interface ApplicantProfileProps {
   currentUserName?: string;
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast?: (msg: string) => void;
+  onBack?: () => void;
+  onNavigateApplicant?: (direction: 'prev' | 'next') => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  applicantIndexText?: string;
+  onEdit?: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -76,6 +83,12 @@ export default function ApplicantProfile({
   currentUserName = 'Staff',
   addActivityLog,
   showToast,
+  onBack,
+  onNavigateApplicant,
+  hasPrev,
+  hasNext,
+  applicantIndexText,
+  onEdit,
 }: ApplicantProfileProps) {
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -134,43 +147,97 @@ export default function ApplicantProfile({
     setValidationQuickReason('');
     setValidationCustomReason('');
   };
+
+  const isProgrammaticScroll = useRef(false);
+  const scrollTimeout = useRef<number | null>(null);
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const topRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
 
-  // IntersectionObserver to track active section
+  // Auto-scroll the active tab button into view inside the horizontal nav bar
   useEffect(() => {
-    const observers: IntersectionObserver[] = [];
-    SECTIONS.forEach(({ id }) => {
-      const el = sectionRefs.current[id];
-      if (!el) return;
-      const obs = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting) setActiveSection(id); },
-        { threshold: 0.25 }
-      );
-      obs.observe(el);
-      observers.push(obs);
-    });
-    return () => observers.forEach(o => o.disconnect());
-  }, [applicant]);
+    const btn = tabButtonRefs.current[activeSection];
+    if (btn) {
+      btn.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+    }
+  }, [activeSection]);
 
-  // Scroll listener for back-to-top — listens on scroll parent
+  // Robust, coordinated scroll listener for rock-solid active section tracking
   useEffect(() => {
-    const el = topRef.current?.closest('[class*="overflow-y"]') as HTMLElement | null;
-    if (!el) return;
-    const onScroll = () => setShowBackToTop(el.scrollTop > 300);
-    el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
+    const container = topRef.current?.closest('[class*="overflow-y"]') as HTMLElement | null;
+    if (!container) return;
+
+    let ticking = false;
+
+    const handleScroll = () => {
+      setShowBackToTop(container.scrollTop > 350);
+
+      if (isProgrammaticScroll.current) return;
+      if (ticking) return;
+
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (isProgrammaticScroll.current) return;
+
+        // Check if user is scrolled near the bottom of the container
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+        if (isAtBottom) {
+          setActiveSection(SECTIONS[SECTIONS.length - 1].id);
+          return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        // Probe point below the sticky navigation bar (~90px below container top)
+        const probeY = containerRect.top + 90;
+
+        let currentActive = SECTIONS[0].id;
+        for (let i = 0; i < SECTIONS.length; i++) {
+          const s = SECTIONS[i];
+          const el = sectionRefs.current[s.id];
+          if (!el) continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= probeY) {
+            currentActive = s.id;
+          } else {
+            break;
+          }
+        }
+        setActiveSection(currentActive);
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+    };
   }, []);
 
   const scrollTo = useCallback((id: string) => {
-    sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const el = sectionRefs.current[id];
+    if (!el) return;
+
     setActiveSection(id);
+    isProgrammaticScroll.current = true;
+    if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+    scrollTimeout.current = window.setTimeout(() => {
+      isProgrammaticScroll.current = false;
+    }, 750);
+
+    // Native scrollIntoView works perfectly when sections have scroll-mt utility classes
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const scrollToTop = useCallback(() => {
-    topRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = topRef.current?.closest('[class*="overflow-y"]') as HTMLElement | null;
+    if (container) {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      topRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, []);
 
   // Flag resolution
@@ -208,12 +275,128 @@ export default function ApplicantProfile({
   const activeFlags = flags.filter(f => !f.dismissed);
   const hasFlagWarning = activeFlags.length > 0;
 
+  const getSectionBadge = (sectionId: string) => {
+    switch (sectionId) {
+      case 'employment':
+        if (activeFlags.length > 0) {
+          return (
+            <span className="ml-1 px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-bold flex items-center gap-0.5 shadow-2xs">
+              <AlertTriangle size={8} /> {activeFlags.length}
+            </span>
+          );
+        }
+        if (flags.length > 0 && flags.every(f => f.dismissed || f.validated)) {
+          return (
+            <span className="ml-1 w-3.5 h-3.5 bg-emerald-500 text-white rounded-full flex items-center justify-center text-[9px] shadow-2xs">
+              ✓
+            </span>
+          );
+        }
+        if ((applicant?.employmentHistory || []).length > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'employment' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {applicant?.employmentHistory?.length}
+            </span>
+          );
+        }
+        return null;
+
+      case 'skills': {
+        const count = (applicant?.skills || []).length + (applicant?.certificateRecords || []).length + (applicant?.trainings || []).length;
+        if (count > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'skills' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {count}
+            </span>
+          );
+        }
+        return null;
+      }
+
+      case 'languages':
+        if ((applicant?.languageRecords || []).length > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'languages' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {applicant?.languageRecords?.length}
+            </span>
+          );
+        }
+        return null;
+
+      case 'education':
+        if ((applicant?.education || []).length > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'education' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {applicant?.education?.length}
+            </span>
+          );
+        }
+        return null;
+
+      case 'ids':
+        if ((applicant?.identifications || []).length > 0) {
+          const hasExpired = (applicant?.identifications || []).some(
+            id => id.expiryDate && new Date(id.expiryDate) < new Date()
+          );
+          if (hasExpired) {
+            return (
+              <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold shadow-2xs">
+                Exp
+              </span>
+            );
+          }
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'ids' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {applicant?.identifications?.length}
+            </span>
+          );
+        }
+        return null;
+
+      case 'scores':
+        if (applicant?.testScores) {
+          const passed = (applicant.testScores.englishProficiency >= 60) &&
+                         (applicant.testScores.tradeSkills >= 70) &&
+                         (applicant.testScores.iqAptitude >= 50);
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${passed ? 'bg-emerald-500/20 text-emerald-600' : 'bg-red-500/20 text-red-500'}`}>
+              {passed ? 'Pass' : 'Review'}
+            </span>
+          );
+        }
+        return null;
+
+      case 'finances':
+        if (expenses.length > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${activeSection === 'finances' ? 'bg-[#0EA5E9]/30 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
+              ₱{totalExpenses > 999 ? `${(totalExpenses / 1000).toFixed(0)}k` : totalExpenses}
+            </span>
+          );
+        }
+        return null;
+
+      case 'activity':
+        if (activityLogs.length > 0) {
+          return (
+            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'activity' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {activityLogs.length}
+            </span>
+          );
+        }
+        return null;
+
+      default:
+        return null;
+    }
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div ref={topRef} className="w-full space-y-0 pb-20">
 
       {/* ── Profile Header card ──────────────────────────────────────────────── */}
-      <div className="bg-[#0F172A] rounded-t-xl overflow-hidden">
+      <div className="bg-[#0F172A] rounded-2xl overflow-hidden shadow-sm border border-slate-800">
         {/* Stopped Banner */}
         {applicant.isStopped && (
           <div className="bg-red-600 px-6 py-2.5 flex items-center gap-2 text-sm text-white">
@@ -228,8 +411,8 @@ export default function ApplicantProfile({
           </div>
         )}
         <div className="px-6 py-5 flex items-start gap-5">
-          {applicant.photoDataUrl
-            ? <img src={applicant.photoDataUrl} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
+          {(applicant.photoDataUrl || applicant.photo)
+            ? <img src={applicant.photoDataUrl || applicant.photo} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
             : (
               <div className="w-20 h-24 rounded-xl bg-white/10 border-2 border-white/20 flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
                 {applicant.name.split(' ').map(n => n[0]).join('').slice(0,2)}
@@ -237,7 +420,17 @@ export default function ApplicantProfile({
             )
           }
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-white leading-tight">{applicant.name}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-white leading-tight">{applicant.name}</h2>
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="sm:hidden text-xs text-slate-300 hover:text-white flex items-center gap-1 border border-white/20 px-2 py-0.5 rounded-lg cursor-pointer bg-white/5"
+                >
+                  <ArrowLeft size={11} /> Back
+                </button>
+              )}
+            </div>
             <p className="text-[#0EA5E9] text-sm mt-0.5 font-medium">{applicant.role}</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
               <span className="flex items-center gap-1"><IdCard size={11} /> {applicant.applicantCode || applicant.id}</span>
@@ -248,8 +441,14 @@ export default function ApplicantProfile({
               <span className="text-xs px-2.5 py-1 bg-[#0EA5E9]/20 text-[#0EA5E9] rounded-full border border-[#0EA5E9]/30 font-semibold">
                 Phase {applicant.phase}: {applicant.status}
               </span>
-              {applicant.jobOrder && (
-                <span className="text-xs px-2.5 py-1 bg-white/10 text-white/70 rounded-full">{applicant.jobOrder}</span>
+              {applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? (
+                <span className="text-xs px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold flex items-center gap-1.5">
+                  <Briefcase size={11} /> {applicant.jobOrder}
+                </span>
+              ) : (
+                <span className="text-xs px-2.5 py-1 bg-slate-700/50 text-slate-300 rounded-full border border-slate-600/40 font-medium flex items-center gap-1.5">
+                  <Briefcase size={11} /> Unassigned
+                </span>
               )}
             </div>
           </div>
@@ -262,7 +461,7 @@ export default function ApplicantProfile({
             {!applicant.isStopped && updateApplicant && (
               <button
                 onClick={() => setShowStopModal(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
               >
                 <OctagonX size={13} /> Stop Processing
               </button>
@@ -272,29 +471,48 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Sticky section nav ────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-30 bg-white border border-t-0 border-slate-200 rounded-b-xl shadow-sm">
-        <div className="flex overflow-x-auto scrollbar-hide px-3 py-2 gap-1">
-          {SECTIONS.map(s => (
-            <button
-              key={s.id}
-              onClick={() => scrollTo(s.id)}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                activeSection === s.id
-                  ? 'bg-[#0EA5E9] text-white'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-[#0F172A]'
-              } ${s.id === 'employment' && hasFlagWarning ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+      <nav className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-sm my-4 transition-all">
+        <div className="flex items-center px-3 py-2 gap-2">
+          <div className="flex-1 flex overflow-x-auto scrollbar-none items-center gap-1.5 py-0.5 px-0.5">
+            {SECTIONS.map(s => {
+              const isActive = activeSection === s.id;
+              const badge = getSectionBadge(s.id);
+
+              return (
+                <button
+                  key={s.id}
+                  ref={el => { tabButtonRefs.current[s.id] = el; }}
+                  onClick={() => scrollTo(s.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? 'bg-[#0F172A] text-white shadow-sm ring-1 ring-slate-900/10'
+                      : 'text-slate-600 hover:text-[#0F172A] hover:bg-slate-100/80'
+                  } ${s.id === 'employment' && hasFlagWarning ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                >
+                  <span className={isActive ? 'text-[#0EA5E9]' : 'text-slate-400'}>
+                    {s.icon}
+                  </span>
+                  <span>{s.label}</span>
+                  {badge}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
+            <button 
+              onClick={onEdit}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
             >
-              {s.icon} {s.label}
-              {s.id === 'employment' && activeFlags.length > 0 && (
-                <span className="ml-0.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center">{activeFlags.length}</span>
-              )}
+              <Edit2 size={13} />
+              <span>Update Details</span>
             </button>
-          ))}
+          </div>
         </div>
       </nav>
 
       {/* ── Overview ──────────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['overview'] = el; }} id="overview" className="scroll-mt-4 pt-6 space-y-4">
+      <div ref={el => { sectionRefs.current['overview'] = el; }} id="overview" className="scroll-mt-24 pt-4 space-y-4">
         <div className="flex items-center gap-2 mb-4">
           <User size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Personal Overview</h3>
@@ -317,6 +535,8 @@ export default function ApplicantProfile({
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
             {[
+              { label: 'Assigned Job Order', val: applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? applicant.jobOrder : 'Unassigned' },
+              { label: 'Target Position',   val: applicant.role || '—' },
               { label: 'Date of Birth',  val: applicant.dateOfBirth },
               { label: 'Age',            val: applicant.age ? `${applicant.age} years old` : undefined },
               { label: 'Gender',         val: applicant.sex },
@@ -348,7 +568,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Employment History ─────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['employment'] = el; }} id="employment" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['employment'] = el; }} id="employment" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Briefcase size={16} className="text-[#0EA5E9]" />
@@ -533,7 +753,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Skills & Certifications ────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['skills'] = el; }} id="skills" className="scroll-mt-4 pt-8 space-y-5">
+      <div ref={el => { sectionRefs.current['skills'] = el; }} id="skills" className="scroll-mt-24 pt-6 space-y-5">
         <div className="flex items-center gap-2">
           <Award size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Skills & Certifications</h3>
@@ -615,7 +835,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Languages ─────────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['languages'] = el; }} id="languages" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['languages'] = el; }} id="languages" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <Languages size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Language Proficiency</h3>
@@ -646,7 +866,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Education ─────────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['education'] = el; }} id="education" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['education'] = el; }} id="education" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <GraduationCap size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Educational Background</h3>
@@ -675,7 +895,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── IDs & Documents ────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['ids'] = el; }} id="ids" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['ids'] = el; }} id="ids" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <IdCard size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Identifications & Documents</h3>
@@ -718,7 +938,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Test Scores ───────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['scores'] = el; }} id="scores" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['scores'] = el; }} id="scores" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores</h3>
@@ -766,7 +986,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Financials ────────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['finances'] = el; }} id="finances" className="scroll-mt-4 pt-8 space-y-4">
+      <div ref={el => { sectionRefs.current['finances'] = el; }} id="finances" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <DollarSign size={16} className="text-[#0EA5E9]" />
@@ -797,7 +1017,7 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── Activity ──────────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-4 pt-8 space-y-4 pb-8">
+      <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-24 pt-6 space-y-4 pb-8">
         <div className="flex items-center gap-2">
           <Clock size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity Log</h3>

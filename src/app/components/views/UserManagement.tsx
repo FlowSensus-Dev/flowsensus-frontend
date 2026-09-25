@@ -17,18 +17,35 @@ interface StaffAccount {
 interface UserManagementProps {
   currentUserName: string;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
+  globalStaff?: any[];
+  globalRoles?: any[];
 }
 
 
 
-const SYSTEM_ROLES_CATALOG: { id: UserRole; label: string; desc: string; badgeColor: string; activeColor: string }[] = [
+interface AvailableRole {
+  id: UserRole;
+  label: string;
+  desc: string;
+  badgeColor: string;
+  activeColor: string;
+}
+
+const ROLE_STYLE_MAP: Record<string, { badgeColor: string; activeColor: string }> = {
+  Recruitment: { badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
+  Admin: { badgeColor: 'bg-purple-50 text-purple-700 border-purple-200', activeColor: 'border-purple-400 bg-purple-50 text-purple-900' },
+  Accounting: { badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200', activeColor: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
+  Management: { badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
+};
+
+const DEFAULT_ROLES_CATALOG: AvailableRole[] = [
   { id: 'Recruitment', label: 'Recruitment', desc: 'Screening & Profiling', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200', activeColor: 'border-sky-400 bg-sky-50 text-sky-900' },
   { id: 'Admin', label: 'Admin', desc: 'Agency Setup & Visas', badgeColor: 'bg-purple-50 text-purple-700 border-purple-200', activeColor: 'border-purple-400 bg-purple-50 text-purple-900' },
   { id: 'Accounting', label: 'Accounting', desc: 'Ledger & Expenses', badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200', activeColor: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
   { id: 'Management', label: 'Management', desc: 'Analytics & Hub', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
 ];
 
-export default function UserManagement({ currentUserName, addActivityLog }: UserManagementProps) {
+export default function UserManagement({ currentUserName, addActivityLog, globalStaff, globalRoles }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -39,44 +56,71 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>(DEFAULT_ROLES_CATALOG);
   const [staff, setStaff] = useState<StaffAccount[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ── Fetch Live Staff from Supabase on Mount ──────────────────────────────
-  const fetchStaff = async () => {
+  // ── Fetch Live Staff & Available Roles from Backend on Mount ─────────────
+  const fetchStaffAndRoles = async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const res = await api.get('/users');
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const liveStaff: StaffAccount[] = res.data.map((u: any) => {
-          const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
-            ? u.role_names
-            : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
-          const primaryRole = rawRoles[0] || 'Recruitment';
-          return {
-            id: String(u.user_id),
-            name: u.full_name || 'Staff Member',
-            email: u.email,
-            department: u.department_name || u.department || 'Unassigned',
-            role: primaryRole,
-            roles: rawRoles,
-            status: u.status === 'Inactive' ? 'Inactive' : 'Active',
-            createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
-          };
-        });
-        setStaff(liveStaff);
-      }
+
+        // 1. Fetch available roles directly from the Supabase role table via backend
+        try {
+          const rolesRes = globalRoles ? { data: globalRoles } : await api.get('/users/roles');
+          if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
+            const mappedRoles: AvailableRole[] = rolesRes.data.map((r: any) => {
+              const sysRole = (r.system_role || r.role_name) as UserRole;
+              const style = ROLE_STYLE_MAP[sysRole] || {
+                badgeColor: 'bg-slate-50 text-slate-700 border-slate-200',
+                activeColor: 'border-slate-400 bg-slate-50 text-slate-900',
+              };
+              return {
+                id: sysRole,
+                label: r.role_name || sysRole,
+                desc: r.description || `${sysRole} permissions`,
+                badgeColor: style.badgeColor,
+                activeColor: style.activeColor,
+              };
+            });
+            setAvailableRoles(mappedRoles);
+          }
+        } catch (roleErr) {
+          console.warn('Could not fetch roles from backend, using default catalog:', roleErr);
+        }
+
+        // 2. Fetch live users
+        const res = globalStaff ? { data: globalStaff } : await api.get('/users');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const liveStaff: StaffAccount[] = res.data.map((u: any) => {
+            const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
+              ? u.role_names
+              : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
+            const primaryRole = rawRoles[0] || 'Recruitment';
+            return {
+              id: String(u.user_id),
+              name: u.full_name || 'Staff Member',
+              email: u.email,
+              department: u.department_name || u.department || 'Unassigned',
+              role: primaryRole,
+              roles: rawRoles,
+              status: u.status === 'Inactive' ? 'Inactive' : 'Active',
+              createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+            };
+          });
+          setStaff(liveStaff);
+        }
     } catch (err: any) {
       console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
-      setErrorMsg(err?.response?.data?.detail || err?.message || 'Failed to fetch staff accounts. Please try logging in again.');
+      setErrorMsg(err?.response?.data?.detail || err.message || 'Failed to fetch staff accounts. Please try logging in again.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStaff();
+    fetchStaffAndRoles();
   }, []);
 
   const generateTempPassword = () => {
@@ -230,8 +274,10 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
 
       setShowEditModal(false);
       setSelectedStaff(null);
-    } catch (err) {
-      console.warn('Backend update user failed:', err);
+    } catch (err: any) {
+      console.error('Backend update user failed:', err);
+      const errMsg = err?.response?.data?.detail || err.message || 'Failed to update staff roles. Please check backend connectivity.';
+      alert(errMsg);
     } finally {
       setIsEditing(false);
     }
@@ -347,7 +393,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                     <ShieldOff className="w-8 h-8 mb-3 opacity-80" />
                     <p className="font-bold text-sm mb-1">Error Loading Accounts</p>
                     <p className="text-xs text-red-400 mb-4">{errorMsg}</p>
-                    <button onClick={fetchStaff} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
+                    <button onClick={fetchStaffAndRoles} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
                       Retry
                     </button>
                   </div>
@@ -524,7 +570,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                  {availableRoles.map((r) => {
                     const isChecked = (newStaff.roles || []).includes(r.id);
                     return (
                       <button
@@ -824,7 +870,7 @@ export default function UserManagement({ currentUserName, addActivityLog }: User
                   System Roles <span className="text-slate-400 font-normal lowercase">(select one or more)</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SYSTEM_ROLES_CATALOG.map((r) => {
+                  {availableRoles.map((r) => {
                     const isChecked = (editRoles || []).includes(r.id);
                     return (
                       <button

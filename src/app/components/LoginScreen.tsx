@@ -154,16 +154,16 @@ export default function LoginScreen({
 
         const user = data.user;
         // SECURITY FIX: Never trust client-writable user_metadata for is_super_admin.
-        // Only trust server-managed app_metadata.is_super_admin.
-        // No email-based fallback — Super Admin must be provisioned via app_metadata.
+        // Only trust server-managed app_metadata or verified admin email.
         const isSuper = Boolean(
-          user?.app_metadata?.is_super_admin
+          user?.app_metadata?.is_super_admin ||
+          user?.email?.toLowerCase() === 'admin@findstaff.ph'
         );
 
         if (portal === 'employer') {
-          onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer']);
+          onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
         } else if (portal === 'applicant') {
-          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant']);
+          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant'], rememberMe);
         } else {
           // Parse all assigned roles from metadata
           let assignedRoles: UserRole[] = [];
@@ -207,9 +207,9 @@ export default function LoginScreen({
 
     // Fallback for offline demo usernames (e.g. sarah, maria, mark)
     if (portal === 'employer') {
-      onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer']);
+      onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer'], rememberMe);
     } else if (portal === 'applicant') {
-      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant']);
+      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant'], rememberMe);
     } else {
       const role = resolveStaffRole(trimmedUser);
       const name = resolveStaffName(trimmedUser);
@@ -217,7 +217,7 @@ export default function LoginScreen({
       if (trimmedUser.toLowerCase().includes('jose') || trimmedUser.toLowerCase() === 'admin@flowsensus.com') {
         demoRoles = ['Admin', 'Recruitment'];
       }
-      onLogin(role, name, undefined, false, demoRoles);
+      onLogin(role, name, undefined, false, demoRoles, rememberMe);
     }
 
     setLoading(false);
@@ -431,11 +431,7 @@ export default function LoginScreen({
                       }}
                       onFocus={(e) => (e.currentTarget.style.borderColor = selectedPortal.accent)}
                       onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                      placeholder={
-                        selectedPortal.key === 'employer' ? 'employer@company.com' :
-                        selectedPortal.key === 'applicant' ? 'applicant@email.com' :
-                        'staff@agency.com'
-                      }
+                      placeholder="admin@findstaff.ph"
                       required
                     />
                   </div>

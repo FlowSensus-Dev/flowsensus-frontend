@@ -24,7 +24,7 @@ export default function InlineApplicantSelector({
     (a) => String(a.id) === String(selectedApplicantId)
   );
 
-  // Auto-focus search input when opening; clear query on close
+  // Auto-focus search input when opening
   useEffect(() => {
     if (isOpen) {
       const timer = setTimeout(() => {
@@ -51,7 +51,7 @@ export default function InlineApplicantSelector({
     };
   }, [isOpen]);
 
-  // Escape key closes dropdown
+  // Handle keyboard events (Escape to close)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -62,12 +62,11 @@ export default function InlineApplicantSelector({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Filter applicants by code, id, name, first/middle/last name, role
+  // Filter applicants by name, code, role, or phase
   const filteredApplicants = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return applicants;
 
-    // Strip punctuation from query and code for flexible code matching
     const cleanQ = q.replace(/[^a-z0-9]/g, '');
 
     return applicants.filter((applicant) => {
@@ -98,10 +97,10 @@ export default function InlineApplicantSelector({
   };
 
   return (
-    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4 mb-6 relative z-40">
+    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4 relative z-40">
       <div className="flex items-center gap-4">
         <UserCircle className="w-5 h-5 text-[#0EA5E9] flex-shrink-0" />
-
+        
         {/* Combobox container */}
         <div className="flex-1 min-w-0" ref={containerRef}>
           <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
@@ -163,8 +162,8 @@ export default function InlineApplicantSelector({
 
             {/* Dropdown Menu */}
             {isOpen && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
-                {/* Search Input */}
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                {/* Search Bar Input */}
                 <div className="p-3 bg-slate-50 border-b border-slate-200">
                   <div className="relative flex items-center">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
@@ -189,9 +188,9 @@ export default function InlineApplicantSelector({
                   </div>
                 </div>
 
-                {/* Options List */}
+                {/* Dropdown Options List */}
                 <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1.5">
-                  {/* Register New Candidate option */}
+                  {/* Register New Candidate Option */}
                   {allowNew && (
                     <button
                       type="button"
@@ -221,7 +220,7 @@ export default function InlineApplicantSelector({
                     </button>
                   )}
 
-                  {/* Existing Applicants header */}
+                  {/* Existing Applicants Section Header */}
                   <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/70 flex items-center justify-between rounded-md my-1">
                     <span>Existing Registered Applicants</span>
                     <span>
@@ -229,7 +228,7 @@ export default function InlineApplicantSelector({
                     </span>
                   </div>
 
-                  {/* Applicant rows */}
+                  {/* Applicants List */}
                   {filteredApplicants.length === 0 ? (
                     <div className="py-8 text-center text-slate-500 text-sm">
                       <p className="font-medium text-slate-700">No applicants found</p>
@@ -305,7 +304,7 @@ export default function InlineApplicantSelector({
           </div>
         </div>
 
-        {/* Current Status display */}
+        {/* Current Status display on the right */}
         <div className="text-right flex-shrink-0">
           <p className="text-xs text-[#64748B] font-medium">Current Status</p>
           <p className={`text-sm font-bold ${selectedApplicantId === 'new' ? 'text-emerald-600' : 'text-[#0F172A]'}`}>
