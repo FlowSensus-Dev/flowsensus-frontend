@@ -141,7 +141,7 @@ export default function Sidebar({
     : (userRolesList.filter((r) => r && r !== 'Applicant' && r !== 'Employer').join(' & ') || currentUserRole || 'Staff');
 
   return (
-    <aside className="w-[260px] h-full flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
+    <aside className="w-[270px] h-full flex-shrink-0 flex flex-col bg-gradient-to-b from-[#0F172A] to-[#1E293B] overflow-y-auto shadow-2xl z-20 border-r border-slate-800">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3 border-b border-white/10">
         <Logo size="small" />
@@ -200,8 +200,8 @@ export default function Sidebar({
                   : 'text-[#94A3B8] border-l-4 border-transparent hover:text-white hover:bg-white/5 hover:border-[#334155] hover:pl-[8px]'
               }`}
             >
-              <Icon className="w-4 h-4" />
-              {item.label}
+              <Icon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{item.label}</span>
             </button>
           );
         })}
@@ -227,8 +227,8 @@ export default function Sidebar({
                         : 'text-[#94A3B8] border-l-4 border-transparent hover:text-white hover:bg-white/5 hover:border-[#334155] hover:pl-[8px]'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
                   </button>
                 );
               })}

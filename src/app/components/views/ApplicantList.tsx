@@ -20,17 +20,10 @@ interface ApplicantListProps {
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast?: (msg: string) => void;
   onEditApplicant?: () => void;
+  canAddApplicant?: boolean;
 }
 
-const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
-  0: { title: 'Process Stopped', desc: 'Application process halted permanently.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  1: { title: 'Applicant Registration', desc: 'Detailed applicant intake with personal information, work history, and skills assessment.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
-  2: { title: 'Screening & Medical', desc: 'English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
-  3: { title: 'CV Encoding', desc: 'Readiness engine evaluates 7 criteria. Management approves for employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-  4: { title: 'Employer Endorsement', desc: 'Foreign employer selects candidates. Interview scheduling and endorsement tracking.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  5: { title: 'Final Deployment', desc: 'OCR document verification, expense tracking, visa processing, and departure monitoring.', color: '#ef4444', bg: '#fef2f2', border: '#fca5a5' },
-  6: { title: 'Deployed', desc: 'Successfully deployed to the foreign employer.', color: '#14b8a6', bg: '#f0fdfa', border: '#99f6e4' },
-};
+import { useWorkflowPhases, resolveApplicantPhase } from '../../utils/workflowPhases';
 
 export default function ApplicantList({
   applicants = [],
@@ -45,9 +38,12 @@ export default function ApplicantList({
   addActivityLog,
   showToast,
   onEditApplicant,
+  canAddApplicant = true,
 }: ApplicantListProps) {
+  const { computedPhases } = useWorkflowPhases();
+  const activePhases = computedPhases.filter(p => p.isActive);
   const [search, setSearch] = useState('');
-  const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
+  const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | string>('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
 
@@ -62,18 +58,28 @@ export default function ApplicantList({
       a.id.toLowerCase().includes(q) ||
       a.role.toLowerCase().includes(q) ||
       (a.jobOrder || '').toLowerCase().includes(q);
+
+    const appPhase = resolveApplicantPhase(a, computedPhases);
     const matchPhase =
       phaseFilter === 'all' ? true :
         phaseFilter === 'stopped' ? !!a.isStopped :
-          a.phase === phaseFilter && !a.isStopped;
+          (!a.isStopped && (phaseFilter === appPhase.phaseId || phaseFilter === String(appPhase.displayPhaseNumber)));
+
     const matchStatus = statusFilter === 'all' || a.status === statusFilter;
     const matchRole = roleFilter === 'all' || a.role === roleFilter;
     return matchSearch && matchPhase && matchStatus && matchRole;
   });
 
-  const phaseCounts = [1, 2, 3, 4, 5, 6].map(p => ({
-    phase: p,
-    count: applicants.filter(a => a.phase === p && !a.isStopped).length,
+  const phaseCounts = activePhases.map(p => ({
+    id: p.id,
+    phaseNumber: p.adjustedPhaseNumber!,
+    title: p.name,
+    shortTitle: p.shortTitle,
+    description: p.description,
+    color: p.color,
+    bg: p.bg,
+    border: p.border,
+    count: applicants.filter(a => !a.isStopped && resolveApplicantPhase(a, computedPhases).phaseId === p.id).length,
   }));
   const stoppedCount = applicants.filter(a => a.isStopped).length;
 
@@ -215,12 +221,14 @@ export default function ApplicantList({
             {uniqueRoles.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
-        <button
-          onClick={() => onNavigate?.('registration')}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm"
-        >
-          <Plus size={16} /> Add New Applicant
-        </button>
+        {canAddApplicant && (
+          <button
+            onClick={() => onNavigate?.('registration')}
+            className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm"
+          >
+            <Plus size={16} /> Add New Applicant
+          </button>
+        )}
       </div>
 
       <div className="text-[13px] font-bold text-slate-700 mt-4 border-b border-slate-200 pb-3">
@@ -241,25 +249,19 @@ export default function ApplicantList({
           </button>
           
           {phaseCounts.map((p, idx) => {
-            const meta = PHASE_META[p.phase] || PHASE_META[1];
-            const isSelected = phaseFilter === p.phase;
+            const isSelected = phaseFilter === p.id;
             const zIndex = 29 - idx;
-            
-            let shortTitle = meta.title;
-            if (shortTitle === 'Applicant Registration') shortTitle = 'Registration';
-            if (shortTitle === 'Screening & Medical') shortTitle = 'Screening';
-            if (shortTitle === 'Employer Endorsement') shortTitle = 'Endorsement';
-            
+
             return (
               <button
-                key={p.phase}
-                onClick={() => setPhaseFilter(p.phase)}
-                style={{ zIndex, backgroundColor: isSelected ? meta.color : '#e2e8f0' }}
+                key={p.id}
+                onClick={() => setPhaseFilter(p.id)}
+                style={{ zIndex, backgroundColor: isSelected ? p.color : '#e2e8f0' }}
                 className={`h-11 pl-8 pr-5 -ml-3 flex-1 text-[13px] font-bold transition-all flex items-center justify-center ${
                   isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
                 } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
               >
-                Ph.{p.phase} {shortTitle} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
+                Ph.{p.phaseNumber} {p.shortTitle} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
               </button>
             );
           })}
@@ -280,8 +282,10 @@ export default function ApplicantList({
         {/* Description underneath navigation */}
         <div className="text-[13px] text-slate-600 font-medium px-1 italic">
           {phaseFilter === 'all' && "View all applicants across the entire deployment lifecycle."}
-          {phaseFilter !== 'all' && phaseFilter !== 'stopped' && (PHASE_META[phaseFilter as number]?.desc)}
-          {phaseFilter === 'stopped' && PHASE_META[0].desc}
+          {phaseFilter === 'stopped' && "Application process halted permanently."}
+          {phaseFilter !== 'all' && phaseFilter !== 'stopped' && (
+            phaseCounts.find(p => p.id === phaseFilter)?.description || ''
+          )}
         </div>
       </div>
 
@@ -290,17 +294,19 @@ export default function ApplicantList({
         <div className="bg-white rounded-xl border border-slate-200 py-20 text-center">
           <User size={32} className="text-slate-200 mx-auto mb-3" />
           <p className="text-slate-400 font-medium text-sm">No applicants found</p>
-          <button
-            onClick={() => onNavigate?.('registration')}
-            className="mt-4 inline-flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:underline font-medium"
-          >
-            <Plus size={14} /> Register first applicant
-          </button>
+          {canAddApplicant && (
+            <button
+              onClick={() => onNavigate?.('registration')}
+              className="mt-4 inline-flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:underline font-medium"
+            >
+              <Plus size={14} /> Register first applicant
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(a => {
-            const phaseMeta = a.isStopped ? PHASE_META[0] : (PHASE_META[a.phase] || PHASE_META[1]);
+            const resolvedPhase = resolveApplicantPhase(a, computedPhases);
             const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
             const resolvedCount = (a.employmentFlags || []).filter(f => f.dismissed || f.validated).length;
             return (
@@ -312,7 +318,7 @@ export default function ApplicantList({
               >
                 <div className="p-5 flex-1 w-full relative">
                   {/* Subtle Top-Right Indicator */}
-                  <div className="absolute top-0 right-0 w-24 h-24 opacity-15 rounded-bl-full pointer-events-none transition-transform duration-300 group-hover:scale-110" style={{ background: `radial-gradient(circle at top right, ${phaseMeta.color} 0%, transparent 70%)` }} />
+                  <div className="absolute top-0 right-0 w-24 h-24 opacity-15 rounded-bl-full pointer-events-none transition-transform duration-300 group-hover:scale-110" style={{ background: `radial-gradient(circle at top right, ${resolvedPhase.color} 0%, transparent 70%)` }} />
 
                   <div className="flex items-start gap-4">
                     {/* Avatar */}
@@ -347,9 +353,27 @@ export default function ApplicantList({
 
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2 mt-5 z-10 relative">
-                    <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: phaseMeta.bg, color: phaseMeta.color, borderColor: phaseMeta.border }}>
-                      {a.isStopped ? 'Process Stopped' : `Ph.${a.phase} - ${phaseMeta.title}`}
+                    <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: resolvedPhase.bg, color: resolvedPhase.color, borderColor: resolvedPhase.border }}>
+                      {resolvedPhase.isStopped
+                        ? 'Process Stopped'
+                        : resolvedPhase.displayPhaseNumber
+                        ? `Ph.${resolvedPhase.displayPhaseNumber} - ${resolvedPhase.name}`
+                        : `${resolvedPhase.name} (Disabled)`}
                     </span>
+                    {a.status && (
+                      <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{
+                        background: a.status === 'rejected' || a.isStopped ? '#fee2e2' : a.status === 'provisional' ? '#fef3c7' : a.status === 'awaiting_interview' ? '#e0e7ff' : a.status === 'passed_interview' ? '#dcfce7' : '#e0f2fe',
+                        color: a.status === 'rejected' || a.isStopped ? '#ef4444' : a.status === 'provisional' ? '#f59e0b' : a.status === 'awaiting_interview' ? '#4f46e5' : a.status === 'passed_interview' ? '#22c55e' : '#0ea5e9',
+                        borderColor: a.status === 'rejected' || a.isStopped ? '#fecaca' : a.status === 'provisional' ? '#fde68a' : a.status === 'awaiting_interview' ? '#c7d2fe' : a.status === 'passed_interview' ? '#bbf7d0' : '#bae6fd',
+                      }}>
+                        {(a.status === 'rejected' || a.isStopped) ? 'Rejected' 
+                          : a.status === 'provisional' ? 'Provisional' 
+                          : a.status === 'awaiting_interview' ? 'Awaiting Interview' 
+                          : a.status === 'passed_interview' ? 'Passed Interview' 
+                          : a.status === 'pending_screening' ? 'In Screening Phase' 
+                          : a.status.replace(/_/g, ' ').toUpperCase()}
+                      </span>
+                    )}
                     {activeFlags.length > 0 && (
                       <span className="text-[10px] px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-extrabold flex items-center gap-1 shadow-sm">
                         <Flag size={10} /> {activeFlags.length} Flag{activeFlags.length > 1 ? 's' : ''}

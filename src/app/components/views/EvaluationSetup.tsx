@@ -17,14 +17,7 @@ const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: Reac
   custom:     { label: 'Custom',              icon: <Sliders size={15} />,          color: '#64748B' },
 };
 
-const DEFAULT_PHASES: WorkflowPhase[] = [
-  { id: 'ph-001', phaseNumber: 1, name: 'Registration & Document Collection', description: 'Applicant submits personal information and required employment documents. Recruitment staff verifies completeness.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: ['req-001','req-002','req-003','req-004'], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-002', phaseNumber: 2, name: 'Screening & Evaluation', description: 'Applicant undergoes all active evaluation tests. Recruitment staff records scores and computes weighted final verdict.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: [], requiredEvaluations: ['ev-001','ev-002','ev-003','ev-004','ev-005'], autoAdvance: false },
-  { id: 'ph-003', phaseNumber: 3, name: 'Medical Clearance', description: 'Admin validates pre-employment medical examination results from a DOH-accredited clinic.', responsibleRole: 'Admin', isActive: true, requiredDocuments: ['req-007'], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-004', phaseNumber: 4, name: 'CV Encoding & Management Approval', description: 'Recruitment staff encodes the applicant\'s CV. CV Readiness Engine scores profile. Management approves for employer submission.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-005', phaseNumber: 5, name: 'Employer Endorsement', description: 'CV submitted to foreign employer. Endorsement tracking records employer selection, interview schedule, and approval.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-006', phaseNumber: 6, name: 'Final Deployment Processing', description: 'Admin completes OCR document verification, expense tracking, visa processing, and departure clearance.', responsibleRole: 'Admin', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
-];
+import { useWorkflowPhases, WorkflowPhaseConfig } from '../../utils/workflowPhases';
 
 const ROLES: UserRole[] = ['Recruitment', 'Admin', 'Accounting', 'Management'];
 const BLANK_TEST: Omit<EvaluationTest, 'id'> = { name: '', type: 'custom', description: '', maxScore: 100, passingScore: 60, weight: 10, isActive: true, scoringGuide: '' };
@@ -38,11 +31,11 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
   const [tab, setTab] = useState<'evaluations' | 'workflow'>('evaluations');
   const [tests, setTests] = useState<EvaluationTest[]>([]);
   const [loading, setLoading] = useState(false);
-  const [phases, setPhases] = useState<WorkflowPhase[]>(DEFAULT_PHASES);
+  const { phases, computedPhases, updatePhases } = useWorkflowPhases();
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [isSavingTest, setIsSavingTest] = useState(false);
-  const [editingPhase, setEditingPhase] = useState<WorkflowPhase | null>(null);
+  const [editingPhase, setEditingPhase] = useState<WorkflowPhaseConfig | null>(null);
 
   // ── Fetch Live Evaluation Templates on Mount ─────────────────────────────
   useEffect(() => {
@@ -166,11 +159,17 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
     setTests(p => p.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
   };
 
-  const togglePhase = (id: string) => setPhases(p => p.map(ph => ph.id === id ? { ...ph, isActive: !ph.isActive } : ph));
+  const togglePhase = (id: string) => {
+    const updated = phases.map(ph => ph.id === id ? { ...ph, isActive: !ph.isActive } : ph);
+    updatePhases(updated);
+    const toggled = updated.find(ph => ph.id === id);
+    showToast(`Phase "${toggled?.name}" ${toggled?.isActive ? 'enabled' : 'disabled'}`);
+  };
 
   const savePhase = () => {
     if (!editingPhase) return;
-    setPhases(p => p.map(ph => ph.id === editingPhase.id ? editingPhase : ph));
+    const updated = phases.map(ph => ph.id === editingPhase.id ? { ...ph, ...editingPhase } : ph);
+    updatePhases(updated);
     showToast(`Phase "${editingPhase.name}" updated`);
     setEditingPhase(null);
   };
@@ -330,17 +329,25 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
             <span>Phases define the sequential lifecycle of each applicant. Click Edit to rename, change responsible role, or update the description. Disable phases to remove them from active workflows.</span>
           </div>
           <div className="space-y-3">
-            {phases.sort((a, b) => a.phaseNumber - b.phaseNumber).map((phase, idx) => (
+            {computedPhases.map((phase, idx) => (
               <div key={phase.id} className={`bg-white rounded-xl border border-slate-200 overflow-hidden transition-opacity ${phase.isActive ? '' : 'opacity-60'}`}>
                 <div className="flex items-center gap-4 px-5 py-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white flex-shrink-0 text-sm" style={{ background: phase.isActive ? '#0EA5E9' : '#94a3b8' }}>
-                    {phase.phaseNumber}
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white flex-shrink-0 text-sm shadow-sm" style={{ background: phase.isActive ? '#0EA5E9' : '#94a3b8' }}>
+                    {phase.isActive ? phase.adjustedPhaseNumber : '—'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-[#0F172A]">{phase.name}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{phase.responsibleRole}</span>
-                      {!phase.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-500">Disabled</span>}
+                      {phase.isActive ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#0EA5E9] font-bold">
+                          Phase {phase.adjustedPhaseNumber}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-500 font-bold">
+                          Disabled
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{phase.description}</p>
                   </div>
@@ -355,7 +362,7 @@ export default function EvaluationSetup({ showToast, currentUserName }: Props) {
                     </button>
                   </div>
                 </div>
-                {idx < phases.length - 1 && phase.isActive && (
+                {idx < computedPhases.length - 1 && (
                   <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
                 )}
               </div>

@@ -31,27 +31,51 @@ export default function Screening({
   const [isGenerating, setIsGenerating] = useState(false);
   const [stopReason, setStopReason] = useState('');
 
-  const handleStopProcessing = () => {
+  const selectedApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
+  const [isSaving, setIsSaving] = useState(false);
+
+  const isScoreEditable = () => {
+    const s = (selectedApplicant?.status || '').toLowerCase();
+    return ['registration & screening', 'screening', 'initial screening', 'pending', 'provisional', 'pending_screening'].includes(s) || (!selectedApplicant?.status && (selectedApplicant?.phase || 1) <= 1);
+  };
+
+  const handleStopProcessing = async () => {
     if (!stopReason.trim()) return;
-    updateApplicant(selectedApplicantId, {
-      isStopped: true,
-      stoppedReason: stopReason,
-      stoppedBy: currentUserName,
-      stoppedAt: new Date().toISOString(),
-      stoppedPhase: 2,
-      status: 'Processing Stopped',
-      phaseDescription: `Processing halted at Screening by ${currentUserName}: ${stopReason}`,
-    });
-    addActivityLog({
-      applicantId: selectedApplicantId,
-      action: 'Processing Stopped — Screening Phase',
-      performedBy: currentUserName,
-      department: 'Recruitment',
-      details: `Applicant failed or was disqualified at Screening (Phase 2). Reason: ${stopReason}`,
-    });
-    showToast('Processing stopped at Screening. Applicant record locked.');
-    setShowStopModal(false);
-    setStopReason('');
+    setIsSaving(true);
+    try {
+      const numericId = parseInt(selectedApplicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.post(`/applicants/${numericId}/state-action`, {
+          action: 'stop_processing',
+          reason: stopReason
+        });
+      }
+
+      updateApplicant(selectedApplicantId, {
+        isStopped: true,
+        stoppedReason: stopReason,
+        stoppedBy: currentUserName,
+        stoppedAt: new Date().toISOString(),
+        stoppedPhase: 2,
+        status: 'rejected',
+        phaseDescription: `Processing halted at Screening by ${currentUserName}: ${stopReason}`,
+      });
+      addActivityLog({
+        applicantId: selectedApplicantId,
+        action: 'Processing Stopped',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Reason: ${stopReason}`,
+      });
+      showToast('Processing stopped. Applicant record locked.');
+      setShowStopModal(false);
+      setStopReason('');
+    } catch (err: any) {
+      console.error(err);
+      showToast(err?.response?.data?.detail || 'Failed to stop processing.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const [examScores, setExamScores] = useState<{
@@ -68,8 +92,6 @@ export default function Screening({
     employerSpecific: '',
   });
 
-  const [isSaving, setIsSaving] = useState(false);
-  const selectedApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
   const initializedForApplicantId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -119,6 +141,7 @@ export default function Screening({
 
   const handleSaveProgress = async () => {
     if (isSaving) return;
+
     setIsSaving(true);
     try {
       const applicantId = selectedApplicant?.id;
@@ -133,20 +156,42 @@ export default function Screening({
       };
 
       const numericId = parseInt(applicantId, 10);
+      let updatedData = null;
+      
       if (!isNaN(numericId)) {
-        await api.put(`/applicants/${numericId}`, {
-          testScores: cleanScores
+        const res = await api.post(`/applicants/${numericId}/scores`, {
+          test_scores: cleanScores
+        });
+        updatedData = res.data;
+      }
+
+      if (updatedData) {
+        updateApplicant(applicantId, {
+          testScores: updatedData.test_scores || { ...examScores, ...cleanScores },
+          status: updatedData.application_status || updatedData.status,
+          phase: updatedData.current_phase || updatedData.phase,
+          phaseDescription: updatedData.phase_description || updatedData.phaseDescription
+        });
+      } else {
+        const anyFailed = cleanScores.englishProficiency < 60 ||
+          cleanScores.tradeSkills < 70 ||
+          cleanScores.iqAptitude < 50 ||
+          cleanScores.personalityEQ === 'Not Suitable';
+        const allPassed = cleanScores.englishProficiency >= 60 &&
+          cleanScores.tradeSkills >= 70 &&
+          cleanScores.iqAptitude >= 50 &&
+          cleanScores.personalityEQ === 'Suitable';
+
+        updateApplicant(applicantId, {
+          testScores: { ...examScores, ...cleanScores },
+          status: anyFailed ? 'Provisional' : (allPassed ? 'Passed Interview' : selectedApplicant?.status)
         });
       }
 
-      updateApplicant(applicantId, {
-        testScores: cleanScores
-      });
-
-      showToast('✓ Scores saved successfully.');
-    } catch (err) {
+      showToast(`✓ Scores and Assessment saved successfully.`);
+    } catch (err: any) {
       console.error(err);
-      showToast('Failed to save scores to the server. Please try again.');
+      showToast(err?.response?.data?.detail || 'Failed to save to the server. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -214,26 +259,73 @@ export default function Screening({
     }
   };
 
+  const handleReconsider = async () => {
+    setIsSaving(true);
+    try {
+      const numericId = parseInt(selectedApplicantId, 10);
+      if (!isNaN(numericId)) {
+        await api.post(`/applicants/${numericId}/state-action`, {
+          action: 'reconsider',
+          reason: 'Reconsidering applicant for further evaluation.'
+        });
+      }
+
+      const newStatus = selectedApplicant?.status === 'Provisional' ? 'Registration & Screening' : 'Provisional';
+      updateApplicant(selectedApplicantId, {
+        status: newStatus,
+        isStopped: false,
+        stoppedReason: undefined
+      });
+      addActivityLog({
+        applicantId: selectedApplicantId,
+        action: 'Applicant Reconsidered',
+        performedBy: currentUserName,
+        department: selectedApplicant?.status === 'Provisional' ? 'Recruitment' : 'Management',
+        details: `Applicant moved to ${newStatus}.`,
+      });
+      showToast(`Applicant reconsidered and moved to ${newStatus}.`);
+    } catch (err: any) {
+      console.error(err);
+      showToast(err?.response?.data?.detail || 'Failed to reconsider applicant.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Calculate passing status
   const englishPass = typeof examScores.englishProficiency === 'number' && examScores.englishProficiency >= 60;
   const tradePass = typeof examScores.tradeSkills === 'number' && examScores.tradeSkills >= 70;
   const iqPass = typeof examScores.iqAptitude === 'number' && examScores.iqAptitude >= 50;
   const eqPass = examScores.personalityEQ === 'Suitable';
 
-  const allPassed = englishPass && tradePass && iqPass && eqPass;
+  const coreTestsPassed = englishPass && tradePass && iqPass;
+  const allPassed = coreTestsPassed && eqPass;
 
-  // Applicants pending screening — Phase 1, not stopped, testScores not yet complete
-  const pendingScreening = applicants.filter(a =>
-    !a.isStopped && a.phase <= 1
-  );
-  const inProgress = applicants.filter(a =>
-    !a.isStopped && a.phase === 2
-  );
+  // Applicants pending screening
+  const pendingScreening = applicants.filter(a => {
+    if (a.isStopped) return false;
+    const s = (a.status || '').toLowerCase();
+    return ['registration & screening', 'screening', 'initial screening', 'pending', 'pending_screening'].includes(s) || (!a.status && a.phase <= 1);
+  });
+  
+  const provisional = applicants.filter(a => {
+    if (a.isStopped) return false;
+    const s = (a.status || '').toLowerCase();
+    return ['provisional'].includes(s);
+  });
+  
+  const passedInterview = applicants.filter(a => {
+    if (a.isStopped) return false;
+    const s = (a.status || '').toLowerCase();
+    return ['passed interview'].includes(s);
+  });
 
   const openApplicant = (id: string) => {
     setSelectedApplicantId(id);
     setListView(false);
   };
+
+
 
   if (listView) {
     return (
@@ -295,35 +387,73 @@ export default function Screening({
           )}
         </div>
 
-        {/* In progress (Phase 2) */}
-        {inProgress.length > 0 && (
-          <div>
+          <div className="mt-8">
             <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">In Progress / Review Scores</h3>
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{inProgress.length}</span>
+              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Provisional (Failed Tests)</h3>
+              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{provisional.length}</span>
             </div>
-            <div className="space-y-2">
-              {inProgress.map(a => (
+            {provisional.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-slate-200 p-6 flex flex-col items-center justify-center text-slate-400">
+                <p className="text-sm">No provisional applicants</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {provisional.map(a => (
                 <button
                   key={a.id}
                   onClick={() => openApplicant(a.id)}
-                  className="w-full text-left bg-white rounded-xl border border-slate-200 hover:border-[#0EA5E9]/50 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all"
+                  className="w-full text-left bg-white rounded-xl border border-amber-200 hover:border-amber-400 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all"
                 >
                   {(a.photoDataUrl || a.photo)
                     ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                    : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-400 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
+                    : <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-sm font-bold text-amber-500 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
                   }
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-[#0F172A]">{a.name} <span className="font-mono text-slate-400 text-xs">{a.applicantCode || a.id}</span></p>
                     <p className="text-xs text-slate-500 mt-0.5">{a.role}</p>
                   </div>
-                  <span className="text-xs text-[#0EA5E9] bg-blue-50 px-2 py-0.5 rounded-full font-medium flex-shrink-0">{a.status}</span>
+                  <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium flex-shrink-0">Provisional</span>
                   <ChevronRight size={16} className="text-slate-400 flex-shrink-0" />
                 </button>
               ))}
             </div>
+            )}
           </div>
-        )}
+
+
+        {/* Passed Interview */}
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Passed Interview</h3>
+              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">{passedInterview.length}</span>
+            </div>
+            {passedInterview.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-slate-200 p-6 flex flex-col items-center justify-center text-slate-400">
+                <p className="text-sm">No applicants passed interview</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {passedInterview.map(a => (
+                <button
+                  key={a.id}
+                  onClick={() => openApplicant(a.id)}
+                  className="w-full text-left bg-white rounded-xl border border-emerald-200 hover:border-emerald-400 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all"
+                >
+                  {(a.photoDataUrl || a.photo)
+                    ? <img src={a.photoDataUrl || a.photo} alt="photo" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    : <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-sm font-bold text-emerald-500 flex-shrink-0">{a.name.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
+                  }
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm text-[#0F172A]">{a.name} <span className="font-mono text-slate-400 text-xs">{a.applicantCode || a.id}</span></p>
+                    <p className="text-xs text-slate-500 mt-0.5">{a.role}</p>
+                  </div>
+                  <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium flex-shrink-0">Passed</span>
+                  <ChevronRight size={16} className="text-slate-400 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+            )}
+          </div>
       </div>
     );
   }
@@ -371,19 +501,30 @@ export default function Screening({
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <div className="text-right text-xs text-white/40">
+            <div className="text-right text-xs text-white/40 mb-2">
               <p>Handler: {selectedApplicant.currentHandler}</p>
               <p className="mt-0.5">{selectedApplicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{selectedApplicant.lastUpdated}</p>
             </div>
-            {!selectedApplicant.isStopped && (
-              <button
-                onClick={() => setShowStopModal(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
-              >
-                <OctagonX size={13} /> Stop Processing
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {['provisional', 'awaiting interview'].includes((selectedApplicant.status || '').toLowerCase()) && !selectedApplicant.isStopped && (
+                <button
+                  onClick={handleReconsider}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#0EA5E9]/50 text-[#0EA5E9] hover:bg-[#0EA5E9]/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <FileCheck2 size={13} /> Reconsider
+                </button>
+              )}
+              {!selectedApplicant.isStopped && (
+                <button
+                  onClick={() => setShowStopModal(true)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
+                >
+                  <OctagonX size={13} /> Stop Processing
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -420,7 +561,8 @@ export default function Screening({
                 onChange={(e) => handleScoreChange('englishProficiency', e.target.value)}
                 max={100}
                 min={0}
-                className="w-32 border-2 border-[#0EA5E9]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center"
+                disabled={!isScoreEditable()}
+                className="w-32 border-2 border-[#0EA5E9]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center disabled:opacity-50 disabled:bg-slate-50"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -461,7 +603,8 @@ export default function Screening({
                 onChange={(e) => handleScoreChange('tradeSkills', e.target.value)}
                 max={100}
                 min={0}
-                className="w-32 border-2 border-[#F59E0B]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center"
+                disabled={!isScoreEditable()}
+                className="w-32 border-2 border-[#F59E0B]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center disabled:opacity-50 disabled:bg-slate-50"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -497,7 +640,8 @@ export default function Screening({
                 onChange={(e) => handleScoreChange('iqAptitude', e.target.value)}
                 max={100}
                 min={0}
-                className="w-32 border-2 border-[#8B5CF6]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center"
+                disabled={!isScoreEditable()}
+                className="w-32 border-2 border-[#8B5CF6]/30 px-4 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center disabled:opacity-50 disabled:bg-slate-50"
               />
               <span className="text-sm text-[#64748B] font-medium">/ 100</span>
               <div className="flex-1 bg-slate-200 rounded-full h-3">
@@ -520,10 +664,18 @@ export default function Screening({
               </div>
               <span
                 className={`px-3 py-1 text-xs font-bold rounded-full ${
-                  eqPass ? 'bg-[#10B981]/10 text-[#10B981]' : 'bg-red-100 text-red-600'
+                  examScores.personalityEQ === 'Suitable'
+                    ? 'bg-[#10B981]/10 text-[#10B981]'
+                    : examScores.personalityEQ === 'Not Suitable'
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-slate-100 text-slate-500'
                 }`}
               >
-                {eqPass ? '✓ Pass' : '✗ Fail'}
+                {examScores.personalityEQ === 'Suitable'
+                  ? '✓ Suitable'
+                  : examScores.personalityEQ === 'Not Suitable'
+                  ? '✗ Not Suitable'
+                  : '⏱ Pending'}
               </span>
             </div>
             <select
@@ -534,7 +686,8 @@ export default function Screening({
                   personalityEQ: e.target.value as 'Suitable' | 'Not Suitable' | 'Pending',
                 })
               }
-              className="w-full border-2 border-[#14B8A6]/30 px-4 py-3 rounded-lg text-sm font-bold text-[#14B8A6] focus:border-[#14B8A6] outline-none"
+              disabled={!isScoreEditable()}
+              className="w-full border-2 border-[#14B8A6]/30 px-4 py-3 rounded-lg text-sm font-bold text-[#14B8A6] focus:border-[#14B8A6] outline-none disabled:opacity-50 disabled:bg-slate-50"
             >
               <option value="Pending">⏱ Pending Assessment</option>
               <option value="Suitable">✓ Suitable</option>
@@ -570,29 +723,41 @@ export default function Screening({
               <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Overall Status</p>
               <p
                 className={`text-xl font-black mt-1 ${
-                  allPassed ? 'text-[#10B981]' : 'text-[#EF4444]'
+                  allPassed ? 'text-[#10B981]' : (coreTestsPassed && examScores.personalityEQ === 'Pending' ? 'text-amber-500' : 'text-[#EF4444]')
                 }`}
               >
-                {allPassed ? '✓ All Tests Passed' : '✗ Some Tests Failed'}
+                {allPassed ? '✓ All Tests Passed' : (coreTestsPassed && examScores.personalityEQ === 'Pending' ? '⏱ Pending Assessment' : '✗ Some Tests Failed')}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleSaveProgress}
-                disabled={isSaving}
-                className="px-5 py-3 border-2 border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
-                Save Progress
-              </button>
-              <button
-                onClick={handlePass}
-                disabled={!allPassed}
-                className="px-8 py-3 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] shadow-lg rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <FileCheck2 className="w-5 h-5" />
-                Pass & Generate Medical Referral
-              </button>
+              {isScoreEditable() && (
+                <button
+                  onClick={handleSaveProgress}
+                  disabled={isSaving}
+                  className="px-5 py-3 border-2 border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
+                  Save Scores & Assessment
+                </button>
+              )}
+              {['provisional'].includes((selectedApplicant?.status || '').toLowerCase()) && (
+                <button
+                  onClick={() => setShowStopModal(true)}
+                  className="px-5 py-3 bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-2 transition-all"
+                >
+                  <OctagonX className="w-4 h-4" />
+                  Stop Processing
+                </button>
+              )}
+              {['passed interview'].includes((selectedApplicant?.status || '').toLowerCase()) && (
+                <button
+                  onClick={handlePass}
+                  className="px-8 py-3 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] shadow-lg rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileCheck2 className="w-5 h-5" />
+                  Generate Medical Referral
+                </button>
+              )}
             </div>
           </div>
         </div>

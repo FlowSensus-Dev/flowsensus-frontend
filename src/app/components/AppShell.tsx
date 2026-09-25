@@ -161,7 +161,16 @@ export default function AppShell({
     navigate('/app/applicants');
   };
 
+  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
+    ? currentUserRoles
+    : [currentUserRole];
+  const canAccessRegistration = isSuperAdmin || userRolesList.includes('Recruitment');
+
   const handleNavigate = (view: ViewType) => {
+    if (view === 'registration' && !canAccessRegistration) {
+      showToastNotification('Access Denied: You do not have permission to access Registration.');
+      return;
+    }
     if (view === 'registration') {
       setSelectedApplicantId('new');
     }
@@ -287,7 +296,8 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
-            onEditApplicant={() => setCurrentView('registration')}
+            onEditApplicant={canAccessRegistration ? () => setCurrentView('registration') : undefined}
+            canAddApplicant={canAccessRegistration}
           />
         );
       case 'registration':

@@ -8,6 +8,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Edit2
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType } from '../../types';
+import { useWorkflowPhases, resolveApplicantPhase } from '../../utils/workflowPhases';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
@@ -91,6 +92,8 @@ export default function ApplicantProfile({
   onEdit,
 }: ApplicantProfileProps) {
   const [activeSection, setActiveSection] = useState('overview');
+  const { computedPhases } = useWorkflowPhases();
+  const resolvedPhase = resolveApplicantPhase(applicant || {}, computedPhases);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
@@ -438,8 +441,12 @@ export default function ApplicantProfile({
               {applicant.contact && <span className="flex items-center gap-1"><Phone size={11} /> {applicant.contact}</span>}
             </div>
             <div className="flex flex-wrap gap-2 mt-3">
-              <span className="text-xs px-2.5 py-1 bg-[#0EA5E9]/20 text-[#0EA5E9] rounded-full border border-[#0EA5E9]/30 font-semibold">
-                Phase {applicant.phase}: {applicant.status}
+              <span className="text-xs px-2.5 py-1 rounded-full font-semibold border" style={{ background: resolvedPhase.bg, color: resolvedPhase.color, borderColor: resolvedPhase.border }}>
+                {resolvedPhase.isStopped
+                  ? 'Process Stopped'
+                  : resolvedPhase.displayPhaseNumber
+                  ? `Phase ${resolvedPhase.displayPhaseNumber}: ${applicant.status}`
+                  : `${applicant.status}`}
               </span>
               {applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? (
                 <span className="text-xs px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold flex items-center gap-1.5">
@@ -500,13 +507,15 @@ export default function ApplicantProfile({
           </div>
 
           <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-            <button 
-              onClick={onEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-            >
-              <Edit2 size={13} />
-              <span>Update Details</span>
-            </button>
+            {onEdit && (
+              <button 
+                onClick={onEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
+              >
+                <Edit2 size={13} />
+                <span>Update Details</span>
+              </button>
+            )}
           </div>
         </div>
       </nav>
