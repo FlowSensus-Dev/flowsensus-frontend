@@ -48,31 +48,31 @@ const PORTALS: {
   accent: string;
   gradient: string;
 }[] = [
-  {
-    key: 'staff',
-    title: 'Agency Staff',
-    subtitle: 'Recruitment, Administration, Accounting & Management',
-    icon: <Layers size={22} />,
-    accent: '#0EA5E9',
-    gradient: 'from-[#0EA5E9] to-[#0284C7]',
-  },
-  {
-    key: 'applicant',
-    title: 'Applicant',
-    subtitle: 'Track your deployment journey and submit post-contract reviews',
-    icon: <User size={22} />,
-    accent: '#10B981',
-    gradient: 'from-[#10B981] to-[#059669]',
-  },
-  {
-    key: 'employer',
-    title: 'Employer',
-    subtitle: 'Evaluate deployed workers and manage workforce records',
-    icon: <Building2 size={22} />,
-    accent: '#1D4ED8',
-    gradient: 'from-[#1D4ED8] to-[#1E40AF]',
-  },
-];
+    {
+      key: 'staff',
+      title: 'Agency Staff',
+      subtitle: 'Recruitment, Administration, Accounting & Management',
+      icon: <Layers size={22} />,
+      accent: '#0EA5E9',
+      gradient: 'from-[#0EA5E9] to-[#0284C7]',
+    },
+    {
+      key: 'applicant',
+      title: 'Applicant',
+      subtitle: 'Track your deployment journey and submit post-contract reviews',
+      icon: <User size={22} />,
+      accent: '#10B981',
+      gradient: 'from-[#10B981] to-[#059669]',
+    },
+    {
+      key: 'employer',
+      title: 'Employer',
+      subtitle: 'Evaluate deployed workers and manage workforce records',
+      icon: <Building2 size={22} />,
+      accent: '#1D4ED8',
+      gradient: 'from-[#1D4ED8] to-[#1E40AF]',
+    },
+  ];
 
 // Maps email/username to a staff role (used when portal === 'staff')
 function resolveStaffRole(username: string): UserRole {
@@ -226,7 +226,7 @@ export default function LoginScreen({
   const handleForcePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!forcePasswordChangeUser) return;
-    
+
     const val = validatePassword(newPasswordInput);
     if (!val.isValid) {
       setPasswordChangeError(val.errors[0] || 'Please fulfill all password policy requirements.');
@@ -607,9 +607,8 @@ export default function LoginScreen({
                       {reqs.map((req, idx) => (
                         <div
                           key={idx}
-                          className={`flex items-center gap-2 transition-colors ${
-                            req.met ? 'text-emerald-700 font-medium' : 'text-slate-500'
-                          }`}
+                          className={`flex items-center gap-2 transition-colors ${req.met ? 'text-emerald-700 font-medium' : 'text-slate-500'
+                            }`}
                         >
                           {req.met ? (
                             <Check size={13} className="text-emerald-500 flex-shrink-0" />
@@ -650,9 +649,8 @@ export default function LoginScreen({
                   </button>
                 </div>
                 {confirmPasswordInput && (
-                  <p className={`text-[11px] mt-1.5 flex items-center gap-1.5 font-medium ${
-                    newPasswordInput === confirmPasswordInput ? 'text-emerald-600' : 'text-rose-500'
-                  }`}>
+                  <p className={`text-[11px] mt-1.5 flex items-center gap-1.5 font-medium ${newPasswordInput === confirmPasswordInput ? 'text-emerald-600' : 'text-rose-500'
+                    }`}>
                     {newPasswordInput === confirmPasswordInput ? (
                       <>
                         <Check size={13} />

@@ -22,14 +22,14 @@ interface ApplicantListProps {
   onEditApplicant?: () => void;
 }
 
-const PHASE_META: Record<number, { color: string; bg: string }> = {
-  0: { color: '#EF4444', bg: '#FEF2F2' },
-  1: { color: '#64748B', bg: '#F1F5F9' },
-  2: { color: '#F59E0B', bg: '#FFFBEB' },
-  3: { color: '#0EA5E9', bg: '#EFF6FF' },
-  4: { color: '#8B5CF6', bg: '#F5F3FF' },
-  5: { color: '#10B981', bg: '#ECFDF5' },
-  6: { color: '#10B981', bg: '#ECFDF5' },
+const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
+  0: { title: 'Process Stopped', desc: 'Application process halted permanently.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+  1: { title: 'Applicant Registration', desc: 'Detailed applicant intake with personal information, work history, and skills assessment.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
+  2: { title: 'Screening & Medical', desc: 'English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
+  3: { title: 'CV Encoding', desc: 'Readiness engine evaluates 7 criteria. Management approves for employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+  4: { title: 'Employer Endorsement', desc: 'Foreign employer selects candidates. Interview scheduling and endorsement tracking.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+  5: { title: 'Final Deployment', desc: 'OCR document verification, expense tracking, visa processing, and departure monitoring.', color: '#ef4444', bg: '#fef2f2', border: '#fca5a5' },
+  6: { title: 'Deployed', desc: 'Successfully deployed to the foreign employer.', color: '#14b8a6', bg: '#f0fdfa', border: '#99f6e4' },
 };
 
 export default function ApplicantList({
@@ -48,6 +48,11 @@ export default function ApplicantList({
 }: ApplicantListProps) {
   const [search, setSearch] = useState('');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
+
+  const uniqueStatuses = Array.from(new Set(applicants.map(a => a.status).filter(Boolean))).sort();
+  const uniqueRoles = Array.from(new Set(applicants.map(a => a.role).filter(Boolean))).sort();
 
   const filtered = applicants.filter(a => {
     const q = search.toLowerCase();
@@ -59,12 +64,14 @@ export default function ApplicantList({
       (a.jobOrder || '').toLowerCase().includes(q);
     const matchPhase =
       phaseFilter === 'all' ? true :
-      phaseFilter === 'stopped' ? !!a.isStopped :
-      a.phase === phaseFilter && !a.isStopped;
-    return matchSearch && matchPhase;
+        phaseFilter === 'stopped' ? !!a.isStopped :
+          a.phase === phaseFilter && !a.isStopped;
+    const matchStatus = statusFilter === 'all' || a.status === statusFilter;
+    const matchRole = roleFilter === 'all' || a.role === roleFilter;
+    return matchSearch && matchPhase && matchStatus && matchRole;
   });
 
-  const phaseCounts = [1,2,3,4,5,6].map(p => ({
+  const phaseCounts = [1, 2, 3, 4, 5, 6].map(p => ({
     phase: p,
     count: applicants.filter(a => a.phase === p && !a.isStopped).length,
   }));
@@ -112,7 +119,7 @@ export default function ApplicantList({
         {/* Sleek Breadcrumb & Navigation Bar */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-2.5 px-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={onClearSelection}
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100/80 hover:bg-slate-200/80 hover:text-[#0EA5E9] border border-slate-200 transition-all group cursor-pointer shadow-2xs"
             >
@@ -157,7 +164,7 @@ export default function ApplicantList({
         </div>
 
         {/* Applicant Profile */}
-        <ApplicantProfile 
+        <ApplicantProfile
           applicant={selectedApplicant}
           activityLogs={activityLogs.filter(log => String(log.applicantId) === String(selectedApplicant.id))}
           expenses={expenses.filter(exp => String(exp.applicantId) === String(selectedApplicant.id))}
@@ -179,60 +186,102 @@ export default function ApplicantList({
   return (
     <div className="space-y-6 w-full">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-[#0F172A]">All Applicants</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {applicants.length} total · {applicants.filter(a => !a.isStopped).length} active · {stoppedCount} stopped
-          </p>
+      {/* Header & Search */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3 w-full max-w-3xl">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search"
+              className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] bg-white text-slate-800"
+            />
+          </div>
+          <select 
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[160px] truncate"
+          >
+            <option value="all">All Statuses</option>
+            {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select 
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[160px] truncate"
+          >
+            <option value="all">All Roles</option>
+            {uniqueRoles.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
         </div>
         <button
           onClick={() => onNavigate?.('registration')}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-md shadow-[#0EA5E9]/20"
+          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm"
         >
           <Plus size={16} /> Add New Applicant
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, code, role, or job order…"
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
-          />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
+      <div className="text-[13px] font-bold text-slate-700 mt-4 border-b border-slate-200 pb-3">
+        Total Applicants: <span className="text-[#0EA5E9] font-medium">{applicants.length}</span> <span className="mx-1 text-slate-300">|</span> Active Process: <span className="text-orange-500 font-medium">{applicants.filter(a => !a.isStopped).length}</span> <span className="mx-1 text-slate-300">|</span> Completed Placements: <span className="text-emerald-500 font-medium">{applicants.filter(a => a.phase === 6).length}</span>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex flex-col gap-3 mt-4 mb-2">
+        <div className="flex items-stretch w-full overflow-hidden bg-transparent">
           <button
             onClick={() => setPhaseFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${phaseFilter === 'all' ? 'bg-[#0F172A] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'}`}
+            style={{ zIndex: 30, backgroundColor: phaseFilter === 'all' ? '#0F172A' : '#e2e8f0' }}
+            className={`h-11 px-5 text-[13px] font-bold transition-all flex items-center justify-center rounded-l-md ${
+              phaseFilter === 'all' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+            } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,0_50%)]`}
           >
-            All ({applicants.length})
+            All <span className="font-normal opacity-80 ml-1">({applicants.length})</span>
           </button>
-          {phaseCounts.filter(p => p.count > 0).map(p => {
+          
+          {phaseCounts.map((p, idx) => {
             const meta = PHASE_META[p.phase] || PHASE_META[1];
+            const isSelected = phaseFilter === p.phase;
+            const zIndex = 29 - idx;
+            
+            let shortTitle = meta.title;
+            if (shortTitle === 'Applicant Registration') shortTitle = 'Registration';
+            if (shortTitle === 'Screening & Medical') shortTitle = 'Screening';
+            if (shortTitle === 'Employer Endorsement') shortTitle = 'Endorsement';
+            
             return (
               <button
                 key={p.phase}
                 onClick={() => setPhaseFilter(p.phase)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${phaseFilter === p.phase ? 'text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                style={phaseFilter === p.phase ? { background: meta.color } : {}}
+                style={{ zIndex, backgroundColor: isSelected ? meta.color : '#e2e8f0' }}
+                className={`h-11 pl-8 pr-5 -ml-3 flex-1 text-[13px] font-bold transition-all flex items-center justify-center ${
+                  isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+                } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
               >
-                Ph.{p.phase} ({p.count})
+                Ph.{p.phase} {shortTitle} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
               </button>
             );
           })}
+          
           {stoppedCount > 0 && (
             <button
               onClick={() => setPhaseFilter('stopped')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${phaseFilter === 'stopped' ? 'bg-red-500 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-red-200 hover:text-red-500'}`}
+              style={{ zIndex: 10, backgroundColor: phaseFilter === 'stopped' ? '#ef4444' : '#e2e8f0' }}
+              className={`h-11 pl-8 pr-5 -ml-3 text-[13px] font-bold transition-all flex items-center justify-center rounded-r-md ${
+                phaseFilter === 'stopped' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+              } [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,14px_50%)]`}
             >
-              Stopped ({stoppedCount})
+              Stopped <span className="ml-1 opacity-80 font-normal">({stoppedCount})</span>
             </button>
           )}
+        </div>
+        
+        {/* Description underneath navigation */}
+        <div className="text-[13px] text-slate-600 font-medium px-1 italic">
+          {phaseFilter === 'all' && "View all applicants across the entire deployment lifecycle."}
+          {phaseFilter !== 'all' && phaseFilter !== 'stopped' && (PHASE_META[phaseFilter as number]?.desc)}
+          {phaseFilter === 'stopped' && PHASE_META[0].desc}
         </div>
       </div>
 
@@ -258,14 +307,13 @@ export default function ApplicantList({
               <button
                 key={a.id}
                 onClick={() => onViewApplicant(a.id)}
-                className={`group flex flex-col text-left bg-white rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden ${
-                  a.isStopped ? 'border-red-200 hover:border-red-300 ring-1 ring-red-50' : 'border-slate-200 hover:border-[#0EA5E9]/40 hover:ring-2 hover:ring-[#0EA5E9]/10'
-                }`}
+                className={`group flex flex-col text-left bg-white rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden ${a.isStopped ? 'border-red-200 hover:border-red-300 ring-1 ring-red-50' : 'border-slate-200 hover:border-[#0EA5E9]/40 hover:ring-2 hover:ring-[#0EA5E9]/10'
+                  }`}
               >
                 <div className="p-5 flex-1 w-full relative">
                   {/* Subtle Top-Right Indicator */}
                   <div className="absolute top-0 right-0 w-24 h-24 opacity-15 rounded-bl-full pointer-events-none transition-transform duration-300 group-hover:scale-110" style={{ background: `radial-gradient(circle at top right, ${phaseMeta.color} 0%, transparent 70%)` }} />
-                  
+
                   <div className="flex items-start gap-4">
                     {/* Avatar */}
                     <div className="relative flex-shrink-0 mt-1">
@@ -279,7 +327,7 @@ export default function ApplicantList({
                       }
                       {a.isStopped && (
                         <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow-sm">
-                           <OctagonX size={16} className="text-red-500" />
+                          <OctagonX size={16} className="text-red-500" />
                         </div>
                       )}
                     </div>
@@ -299,8 +347,8 @@ export default function ApplicantList({
 
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2 mt-5 z-10 relative">
-                    <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: phaseMeta.bg, color: phaseMeta.color, borderColor: `${phaseMeta.color}40` }}>
-                      {a.isStopped ? 'Processing Stopped' : `Ph.${a.phase} · ${a.status}`}
+                    <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: phaseMeta.bg, color: phaseMeta.color, borderColor: phaseMeta.border }}>
+                      {a.isStopped ? 'Process Stopped' : `Ph.${a.phase} - ${phaseMeta.title}`}
                     </span>
                     {activeFlags.length > 0 && (
                       <span className="text-[10px] px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-extrabold flex items-center gap-1 shadow-sm">
@@ -313,7 +361,7 @@ export default function ApplicantList({
                       </span>
                     )}
                   </div>
-                  
+
                   {/* Job order */}
                   {a.jobOrder && (
                     <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-md shadow-sm">
