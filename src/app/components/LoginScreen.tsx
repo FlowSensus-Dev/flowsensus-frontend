@@ -431,7 +431,7 @@ export default function LoginScreen({
                       }}
                       onFocus={(e) => (e.currentTarget.style.borderColor = selectedPortal.accent)}
                       onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                      placeholder="admin@findstaff.ph"
+                      placeholder="Enter your email address"
                       required
                     />
                   </div>
