@@ -69,7 +69,7 @@ interface RoleOption {
 const ROLE_OPTS: RoleOption[] = [
   { role: 'Management', label: 'Management', icon: Briefcase },
   { role: 'Recruitment', label: 'Recruitment', icon: Users },
-  { role: 'Admin', label: 'Admin / Visa', icon: Settings },
+  { role: 'Admin', label: 'Administrative', icon: Settings },
   { role: 'Accounting', label: 'Accounting', icon: Receipt },
   { role: 'Employer', label: 'Employer Portal', icon: Building2 },
   { role: 'Applicant', label: 'Applicant Portal', icon: User },
@@ -307,8 +307,8 @@ export default function SuperAdminDashboard({
               key={item.key}
               onClick={() => setView(item.key)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${view === item.key
-                  ? 'bg-[#6366F1] text-white shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                ? 'bg-[#6366F1] text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
             >
               {item.icon}
