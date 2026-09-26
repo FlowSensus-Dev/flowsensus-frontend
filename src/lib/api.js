@@ -26,14 +26,26 @@ supabase.auth.getSession().then(({ data: { session } }) => {
 
 // 🚀 THE INTERCEPTOR: Runs automatically before every single backend request
 api.interceptors.request.use(
-  (config) => {
-    // We use the cached token directly (synchronous) instead of awaiting getSession()
-    // This prevents cross-tab locking overhead and massive request latency.
-    if (cachedSessionToken) {
-      config.headers.Authorization = `Bearer ${cachedSessionToken}`;
-    } else {
-      config.headers.Authorization = `Bearer dev_token`;
+  async (config) => {
+    // Prefer cached token (fast path). If not yet populated, fetch the session
+    // once rather than sending a fake token that will 401 in production.
+    let token = cachedSessionToken;
+    if (!token) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token || null;
+        if (token) cachedSessionToken = token;
+      } catch {
+        // getSession() failed (network blip, client not ready, etc.)
+        // Fall through with no token — backend will return a clean 401.
+      }
     }
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    // If still no token, send the request without Authorization.
+    // The backend will return a proper 401 the app can handle.
 
     return config;
   },

@@ -141,8 +141,8 @@ export default function UserManagement({ currentUserName, addActivityLog, global
     name: '',
     email: '',
     department: '',
-    role: 'Recruitment' as UserRole,
-    roles: ['Recruitment'] as UserRole[],
+    role: '' as UserRole,
+    roles: [] as UserRole[],
     password: generateTempPassword(),
     requirePasswordChange: true,
   });
@@ -161,6 +161,10 @@ export default function UserManagement({ currentUserName, addActivityLog, global
 
   const handleAddStaff = async () => {
     if (!newStaff.name || !newStaff.email || isSubmitting) return;
+    if (!newStaff.roles || newStaff.roles.length === 0) {
+      alert('Please select at least one role before creating the account.');
+      return;
+    }
     setIsSubmitting(true);
 
     const chosenRoles = newStaff.roles && newStaff.roles.length > 0 ? newStaff.roles : [newStaff.role];
@@ -218,8 +222,8 @@ export default function UserManagement({ currentUserName, addActivityLog, global
         name: '',
         email: '',
         department: '',
-        role: 'Recruitment',
-        roles: ['Recruitment'],
+        role: '' as UserRole,
+        roles: [],
         password: generateTempPassword(),
         requirePasswordChange: true,
       });
