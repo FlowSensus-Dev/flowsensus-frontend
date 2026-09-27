@@ -80,6 +80,11 @@ export interface ApplicantRecord {
   
   // Assessment validation
   hasCompleteAssessments?: boolean;
+
+  // Screening & Medical Referral tracking
+  medicalReferralGenerated?: boolean;
+  medicalReferralClinic?: string;
+  medicalReferralDate?: string;
 }
 
 export interface WorkExperience {
