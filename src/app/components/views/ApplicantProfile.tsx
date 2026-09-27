@@ -499,15 +499,17 @@ export default function ApplicantProfile({
             })}
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-            <button 
-              onClick={onEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-            >
-              <Edit2 size={13} />
-              <span>Update Details</span>
-            </button>
-          </div>
+          {onEdit && (
+            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
+              <button 
+                onClick={onEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
+              >
+                <Edit2 size={13} />
+                <span>Update Details</span>
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 

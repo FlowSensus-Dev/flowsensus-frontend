@@ -200,6 +200,7 @@ export interface ExpenseRecord {
 
 export interface TestScores {
   englishProficiency: number; // Out of 100
+  languageProficiency?: number; // Out of 100 (generalized language assessment)
   tradeSkills: number; // Out of 100
   iqAptitude: number; // Out of 100
   personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending'; // Assessment result
