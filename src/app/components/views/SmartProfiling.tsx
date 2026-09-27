@@ -51,6 +51,7 @@ export default function SmartProfiling({
         const res = globalJobOrders ? { data: globalJobOrders } : await api.get('/job-orders');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           const liveOrders = res.data.map((jo: any) => ({
+            realId: jo.job_order_id,
             id: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             position: jo.position_title || jo.position || 'General Position',
             country: jo.client_employer?.country?.country_name || jo.country || 'International',
@@ -306,26 +307,9 @@ export default function SmartProfiling({
     setIsEvaluating(true);
     try {
       const numericApplicantId = parseInt(String(applicant.id), 10) || 1;
-      const payload = {
+            const payload = {
         applicant_id: numericApplicantId,
-        job_order_id: jobOrder.id,
-        medical_status: 'Fit to Work',
-        criteria: {
-          job_title: jobOrder.position,
-          employer_name: jobOrder.employer,
-          min_iq: 50,
-          min_skills: 70,
-          min_interview: 60,
-          min_eq: 70,
-          required_medical_validity_days: 90,
-          required_passport_validity_days: 60,
-          required_clearance_validity_days: 30,
-        },
-        documents: {
-          medical_expiry: '2027-01-15',
-          passport_expiry: '2027-06-30',
-          clearance_expiry: '2026-12-15',
-        },
+        job_order_id: jobOrder.realId || 1,
       };
 
       const res = await api.post('/matching/evaluate', payload);

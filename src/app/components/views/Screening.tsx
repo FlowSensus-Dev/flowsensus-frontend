@@ -134,6 +134,10 @@ export default function Screening({
 
       const numericId = parseInt(applicantId, 10);
       if (!isNaN(numericId)) {
+        await api.post(`/examinations`, {
+          applicantId: numericId,
+          ...cleanScores
+        });
         await api.put(`/applicants/${numericId}`, {
           testScores: cleanScores
         });
@@ -172,7 +176,6 @@ export default function Screening({
       };
 
       const updates = {
-        phase: 2,
         status: 'Medical Clearance',
         currentHandler: 'Maria Santos',
         currentDepartment: 'Admin',
@@ -183,8 +186,11 @@ export default function Screening({
       // Ensure the backend persists the change
       const numericId = parseInt(applicantId, 10);
       if (!isNaN(numericId)) {
+        await api.post(`/examinations`, {
+          applicantId: numericId,
+          ...cleanScores
+        });
         await api.put(`/applicants/${numericId}`, {
-          current_phase: 2,
           application_status: 'Medical Clearance',
           current_handler: 'Maria Santos',
           current_department: 'Admin',
@@ -224,10 +230,10 @@ export default function Screening({
 
   // Applicants pending screening — Phase 1, not stopped, testScores not yet complete
   const pendingScreening = applicants.filter(a =>
-    !a.isStopped && a.phase <= 1
+    a.status !== 'Processing Stopped' && a.phase <= 1
   );
   const inProgress = applicants.filter(a =>
-    !a.isStopped && a.phase === 2
+    a.status !== 'Processing Stopped' && a.phase === 2
   );
 
   const openApplicant = (id: string) => {

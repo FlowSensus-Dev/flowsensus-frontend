@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
+import { api } from '../../../lib/api';
 
 interface FitToWorkProps {
   workflow: WorkflowState;
@@ -18,21 +19,30 @@ export default function FitToWork({ workflow, updateWorkflow, showToast, current
   const applicant = applicants.find(a => String(a.id) === String(selectedApplicantId));
   const isProvisional = applicant?.status === 'Provisional';
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const status = formData.get('medicalStatus');
     const applicantId = selectedApplicantId;
+    const numericId = parseInt(applicantId, 10);
 
     if (status === 'Fit') {
       updateWorkflow({ medicalCleared: true });
       updateApplicant(applicantId, {
-        phase: 3, // Still in phase 3 but moving to profiling
         status: 'Applicant Profiling',
         currentHandler: currentUserName,
         currentDepartment: 'Recruitment',
         phaseDescription: 'Medical clearance approved, ready for matching and profiling',
       });
+      
+      if (!isNaN(numericId)) {
+          await api.put(`/applicants/${numericId}`, {
+              application_status: 'Applicant Profiling',
+              current_handler: currentUserName,
+              current_department: 'Recruitment',
+              phase_description: 'Medical clearance approved, ready for matching and profiling'
+          }).catch(console.error);
+      }
 
       addActivityLog({
         applicantId,
@@ -48,6 +58,13 @@ export default function FitToWork({ workflow, updateWorkflow, showToast, current
         status: 'Provisional',
         phaseDescription: 'Medical outcome Unfit-to-Work. Provisional holding state.',
       });
+      
+      if (!isNaN(numericId)) {
+          await api.put(`/applicants/${numericId}`, {
+              application_status: 'Provisional',
+              phase_description: 'Medical outcome Unfit-to-Work. Provisional holding state.'
+          }).catch(console.error);
+      }
 
       addActivityLog({
         applicantId,

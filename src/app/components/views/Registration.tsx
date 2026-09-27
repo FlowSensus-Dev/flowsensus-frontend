@@ -4,7 +4,8 @@ import {
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
   Save, User, FileCheck, Upload, Briefcase, Loader2,
-  GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown
+  GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown,
+  Sparkles
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -292,6 +293,23 @@ export default function Registration({
   const setEdu = (id: string, k: keyof EducationRecord, v: string) => setEducation(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeEdu = (id: string) => setEducation(p => p.filter(x => x.id !== id));
 
+  // ── Core Skills ────────────────────────────────────────────────────────────
+  const [skills, setSkills] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState('');
+  const addSkill = (val: string) => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    if (skills.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
+      showToast(`"${trimmed}" is already in skills list.`);
+      return;
+    }
+    setSkills(prev => [...prev, trimmed]);
+    setSkillInput('');
+  };
+  const removeSkill = (skillToRemove: string) => {
+    setSkills(prev => prev.filter(s => s !== skillToRemove));
+  };
+
   // ── Certificates ──────────────────────────────────────────────────────────
   const [certs, setCerts] = useState<CertificateRecord[]>([]);
   const addCert = () => setCerts(p => [...p, { id: `cert-${Date.now()}`, title: '', serialNo: '', issuedBy: '', noOfHours: '', competencyDateIssued: '', expiryDate: '' }]);
@@ -321,6 +339,8 @@ export default function Registration({
     setSelectedJobOrderId('');
     setIds([]);
     setEducation([]);
+    setSkills([]);
+    setSkillInput('');
     setCerts([]);
     setTrainings([]);
     setLanguages([]);
@@ -372,6 +392,9 @@ export default function Registration({
       else setIds([]);
       if (app.education && app.education.length > 0) setEducation(app.education);
       else setEducation([]);
+      if (app.skills && Array.isArray(app.skills) && app.skills.length > 0) setSkills([...app.skills]);
+      else setSkills([]);
+      setSkillInput('');
       if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
       else setCerts([]);
       if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
@@ -468,6 +491,7 @@ export default function Registration({
     photo ||
     ids.length > 0 ||
     education.length > 0 ||
+    skills.length > 0 ||
     certs.length > 0 ||
     trainings.length > 0 ||
     languages.length > 0 ||
@@ -497,6 +521,7 @@ export default function Registration({
       photo !== (app.photo || app.photoDataUrl || '') ||
       JSON.stringify(ids) !== JSON.stringify(app.identifications || []) ||
       JSON.stringify(education) !== JSON.stringify(app.education || []) ||
+      JSON.stringify(skills) !== JSON.stringify(app.skills || []) ||
       JSON.stringify(certs) !== JSON.stringify(app.certificateRecords || []) ||
       JSON.stringify(trainings) !== JSON.stringify(app.trainings || []) ||
       JSON.stringify(languages) !== JSON.stringify(app.languageRecords || []) ||
@@ -504,7 +529,7 @@ export default function Registration({
     );
   }, [
     selectedApplicantId, applicants, personal, selectedJobOrderId,
-    photo, ids, education, certs, trainings, languages, employment, isFormFilled
+    photo, ids, education, skills, certs, trainings, languages, employment, isFormFilled
   ]);
 
   // Cancel button only appears if an applicant is selected or if user has started typing/making changes
@@ -516,18 +541,19 @@ export default function Registration({
       personal: Boolean(personal.firstName.trim() && personal.lastName.trim()),
       identifications: ids.length > 0,
       education: education.length > 0,
+      skills: skills.length > 0,
       certificates: certs.length > 0,
       trainings: trainings.length > 0,
       languages: languages.length > 0,
       employment: employment.length > 0,
     };
-  }, [personal, ids, education, certs, trainings, languages, employment]);
+  }, [personal, ids, education, skills, certs, trainings, languages, employment]);
 
   const completedCount = useMemo(() => {
     return Object.values(sectionStatus).filter(Boolean).length;
   }, [sectionStatus]);
 
-  const progressPercent = Math.round((completedCount / 7) * 100);
+  const progressPercent = Math.round((completedCount / Object.keys(sectionStatus).length) * 100);
 
   const scrollToBottom = () => {
     const el = document.getElementById('section-save-actions');
@@ -565,6 +591,8 @@ export default function Registration({
         setSelectedJobOrderId(initialJo);
         setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
         setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
+        setSkills(app.skills && Array.isArray(app.skills) && app.skills.length > 0 ? [...app.skills] : []);
+        setSkillInput('');
         setCerts(app.certificateRecords && app.certificateRecords.length > 0 ? [...app.certificateRecords] : []);
         setTrainings(app.trainings && app.trainings.length > 0 ? [...app.trainings] : []);
         setLanguages(app.languageRecords && app.languageRecords.length > 0 ? [...app.languageRecords] : []);
@@ -639,7 +667,7 @@ export default function Registration({
           job_order_id: selectedJob?.jobOrderId ? parseInt(String(selectedJob.jobOrderId), 10) : undefined,
           employer_id: selectedJob?.employerId ? parseInt(String(selectedJob.employerId), 10) : undefined,
           country_id: selectedJob?.countryId ? parseInt(String(selectedJob.countryId), 10) : undefined,
-          skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs,
           identifications: ids,
           education: education,
@@ -648,7 +676,6 @@ export default function Registration({
           employment_history: employment,
           employment_flags: flags,
           photo_url: photo || undefined,
-          current_phase: 1,
           status: 'Initial Screening',
           current_handler: currentUserName,
           current_department: 'Recruitment',
@@ -691,7 +718,7 @@ export default function Registration({
           religion: personal.religion,
           height: personal.height,
           weight: personal.weight,
-          skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           workExperience: payload.work_experience,
           employmentHistory: employment,
@@ -719,6 +746,7 @@ export default function Registration({
         // ── UPDATE EXISTING APPLICANT VIA PUT /applicants/{id} ───────────────
         const numericId = parseInt(selectedApplicantId, 10);
         const selectedJob = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
+        const currentApp = applicants?.find(a => String(a.id) === String(selectedApplicantId));
 
         if (!isNaN(numericId)) {
           const updatePayload: any = {
@@ -734,7 +762,7 @@ export default function Registration({
             present_address: personal.presentAddress?.trim() || null,
             provincial_address: personal.provincialAddress?.trim() || null,
             applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
-            skills: certs.map((c: any) => c.name || c.title || '').filter(Boolean),
+            skills: skills,
             certifications: certs,
             identifications: ids,
             education: education,
@@ -744,6 +772,10 @@ export default function Registration({
             employment_flags: flags,
             photo_url: photo ? photo : null,
           };
+
+          if (currentApp?.applicationId) {
+            updatePayload.application_id = currentApp.applicationId;
+          }
 
           if (selectedJob) {
             updatePayload.job_order_code = selectedJob.code;
@@ -782,7 +814,7 @@ export default function Registration({
             role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
             jobOrder: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? 'Unassigned' : (currentApplicant?.jobOrder || 'Unassigned')),
             selectedJobOrderId: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? undefined : currentApplicant?.selectedJobOrderId),
-            skills: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+            skills: skills,
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             identifications: ids,
             education: education,
@@ -816,6 +848,7 @@ export default function Registration({
     { id: 'personal', label: 'Personal Info' },
     { id: 'identifications', label: 'Identifications' },
     { id: 'education', label: 'Education' },
+    { id: 'skills', label: 'Core Skills' },
     { id: 'certificates', label: 'Certificates' },
     { id: 'trainings', label: 'Trainings' },
     { id: 'languages', label: 'Languages' },
@@ -1259,6 +1292,98 @@ export default function Registration({
         </Section>
       </div>
 
+      {/* ── Core Skills ────────────────────────────────────────────────────────── */}
+      <div id="section-skills" className="scroll-mt-28">
+        <Section
+          title="Core Skills & Competencies"
+          icon={<Sparkles size={16} />}
+          badge={<span className="text-xs text-slate-400 font-medium">{skills.length} recorded</span>}
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Add individual core competencies, technical abilities, or soft skills. Press Enter or click &quot;Add Skill&quot;.
+            </p>
+
+            {/* Input row */}
+            <div className="flex gap-2">
+              <input
+                className={inp}
+                placeholder="e.g. Communication, Microsoft Office, Heavy Equipment Operation, Arc Welding..."
+                value={skillInput}
+                onChange={e => setSkillInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addSkill(skillInput);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => addSkill(skillInput)}
+                className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0 shadow-sm cursor-pointer"
+              >
+                <Plus size={15} /> Add Skill
+              </button>
+            </div>
+
+            {/* Render chips */}
+            {skills.length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {skills.map(s => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-[#0EA5E9]/10 text-[#0284C7] rounded-full font-medium border border-[#0EA5E9]/20 transition-all hover:bg-[#0EA5E9]/15"
+                  >
+                    <span>{s}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeSkill(s)}
+                      className="w-4 h-4 rounded-full inline-flex items-center justify-center hover:bg-[#0EA5E9]/30 text-[#0284C7] transition-colors cursor-pointer"
+                      title={`Remove ${s}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 italic py-2">
+                No core skills added yet. Type a skill above to add one.
+              </div>
+            )}
+
+            {/* Suggested quick-add chips */}
+            <div className="pt-2 border-t border-slate-100">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                Quick Suggestions:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Communication',
+                  'Team Collaboration',
+                  'Problem Solving',
+                  'Microsoft Office',
+                  'Time Management',
+                  'Customer Service',
+                  'Leadership',
+                  'Adaptability',
+                ].filter(s => !skills.includes(s)).slice(0, 6).map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => addSkill(s)}
+                    className="text-xs px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={11} /> {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Section>
+      </div>
+
       {/* ── Certificates ──────────────────────────────────────────────────────── */}
       <div id="section-certificates" className="scroll-mt-28">
         <Section title="Certifications / Licenses" icon={<Award size={16} />} badge={<span className="text-xs text-slate-400 font-medium">{certs.length} recorded</span>}>
@@ -1389,7 +1514,7 @@ export default function Registration({
               </thead>
               <tbody>
                 {employment.map(row => (
-                  <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && f.relatedJobIds.includes(row.id)) ? 'bg-red-50/40' : ''}`}>
+                  <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${flags.some(f => !f.dismissed && (f.relatedJobIds || []).includes(row.id)) ? 'bg-red-50/40' : ''}`}>
                     <td className={td}><input className={inp} value={row.company} onChange={e => setEmp(row.id, 'company', e.target.value)} placeholder="Company name" /></td>
                     <td className={td}><input className={inp} value={row.position} onChange={e => setEmp(row.id, 'position', e.target.value)} placeholder="Job title" /></td>
                     <td className={td}><input className={inp} type="date" value={row.dateStarted} onChange={e => setEmp(row.id, 'dateStarted', e.target.value)} /></td>

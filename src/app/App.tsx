@@ -4,7 +4,11 @@ import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
 import EmployerPortal from "./components/EmployerPortal";
-import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from "./types";
+import {
+  UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord,
+  CertificateRecord, TrainingRecord, LanguageRecord, IdentificationRecord,
+  EducationRecord, EmploymentRecord, EmploymentFlag
+} from "./types";
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
@@ -1154,13 +1158,115 @@ export default function App() {
       if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
       const liveMapped: ApplicantRecord[] = applicantsRes.data.map((item: any) => {
         const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : 'Applicant');
-        const parsedSkills = Array.isArray(item.skills)
-          ? item.skills
+        const parsedSkills: string[] = Array.isArray(item.skills)
+          ? item.skills.map((s: any) => typeof s === 'string' ? s : (s.name || s.title || '')).filter(Boolean)
           : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
-        const parsedCerts = Array.isArray(item.certifications)
-          ? item.certifications
+
+        const parsedCerts: string[] = Array.isArray(item.certifications)
+          ? item.certifications.map((c: any) => typeof c === 'string' ? c : (c.title || c.name || '')).filter(Boolean)
           : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
+
+        const parsedCertificateRecords: CertificateRecord[] = (Array.isArray(item.certifications) ? item.certifications : []).map((c: any, idx: number) => {
+          if (typeof c === 'string') {
+            return {
+              id: `cert-${item.applicant_id}-${idx}`,
+              title: c,
+              serialNo: '—',
+              issuedBy: c.includes('TESDA') ? 'TESDA' : (c.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+              noOfHours: '—',
+              competencyDateIssued: '—',
+              expiryDate: 'No expiry'
+            };
+          }
+          return {
+            id: c.id || `cert-${item.applicant_id}-${idx}`,
+            title: c.title || c.name || 'Certificate',
+            serialNo: c.serialNo || c.serial_no || '—',
+            issuedBy: c.issuedBy || c.issued_by || (c.title?.includes('TESDA') ? 'TESDA' : 'Accredited Issuer'),
+            noOfHours: c.noOfHours || c.no_of_hours || '—',
+            competencyDateIssued: c.competencyDateIssued || c.dateIssued || c.issued || '—',
+            expiryDate: c.expiryDate || c.expiry || 'No expiry',
+            proofDocumentUrl: c.proofDocumentUrl || c.proof_url
+          };
+        });
+
+        const parsedTrainings: TrainingRecord[] = (Array.isArray(item.trainings) ? item.trainings : []).map((t: any, idx: number) => ({
+          id: t.id || `tr-${item.applicant_id}-${idx}`,
+          trainingName: t.trainingName || t.title || 'Training Program',
+          certNo: t.certNo || t.cert_no || '—',
+          duration: t.duration || (t.year ? `Completed (${t.year})` : '—'),
+          noOfHours: t.noOfHours || t.hours || '—',
+          conductedBy: t.conductedBy || t.provider || 'Accredited Provider',
+          skillsAcquired: t.skillsAcquired || t.skills || 'Technical Competency',
+          proofDocumentUrl: t.proofDocumentUrl || t.proof_url
+        }));
+
+        const parsedLanguages: LanguageRecord[] = (Array.isArray(item.languages) ? item.languages : []).map((l: any, idx: number) => {
+          const competency = l.competency || l.proficiency || 'Conversational';
+          const defaultRating = competency.toLowerCase().includes('native') ? 10 :
+                                competency.toLowerCase().includes('fluent') ? 9 :
+                                competency.toLowerCase().includes('proficient') ? 8 :
+                                competency.toLowerCase().includes('conversational') ? 7 :
+                                competency.toLowerCase().includes('basic') ? 5 : 6;
+          return {
+            id: l.id || `lang-${item.applicant_id}-${idx}`,
+            language: l.language || 'English',
+            competency,
+            spokenRating: typeof l.spokenRating === 'number' ? l.spokenRating : defaultRating,
+            writtenRating: typeof l.writtenRating === 'number' ? l.writtenRating : defaultRating
+          };
+        });
+
+        const parsedIdentifications: IdentificationRecord[] = (Array.isArray(item.identifications) ? item.identifications : []).map((idDoc: any, idx: number) => ({
+          id: idDoc.id || `id-${item.applicant_id}-${idx}`,
+          type: idDoc.type || 'Identification Document',
+          identificationNo: idDoc.identificationNo || idDoc.number || '—',
+          expiryDate: idDoc.expiryDate || idDoc.expiry || '',
+          dateIssued: idDoc.dateIssued || idDoc.issued || '',
+          proofDocumentUrl: idDoc.proofDocumentUrl || idDoc.proof_url
+        }));
+
+        const parsedEducation: EducationRecord[] = (Array.isArray(item.education) ? item.education : []).map((edu: any, idx: number) => ({
+          id: edu.id || `edu-${item.applicant_id}-${idx}`,
+          level: edu.level || '',
+          school: edu.school || '',
+          course: edu.course || edu.degree || (edu.honors ? `Honors: ${edu.honors}` : (edu.level === 'High School' ? 'High School Graduate' : 'General Program')),
+          yearGraduated: edu.yearGraduated || edu.year || ''
+        }));
+
         const parsedWork = Array.isArray(item.work_experience) ? item.work_experience : [];
+        const rawHistory = (Array.isArray(item.employment_history) && item.employment_history.length > 0)
+          ? item.employment_history
+          : parsedWork;
+
+        const parsedEmploymentHistory: EmploymentRecord[] = rawHistory.map((eh: any, idx: number) => ({
+          id: eh.id || `eh-${item.applicant_id}-${idx}`,
+          company: eh.company || eh.companyName || 'Previous Employer',
+          position: eh.position || 'Worker',
+          dateStarted: eh.dateStarted || eh.startDate || '',
+          dateEnded: eh.dateEnded || eh.endDate || '',
+          country: eh.country || 'Philippines',
+          isPresent: Boolean(eh.isPresent),
+          reasonForLeaving: eh.reasonForLeaving || (Array.isArray(eh.responsibilities) ? eh.responsibilities.join(', ') : 'Contract completed')
+        }));
+
+        const parsedFlags: EmploymentFlag[] = (Array.isArray(item.employment_flags) ? item.employment_flags : []).map((f: any, idx: number) => ({
+          id: f.id || `flag-${item.applicant_id}-${idx}`,
+          type: f.type || 'gap',
+          severity: f.severity === 'critical' ? 'critical' : 'warning',
+          description: f.description || 'Employment history anomaly',
+          relatedJobIds: Array.isArray(f.relatedJobIds) ? f.relatedJobIds : [],
+          dismissed: Boolean(f.dismissed),
+          dismissedBy: f.dismissedBy,
+          dismissalReason: f.dismissalReason,
+          dismissedAt: f.dismissedAt,
+          validated: Boolean(f.validated),
+          validatedBy: f.validatedBy,
+          validationReason: f.validationReason,
+          validatedAt: f.validatedAt,
+          startDate: f.startDate,
+          endDate: f.endDate
+        }));
 
         const rawApplicationId = item.application_id;
         const numericApplicationId = typeof rawApplicationId === 'number'
@@ -1206,25 +1312,18 @@ export default function App() {
           weight: item.weight || '65 kg',
           skills: parsedSkills,
           certifications: parsedCerts,
-          identifications: item.identifications || [],
-          education: item.education || [],
-          certificateRecords: item.certifications || parsedCerts,
-          trainings: item.trainings || [],
-          languageRecords: item.languages || [],
+          identifications: parsedIdentifications,
+          education: parsedEducation,
+          certificateRecords: parsedCertificateRecords,
+          trainings: parsedTrainings,
+          languageRecords: parsedLanguages,
           workExperience: parsedWork,
           address: item.present_address || item.provincial_address || 'Philippines',
-          employmentHistory: item.employment_history || parsedWork.map((w: any, idx: number) => ({
-            id: `eh-${item.applicant_id}-${idx}`,
-            company: w.companyName || w.company || 'Previous Employer',
-            position: w.position || 'Worker',
-            dateStarted: w.startDate || '',
-            dateEnded: w.endDate || '',
-            country: w.country || 'Philippines',
-            isPresent: Boolean(w.isPresent),
-            reasonForLeaving: w.responsibilities?.join(', ') || 'Contract completed'
-          })),
-          employmentFlags: item.employment_flags || [],
-          testScores: item.test_scores || { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          employmentHistory: parsedEmploymentHistory,
+          employmentFlags: parsedFlags,
+          testScores: item.test_scores == null
+            ? { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' }
+            : (Object.keys(item.test_scores).length === 0 ? undefined : item.test_scores),
           matchScore: 90,
           photo: item.photo_url || item.photo || '',
           photoDataUrl: item.photo_url || item.photo || '',
