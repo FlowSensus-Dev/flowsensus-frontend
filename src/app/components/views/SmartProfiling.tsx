@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Target, CheckCircle, AlertCircle, TrendingUp, Lock, ShieldCheck, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
+import { Target, CheckCircle, AlertCircle, TrendingUp, Lock, ShieldCheck, ShieldAlert, Sparkles, Loader2, Clock } from 'lucide-react';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
 import { api } from '../../../lib/api';
+import { parseMatchingResult, ParsedMatchingResult } from '../../../lib/matchingUtils';
 
 interface SmartProfilingProps {
   showToast: (message: string) => void;
@@ -30,6 +31,8 @@ export default function SmartProfiling({
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(false);
 
   const [matchingEval, setMatchingEval] = useState<any | null>(null);
+  const [parsedMatching, setParsedMatching] = useState<ParsedMatchingResult | null>(null);
+  const [matchingError, setMatchingError] = useState<{ status: number; message: string } | null>(null);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
 
   // Sync activeApplicantId when selectedApplicantId prop changes
@@ -73,7 +76,15 @@ export default function SmartProfiling({
 
   const isLocked = !workflow?.screeningPassed;
 
-  // Find selected applicant safely
+  // Filter candidates based on preconditions
+  const profilingCandidates = applicants.filter(a => a.status === 'Applicant Profiling' || a.status === 'CV Encoding');
+  
+  // A2 - Incomplete Applicant Assessment Records
+  // Using backend-provided hasCompleteAssessments flag mapped from real examination records
+  const incompleteCandidates = profilingCandidates.filter(a => a.hasCompleteAssessments === false);
+  const eligibleCandidates = profilingCandidates.filter(a => a.hasCompleteAssessments !== false);
+
+  // Find selected applicant safely among all applicants to prevent crash if an invalid ID is passed
   const applicant = applicants.find((a) => String(a.id) === String(activeApplicantId)) || applicants[0];
 
   // Robust readiness detection engine
@@ -319,14 +330,24 @@ export default function SmartProfiling({
 
       const res = await api.post('/matching/evaluate', payload);
       setMatchingEval(res.data);
-      if (res.data.is_qualified) {
-        showToast(`✓ Rule Check Passed: Applicant is ${res.data.status}. CV unlocked for Manager Approval.`);
+      const parsed = parseMatchingResult(res.data);
+      setParsedMatching(parsed);
+
+      if (parsed.overallStatus === 'qualified') {
+        showToast(`✓ Rule Check Passed: Applicant is Recommended. CV unlocked for Manager Approval.`);
+      } else if (parsed.overallStatus === 'system-pending') {
+        showToast(`ℹ Screening In Progress: Pending authoritative data checks.`);
       } else {
-        showToast(`⚠ Pre-qualification Blocked: ${res.data.blocking_reasons?.length || 1} criteria blocked.`);
+        showToast(`⚠ Pre-qualification Blocked: ${parsed.realFailedChecks.length} criteria blocked.`);
       }
     } catch (err: any) {
       console.error('Matching evaluation error:', err);
-      showToast(err.response?.data?.detail || 'Failed to evaluate matching criteria.');
+      const status = err.response?.status || 500;
+      let msg = err.response?.data?.detail || 'Failed to evaluate matching criteria.';
+      if (status === 503) msg = 'Matching service temporarily unavailable';
+      if (status === 404) msg = 'Applicant record not found';
+      setMatchingError({ status, message: msg });
+      showToast(msg);
     } finally {
       setIsEvaluating(false);
     }
@@ -385,32 +406,55 @@ export default function SmartProfiling({
 
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div>
-            <h3 className="font-black text-[#0F172A] text-lg">{applicant.name}</h3>
-            <p className="text-sm text-[#64748B]">{applicant.applicantCode || applicant.id} | {applicant.role}</p>
+            <h3 className="font-black text-[#0F172A] text-lg">{applicant?.name || 'No Applicant Selected'}</h3>
+            {applicant && <p className="text-sm text-[#64748B]">{applicant.applicantCode || applicant.id} | {applicant.role}</p>}
           </div>
-          {applicants.length > 1 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#64748B] uppercase">Evaluate Candidate:</span>
-              <select
-                value={applicant.id}
-                onChange={(e) => {
-                  const newId = e.target.value;
-                  setActiveApplicantId(newId);
-                  if (onSelectApplicant) onSelectApplicant(newId);
-                  setMatchingEval(null);
-                }}
-                className="border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm font-semibold text-[#0F172A] bg-white focus:border-[#F59E0B] outline-none"
-              >
-                {applicants.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.role})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          
+          <div className="flex flex-col items-end gap-2">
+            {incompleteCandidates.length > 0 && (
+              <div className="bg-amber-50 text-amber-800 text-xs font-bold px-3 py-1 rounded-full border border-amber-200 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {incompleteCandidates.length} candidate(s) excluded due to incomplete assessment data
+              </div>
+            )}
+            
+            {eligibleCandidates.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[#64748B] uppercase">Evaluate Candidate:</span>
+                <select
+                  value={applicant?.id || ''}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setActiveApplicantId(newId);
+                    if (onSelectApplicant) onSelectApplicant(newId);
+                    setMatchingEval(null);
+                    setParsedMatching(null);
+                    setMatchingError(null);
+                  }}
+                  className="border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm font-semibold text-[#0F172A] bg-white focus:border-[#F59E0B] outline-none"
+                >
+                  {eligibleCandidates.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-red-600 uppercase">A1: No Qualified Candidates Found</span>
+              </div>
+            )}
+          </div>
         </div>
 
+        {eligibleCandidates.length === 0 ? (
+          <div className="py-12 flex flex-col items-center justify-center text-center">
+            <AlertCircle className="w-12 h-12 text-slate-300 mb-3" />
+            <h3 className="text-[#0F172A] font-bold mb-1">No qualified candidates found for this job order.</h3>
+            <p className="text-[#64748B] text-sm">Review alternative applicants or wait for additional applicants to pass medical clearance.</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
             <p className="text-xs text-[#64748B] font-bold uppercase mb-1">Work Experience</p>
@@ -437,7 +481,7 @@ export default function SmartProfiling({
             </p>
           </div>
         </div>
-
+        )}
       </div>
 
       {/* Job Order Selector */}
@@ -580,7 +624,12 @@ export default function SmartProfiling({
                       </div>
 
                       <button
-                        onClick={() => handleEvaluateMatching(jobOrder)}
+                        onClick={() => {
+                          setMatchingError(null);
+                          setMatchingEval(null);
+                          setParsedMatching(null);
+                          handleEvaluateMatching(jobOrder);
+                        }}
                         disabled={isEvaluating}
                         className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all"
                       >
@@ -598,45 +647,74 @@ export default function SmartProfiling({
                       </button>
                     </div>
 
-                    {matchingEval && (
+                    {isEvaluating && (
+                      <div className="flex flex-col items-center justify-center p-8 bg-slate-50 border border-slate-200 rounded-xl animate-pulse">
+                        <div className="h-4 bg-slate-200 rounded w-1/3 mb-4"></div>
+                        <div className="h-8 bg-slate-200 rounded w-1/2"></div>
+                      </div>
+                    )}
+
+                    {!isEvaluating && matchingError && (
+                      <div className="p-6 rounded-xl border bg-slate-50 border-slate-200 text-center">
+                        <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+                        <h3 className="font-bold text-slate-800 mb-1">
+                          {matchingError.status === 503 ? 'Service Unavailable' : 'Error'}
+                        </h3>
+                        <p className="text-sm text-slate-500">{matchingError.message}</p>
+                      </div>
+                    )}
+
+                    {!isEvaluating && !matchingError && parsedMatching && (
                       <div className="space-y-4">
                         {/* Status & CV Gate Banner */}
                         <div
                           className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                            matchingEval.cv_unlocked
+                            parsedMatching.overallStatus === 'qualified'
                               ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900'
-                              : 'bg-amber-50/70 border-amber-300 text-amber-900'
+                              : parsedMatching.overallStatus === 'system-pending'
+                              ? 'bg-amber-50/70 border-amber-300 text-amber-900'
+                              : 'bg-red-50/70 border-red-300 text-red-900'
                           }`}
                         >
                           <div className="flex items-center gap-3">
-                            {matchingEval.cv_unlocked ? (
+                            {parsedMatching.overallStatus === 'qualified' ? (
                               <div className="w-10 h-10 rounded-full bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-600 flex-shrink-0">
                                 <ShieldCheck size={20} />
                               </div>
-                            ) : (
+                            ) : parsedMatching.overallStatus === 'system-pending' ? (
                               <div className="w-10 h-10 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-600 flex-shrink-0">
+                                <Clock size={20} />
+                              </div>
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-red-100 border border-red-300 flex items-center justify-center text-red-600 flex-shrink-0">
                                 <ShieldAlert size={20} />
                               </div>
                             )}
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="font-extrabold text-sm">
-                                  Classifier Decision: {matchingEval.status}
+                                  {parsedMatching.overallStatus === 'qualified' && (parsedMatching.score >= 85 ? 'Highly Recommended' : 'Recommended')}
+                                  {parsedMatching.overallStatus === 'system-pending' && 'Screening In Progress'}
+                                  {parsedMatching.overallStatus === 'blocked' && 'Blocked'}
                                 </span>
                                 <span
                                   className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                                    matchingEval.cv_unlocked
+                                    parsedMatching.overallStatus === 'qualified'
                                       ? 'bg-emerald-600 text-white'
-                                      : 'bg-amber-600 text-white'
+                                      : parsedMatching.overallStatus === 'system-pending'
+                                      ? 'bg-amber-600 text-white'
+                                      : 'bg-red-600 text-white'
                                   }`}
                                 >
-                                  {matchingEval.cv_unlocked ? 'CV UNLOCKED' : 'CV LOCKED'}
+                                  {parsedMatching.overallStatus === 'qualified' ? 'CV UNLOCKED' : 'CV LOCKED'}
                                 </span>
                               </div>
                               <p className="text-xs text-slate-600 mt-0.5">
-                                {matchingEval.cv_unlocked
-                                  ? 'Candidate satisfies 100% of regulatory 3-2-1 document rules and employer exam thresholds. CV unlocked for Manager Approval.'
-                                  : 'Candidate has blocking criteria or missing assessments. Structural CV unlock gate prevents submission until resolved.'}
+                                {parsedMatching.overallStatus === 'qualified'
+                                  ? 'Candidate satisfies document rules and employer exam thresholds.'
+                                  : parsedMatching.overallStatus === 'system-pending'
+                                  ? 'Pending authoritative data checks.'
+                                  : 'Candidate has blocking criteria or missing assessments.'}
                               </p>
                             </div>
                           </div>
@@ -645,73 +723,70 @@ export default function SmartProfiling({
                             <span className="text-[10px] uppercase font-bold text-slate-500 block">
                               Exam Screening Score
                             </span>
-                            <span className="font-black text-xl text-slate-900 font-mono">
-                              {matchingEval.overall_match_score?.toFixed(1) || 0}%
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Checks Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {/* Passed Checks */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 mb-2.5">
-                              <CheckCircle size={14} className="text-emerald-500" />
-                              <span>Passed Checks ({matchingEval.passed_checks?.length || 0})</span>
-                            </div>
-                            <div className="space-y-2">
-                              {matchingEval.passed_checks?.map((chk: any, i: number) => (
-                                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-100 text-xs">
-                                  <div className="flex items-center justify-between font-bold text-slate-800">
-                                    <span>{chk.check_name}</span>
-                                    <span className="text-emerald-600 font-mono text-[11px]">✓ {chk.actual}</span>
-                                  </div>
-                                  <p className="text-[11px] text-slate-500 mt-1">{chk.details}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Failed / Blocking Checks */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 mb-2.5">
-                              <AlertCircle size={14} className="text-amber-500" />
-                              <span>Failed or Incomplete ({matchingEval.failed_checks?.length || 0})</span>
-                            </div>
-                            {matchingEval.failed_checks && matchingEval.failed_checks.length > 0 ? (
-                              <div className="space-y-2">
-                                {matchingEval.failed_checks.map((chk: any, i: number) => (
-                                  <div key={i} className="bg-white p-2.5 rounded-lg border border-amber-100 text-xs">
-                                    <div className="flex items-center justify-between font-bold text-amber-800">
-                                      <span>{chk.check_name}</span>
-                                      <span className="text-amber-600 font-mono text-[11px]">✗ {chk.actual}</span>
-                                    </div>
-                                    <p className="text-[11px] text-slate-500 mt-1">{chk.details}</p>
-                                  </div>
-                                ))}
+                            {parsedMatching.hasNoExam ? (
+                              <div className="flex flex-col items-end gap-1 mt-1">
+                                <span className="font-black text-xl text-slate-400 font-mono">—</span>
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-slate-300 text-slate-500">
+                                  Pending Exam
+                                </span>
                               </div>
                             ) : (
-                              <p className="text-xs text-slate-400 italic p-3 text-center">
-                                No failed or blocking checks detected.
-                              </p>
+                              <span className="font-black text-xl text-slate-900 font-mono">
+                                {parsedMatching.score.toFixed(1)}%
+                              </span>
                             )}
                           </div>
                         </div>
 
-                        {/* Blocking Reasons List */}
-                        {matchingEval.blocking_reasons && matchingEval.blocking_reasons.length > 0 && (
-                          <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-900">
-                            <span className="font-bold flex items-center gap-1.5 mb-1 text-red-800">
-                              <AlertCircle size={13} />
-                              Regulatory Blocking Reasons:
-                            </span>
-                            <ul className="list-disc ml-5 space-y-1 text-red-700 text-[11px]">
-                              {matchingEval.blocking_reasons.map((reason: string, i: number) => (
-                                <li key={i}>{reason}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                        {/* Checks Grid */}
+                        <div className="grid grid-cols-1 gap-3">
+                          {parsedMatching.realFailedChecks.length > 0 && (
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-3.5">
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-red-700 mb-2.5">
+                                <AlertCircle size={14} className="text-red-500" />
+                                <span>Failed Checks ({parsedMatching.realFailedChecks.length})</span>
+                              </div>
+                              <div className="space-y-2">
+                                {parsedMatching.realFailedChecks.map((chk, i) => (
+                                  <div key={i} className="bg-white p-2.5 rounded-lg border border-red-100 text-xs flex items-center justify-between font-bold text-red-900">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-red-600 mt-0.5">✗</span>
+                                      <span>{chk.check_name}</span>
+                                    </div>
+                                    <span className="text-red-600 font-mono text-[11px] bg-red-50 px-2 py-0.5 rounded">{chk.actual}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {parsedMatching.systemChecks.length > 0 && (
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-2.5">
+                                <div className="w-3.5 h-3.5 rounded-full bg-slate-300 flex items-center justify-center">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
+                                </div>
+                                <span>Also pending ({parsedMatching.systemChecks.length})</span>
+                              </div>
+                              <div className="space-y-2">
+                                {parsedMatching.systemChecks.map((chk, i) => (
+                                  <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center justify-between font-medium text-slate-600 group relative">
+                                    <div className="flex items-center gap-2">
+                                      <div className="text-slate-400">🔘</div>
+                                      <span>{chk.check_name}</span>
+                                    </div>
+                                    <span 
+                                      className="text-slate-500 font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded cursor-help"
+                                      title="This check requires an authoritative data source that is not yet available."
+                                    >
+                                      Pending Verification
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

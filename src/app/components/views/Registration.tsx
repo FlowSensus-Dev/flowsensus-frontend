@@ -1195,7 +1195,6 @@ export default function Registration({
                   <th className={th}>Identification Type</th>
                   <th className={th}>Identification No.</th>
                   <th className={th}>Expiry Date</th>
-                  <th className={th}>Proof / Scan</th>
                   <th className={th + ' w-10'}></th>
                 </tr>
               </thead>
@@ -1210,18 +1209,6 @@ export default function Registration({
                     </td>
                     <td className={td}><input className={inp} value={row.identificationNo} onChange={e => setId(row.id, 'identificationNo', e.target.value)} placeholder="ID / Serial Number" /></td>
                     <td className={td}><input className={inp} type="date" value={row.expiryDate} onChange={e => setId(row.id, 'expiryDate', e.target.value)} /></td>
-                    <td className={td}>
-                      {row.proofDocumentUrl
-                        ? <div className="flex items-center gap-1.5">
-                          <FileCheck size={13} className="text-[#10B981] flex-shrink-0" />
-                          <span className="text-xs text-[#10B981] truncate max-w-[120px]" title={row.proofDocumentName}>{row.proofDocumentName}</span>
-                          <button onClick={() => setId(row.id, 'proofDocumentUrl', '')} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0"><X size={12} /></button>
-                        </div>
-                        : <button onClick={() => proofUpload((url, name) => { setId(row.id, 'proofDocumentUrl', url); setId(row.id, 'proofDocumentName', name); })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#0EA5E9] border border-dashed border-slate-200 hover:border-[#0EA5E9] px-2 py-1 rounded transition-all">
-                          <Upload size={11} /> Upload
-                        </button>
-                      }
-                    </td>
                     <td className={td}><button onClick={() => removeId(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
                   </tr>
                 ))}
@@ -1285,7 +1272,6 @@ export default function Registration({
                   <th className={th}>No. of Hours</th>
                   <th className={th}>Competency Date</th>
                   <th className={th}>Expiry Date</th>
-                  <th className={th}>Proof</th>
                   <th className={th + ' w-10'}></th>
                 </tr>
               </thead>
@@ -1298,12 +1284,6 @@ export default function Registration({
                     <td className={td}><input className={inp} value={row.noOfHours} onChange={e => setCert(row.id, 'noOfHours', e.target.value)} placeholder="hrs" /></td>
                     <td className={td}><input className={inp} type="date" value={row.competencyDateIssued} onChange={e => setCert(row.id, 'competencyDateIssued', e.target.value)} /></td>
                     <td className={td}><input className={inp} type="date" value={row.expiryDate} onChange={e => setCert(row.id, 'expiryDate', e.target.value)} /></td>
-                    <td className={td}>
-                      {row.proofDocumentUrl
-                        ? <div className="flex items-center gap-1"><FileCheck size={13} className="text-[#10B981]" /><span className="text-xs text-[#10B981] truncate max-w-[80px]" title={row.proofDocumentName}>{row.proofDocumentName}</span><button onClick={() => { setCert(row.id, 'proofDocumentUrl', ''); setCert(row.id, 'proofDocumentName', ''); }} className="text-slate-300 hover:text-red-400"><X size={11} /></button></div>
-                        : <button onClick={() => proofUpload((url, name) => { setCert(row.id, 'proofDocumentUrl', url); setCert(row.id, 'proofDocumentName', name); })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#0EA5E9] border border-dashed border-slate-200 hover:border-[#0EA5E9] px-2 py-1 rounded transition-all"><Upload size={11} /> Upload</button>
-                      }
-                    </td>
                     <td className={td}><button onClick={() => removeCert(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
                   </tr>
                 ))}
@@ -1329,7 +1309,6 @@ export default function Registration({
                   <th className={th}>No. of Hours</th>
                   <th className={th}>Conducted By</th>
                   <th className={th}>Skills Acquired</th>
-                  <th className={th}>Proof</th>
                   <th className={th + ' w-10'}></th>
                 </tr>
               </thead>
@@ -1342,12 +1321,6 @@ export default function Registration({
                     <td className={td}><input className={inp} value={row.noOfHours} onChange={e => setTraining(row.id, 'noOfHours', e.target.value)} placeholder="hrs" /></td>
                     <td className={td}><input className={inp} value={row.conductedBy} onChange={e => setTraining(row.id, 'conductedBy', e.target.value)} placeholder="Training provider" /></td>
                     <td className={td}><input className={inp} value={row.skillsAcquired} onChange={e => setTraining(row.id, 'skillsAcquired', e.target.value)} placeholder="Skills gained" /></td>
-                    <td className={td}>
-                      {row.proofDocumentUrl
-                        ? <div className="flex items-center gap-1"><FileCheck size={13} className="text-[#10B981]" /><span className="text-xs text-[#10B981] truncate max-w-[80px]" title={row.proofDocumentName}>{row.proofDocumentName}</span><button onClick={() => { setTraining(row.id, 'proofDocumentUrl', ''); setTraining(row.id, 'proofDocumentName', ''); }} className="text-slate-300 hover:text-red-400"><X size={11} /></button></div>
-                        : <button onClick={() => proofUpload((url, name) => { setTraining(row.id, 'proofDocumentUrl', url); setTraining(row.id, 'proofDocumentName', name); })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#0EA5E9] border border-dashed border-slate-200 hover:border-[#0EA5E9] px-2 py-1 rounded transition-all"><Upload size={11} /> Upload</button>
-                      }
-                    </td>
                     <td className={td}><button onClick={() => removeTraining(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
                   </tr>
                 ))}

@@ -238,7 +238,7 @@ function LandingPage({
                   {[
                     { id: "1", name: "Juan Dela Cruz", role: "Industrial Welder", phase: 3, status: "CV Encoding", pct: 58, color: "#0EA5E9" },
                     { id: "2", name: "Pedro Garcia", role: "Domestic Helper", phase: 2, status: "Medical Clearance", pct: 35, color: "#F59E0B" },
-                    { id: "3", name: "Ana Reyes", role: "Caregiver", phase: 4, status: "Employer Review", pct: 82, color: "#10B981" },
+                    { id: "3", name: "Ana Reyes", role: "Caregiver", phase: 4, status: "Under Employer Review", pct: 82, color: "#10B981" },
                     { id: "5", name: "Carlo Bautista", role: "Electrician", phase: 1, status: "Screening", pct: 18, color: "#8B5CF6" },
                   ].map((a) => (
                     <div key={a.id} className="bg-[#0F172A] rounded-lg p-3 flex items-center gap-3">

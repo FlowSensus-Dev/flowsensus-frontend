@@ -24,12 +24,12 @@ interface ApplicantListProps {
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
   0: { title: 'Process Stopped', desc: 'Application process halted permanently.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  1: { title: 'Applicant Registration', desc: 'Detailed applicant intake with personal information, work history, and skills assessment.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
-  2: { title: 'Screening & Medical', desc: 'English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
-  3: { title: 'CV Encoding', desc: 'Readiness engine evaluates 7 criteria. Management approves for employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-  4: { title: 'Employer Endorsement', desc: 'Foreign employer selects candidates. Interview scheduling and endorsement tracking.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  5: { title: 'Final Deployment', desc: 'OCR document verification, expense tracking, visa processing, and departure monitoring.', color: '#ef4444', bg: '#fef2f2', border: '#fca5a5' },
-  6: { title: 'Deployed', desc: 'Successfully deployed to the foreign employer.', color: '#14b8a6', bg: '#f0fdfa', border: '#99f6e4' },
+  1: { title: 'Registration & Document Collection', desc: 'Intake of applicant profiles, personal data entry, and verification of preliminary employment documents.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
+  2: { title: 'Screening & Evaluation', desc: 'Administration of trade tests, aptitude assessments, and final computation of candidate scoring metrics.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
+  3: { title: 'Medical Clearance', desc: 'Validation of Fit-to-Work status and pre-employment medical results from accredited health facilities.', color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8' },
+  4: { title: 'CV Encoding & Management Approval', desc: 'AI-assisted profiling and readiness scoring. Pending final management review before employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+  5: { title: 'Employer Endorsement', desc: 'Candidate presented to foreign employers. Includes interview scheduling, selection tracking, and final approval.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+  6: { title: 'Final Deployment Processing', desc: 'Visa acquisition, expense reconciliation, OCR compliance checks, and final departure clearances.', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe' },
 };
 
 export default function ApplicantList({

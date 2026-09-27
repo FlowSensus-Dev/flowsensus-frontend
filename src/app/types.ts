@@ -77,6 +77,9 @@ export interface ApplicantRecord {
   testScores?: TestScores;
   matchScore?: number;
   matchReasons?: string[];
+  
+  // Assessment validation
+  hasCompleteAssessments?: boolean;
 }
 
 export interface WorkExperience {
