@@ -1108,7 +1108,6 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
   const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
-  const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
   const [applicantsLoaded, setApplicantsLoaded] = useState(false);
@@ -1125,25 +1124,35 @@ export default function App() {
   const [globalPipelineForecast, setGlobalPipelineForecast] = useState<any | null>(null);
 
   // ── Live Backend Data Fetching ──────────────────────────────────────────
-  const liveSession = useRef<{ userId: string | null; generation: number; ready: boolean }>({
-    userId: null, generation: 0, ready: false,
+  const liveSession = useRef<{ userId: string | null; generation: number; ready: boolean; applicant: boolean; agency: unknown }>({
+    userId: null, generation: 0, ready: false, applicant: false, agency: null,
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
 
-  const syncLiveSession = (userId: string | null) => {
-    if (!liveSession.current.ready || liveSession.current.userId !== userId) {
-      liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
+  const isApplicantSession = (user: any) => [...(Array.isArray(user?.app_metadata?.roles) ? user.app_metadata.roles : []), user?.app_metadata?.role || '']
+    .some(value => typeof value === 'string' && value.split(',').some(role => role.trim().toLowerCase() === 'applicant'));
+
+  const syncLiveSession = (userId: string | null, user?: any) => {
+    const applicant = isApplicantSession(user);
+    const agency = user?.app_metadata?.agency_id ?? null;
+    if (!liveSession.current.ready || liveSession.current.userId !== userId || liveSession.current.applicant !== applicant || liveSession.current.agency !== agency) {
+      liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true, applicant, agency };
       ++liveRequestId.current;
       setApplicants([]);
       setApplicantsLoaded(false);
       setActivityLogs([]);
       setExpenses([]);
+      setGlobalJobOrders(null);
+      setGlobalEmployers(null);
+      setGlobalStaff(null);
+      setGlobalRoles(null);
+      setGlobalPipelineForecast(null);
     }
   };
 
   const fetchLiveBackendData = async () => {
-    if (!liveMounted.current || !liveSession.current.userId) return;
+    if (!liveMounted.current || !liveSession.current.userId || liveSession.current.applicant) return;
     const generation = liveSession.current.generation;
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
@@ -1430,7 +1439,7 @@ export default function App() {
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
         if (liveSession.current.ready && liveSession.current.userId !== userId) return;
-        syncLiveSession(userId);
+        syncLiveSession(userId, session?.user);
         if (session && session.user) {
           const email = session.user.email || "";
           // SECURITY FIX: Only trust app_metadata (service-role managed) or verified admin email.
@@ -1449,7 +1458,9 @@ export default function App() {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
             let roles: UserRole[] = [];
-            if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
+            if (isApplicantSession(session.user)) {
+              roles = ['Applicant'];
+            } else if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
               roles = userMeta.roles;
             } else if (typeof userMeta.role === 'string') {
               roles = userMeta.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
@@ -1480,7 +1491,12 @@ export default function App() {
 
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      syncLiveSession(session?.user?.id ?? null);
+      syncLiveSession(session?.user?.id ?? null, session?.user);
+      if (session?.user && isApplicantSession(session.user)) {
+        setCurrentUserRole('Applicant');
+        setCurrentUserRoles(['Applicant']);
+        setIsSuperAdmin(false);
+      }
       if (session?.user) {
         const generation = liveSession.current.generation;
         // Defer requests: the API interceptor calls Supabase session methods.
@@ -1518,6 +1534,7 @@ export default function App() {
   }, [view]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
+    if (log.department === 'Applicant' || liveSession.current.applicant) return;
     const timestamp = new Date().toISOString();
     const tempId = `LOG-${Date.now()}`;
     setActivityLogs((prev) => [{ ...log, id: tempId, timestamp }, ...prev]);
@@ -1563,7 +1580,6 @@ export default function App() {
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
-    if (applicantId) setLoggedInApplicantId(applicantId);
     addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
 
     // Ensure live applicant data is immediately retrieved upon login
@@ -1583,7 +1599,6 @@ export default function App() {
     setApplicants([]);
     setActivityLogs([]);
     setExpenses([]);
-    setLoggedInApplicantId("");
     setIsSuperAdmin(false);
     setCurrentUserRole("");
     setCurrentUserRoles([]);

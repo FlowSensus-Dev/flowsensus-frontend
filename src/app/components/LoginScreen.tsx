@@ -96,7 +96,6 @@ function resolveStaffName(username: string): string {
 
 export default function LoginScreen({
   onLogin,
-  applicants = [],
   tenantName,
   onBack,
 }: LoginScreenProps) {
@@ -105,7 +104,6 @@ export default function LoginScreen({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [selectedApplicantId, setSelectedApplicantId] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -160,10 +158,12 @@ export default function LoginScreen({
           user?.email?.toLowerCase() === 'admin@findstaff.ph'
         );
 
-        if (portal === 'employer') {
+        const applicantAccount = [...(Array.isArray(user?.app_metadata?.roles) ? user.app_metadata.roles : []), user?.app_metadata?.role || '']
+          .some(value => typeof value === 'string' && value.split(',').some(role => role.trim().toLowerCase() === 'applicant'));
+        if (portal === 'applicant' || applicantAccount) {
+          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Applicant'], rememberMe);
+        } else if (portal === 'employer') {
           onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
-        } else if (portal === 'applicant') {
-          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant'], rememberMe);
         } else {
           // Parse all assigned roles from metadata
           let assignedRoles: UserRole[] = [];
@@ -205,11 +205,16 @@ export default function LoginScreen({
       }
     }
 
+    if (portal === 'applicant') {
+      setErrorMessage('Use your Applicant account email and password to sign in.');
+      setLoading(false);
+      return;
+    }
+
     // Fallback for offline demo usernames (e.g. sarah, maria, mark)
     if (portal === 'employer') {
       onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer'], rememberMe);
-    } else if (portal === 'applicant') {
-      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant'], rememberMe);
+
     } else {
       const role = resolveStaffRole(trimmedUser);
       const name = resolveStaffName(trimmedUser);
@@ -461,29 +466,6 @@ export default function LoginScreen({
                     </button>
                   </div>
                 </div>
-
-                {/* Applicant profile selector */}
-                {portal === 'applicant' && applicants.length > 0 && (
-                  <div>
-                    <label className="text-sm font-bold text-[#0F172A] block mb-1.5">
-                      Select Your Profile
-                    </label>
-                    <select
-                      value={selectedApplicantId}
-                      onChange={(e) => setSelectedApplicantId(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition-all bg-[#F8FAFC]"
-                      onFocus={(e) => (e.currentTarget.style.borderColor = selectedPortal.accent)}
-                      onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                    >
-                      <option value="">Select your applicant profile</option>
-                      {applicants.map((app) => (
-                        <option key={app.id} value={app.id}>
-                          {app.name} — {app.applicantCode || `ID: ${app.id}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 {/* Remember me */}
                 <div className="flex items-center justify-between text-xs">
