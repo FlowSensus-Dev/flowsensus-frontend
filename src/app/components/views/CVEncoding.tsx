@@ -24,7 +24,15 @@ export default function CVEncoding({
 }: CVEncodingProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isLocked = !workflow.medicalCleared;
+  const currentApplicant = applicants.find(a => String(a.id) === String(selectedApplicantId));
+  const isLocked = !workflow.medicalCleared && !(currentApplicant && (
+    (typeof currentApplicant.phase === 'number' && currentApplicant.phase >= 3) ||
+    currentApplicant.status === 'CV Encoding' ||
+    currentApplicant.status === 'Pending Manager Approval' ||
+    currentApplicant.status === 'CV Approved - Sending to Employer' ||
+    currentApplicant.status === 'Under Employer Review' ||
+    currentApplicant.status === 'Deployed'
+  ));
 
   const handleExportToPDF = () => {
     const selectedApplicant = applicants.find(a => a.id === selectedApplicantId);

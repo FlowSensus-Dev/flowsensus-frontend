@@ -325,8 +325,11 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             selectedApplicantId={selectedApplicantId || undefined}
             onSelectApplicant={setSelectedApplicantId}
+            onViewApplicant={handleViewApplicant}
+            updateApplicant={(id, data) => updateApplicant(String(id), data)}
             workflow={workflow}
             globalJobOrders={globalJobOrders}
+            onNavigate={(view: string) => setCurrentView(view as any)}
           />
         );
 

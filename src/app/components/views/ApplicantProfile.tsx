@@ -398,13 +398,13 @@ export default function ApplicantProfile({
       {/* ── Profile Header card ──────────────────────────────────────────────── */}
       <div className="bg-[#0F172A] rounded-2xl overflow-hidden shadow-sm border border-slate-800">
         {/* Stopped Banner */}
-        {applicant.isStopped && (
+        {(applicant.status === 'Processing Stopped') && (
           <div className="bg-red-600 px-6 py-2.5 flex items-center gap-2 text-sm text-white">
             <OctagonX size={15} className="flex-shrink-0" />
             <span><strong>Processing Stopped at Phase {applicant.stoppedPhase}</strong> · {applicant.stoppedBy} · {applicant.stoppedAt ? new Date(applicant.stoppedAt).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) : '—'}</span>
           </div>
         )}
-        {!applicant.isStopped && hasFlagWarning && (
+        {!(applicant.status === 'Processing Stopped') && hasFlagWarning && (
           <div className="bg-amber-500 px-6 py-2 flex items-center gap-2 text-sm text-white">
             <Flag size={14} className="flex-shrink-0" />
             <span><strong>{activeFlags.length} unresolved employment flag{activeFlags.length > 1 ? 's' : ''}</strong> — applicant cannot proceed to screening until resolved.</span>
@@ -415,7 +415,7 @@ export default function ApplicantProfile({
             ? <img src={applicant.photoDataUrl || applicant.photo} alt="photo" className="w-20 h-24 object-cover rounded-xl border-2 border-white/20 flex-shrink-0" />
             : (
               <div className="w-20 h-24 rounded-xl bg-white/10 border-2 border-white/20 flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
-                {applicant.name.split(' ').map(n => n[0]).join('').slice(0,2)}
+                {(applicant.name || 'Applicant').split(' ').map(n => n ? n[0] : '').join('').slice(0,2)}
               </div>
             )
           }
@@ -458,7 +458,7 @@ export default function ApplicantProfile({
               <p className="mt-0.5">{applicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
-            {!applicant.isStopped && updateApplicant && (
+            {!(applicant.status === 'Processing Stopped') && updateApplicant && (
               <button
                 onClick={() => setShowStopModal(true)}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
@@ -499,15 +499,17 @@ export default function ApplicantProfile({
             })}
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-            <button 
-              onClick={onEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-            >
-              <Edit2 size={13} />
-              <span>Update Details</span>
-            </button>
-          </div>
+          {onEdit && (
+            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
+              <button 
+                onClick={onEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
+              >
+                <Edit2 size={13} />
+                <span>Update Details</span>
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -519,7 +521,7 @@ export default function ApplicantProfile({
         </div>
 
         {/* Stopped notice */}
-        {applicant.isStopped && (
+        {(applicant.status === 'Processing Stopped') && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4">
             <div className="flex items-start gap-3">
               <OctagonX size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
@@ -614,10 +616,12 @@ export default function ApplicantProfile({
         ) : (
           <div className="space-y-3">
             {(applicant.employmentHistory || []).map((rec, idx) => {
+              const start = rec.dateStarted || (rec as any).startDate || '';
+              const end = rec.dateEnded || (rec as any).endDate || '';
               const duration = rec.isPresent
-                ? durationLabel(monthsBetween(rec.dateStarted, new Date().toISOString().slice(0, 10)))
-                : (rec.dateStarted && rec.dateEnded ? durationLabel(monthsBetween(rec.dateStarted, rec.dateEnded)) : '');
-              const recFlags = flags.filter(f => f.relatedJobIds.includes(rec.id));
+                ? durationLabel(monthsBetween(start, new Date().toISOString().slice(0, 10)))
+                : (start && end ? durationLabel(monthsBetween(start, end)) : '');
+              const recFlags = flags.filter(f => (f.relatedJobIds || []).includes(rec.id));
               const hasActiveFlag = recFlags.some(f => !f.dismissed);
 
               return (
@@ -638,7 +642,7 @@ export default function ApplicantProfile({
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-500">
                         <span className="flex items-center gap-1"><Globe size={11} /> {rec.country}</span>
-                        <span className="flex items-center gap-1"><Calendar size={11} /> {rec.dateStarted} — {rec.isPresent ? 'Present' : rec.dateEnded}</span>
+                        <span className="flex items-center gap-1"><Calendar size={11} /> {start} — {rec.isPresent ? 'Present' : (end || '—')}</span>
                         {duration && <span className="font-semibold text-[#0F172A]">({duration})</span>}
                         {rec.reasonForLeaving && !rec.isPresent && (
                           <span className="text-slate-400">Left: {rec.reasonForLeaving}</span>
@@ -750,6 +754,116 @@ export default function ApplicantProfile({
             })}
           </div>
         )}
+
+        {/* General / Standalone Employment Flags (e.g. career gaps not tied to a single employer) */}
+        {(() => {
+          const standaloneFlags = flags.filter(f => (f.relatedJobIds || []).length === 0);
+          if (standaloneFlags.length === 0) return null;
+          return (
+            <div className="bg-white rounded-xl border border-amber-300 overflow-hidden divide-y divide-slate-100">
+              <div className="px-4 py-2.5 bg-amber-50/70 border-b border-amber-200/60 flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="text-amber-600" /> General Employment Flags ({standaloneFlags.length})
+                </span>
+              </div>
+              {standaloneFlags.map(flag => {
+                const meta = FLAG_META[flag.type] || { label: 'Notice', icon: <AlertTriangle size={14} />, color: '#F59E0B' };
+                const isOpen = resolvingFlagId === flag.id;
+                const isValidating = validatingFlagId === flag.id;
+                const resolveReady = selectedQuickReason && (selectedQuickReason !== 'Other (see details below)' || customReason.trim());
+                const validateReady = validationQuickReason && (validationQuickReason !== 'Other (see details below)' || validationCustomReason.trim());
+                return (
+                  <div key={flag.id} className={`transition-all ${flag.validated ? 'bg-emerald-50/40' : flag.dismissed ? 'bg-slate-50/60' : isOpen || isValidating ? 'bg-[#0EA5E9]/3' : 'bg-amber-50/50'}`}>
+                    <div className="flex items-start gap-3 px-4 py-3">
+                      <div className="mt-0.5 flex-shrink-0" style={{ color: flag.validated ? '#10B981' : flag.dismissed ? '#94a3b8' : meta.color }}>
+                        {flag.validated ? <BadgeCheck size={14} /> : meta.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: flag.validated ? '#d1fae5' : flag.dismissed ? '#f1f5f9' : meta.color + '18', color: flag.validated ? '#059669' : flag.dismissed ? '#94a3b8' : meta.color }}>{meta.label}</span>
+                          {!flag.dismissed && !flag.validated && (
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: flag.severity === 'critical' ? '#FEE2E2' : '#f1f5f9', color: flag.severity === 'critical' ? '#EF4444' : '#94a3b8' }}>
+                              {flag.severity === 'critical' ? 'CRITICAL' : 'WARNING'}
+                            </span>
+                          )}
+                          {flag.dismissed && !flag.validated && <span className="text-xs text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 size={11} /> Resolved</span>}
+                          {flag.validated && <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1"><BadgeCheck size={11} /> Validated with Evidence</span>}
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1">{flag.description}</p>
+                        {(flag as any).startDate && (flag as any).endDate && (
+                          <p className="text-xs text-slate-400 mt-0.5 font-mono">Period: {(flag as any).startDate} to {(flag as any).endDate}</p>
+                        )}
+                        {flag.dismissed && flag.dismissalReason && (
+                          <p className="text-xs text-slate-400 mt-1 italic"><strong className="text-slate-500">{flag.dismissedBy}:</strong> {flag.dismissalReason}</p>
+                        )}
+                        {flag.validated && flag.validationReason && (
+                          <p className="text-xs text-emerald-600 mt-1 flex items-start gap-1"><BadgeCheck size={11} className="mt-0.5 flex-shrink-0" /><span><strong>{flag.validatedBy}:</strong> {flag.validationReason}</span></p>
+                        )}
+                      </div>
+                      {/* Action buttons */}
+                      {updateApplicant && !flag.validated && (
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          {!flag.dismissed && (
+                            <button
+                              onClick={() => { openResolve(flag.id); setValidatingFlagId(null); }}
+                              className={`text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1 transition-colors ${isOpen ? 'bg-[#0EA5E9] text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}
+                            >
+                              <MessageSquare size={11} /> {isOpen ? 'Cancel' : 'Resolve'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setValidatingFlagId(isValidating ? null : flag.id); setResolvingFlagId(null); setValidationQuickReason(''); setValidationCustomReason(''); }}
+                            className={`text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1 transition-colors ${isValidating ? 'bg-[#10B981] text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
+                          >
+                            <BadgeCheck size={11} /> {isValidating ? 'Cancel' : 'Mark as Valid'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Inline resolution */}
+                    {isOpen && !flag.dismissed && updateApplicant && (
+                      <div className="px-4 pb-4 pt-2 bg-white border-t border-[#0EA5E9]/20 space-y-3">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Select Resolution Reason</p>
+                        <div className="flex flex-wrap gap-2">
+                          {QUICK_REASONS.map(r => (
+                            <button key={r} onClick={() => setSelectedQuickReason(r)} className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${selectedQuickReason === r ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#0EA5E9] hover:text-[#0EA5E9]'}`}>{r}</button>
+                          ))}
+                        </div>
+                        {selectedQuickReason && (
+                          <textarea value={customReason} onChange={e => setCustomReason(e.target.value)} rows={2} placeholder={selectedQuickReason === 'Other (see details below)' ? 'Describe the resolution…' : 'Additional details (optional)…'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none" />
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setResolvingFlagId(null); setSelectedQuickReason(''); setCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500">Cancel</button>
+                          <button onClick={() => resolveFlag(flag.id)} disabled={!resolveReady} className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"><CheckCircle2 size={13} /> Mark Resolved</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Inline validation */}
+                    {isValidating && !flag.validated && updateApplicant && (
+                      <div className="px-4 pb-4 pt-2 bg-white border-t border-emerald-200 space-y-3">
+                        <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider flex items-center gap-1.5"><BadgeCheck size={12} /> Mark as Valid — Provide Evidence</p>
+                        <div className="flex flex-wrap gap-2">
+                          {VALIDATION_REASONS.map(r => (
+                            <button key={r} onClick={() => setValidationQuickReason(r)} className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${validationQuickReason === r ? 'bg-[#10B981] text-white border-[#10B981]' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-400 hover:text-emerald-600'}`}>{r}</button>
+                          ))}
+                        </div>
+                        {validationQuickReason && (
+                          <textarea value={validationCustomReason} onChange={e => setValidationCustomReason(e.target.value)} rows={2} placeholder={validationQuickReason === 'Other (see details below)' ? 'Describe the evidence…' : 'Additional details (optional)…'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 resize-none" />
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setValidatingFlagId(null); setValidationQuickReason(''); setValidationCustomReason(''); }} className="px-3 py-1.5 text-xs font-medium text-slate-500">Cancel</button>
+                          <button onClick={() => validateFlag(flag.id)} disabled={!validateReady} className="flex items-center gap-1.5 px-4 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"><BadgeCheck size={13} /> Confirm Valid</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Skills & Certifications ────────────────────────────────────────────── */}
@@ -781,10 +895,9 @@ export default function ApplicantProfile({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
-                      {row.proofDocumentUrl
-                        ? <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
-                        : <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full"><FileX size={11} /> No proof</span>
-                      }
+                      {row.proofDocumentUrl && (
+                        <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">Issued by {row.issuedBy}</p>
                   </div>
@@ -810,10 +923,9 @@ export default function ApplicantProfile({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-[#0F172A] text-sm">{row.trainingName}</p>
-                      {row.proofDocumentUrl
-                        ? <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
-                        : <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full"><FileX size={11} /> No proof</span>
-                      }
+                      {row.proofDocumentUrl && (
+                        <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">Conducted by {row.conductedBy}</p>
                   </div>
@@ -943,7 +1055,7 @@ export default function ApplicantProfile({
           <BarChart3 size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores</h3>
         </div>
-        {hasFlagWarning && !applicant.isStopped && (
+        {hasFlagWarning && !(applicant.status === 'Processing Stopped') && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-amber-700">
             <ShieldAlert size={16} className="flex-shrink-0" />
             <span><strong>{activeFlags.length}</strong> unresolved employment flag{activeFlags.length > 1 ? 's' : ''}. Screening is blocked until resolved.</span>
@@ -955,18 +1067,25 @@ export default function ApplicantProfile({
               { label: 'English Proficiency', val: applicant.testScores.englishProficiency, pass: 60, color: '#0EA5E9' },
               { label: 'Trade / Skills Test',  val: applicant.testScores.tradeSkills,        pass: 70, color: '#F59E0B' },
               { label: 'IQ / Aptitude',        val: applicant.testScores.iqAptitude,         pass: 50, color: '#8B5CF6' },
-            ].map(s => (
-              <div key={s.label} className="flex items-center gap-4">
-                <div className="w-36 flex-shrink-0">
-                  <p className="text-xs font-semibold text-slate-500">{s.label}</p>
-                  <span className={`text-xs font-bold ${s.val >= s.pass ? 'text-[#10B981]' : 'text-red-500'}`}>{s.val >= s.pass ? '✓ Pass' : '✗ Fail'}</span>
+            ].map(s => {
+              const hasScore = typeof s.val === 'number' && !isNaN(s.val);
+              return (
+                <div key={s.label} className="flex items-center gap-4">
+                  <div className="w-36 flex-shrink-0">
+                    <p className="text-xs font-semibold text-slate-500">{s.label}</p>
+                    <span className={`text-xs font-bold ${!hasScore ? 'text-slate-400' : (s.val as number) >= s.pass ? 'text-[#10B981]' : 'text-red-500'}`}>
+                      {!hasScore ? 'Pending' : (s.val as number) >= s.pass ? '✓ Pass' : '✗ Fail'}
+                    </span>
+                  </div>
+                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: hasScore ? `${Math.min(100, Math.max(0, s.val as number))}%` : '0%', background: s.color }} />
+                  </div>
+                  <span className="text-lg font-black w-16 text-right" style={{ color: hasScore ? s.color : '#94A3B8' }}>
+                    {hasScore ? `${s.val}%` : '—'}
+                  </span>
                 </div>
-                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${s.val}%`, background: s.color }} />
-                </div>
-                <span className="text-lg font-black w-16 text-right" style={{ color: s.color }}>{s.val}%</span>
-              </div>
-            ))}
+              );
+            })}
             <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
               <span className="text-sm text-slate-500 font-medium">Personality / EQ</span>
               <span className={`text-sm font-bold ${applicant.testScores.personalityEQ === 'Suitable' ? 'text-[#10B981]' : applicant.testScores.personalityEQ === 'Not Suitable' ? 'text-red-500' : 'text-slate-400'}`}>

@@ -77,6 +77,14 @@ export interface ApplicantRecord {
   testScores?: TestScores;
   matchScore?: number;
   matchReasons?: string[];
+  
+  // Assessment validation
+  hasCompleteAssessments?: boolean;
+
+  // Screening & Medical Referral tracking
+  medicalReferralGenerated?: boolean;
+  medicalReferralClinic?: string;
+  medicalReferralDate?: string;
 }
 
 export interface WorkExperience {
@@ -197,6 +205,7 @@ export interface ExpenseRecord {
 
 export interface TestScores {
   englishProficiency: number; // Out of 100
+  languageProficiency?: number; // Out of 100 (generalized language assessment)
   tradeSkills: number; // Out of 100
   iqAptitude: number; // Out of 100
   personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending'; // Assessment result

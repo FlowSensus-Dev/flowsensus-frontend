@@ -24,12 +24,12 @@ interface ApplicantListProps {
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
   0: { title: 'Process Stopped', desc: 'Application process halted permanently.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  1: { title: 'Applicant Registration', desc: 'Detailed applicant intake with personal information, work history, and skills assessment.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
-  2: { title: 'Screening & Medical', desc: 'English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
-  3: { title: 'CV Encoding', desc: 'Readiness engine evaluates 7 criteria. Management approves for employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-  4: { title: 'Employer Endorsement', desc: 'Foreign employer selects candidates. Interview scheduling and endorsement tracking.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  5: { title: 'Final Deployment', desc: 'OCR document verification, expense tracking, visa processing, and departure monitoring.', color: '#ef4444', bg: '#fef2f2', border: '#fca5a5' },
-  6: { title: 'Deployed', desc: 'Successfully deployed to the foreign employer.', color: '#14b8a6', bg: '#f0fdfa', border: '#99f6e4' },
+  1: { title: 'Registration & Document Collection', desc: 'Intake of applicant profiles, personal data entry, and verification of preliminary employment documents.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
+  2: { title: 'Screening & Evaluation', desc: 'Administration of trade tests, aptitude assessments, and final computation of candidate scoring metrics.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
+  3: { title: 'Medical Clearance', desc: 'Validation of Fit-to-Work status and pre-employment medical results from accredited health facilities.', color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8' },
+  4: { title: 'CV Encoding & Management Approval', desc: 'AI-assisted profiling and readiness scoring. Pending final management review before employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+  5: { title: 'Employer Endorsement', desc: 'Candidate presented to foreign employers. Includes interview scheduling, selection tracking, and final approval.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+  6: { title: 'Final Deployment Processing', desc: 'Visa acquisition, expense reconciliation, OCR compliance checks, and final departure clearances.', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe' },
 };
 
 export default function ApplicantList({
@@ -64,8 +64,8 @@ export default function ApplicantList({
       (a.jobOrder || '').toLowerCase().includes(q);
     const matchPhase =
       phaseFilter === 'all' ? true :
-        phaseFilter === 'stopped' ? !!a.isStopped :
-          a.phase === phaseFilter && !a.isStopped;
+        phaseFilter === 'stopped' ? a.status === 'Processing Stopped' :
+          a.phase === phaseFilter && a.status !== 'Processing Stopped';
     const matchStatus = statusFilter === 'all' || a.status === statusFilter;
     const matchRole = roleFilter === 'all' || a.role === roleFilter;
     return matchSearch && matchPhase && matchStatus && matchRole;
@@ -73,9 +73,9 @@ export default function ApplicantList({
 
   const phaseCounts = [1, 2, 3, 4, 5, 6].map(p => ({
     phase: p,
-    count: applicants.filter(a => a.phase === p && !a.isStopped).length,
+    count: applicants.filter(a => a.phase === p && a.status !== 'Processing Stopped').length,
   }));
-  const stoppedCount = applicants.filter(a => a.isStopped).length;
+  const stoppedCount = applicants.filter(a => a.status === 'Processing Stopped').length;
 
   if (selectedApplicantId) {
     const currentIndex = filtered.findIndex((a) => String(a.id) === String(selectedApplicantId));
@@ -224,7 +224,7 @@ export default function ApplicantList({
       </div>
 
       <div className="text-[13px] font-bold text-slate-700 mt-4 border-b border-slate-200 pb-3">
-        Total Applicants: <span className="text-[#0EA5E9] font-medium">{applicants.length}</span> <span className="mx-1 text-slate-300">|</span> Active Process: <span className="text-orange-500 font-medium">{applicants.filter(a => !a.isStopped).length}</span> <span className="mx-1 text-slate-300">|</span> Completed Placements: <span className="text-emerald-500 font-medium">{applicants.filter(a => a.phase === 6).length}</span>
+        Total Applicants: <span className="text-[#0EA5E9] font-medium">{applicants.length}</span> <span className="mx-1 text-slate-300">|</span> Active Process: <span className="text-orange-500 font-medium">{applicants.filter(a => a.status !== 'Processing Stopped').length}</span> <span className="mx-1 text-slate-300">|</span> Completed Placements: <span className="text-emerald-500 font-medium">{applicants.filter(a => a.phase === 6).length}</span>
       </div>
 
       {/* Navigation */}
@@ -300,14 +300,14 @@ export default function ApplicantList({
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(a => {
-            const phaseMeta = a.isStopped ? PHASE_META[0] : (PHASE_META[a.phase] || PHASE_META[1]);
+            const phaseMeta = (a.status === 'Processing Stopped') ? PHASE_META[0] : (PHASE_META[a.phase] || PHASE_META[1]);
             const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
             const resolvedCount = (a.employmentFlags || []).filter(f => f.dismissed || f.validated).length;
             return (
               <button
                 key={a.id}
                 onClick={() => onViewApplicant(a.id)}
-                className={`group flex flex-col text-left bg-white rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden ${a.isStopped ? 'border-red-200 hover:border-red-300 ring-1 ring-red-50' : 'border-slate-200 hover:border-[#0EA5E9]/40 hover:ring-2 hover:ring-[#0EA5E9]/10'
+                className={`group flex flex-col text-left bg-white rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden ${(a.status === 'Processing Stopped') ? 'border-red-200 hover:border-red-300 ring-1 ring-red-50' : 'border-slate-200 hover:border-[#0EA5E9]/40 hover:ring-2 hover:ring-[#0EA5E9]/10'
                   }`}
               >
                 <div className="p-5 flex-1 w-full relative">
@@ -325,7 +325,7 @@ export default function ApplicantList({
                           </div>
                         )
                       }
-                      {a.isStopped && (
+                      {(a.status === 'Processing Stopped') && (
                         <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow-sm">
                           <OctagonX size={16} className="text-red-500" />
                         </div>
@@ -348,7 +348,7 @@ export default function ApplicantList({
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2 mt-5 z-10 relative">
                     <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: phaseMeta.bg, color: phaseMeta.color, borderColor: phaseMeta.border }}>
-                      {a.isStopped ? 'Process Stopped' : `Ph.${a.phase} - ${phaseMeta.title}`}
+                      {(a.status === 'Processing Stopped') ? 'Process Stopped' : `Ph.${a.phase} - ${phaseMeta.title}`}
                     </span>
                     {activeFlags.length > 0 && (
                       <span className="text-[10px] px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-extrabold flex items-center gap-1 shadow-sm">

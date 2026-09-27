@@ -88,7 +88,7 @@ export default function DocumentOCR({
     Boolean(
       app && (
         app.phase >= 4 ||
-        ['Deployed', 'Employer Review', 'Visa Processing', 'Final Deployment'].includes(app.status)
+        ['Deployed', 'Under Employer Review', 'Endorse for Administrative Processing', 'Pre-Deployment Processing', 'Ready for Deployment'].includes(app.status)
       )
     );
 
