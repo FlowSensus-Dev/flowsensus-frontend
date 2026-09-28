@@ -43,7 +43,7 @@ export default function UserProfile({
         let dbUser: any = null;
         if (accountEmail || currentUserName) {
           const queryProfile = (fields: string) => {
-            const query = supabase.from('USER').select(fields);
+            const query = supabase.from('app_user').select(fields);
             return (accountEmail
               ? query.eq('email', accountEmail)
               : query.ilike('full_name', `%${currentUserName}%`)
