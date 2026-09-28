@@ -1297,6 +1297,7 @@ export default function App() {
           currentHandler: item.current_handler || 'System Agent',
           currentDepartment: item.current_department || 'Recruitment',
           lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+          createdAt: item.created_at || item.createdAt || item.application_created_at || item.last_updated || item.updated_at || '',
           phaseDescription: item.phase_description || 'Active in candidate pipeline',
           presentAddress: item.present_address || '',
           provincialAddress: item.provincial_address || '',

@@ -18,6 +18,16 @@ const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNo
   demotion:             { label: 'Possible Demotion',    icon: <TrendingDown size={14} />,  color: '#EC4899' },
 };
 
+const PHASE_TITLES: Record<number, string> = {
+  0: 'Process Stopped',
+  1: 'Registration & Screening',
+  2: 'Medical Clearance',
+  3: 'CV Encoding & Management Approval',
+  4: 'Employer Endorsement',
+  5: 'Final Deployment Processing',
+  6: 'Deployed',
+};
+
 const QUICK_REASONS = [
   "Applicant provided satisfactory verbal explanation",
   "Supporting documents provided and verified",
@@ -438,9 +448,34 @@ export default function ApplicantProfile({
               {applicant.contact && <span className="flex items-center gap-1"><Phone size={11} /> {applicant.contact}</span>}
             </div>
             <div className="flex flex-wrap gap-2 mt-3">
-              <span className="text-xs px-2.5 py-1 bg-[#0EA5E9]/20 text-[#0EA5E9] rounded-full border border-[#0EA5E9]/30 font-semibold">
-                Phase {applicant.phase}: {applicant.status}
+              {/* Phase Badge */}
+              <span className="text-xs px-3 py-1 bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/40 font-bold flex items-center gap-1.5">
+                <span>Phase {applicant.phase} - {PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
               </span>
+
+              {/* Status Badge */}
+              <span className={`text-xs px-3 py-1 rounded-full border font-bold flex items-center gap-1.5 ${
+                applicant.status === 'Provisional'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 ring-1 ring-amber-400/40'
+                  : applicant.status === 'Processing Stopped'
+                  ? 'bg-red-500/20 text-red-300 border-red-500/50'
+                  : applicant.status.toLowerCase().includes('deployed') || applicant.status.toLowerCase().includes('completed')
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  applicant.status === 'Provisional'
+                    ? 'bg-amber-400 animate-pulse'
+                    : applicant.status === 'Processing Stopped'
+                    ? 'bg-red-400'
+                    : applicant.status.toLowerCase().includes('deployed') || applicant.status.toLowerCase().includes('completed')
+                    ? 'bg-emerald-400'
+                    : 'bg-indigo-400'
+                }`} />
+                <span className="text-white/60 font-medium">Status:</span>
+                <span>{applicant.status}</span>
+              </span>
+
               {applicant.jobOrder && applicant.jobOrder !== 'Unassigned' ? (
                 <span className="text-xs px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold flex items-center gap-1.5">
                   <Briefcase size={11} /> {applicant.jobOrder}

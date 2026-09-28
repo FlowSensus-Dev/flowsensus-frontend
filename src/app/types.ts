@@ -22,6 +22,7 @@ export interface ApplicantRecord {
   currentHandler: string;
   currentDepartment: string;
   lastUpdated: string;
+  createdAt?: string;
   phaseDescription: string;
 
   // Personal Information

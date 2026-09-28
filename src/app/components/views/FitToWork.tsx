@@ -47,6 +47,7 @@ export default function FitToWork({ workflow, updateWorkflow, showToast, current
       updateWorkflow({ medicalCleared: true });
       updateApplicant(applicantId, {
         status: 'Applicant Profiling',
+        phase: 2,
         currentHandler: currentUserName,
         currentDepartment: 'Recruitment',
         phaseDescription: 'Medical clearance approved, ready for matching and profiling',
@@ -54,7 +55,9 @@ export default function FitToWork({ workflow, updateWorkflow, showToast, current
       
       if (!isNaN(numericId)) {
           await api.put(`/applicants/${numericId}`, {
+              application_id: applicant?.applicationId,
               application_status: 'Applicant Profiling',
+              current_phase: 2,
               current_handler: currentUserName,
               current_department: 'Recruitment',
               phase_description: 'Medical clearance approved, ready for matching and profiling'
@@ -73,13 +76,16 @@ export default function FitToWork({ workflow, updateWorkflow, showToast, current
     } else if (status === 'Unfit') {
       updateApplicant(applicantId, {
         status: 'Provisional',
-        phaseDescription: 'Medical outcome Unfit-to-Work. Provisional holding state.',
+        phase: 2,
+        phaseDescription: 'Medical outcome Unfit-to-Work. Provisional holding state in Phase 2.',
       });
       
       if (!isNaN(numericId)) {
           await api.put(`/applicants/${numericId}`, {
+              application_id: applicant?.applicationId,
               application_status: 'Provisional',
-              phase_description: 'Medical outcome Unfit-to-Work. Provisional holding state.'
+              current_phase: 2,
+              phase_description: 'Medical outcome Unfit-to-Work. Provisional holding state in Phase 2.'
           }).catch(console.error);
       }
 

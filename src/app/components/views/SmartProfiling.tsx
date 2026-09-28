@@ -905,14 +905,16 @@ export default function SmartProfiling({
       if (updateApplicant) {
         updateApplicant(candidate.applicant.id, {
           status: 'CV Encoding',
-          phase: 4,
+          phase: 3,
           phaseDescription: `Endorsed to ${currentJobOrder?.position || 'Job Order'} (#${currentJobOrder?.id || ''})`,
         });
       }
 
       try {
         await api.put(`/applicants/${candidate.applicant.id}`, {
+          application_id: candidate.applicant.applicationId,
           application_status: 'CV Encoding',
+          current_phase: 3,
         });
       } catch (apiErr) {
         console.warn('Backend update failed (continuing with local state):', apiErr);

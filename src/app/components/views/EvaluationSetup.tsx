@@ -8,22 +8,22 @@ import { EvaluationTest, WorkflowPhase, UserRole } from '../../types';
 import { api } from '../../../lib/api';
 
 const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: React.ReactNode; color: string }> = {
-  interview:  { label: 'Interview',          icon: <MessageSquare size={15} />, color: '#0EA5E9' },
-  iq:         { label: 'IQ / Aptitude',       icon: <Brain size={15} />,          color: '#8B5CF6' },
-  eq:         { label: 'EQ / Personality',    icon: <Heart size={15} />,           color: '#EC4899' },
-  skills:     { label: 'Skills / Aptitude',   icon: <Wrench size={15} />,          color: '#F59E0B' },
-  language:   { label: 'Language Proficiency',icon: <Languages size={15} />,       color: '#10B981' },
-  medical:    { label: 'Medical',             icon: <Stethoscope size={15} />,     color: '#EF4444' },
-  custom:     { label: 'Custom',              icon: <Sliders size={15} />,          color: '#64748B' },
+  interview: { label: 'Interview', icon: <MessageSquare size={15} />, color: '#0EA5E9' },
+  iq: { label: 'IQ / Aptitude', icon: <Brain size={15} />, color: '#8B5CF6' },
+  eq: { label: 'EQ / Personality', icon: <Heart size={15} />, color: '#EC4899' },
+  skills: { label: 'Skills / Aptitude', icon: <Wrench size={15} />, color: '#F59E0B' },
+  language: { label: 'Language Proficiency', icon: <Languages size={15} />, color: '#10B981' },
+  medical: { label: 'Medical', icon: <Stethoscope size={15} />, color: '#EF4444' },
+  custom: { label: 'Custom', icon: <Sliders size={15} />, color: '#64748B' },
 };
 
 const DEFAULT_PHASES: WorkflowPhase[] = [
-  { id: 'ph-001', phaseNumber: 1, name: 'Registration & Document Collection', description: 'Applicant submits personal information and required employment documents. Recruitment staff verifies completeness.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: ['req-001','req-002','req-003','req-004'], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-002', phaseNumber: 2, name: 'Screening & Evaluation', description: 'Applicant undergoes all active evaluation tests. Recruitment staff records scores and computes weighted final verdict.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: [], requiredEvaluations: ['ev-001','ev-002','ev-003','ev-004','ev-005'], autoAdvance: false },
-  { id: 'ph-003', phaseNumber: 3, name: 'Medical Clearance', description: 'Admin validates pre-employment medical examination results from a DOH-accredited clinic.', responsibleRole: 'Admin', isActive: true, requiredDocuments: ['req-007'], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-004', phaseNumber: 4, name: 'CV Encoding & Management Approval', description: 'Recruitment staff encodes the applicant\'s CV. CV Readiness Engine scores profile. Management approves for employer submission.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-005', phaseNumber: 5, name: 'Employer Endorsement', description: 'CV submitted to foreign employer. Endorsement tracking records employer selection, interview schedule, and approval.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
-  { id: 'ph-006', phaseNumber: 6, name: 'Final Deployment Processing', description: 'Admin completes OCR document verification, expense tracking, visa processing, and departure clearance.', responsibleRole: 'Admin', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
+  { id: 'ph-001', phaseNumber: 1, name: 'Registration & Screening', description: 'Collects personal details and required documents, scores trade and aptitude tests, and conducts the EQ interview. Applicants who pass advance to medical clearance, failing any test sets status to Provisional.', responsibleRole: 'Recruitment', isActive: true, requiredDocuments: ['req-001', 'req-002', 'req-003', 'req-004'], requiredEvaluations: ['ev-001', 'ev-002', 'ev-003', 'ev-004'], autoAdvance: false },
+  { id: 'ph-002', phaseNumber: 2, name: 'Medical Clearance', description: 'Issues clinic referrals for pre-employment medical exams and validates Fit-to-Work results. Fit candidates proceed to profile encoding, unfit candidates are held under Provisional status.', responsibleRole: 'Admin', isActive: true, requiredDocuments: ['req-007'], requiredEvaluations: [], autoAdvance: false },
+  { id: 'ph-003', phaseNumber: 3, name: 'CV Encoding & Management Approval', description: 'Encodes candidate qualifications into standard agency CV format, calculates job readiness, and secures management sign-off before employer submission.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
+  { id: 'ph-004', phaseNumber: 4, name: 'Employer Endorsement', description: 'Submits approved CVs to overseas employers, coordinates client interviews, and logs selection decisions and hiring confirmations.', responsibleRole: 'Management', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
+  { id: 'ph-005', phaseNumber: 5, name: 'Final Deployment Processing', description: 'Processes work visas, runs biometric document OCR checks, logs processing expenses, and clearances are verified.', responsibleRole: 'Admin', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
+  { id: 'ph-006', phaseNumber: 6, name: 'Deployed', description: 'Monitors workers actively employed overseas through contract duration, successful completion, or contract termination.', responsibleRole: 'Admin', isActive: true, requiredDocuments: [], requiredEvaluations: [], autoAdvance: false },
 ];
 
 const ROLES: UserRole[] = ['Recruitment', 'Admin', 'Accounting', 'Management'];

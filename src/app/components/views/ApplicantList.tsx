@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import {
   Plus, Search, User, Briefcase, Clock,
-  ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX
+  ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX,
+  ArrowUpDown
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog, ExpenseRecord } from '../../types';
 import { ViewType } from '../AppShell';
 import ApplicantProfile from './ApplicantProfile';
+
+export type SortOption =
+  | 'phase-asc'
+  | 'phase-desc'
+  | 'name-asc'
+  | 'name-desc'
+  | 'date-newest'
+  | 'date-oldest';
 
 interface ApplicantListProps {
   applicants?: ApplicantRecord[];
@@ -23,13 +32,13 @@ interface ApplicantListProps {
 }
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
-  0: { title: 'Process Stopped', desc: 'Application process halted permanently.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  1: { title: 'Registration & Document Collection', desc: 'Intake of applicant profiles, personal data entry, and verification of preliminary employment documents.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
-  2: { title: 'Screening & Evaluation', desc: 'Administration of trade tests, aptitude assessments, and final computation of candidate scoring metrics.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
-  3: { title: 'Medical Clearance', desc: 'Validation of Fit-to-Work status and pre-employment medical results from accredited health facilities.', color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8' },
-  4: { title: 'CV Encoding & Management Approval', desc: 'AI-assisted profiling and readiness scoring. Pending final management review before employer submission.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-  5: { title: 'Employer Endorsement', desc: 'Candidate presented to foreign employers. Includes interview scheduling, selection tracking, and final approval.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  6: { title: 'Final Deployment Processing', desc: 'Visa acquisition, expense reconciliation, OCR compliance checks, and final departure clearances.', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe' },
+  0: { title: 'Process Stopped', desc: 'Application permanently halted by agency staff due to candidate withdrawal, failed requirements, or critical background flags.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+  1: { title: 'Registration & Screening', desc: 'Collects personal details and required documents, scores trade and aptitude tests, and conducts the EQ interview. Applicants who pass advance to medical clearance; failing any test sets their status to Provisional.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
+  2: { title: 'Medical Clearance', desc: 'Issues clinic referrals for pre-employment medical exams and validates Fit-to-Work results. Fit candidates proceed to profile encoding; unfit candidates are held under Provisional status.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
+  3: { title: 'CV Encoding & Management Approval', desc: 'Encodes candidate qualifications into standard agency CV format, calculates job readiness, and secures management sign-off before employer submission.', color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8' },
+  4: { title: 'Employer Endorsement', desc: 'Submits approved CVs to overseas employers, coordinates client interviews, and logs selection decisions and hiring confirmations.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+  5: { title: 'Final Deployment Processing', desc: 'Processes work visas, runs biometric document OCR checks, logs processing expenses, and books departure flights once all exit clearances are verified.', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+  6: { title: 'Deployed', desc: 'Monitors workers actively employed overseas through contract duration, successful completion, or contract termination.', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe' },
 };
 
 export default function ApplicantList({
@@ -50,6 +59,7 @@ export default function ApplicantList({
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<SortOption>('phase-asc');
 
   const uniqueStatuses = Array.from(new Set(applicants.map(a => a.status).filter(Boolean))).sort();
   const uniqueRoles = Array.from(new Set(applicants.map(a => a.role).filter(Boolean))).sort();
@@ -71,6 +81,65 @@ export default function ApplicantList({
     return matchSearch && matchPhase && matchStatus && matchRole;
   });
 
+  const getApplicantTimestamp = (a: ApplicantRecord): number => {
+    if (a.createdAt) {
+      const t = new Date(a.createdAt).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    if (a.lastUpdated) {
+      const t = new Date(a.lastUpdated).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+    const numId = parseInt(a.id, 10);
+    if (!isNaN(numId) && numId > 0) return numId;
+    const match = (a.applicantCode || '').match(/\d+/g);
+    if (match) {
+      const codeNum = parseInt(match.join(''), 10);
+      if (!isNaN(codeNum) && codeNum > 0) return codeNum;
+    }
+    return 0;
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    // Stopped applicants are ALWAYS kept at the very end of the list across ALL sort modes
+    const isStoppedA = a.status === 'Processing Stopped' || a.isStopped === true;
+    const isStoppedB = b.status === 'Processing Stopped' || b.isStopped === true;
+
+    if (isStoppedA && !isStoppedB) return 1;
+    if (!isStoppedA && isStoppedB) return -1;
+
+    switch (sortBy) {
+      case 'phase-asc': {
+        const phaseA = a.phase ?? 1;
+        const phaseB = b.phase ?? 1;
+        if (phaseA !== phaseB) return phaseA - phaseB;
+        return a.name.localeCompare(b.name);
+      }
+      case 'phase-desc': {
+        const phaseA = a.phase ?? 1;
+        const phaseB = b.phase ?? 1;
+        if (phaseA !== phaseB) return phaseB - phaseA;
+        return a.name.localeCompare(b.name);
+      }
+      case 'name-asc':
+        return a.name.localeCompare(b.name);
+      case 'name-desc':
+        return b.name.localeCompare(a.name);
+      case 'date-newest': {
+        const diff = getApplicantTimestamp(b) - getApplicantTimestamp(a);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+      }
+      case 'date-oldest': {
+        const diff = getApplicantTimestamp(a) - getApplicantTimestamp(b);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+      }
+      default:
+        return 0;
+    }
+  });
+
   const phaseCounts = [1, 2, 3, 4, 5, 6].map(p => ({
     phase: p,
     count: applicants.filter(a => a.phase === p && a.status !== 'Processing Stopped').length,
@@ -78,9 +147,9 @@ export default function ApplicantList({
   const stoppedCount = applicants.filter(a => a.status === 'Processing Stopped').length;
 
   if (selectedApplicantId) {
-    const currentIndex = filtered.findIndex((a) => String(a.id) === String(selectedApplicantId));
+    const currentIndex = sorted.findIndex((a) => String(a.id) === String(selectedApplicantId));
     const fallbackIndex = applicants.findIndex((a) => String(a.id) === String(selectedApplicantId));
-    const currentList = currentIndex >= 0 ? filtered : applicants;
+    const currentList = currentIndex >= 0 ? sorted : applicants;
     const currentPos = currentIndex >= 0 ? currentIndex : fallbackIndex;
     const selectedApplicant = currentList[currentPos] || applicants.find((a) => String(a.id) === String(selectedApplicantId));
 
@@ -131,6 +200,18 @@ export default function ApplicantList({
               <span className="font-semibold text-slate-800 max-w-[200px] truncate">{selectedApplicant.name}</span>
               <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 font-medium">
                 {selectedApplicant.applicantCode || selectedApplicant.id}
+              </span>
+              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                Phase {selectedApplicant.phase}
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                selectedApplicant.status === 'Provisional'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : selectedApplicant.status === 'Processing Stopped'
+                  ? 'bg-red-50 text-red-700 border-red-200'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}>
+                {selectedApplicant.status}
               </span>
             </div>
           </div>
@@ -185,11 +266,10 @@ export default function ApplicantList({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Header */}
       {/* Header & Search */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3 w-full max-w-3xl">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-3 w-full max-w-4xl">
+          <div className="relative flex-1 min-w-[200px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
@@ -201,7 +281,7 @@ export default function ApplicantList({
           <select 
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[160px] truncate"
+            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[150px] truncate"
           >
             <option value="all">All Statuses</option>
             {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
@@ -209,15 +289,40 @@ export default function ApplicantList({
           <select 
             value={roleFilter}
             onChange={e => setRoleFilter(e.target.value)}
-            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[160px] truncate"
+            className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[150px] truncate"
           >
             <option value="all">All Roles</option>
             {uniqueRoles.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
+
+          {/* Sort / View Order placed beside All Roles */}
+          <div className="relative flex items-center">
+            <ArrowUpDown size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as SortOption)}
+              aria-label="Sort and view order"
+              title="Sort and view order"
+              className="border border-slate-300 rounded text-sm pl-8 pr-3 py-2 text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] min-w-[150px] max-w-[190px] truncate cursor-pointer font-medium"
+            >
+              <optgroup label="Per Phase">
+                <option value="phase-asc">Phase (1 → 6)</option>
+                <option value="phase-desc">Phase (6 → 1)</option>
+              </optgroup>
+              <optgroup label="Alphabetical Order">
+                <option value="name-asc">Name (A → Z)</option>
+                <option value="name-desc">Name (Z → A)</option>
+              </optgroup>
+              <optgroup label="Date of Application">
+                <option value="date-newest">Date Applied (Newest)</option>
+                <option value="date-oldest">Date Applied (Oldest)</option>
+              </optgroup>
+            </select>
+          </div>
         </div>
         <button
           onClick={() => onNavigate?.('registration')}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm"
+          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm flex-shrink-0"
         >
           <Plus size={16} /> Add New Applicant
         </button>
@@ -229,11 +334,11 @@ export default function ApplicantList({
 
       {/* Navigation */}
       <div className="flex flex-col gap-3 mt-4 mb-2">
-        <div className="flex items-stretch w-full overflow-hidden bg-transparent">
+        <div className="flex items-stretch w-full overflow-x-auto scrollbar-none bg-transparent">
           <button
             onClick={() => setPhaseFilter('all')}
             style={{ zIndex: 30, backgroundColor: phaseFilter === 'all' ? '#0F172A' : '#e2e8f0' }}
-            className={`h-11 px-5 text-[13px] font-bold transition-all flex items-center justify-center rounded-l-md ${
+            className={`h-11 px-4 text-[12px] font-bold transition-all flex items-center justify-center rounded-l-md whitespace-nowrap flex-shrink-0 ${
               phaseFilter === 'all' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
             } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,0_50%)]`}
           >
@@ -245,21 +350,16 @@ export default function ApplicantList({
             const isSelected = phaseFilter === p.phase;
             const zIndex = 29 - idx;
             
-            let shortTitle = meta.title;
-            if (shortTitle === 'Applicant Registration') shortTitle = 'Registration';
-            if (shortTitle === 'Screening & Medical') shortTitle = 'Screening';
-            if (shortTitle === 'Employer Endorsement') shortTitle = 'Endorsement';
-            
             return (
               <button
                 key={p.phase}
                 onClick={() => setPhaseFilter(p.phase)}
                 style={{ zIndex, backgroundColor: isSelected ? meta.color : '#e2e8f0' }}
-                className={`h-11 pl-8 pr-5 -ml-3 flex-1 text-[13px] font-bold transition-all flex items-center justify-center ${
+                className={`h-11 pl-7 pr-4 -ml-3 flex-1 min-w-fit text-[12px] font-bold transition-all flex items-center justify-center whitespace-nowrap ${
                   isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
                 } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
               >
-                Ph.{p.phase} {shortTitle} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
+                Ph.{p.phase} {meta.title} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
               </button>
             );
           })}
@@ -268,25 +368,25 @@ export default function ApplicantList({
             <button
               onClick={() => setPhaseFilter('stopped')}
               style={{ zIndex: 10, backgroundColor: phaseFilter === 'stopped' ? '#ef4444' : '#e2e8f0' }}
-              className={`h-11 pl-8 pr-5 -ml-3 text-[13px] font-bold transition-all flex items-center justify-center rounded-r-md ${
+              className={`h-11 pl-7 pr-4 -ml-3 text-[12px] font-bold transition-all flex items-center justify-center rounded-r-md whitespace-nowrap flex-shrink-0 ${
                 phaseFilter === 'stopped' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
               } [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,14px_50%)]`}
             >
-              Stopped <span className="ml-1 opacity-80 font-normal">({stoppedCount})</span>
+              Process Stopped <span className="ml-1 opacity-80 font-normal">({stoppedCount})</span>
             </button>
           )}
         </div>
         
         {/* Description underneath navigation */}
         <div className="text-[13px] text-slate-600 font-medium px-1 italic">
-          {phaseFilter === 'all' && "View all applicants across the entire deployment lifecycle."}
+          {phaseFilter === 'all' && "View and filter all active, placed, and stopped applicants across every stage of the agency pipeline."}
           {phaseFilter !== 'all' && phaseFilter !== 'stopped' && (PHASE_META[phaseFilter as number]?.desc)}
           {phaseFilter === 'stopped' && PHASE_META[0].desc}
         </div>
       </div>
 
       {/* Cards grid */}
-      {filtered.length === 0 ? (
+      {sorted.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 py-20 text-center">
           <User size={32} className="text-slate-200 mx-auto mb-3" />
           <p className="text-slate-400 font-medium text-sm">No applicants found</p>
@@ -299,7 +399,7 @@ export default function ApplicantList({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map(a => {
+          {sorted.map(a => {
             const phaseMeta = (a.status === 'Processing Stopped') ? PHASE_META[0] : (PHASE_META[a.phase] || PHASE_META[1]);
             const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
             const resolvedCount = (a.employmentFlags || []).filter(f => f.dismissed || f.validated).length;
@@ -346,10 +446,44 @@ export default function ApplicantList({
                   </div>
 
                   {/* Badges */}
-                  <div className="flex flex-wrap gap-2 mt-5 z-10 relative">
+                  <div className="flex flex-wrap gap-2 mt-4 z-10 relative">
                     <span className="text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm" style={{ background: phaseMeta.bg, color: phaseMeta.color, borderColor: phaseMeta.border }}>
                       {(a.status === 'Processing Stopped') ? 'Process Stopped' : `Ph.${a.phase} - ${phaseMeta.title}`}
                     </span>
+
+                    {/* Applicant Status Badge Beside Phase */}
+                    {a.status && (
+                      <span className={`text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm flex items-center gap-1.5 ${
+                        a.status === 'Processing Stopped'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : a.status === 'Provisional'
+                          ? 'bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-200/80'
+                          : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : a.status.toLowerCase().includes('medical')
+                          ? 'bg-pink-50 text-pink-700 border-pink-200'
+                          : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
+                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                          : 'bg-sky-50 text-sky-700 border-sky-200'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                          a.status === 'Processing Stopped'
+                            ? 'bg-red-500'
+                            : a.status === 'Provisional'
+                            ? 'bg-amber-500 animate-pulse'
+                            : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
+                            ? 'bg-emerald-500'
+                            : a.status.toLowerCase().includes('medical')
+                            ? 'bg-pink-500'
+                            : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
+                            ? 'bg-purple-500'
+                            : 'bg-[#0EA5E9]'
+                        }`} />
+                        <span className="opacity-70 font-semibold">Status:</span>
+                        <span className="truncate">{a.status}</span>
+                      </span>
+                    )}
+
                     {activeFlags.length > 0 && (
                       <span className="text-[10px] px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-extrabold flex items-center gap-1 shadow-sm">
                         <Flag size={10} /> {activeFlags.length} Flag{activeFlags.length > 1 ? 's' : ''}
