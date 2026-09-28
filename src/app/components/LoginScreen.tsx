@@ -76,21 +76,10 @@ const PORTALS: {
 
 // Maps email/username to a staff role (used when portal === 'staff')
 function resolveStaffRole(username: string): UserRole {
-  const l = username.toLowerCase();
-  if (l.includes('recruit') || l.includes('sarah')) return 'Recruitment';
-  if (l.includes('admin') || l.includes('maria')) return 'Admin';
-  if (l.includes('account') || l.includes('mark')) return 'Accounting';
-  if (l.includes('manage')) return 'Management';
-  return 'Management';
+  return 'Management'; // Agency owners/managers default to Management, not Admin (document processor)
 }
 
 function resolveStaffName(username: string): string {
-  const l = username.toLowerCase();
-  if (l.includes('admin@findstaff.ph')) return 'Superadmin (Findstaff PH)';
-  if (l.includes('sarah') || l.includes('recruit')) return 'Sarah Cruz (Recruitment)';
-  if (l.includes('maria')) return 'Maria Santos (Admin)';
-  if (l.includes('mark') || l.includes('account')) return 'Mark Tan (Accounting)';
-  if (l.includes('admin@flowsensus.com')) return 'Agency Admin';
   return username || 'Staff Member';
 }
 
@@ -154,11 +143,8 @@ export default function LoginScreen({
 
         const user = data.user;
         // SECURITY FIX: Never trust client-writable user_metadata for is_super_admin.
-        // Only trust server-managed app_metadata or verified admin email.
-        const isSuper = Boolean(
-          user?.app_metadata?.is_super_admin ||
-          user?.email?.toLowerCase() === 'admin@findstaff.ph'
-        );
+        // Only trust server-managed app_metadata.
+        const isSuper = Boolean(user?.app_metadata?.is_super_admin);
 
         if (portal === 'employer') {
           onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
@@ -177,7 +163,7 @@ export default function LoginScreen({
 
           const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
           const role = isSuper ? 'Management' : dynamicRole;
-          const name = isSuper ? 'Superadmin (Findstaff PH)' : (user?.user_metadata?.full_name || resolveStaffName(trimmedUser));
+          const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
           const roles = isSuper
             ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
             : (assignedRoles.length > 0 ? assignedRoles : [role]);

@@ -380,8 +380,8 @@ export default function Registration({
         sex: app.sex || 'Male',
         religion: app.religion || 'Roman Catholic',
         civilStatus: app.civilStatus || 'Single',
-        weight: app.weight || '',
-        height: app.height || '',
+        weight: app.weightKg ? String(app.weightKg) : '',
+        height: app.heightCm ? String(app.heightCm) : '',
         presentAddress: app.presentAddress || '',
         provincialAddress: app.provincialAddress || '',
         role: app.role || '',
@@ -512,8 +512,8 @@ export default function Registration({
       personal.sex !== (app.sex || 'Male') ||
       personal.religion !== (app.religion || 'Roman Catholic') ||
       personal.civilStatus !== (app.civilStatus || 'Single') ||
-      personal.weight !== (app.weight || '') ||
-      personal.height !== (app.height || '') ||
+      personal.weight !== (app.weightKg ? String(app.weightKg) : '') ||
+      personal.height !== (app.heightCm ? String(app.heightCm) : '') ||
       personal.presentAddress !== (app.presentAddress || '') ||
       personal.provincialAddress !== (app.provincialAddress || '') ||
       personal.role !== (app.role || '') ||
@@ -581,8 +581,8 @@ export default function Registration({
           sex: app.sex || 'Male',
           religion: app.religion || 'Roman Catholic',
           civilStatus: app.civilStatus || 'Single',
-          weight: app.weight || '',
-          height: app.height || '',
+          weight: app.weightKg ? String(app.weightKg) : '',
+          height: app.heightCm ? String(app.heightCm) : '',
           presentAddress: app.presentAddress || '',
           provincialAddress: app.provincialAddress || '',
           role: app.role || '',
@@ -657,8 +657,8 @@ export default function Registration({
           sex: personal.sex || 'Male',
           civil_status: personal.civilStatus || 'Single',
           religion: personal.religion || 'Roman Catholic',
-          height: personal.height || undefined,
-          weight: personal.weight || undefined,
+          height_cm: personal.height ? parseFloat(personal.height) : undefined,
+          weight_kg: personal.weight ? parseFloat(personal.weight) : undefined,
           present_address: personal.presentAddress.trim() || undefined,
           provincial_address: personal.provincialAddress.trim() || undefined,
           applied_role: personal.role.trim() || (selectedJob ? selectedJob.position : 'Applicant'),
@@ -717,8 +717,8 @@ export default function Registration({
           civilStatus: (personal.civilStatus as any) || 'Single',
           citizenship: 'Filipino',
           religion: personal.religion,
-          height: personal.height,
-          weight: personal.weight,
+          heightCm: personal.height ? parseFloat(personal.height) : undefined,
+          weightKg: personal.weight ? parseFloat(personal.weight) : undefined,
           skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           workExperience: payload.work_experience,
@@ -808,8 +808,8 @@ export default function Registration({
             sex: personal.sex as 'Male' | 'Female',
             religion: personal.religion,
             civilStatus: personal.civilStatus as any,
-            weight: personal.weight,
-            height: personal.height,
+            weightKg: personal.weight ? parseFloat(personal.weight) : undefined,
+            heightCm: personal.height ? parseFloat(personal.height) : undefined,
             presentAddress: personal.presentAddress,
             provincialAddress: personal.provincialAddress,
             role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),

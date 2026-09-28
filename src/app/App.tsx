@@ -1293,7 +1293,7 @@ export default function App() {
           jobOrder: formattedJobOrderCode,
           selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
           phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
-          status: item.application_status || item.applicationStatus || item.status || 'Initial Screening',
+          status: item.status_code || item.statusCode || item.status || 'Initial Screening',
           currentHandler: item.current_handler || 'System Agent',
           currentDepartment: item.current_department || 'Recruitment',
           lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
@@ -1309,8 +1309,9 @@ export default function App() {
           civilStatus: item.civil_status || 'Single',
           citizenship: item.nationality || 'Filipino',
           religion: item.religion || 'Roman Catholic',
-          height: item.height || "5'6\"",
-          weight: item.weight || '65 kg',
+          heightCm: item.height_cm || item.heightCm || undefined,
+          weightKg: item.weight_kg || item.weightKg || undefined,
+          noOfChildren: item.no_of_children || item.noOfChildren || 0,
           skills: parsedSkills,
           certifications: parsedCerts,
           identifications: parsedIdentifications,
@@ -1326,7 +1327,8 @@ export default function App() {
             ? { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' }
             : (Object.keys(item.test_scores).length === 0 ? undefined : item.test_scores),
           matchScore: 90,
-          photo: item.photo_url || item.photo || '',
+          photoDocumentId: item.photo_document_id || item.photoDocumentId || undefined,
+          photoUrl: item.photo_url || item.photo || '',
           photoDataUrl: item.photo_url || item.photo || '',
         };
       });

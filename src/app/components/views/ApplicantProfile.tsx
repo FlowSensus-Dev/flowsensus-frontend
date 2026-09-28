@@ -580,8 +580,9 @@ export default function ApplicantProfile({
               { label: 'Civil Status',   val: applicant.civilStatus },
               { label: 'Religion',       val: applicant.religion },
               { label: 'Citizenship',    val: applicant.citizenship },
-              { label: 'Height',         val: applicant.height },
-              { label: 'Weight',         val: applicant.weight },
+              { label: 'Height',         val: applicant.heightCm ? `${applicant.heightCm} cm` : undefined },
+              { label: 'Weight',         val: applicant.weightKg ? `${applicant.weightKg} kg` : undefined },
+              { label: 'Children',       val: applicant.noOfChildren !== undefined ? applicant.noOfChildren : 0 },
             ].map(f => (
               <div key={f.label}>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{f.label}</p>

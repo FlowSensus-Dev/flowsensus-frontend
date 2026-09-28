@@ -37,8 +37,9 @@ export interface ApplicantRecord {
   civilStatus?: 'Single' | 'Married' | 'Widowed' | 'Separated';
   citizenship?: string;
   religion?: string;
-  height?: string;
-  weight?: string;
+  heightCm?: number;
+  weightKg?: number;
+  noOfChildren?: number;
   languagesSpoken?: string[];
 
   // Skills and Qualifications
@@ -50,6 +51,8 @@ export interface ApplicantRecord {
 
   // New structured profile fields
   photo?: string;
+  photoDocumentId?: number;
+  photoUrl?: string;
   photoDataUrl?: string;
   identifications?: IdentificationRecord[];
   education?: EducationRecord[];
