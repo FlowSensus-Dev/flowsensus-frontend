@@ -26,7 +26,8 @@ import {
   Building2,
   ShieldAlert,
   Info,
-  Download
+  Download,
+  RotateCcw
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 
@@ -307,9 +308,14 @@ export default function Screening({
       let phaseDesc = selectedApplicant.phaseDescription;
 
       if (p1Passed) {
-        // If all 3 are passed -> applicant advances to Phase 2 (Pending Interview)
-        newStatus = 'Pending Interview';
-        phaseDesc = 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.';
+        // If EQ was already marked Suitable, advance directly to Review Score for Medical Referral
+        if (cleanScores.personalityEQ === 'Suitable') {
+          newStatus = 'Review Score for Medical Referral';
+          phaseDesc = 'Passed all 3 standardized tests and Personality/EQ interview. Cleared for Phase 3: Review Score for Medical Referral.';
+        } else {
+          newStatus = 'Pending Interview';
+          phaseDesc = 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.';
+        }
       } else {
         // Core Rule: If any 1 or more failed -> set Applicant Status = "Provisional".
         // Applicant stays in this phase (does not auto-advance).
@@ -327,24 +333,13 @@ export default function Screening({
         phaseDesc = `Provisional holding state — test score criteria unmet in: ${failedSummary.join(', ')}. Candidate remains active in pipeline.`;
       }
 
-      const numericId = parseInt(applicantId, 10);
-      if (!isNaN(numericId)) {
-        await api.post(`/examinations`, {
-          applicantId: numericId,
-          ...cleanScores
-        }).catch(console.error);
-
-        await api.put(`/applicants/${numericId}`, {
-          application_status: newStatus,
-          phase_description: phaseDesc,
-          testScores: cleanScores
-        }).catch(console.error);
-      }
-
+      // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
+      // Instantly clear or set Provisional status in UI without waiting for network calls
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
-        testScores: cleanScores
+        testScores: cleanScores,
+        phase: 1,
       });
 
       addActivityLog({
@@ -358,9 +353,26 @@ export default function Screening({
       });
 
       if (p1Passed) {
-        showToast('✓ All 3 tests passed! Applicant advanced to Phase 2: Pending Interview.');
+        showToast('✓ All 3 tests passed! Applicant cleared.');
       } else {
         showToast('Scores saved. Applicant status set to "Provisional" (remains in pipeline).');
+      }
+
+      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await Promise.all([
+          api.post(`/examinations`, {
+            applicantId: numericId,
+            ...cleanScores
+          }).catch(console.error),
+          api.put(`/applicants/${numericId}`, {
+            application_id: selectedApplicant.applicationId,
+            application_status: newStatus,
+            phase_description: phaseDesc,
+            testScores: cleanScores
+          }).catch(console.error)
+        ]);
       }
     } catch (err) {
       console.error(err);
@@ -371,7 +383,7 @@ export default function Screening({
   };
 
   // ── Phase 2: Evaluate Personality / EQ Assessment ──────────────────────────
-  const handleEvaluatePhase2 = async (outcome: 'Suitable' | 'Not Suitable') => {
+  const handleEvaluatePhase2 = async (outcome: 'Suitable' | 'Not Suitable' | 'Pending') => {
     if (isSaving || !selectedApplicant) return;
 
     if (!phase1AllPassed) {
@@ -399,46 +411,64 @@ export default function Screening({
         // If passed -> advances to Phase 3 (Review Score for Medical Referral)
         newStatus = 'Review Score for Medical Referral';
         phaseDesc = 'Personality/EQ Assessment passed (Suitable). Ready for Phase 3: Review Score for Medical Referral.';
-      } else {
+      } else if (outcome === 'Not Suitable') {
         // Core Rule: If failed -> set Applicant Status = "Provisional". Not removed from pipeline.
         newStatus = 'Provisional';
         phaseDesc = 'Provisional holding state — applicant evaluated as Not Suitable for the job order during Personality/EQ interview. Retained in pipeline.';
+      } else {
+        // Unselected / reset -> reverted back to Pending Interview
+        newStatus = 'Pending Interview';
+        phaseDesc = 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.';
       }
 
-      const numericId = parseInt(applicantId, 10);
-      if (!isNaN(numericId)) {
-        await api.post(`/examinations`, {
-          applicantId: numericId,
-          ...cleanScores
-        }).catch(console.error);
-
-        await api.put(`/applicants/${numericId}`, {
-          application_status: newStatus,
-          phase_description: phaseDesc,
-          testScores: cleanScores
-        }).catch(console.error);
-      }
-
+      // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
+      // Instantly wipe Provisional status or reset status in the UI without network lag
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
-        testScores: cleanScores
+        testScores: cleanScores,
+        phase: 1,
       });
 
       addActivityLog({
         applicantId,
-        action: outcome === 'Suitable' ? 'Phase 2 Passed — Cleared for Phase 3' : 'Phase 2 Failed — Status Set to Provisional',
+        action: outcome === 'Suitable'
+          ? 'Phase 2 Passed — Cleared for Phase 3'
+          : outcome === 'Not Suitable'
+          ? 'Phase 2 Failed — Status Set to Provisional'
+          : 'Interview Verdict Reset to Pending',
         performedBy: currentUserName,
         department: 'Recruitment',
         details: outcome === 'Suitable'
           ? `Applicant passed Personality/EQ Assessment as 'Suitable'. Advanced to Phase 3: Review Score for Medical Referral.`
-          : `Applicant evaluated as 'Not Suitable' in Personality/EQ interview. Status set to Provisional (applicant remains in pipeline).`,
+          : outcome === 'Not Suitable'
+          ? `Applicant evaluated as 'Not Suitable' in Personality/EQ interview. Status set to Provisional (applicant remains in pipeline).`
+          : `Personality/EQ assessment unselected and reset. Status reverted to Pending Interview.`,
       });
 
       if (outcome === 'Suitable') {
         showToast('✓ Personality/EQ passed! Applicant advanced to Phase 3: Review Score for Medical Referral.');
-      } else {
+      } else if (outcome === 'Not Suitable') {
         showToast('Applicant evaluated as Not Suitable. Status set to "Provisional" (remains in pipeline).');
+      } else {
+        showToast('Interview verdict unselected. Status reset to "Pending Interview".');
+      }
+
+      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await Promise.all([
+          api.post(`/examinations`, {
+            applicantId: numericId,
+            ...cleanScores
+          }).catch(console.error),
+          api.put(`/applicants/${numericId}`, {
+            application_id: selectedApplicant.applicationId,
+            application_status: newStatus,
+            phase_description: phaseDesc,
+            testScores: cleanScores
+          }).catch(console.error)
+        ]);
       }
     } catch (err) {
       console.error(err);
@@ -503,24 +533,12 @@ export default function Screening({
         phaseDesc = 'Provisional holding state — score correction placed applicant below passing criteria in Phase 1.';
       }
 
-      const numericId = parseInt(applicantId, 10);
-      if (!isNaN(numericId)) {
-        await api.post(`/examinations`, {
-          applicantId: numericId,
-          ...cleanScores
-        }).catch(console.error);
-
-        await api.put(`/applicants/${numericId}`, {
-          application_status: newStatus,
-          phase_description: phaseDesc,
-          testScores: cleanScores
-        }).catch(console.error);
-      }
-
+      // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
-        testScores: cleanScores
+        testScores: cleanScores,
+        phase: 1,
       });
 
       addActivityLog({
@@ -536,6 +554,23 @@ export default function Screening({
         showToast('Scores corrected. Score fell below criteria; status set to Provisional (applicant remains in pipeline).');
       } else {
         showToast('✓ Scores successfully corrected and updated.');
+      }
+
+      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await Promise.all([
+          api.post(`/examinations`, {
+            applicantId: numericId,
+            ...cleanScores
+          }).catch(console.error),
+          api.put(`/applicants/${numericId}`, {
+            application_id: selectedApplicant.applicationId,
+            application_status: newStatus,
+            phase_description: phaseDesc,
+            testScores: cleanScores
+          }).catch(console.error)
+        ]);
       }
     } catch (err) {
       console.error(err);
@@ -747,6 +782,7 @@ export default function Screening({
 
       if (!isNaN(numericId)) {
         await api.put(`/applicants/${numericId}`, {
+          application_id: selectedApplicant.applicationId,
           application_status: 'Medical Clearance',
           current_phase: 2,
           current_handler: 'Maria Santos',
@@ -798,6 +834,7 @@ export default function Screening({
     const numericId = parseInt(applicantId, 10);
     if (!isNaN(numericId)) {
       await api.put(`/applicants/${numericId}`, {
+        application_id: selectedApplicant.applicationId,
         application_status: 'Processing Stopped',
         current_phase: 0,
         phase_description: `Processing terminated at Screening by ${currentUserName}: ${stopReason}`,
@@ -1518,13 +1555,27 @@ export default function Screening({
         ) : (
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-2">
-                Suitability Verdict for Job Order: {selectedApplicant?.jobOrder || 'Current Position'}
-              </label>
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block">
+                  Suitability Verdict for Job Order: {selectedApplicant?.jobOrder || 'Current Position'}
+                </label>
+                {(examScores.personalityEQ === 'Suitable' || examScores.personalityEQ === 'Not Suitable') && (
+                  <button
+                    type="button"
+                    onClick={() => handleEvaluatePhase2('Pending')}
+                    disabled={isSaving}
+                    className="text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg border border-slate-200 transition-all font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Interview not yet conducted or started: unselect decision and revert status back to Pending Interview"
+                  >
+                    <RotateCcw size={12} className="text-slate-500" />
+                    <span>Unselect Decision (Reset to Pending)</span>
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => handleEvaluatePhase2('Suitable')}
+                  onClick={() => handleEvaluatePhase2(examScores.personalityEQ === 'Suitable' ? 'Pending' : 'Suitable')}
                   disabled={isSaving}
                   className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
                     examScores.personalityEQ === 'Suitable'
@@ -1541,11 +1592,16 @@ export default function Screening({
                   <p className="text-xs text-slate-500 mt-1">
                     Candidate meets emotional, behavioral, and communication standards for overseas deployment. Advances to Phase 3.
                   </p>
+                  {examScores.personalityEQ === 'Suitable' && (
+                    <span className="inline-block mt-2 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded">
+                      Click again to unselect
+                    </span>
+                  )}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleEvaluatePhase2('Not Suitable')}
+                  onClick={() => handleEvaluatePhase2(examScores.personalityEQ === 'Not Suitable' ? 'Pending' : 'Not Suitable')}
                   disabled={isSaving}
                   className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
                     examScores.personalityEQ === 'Not Suitable'
@@ -1562,6 +1618,11 @@ export default function Screening({
                   <p className="text-xs text-slate-500 mt-1">
                     Behavioral concerns or mismatch detected. Sets status to Provisional — candidate remains in pipeline. Staff may re-evaluate or stop processing.
                   </p>
+                  {examScores.personalityEQ === 'Not Suitable' && (
+                    <span className="inline-block mt-2 text-[11px] font-semibold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded">
+                      Click again to unselect
+                    </span>
+                  )}
                 </button>
               </div>
             </div>

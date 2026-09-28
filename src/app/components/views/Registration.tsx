@@ -705,6 +705,7 @@ export default function Registration({
           currentHandler: currentUserName,
           currentDepartment: 'Recruitment',
           lastUpdated: new Date().toLocaleString(),
+          createdAt: createdData.created_at || new Date().toISOString(),
           phaseDescription: 'Newly registered applicant. Cleared for initial screening.',
           presentAddress: personal.presentAddress,
           provincialAddress: personal.provincialAddress,
