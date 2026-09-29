@@ -128,10 +128,24 @@ test('clamps current stage remaining to zero if elapsed exceeds forecast', () =>
     current_stage: 'CV & Endorsement',
     days_spent_in_current_stage: 30, // Exceeds 6.33
     stage_breakdown: {},
-    record: { estimated_remaining_days: 16.5 }
+    record: { estimated_remaining_days: 16.5 } // Authoritative ETA: 0 + 16.5
   };
 
   const html = render(SimulationResult, { result: mockResult, pipeline: mockPipeline });
-  assert.ok(html.includes('clamped to 0'));
+
+  // Clamps to 0
   assert.ok(html.includes('max(6.33 - 30.00, 0) = 0.00'));
+
+  // Renders the overdue buffer explanation
+  assert.ok(html.includes('manager-review escalation buffer'));
+  assert.ok(html.includes('+7.00 d'));
+
+  // Backend forecast remains authoritative (does not contain + 7.00 in the main string)
+  assert.ok(html.includes('Backend Forecast Remaining'));
+  assert.ok(html.includes('0.00 + 16.50'));
+  assert.ok(html.includes('= 16.50'));
+
+  // Illustrative projection includes the buffer
+  assert.ok(html.includes('Illustrative Buffered Projection'));
+  assert.ok(html.includes('= 23.50 d'));
 });

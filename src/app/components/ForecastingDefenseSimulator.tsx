@@ -37,8 +37,12 @@ export function SimulationResult({ result, pipeline }: { result: ApplicationFore
   const downstreamStages = currentIndex >= 0 ? pipeline.stages.slice(currentIndex + 1) : [];
 
   const downstreamTotal = downstreamStages.reduce((sum: number, stage: any) => sum + stage.current_forecast, 0);
-  const visualTotal = remainingCurrent + downstreamTotal;
-  const matchBackend = Math.abs(visualTotal - (result.record?.estimated_remaining_days || 0)) < 0.1;
+
+  const isOverdue = elapsedDays > currentSES;
+  const overdueBuffer = isOverdue ? 7.0 : 0;
+
+  const backendTotal = remainingCurrent + downstreamTotal;
+  const matchBackend = Math.abs(backendTotal - (result.record?.estimated_remaining_days || 0)) < 0.1;
 
   return (
     <section aria-label="Returned forecast" className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -63,9 +67,17 @@ export function SimulationResult({ result, pipeline }: { result: ApplicationFore
               Remaining current-stage forecast:
               <br/><span className="font-mono">max({currentSES.toFixed(2)} - {elapsedDays.toFixed(2)}, 0) = {remainingCurrent.toFixed(2)} d</span>
             </div>
-            {elapsedDays > currentSES && (
-              <div className="mt-2 text-xs text-rose-700 bg-rose-50 p-2 rounded">
-                The simulated elapsed time exceeds the forecast duration of the current stage. Current-stage remaining time is therefore clamped to 0. The simulator does not automatically advance workflow phase because it intentionally does not mutate the applicant's real workflow.
+            {isOverdue && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center gap-2 font-semibold text-amber-900">
+                  <span className="bg-amber-200 text-amber-800 text-xs px-2 py-0.5 rounded uppercase tracking-wide">Manager-Review Buffer</span>
+                  <span className="font-mono text-sm">+7.00 d</span>
+                </div>
+                <p className="mt-2 text-xs text-amber-800">
+                  Because the simulated elapsed time exceeds the learned SES forecast for the current stage, the remaining time is clamped to zero.
+                  To account for this overdue status, an additional <strong>+7.0 day manager-review escalation buffer</strong> is automatically added.
+                  The simulator does not automatically advance the workflow phase, as it intentionally does not mutate the applicant's real workflow state.
+                </p>
               </div>
             )}
           </div>
@@ -86,15 +98,39 @@ export function SimulationResult({ result, pipeline }: { result: ApplicationFore
 
           <div className="mt-4 p-3 bg-slate-800 text-white rounded-lg flex flex-col md:flex-row justify-between items-center gap-3">
             <div>
-              <div className="text-xs uppercase tracking-wider text-slate-400">Calculated Total Remaining</div>
+              <div className="text-xs uppercase tracking-wider text-slate-400">Backend Forecast Remaining</div>
               <div className="font-mono break-words">
-                {remainingCurrent.toFixed(2)} + {downstreamStages.map((s:any) => s.current_forecast.toFixed(2)).join(' + ')}
+                {remainingCurrent.toFixed(2)}
+                {downstreamStages.length > 0 && ' + '}
+                {downstreamStages.map((s:any) => s.current_forecast.toFixed(2)).join(' + ')}
               </div>
             </div>
             <div className="text-2xl font-black text-emerald-400">
-              = {visualTotal.toFixed(2)} d
+              = {backendTotal.toFixed(2)} d
             </div>
           </div>
+
+          {isOverdue && (
+            <div className="mt-2 space-y-2">
+              <div className="p-3 bg-amber-900/40 text-amber-100 rounded-lg flex flex-col md:flex-row justify-between items-center gap-3 border border-amber-800/50">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-amber-400 font-bold">Overdue Escalation Buffer</div>
+                  <div className="text-xs text-amber-200/70 mt-1">
+                    The +7.0 day escalation buffer is a defense/demo visualization of potential manager-review delay. It is not persisted to the application forecast and does not replace the backend-authoritative ETA.
+                  </div>
+                </div>
+                <div className="text-xl font-bold text-amber-400 whitespace-nowrap">
+                  +7.00 d
+                </div>
+              </div>
+              <div className="p-3 bg-slate-900 text-slate-300 rounded-lg flex flex-col md:flex-row justify-between items-center gap-3 border border-slate-700">
+                <div className="text-xs uppercase tracking-wider font-bold">Illustrative Buffered Projection</div>
+                <div className="text-xl font-bold text-white">
+                  = {(backendTotal + overdueBuffer).toFixed(2)} d
+                </div>
+              </div>
+            </div>
+          )}
 
           {!matchBackend && result.record && (
             <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
