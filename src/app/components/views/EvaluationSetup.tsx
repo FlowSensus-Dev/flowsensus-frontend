@@ -29,6 +29,7 @@ const ROLE_COLORS: Record<UserRole, { bg: string; text: string; border: string }
   Management: { bg: 'bg-purple-50 text-purple-700', text: 'text-purple-700', border: 'border-purple-200' },
   Applicant: { bg: 'bg-slate-50 text-slate-700', text: 'text-slate-700', border: 'border-slate-200' },
   Employer: { bg: 'bg-amber-50 text-amber-700', text: 'text-amber-700', border: 'border-amber-200' },
+  '': { bg: 'bg-slate-50 text-slate-700', text: 'text-slate-700', border: 'border-slate-200' },
 };
 
 const MODULE_ICONS: Record<string, React.ReactNode> = {
