@@ -88,7 +88,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             salaryMax: Number(jo.salary_max) || 0,
             salaryCurrency: jo.salary_currency || 'USD',
             contractMonths: Number(jo.contract_months) || 24,
-            requirements: Array.isArray(jo.required_skills) ? jo.required_skills : (Array.isArray(jo.requirements) ? jo.requirements : []),
+            requirements: Array.isArray(jo.requirements) && jo.requirements.length > 0
+              ? jo.requirements
+              : (Array.isArray(jo.required_skills) && jo.required_skills.length > 0
+                  ? jo.required_skills
+                  : (Array.isArray(jo.job_order_requirement)
+                      ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+                      : [])),
             minExperience: jo.min_experience_years || 1,
             certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
             status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],

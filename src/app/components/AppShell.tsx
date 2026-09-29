@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { Search, Bell, LogOut, Info, Crown, Loader2 } from 'lucide-react';
+import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
 import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
+import { api } from '../../lib/api';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
 import ApplicantList from './views/ApplicantList';
@@ -148,6 +149,29 @@ export default function AppShell({
       localStorage.setItem('flowsensus_selected_applicant', fallbackId);
     }
   }, [applicants, selectedApplicantId]);
+
+  const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
+
+  // Fetch live workflow module permissions from backend
+  useEffect(() => {
+    const fetchWorkflowPerms = async () => {
+      try {
+        const res = await api.get('/workflow/modules');
+        if (res.data && Array.isArray(res.data)) {
+          const map: Record<string, UserRole[]> = {};
+          res.data.forEach((m: any) => {
+            const key = m.module_key || m.moduleKey;
+            const roles = m.assigned_roles || m.assignedRoles || [];
+            if (key) map[key] = roles;
+          });
+          setWorkflowPermissions(map);
+        }
+      } catch (err) {
+        console.warn('Could not fetch workflow module permissions:', err);
+      }
+    };
+    fetchWorkflowPerms();
+  }, []);
 
   const showToastNotification = (message: string) => {
     setToastMessage(message);
@@ -439,8 +463,38 @@ export default function AppShell({
         );
       case 'requirements':
         return <RequirementsSetup showToast={showToastNotification} currentUserName={currentUserName} />;
-      case 'evaluation':
-        return <EvaluationSetup showToast={showToastNotification} currentUserName={currentUserName} />;
+      case 'evaluation': {
+        const userRolesList = (currentUserRoles && currentUserRoles.length > 0)
+          ? currentUserRoles
+          : [currentUserRole];
+        const canAccess = isSuperAdmin || userRolesList.includes('Management');
+        if (!canAccess) {
+          return (
+            <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm">
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Lock size={22} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">Access Restricted</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                The Evaluation & Workflow configuration module is restricted exclusively to the Management role.
+              </p>
+              <button
+                onClick={() => handleNavigate('dashboard')}
+                className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Return to Dashboard
+              </button>
+            </div>
+          );
+        }
+        return (
+          <EvaluationSetup
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            onPermissionsUpdated={(newPerms) => setWorkflowPermissions(newPerms)}
+          />
+        );
+      }
       case 'joborders':
         return (
           <JobOrders
@@ -479,6 +533,7 @@ export default function AppShell({
         onViewChange={handleNavigate}
         isSuperAdmin={isSuperAdmin}
         onSuperAdminDashboard={onSuperAdminDashboard}
+        workflowPermissions={workflowPermissions}
       />
 
       {/* Main Content Area */}

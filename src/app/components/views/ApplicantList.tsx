@@ -77,7 +77,7 @@ export default function ApplicantList({
         phaseFilter === 'stopped' ? a.status === 'Processing Stopped' :
           a.phase === phaseFilter && a.status !== 'Processing Stopped';
     const matchStatus = statusFilter === 'all' || a.status === statusFilter;
-    const matchRole = roleFilter === 'all' || a.role === roleFilter;
+    const matchRole = roleFilter === 'all' || (a.role || '').trim().toLowerCase() === roleFilter.trim().toLowerCase();
     return matchSearch && matchPhase && matchStatus && matchRole;
   });
 

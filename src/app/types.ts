@@ -337,6 +337,17 @@ export interface WorkflowPhase {
   autoAdvance: boolean;
 }
 
+export interface WorkflowModuleAccess {
+  id?: number | string;
+  moduleKey: string;
+  moduleName: string;
+  phaseNumber: number;
+  phaseName: string;
+  assignedRoles: UserRole[];
+  isActive: boolean;
+  description: string;
+}
+
 export interface ActivityLog {
   id: string;
   applicantId: string;

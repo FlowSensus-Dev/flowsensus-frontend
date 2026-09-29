@@ -37,6 +37,7 @@ interface SidebarProps {
   onViewChange: (view: ViewType) => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
+  workflowPermissions?: Record<string, UserRole[]>;
 }
 
 interface NavItem {
@@ -59,6 +60,7 @@ export default function Sidebar({
   onViewChange,
   isSuperAdmin,
   onSuperAdminDashboard,
+  workflowPermissions,
 }: SidebarProps) {
   const mainItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: 'All' },
@@ -68,36 +70,35 @@ export default function Sidebar({
   const navGroups: NavGroup[] = [
     {
       title: 'Intake & Matching',
-      roles: ['Recruitment'],
+      roles: ['Recruitment', 'Admin', 'Management'],
       items: [
-        { id: 'registration', label: 'Registration', icon: UserPlus, roles: ['Recruitment'] },
-        { id: 'screening', label: 'Screening Panel', icon: Microscope, roles: ['Recruitment'] },
-        { id: 'profiling', label: 'Applicant Profiling', icon: Sparkles, roles: ['Recruitment'] },
+        { id: 'registration', label: 'Registration', icon: UserPlus, roles: ['Recruitment', 'Management'] },
+        { id: 'screening', label: 'Screening Panel', icon: Microscope, roles: ['Recruitment', 'Management'] },
+        { id: 'profiling', label: 'Applicant Profiling', icon: Sparkles, roles: ['Recruitment', 'Admin', 'Management'] },
       ],
     },
     {
       title: 'CV Review & Endorsement',
-      roles: ['Management'],
+      roles: ['Recruitment', 'Management'],
       items: [
-        { id: 'cv', label: 'CV Encoding', icon: FileText, roles: ['Management'] },
+        { id: 'cv', label: 'CV Encoding', icon: FileText, roles: ['Recruitment', 'Management'] },
         { id: 'endorsement', label: 'Endorsement Tracker', icon: KanbanSquare, roles: ['Management'] },
       ],
     },
     {
       title: 'Agency Configuration',
-      roles: ['Admin'],
+      roles: ['Admin', 'Management'],
       items: [
-        { id: 'requirements', label: 'Document Requirements', icon: ClipboardList, roles: ['Admin'] },
-        { id: 'evaluation', label: 'Evaluation & Workflow', icon: SlidersHorizontal, roles: ['Admin'] },
-        { id: 'joborders', label: 'Job Orders', icon: Briefcase, roles: ['Admin'] },
-        { id: 'employers', label: 'Employer Profiles', icon: Factory, roles: ['Admin'] },
+        { id: 'requirements', label: 'Document Requirements', icon: ClipboardList, roles: ['Admin', 'Management'] },
+        { id: 'joborders', label: 'Job Orders', icon: Briefcase, roles: ['Admin', 'Management'] },
+        { id: 'employers', label: 'Employer Profiles', icon: Factory, roles: ['Admin', 'Management'] },
       ],
     },
     {
       title: 'Compliance & Visa',
-      roles: ['Admin'],
+      roles: ['Admin', 'Management'],
       items: [
-        { id: 'fittowork', label: 'Fit-to-Work', icon: HeartPulse, roles: ['Admin'] },
+        { id: 'fittowork', label: 'Fit-to-Work', icon: HeartPulse, roles: ['Admin', 'Management'] },
       ],
     },
     {
@@ -110,13 +111,14 @@ export default function Sidebar({
     },
     {
       title: 'Financials',
-      roles: ['Accounting'],
-      items: [{ id: 'expense', label: 'Expense Ledger', icon: Receipt, roles: ['Accounting'] }],
+      roles: ['Accounting', 'Management'],
+      items: [{ id: 'expense', label: 'Expense Ledger', icon: Receipt, roles: ['Accounting', 'Management'] }],
     },
     {
       title: 'Oversight Controls',
       roles: ['Management'],
       items: [
+        { id: 'evaluation', label: 'Evaluation & Workflow', icon: SlidersHorizontal, roles: ['Management'] },
         { id: 'manager', label: 'CV & Employer Hub', icon: CheckSquare, roles: ['Management'] },
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
         { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
@@ -130,10 +132,27 @@ export default function Sidebar({
     ? currentUserRoles
     : [currentUserRole];
 
-  const hasAccess = (roles: UserRole[] | 'All'): boolean => {
-    if (isSuperAdmin) return true; // Super Admin has universal access to all agency modules
-    if (roles === 'All') return true;
-    return roles.some((r) => userRolesList.includes(r));
+  const hasItemAccess = (item: NavItem): boolean => {
+    if (isSuperAdmin) return true; // Super Admin has universal access
+    if (userRolesList.includes('Management')) return true; // Management has universal access
+
+    // Universal modules
+    if (item.id === 'dashboard' || item.id === 'applicants') return true;
+
+    // Excluded Management-only modules
+    if (['evaluation', 'forecast', 'history', 'reports', 'users'].includes(item.id)) {
+      return false; // Checked Management above
+    }
+
+    // Dynamic database workflow module permissions
+    if (workflowPermissions && workflowPermissions[item.id]) {
+      const allowedRoles = workflowPermissions[item.id];
+      return allowedRoles.some((r) => userRolesList.includes(r));
+    }
+
+    // Default static role fallback
+    if (item.roles === 'All') return true;
+    return item.roles.some((r) => userRolesList.includes(r));
   };
 
   const rolesDisplayText = isSuperAdmin
@@ -189,7 +208,7 @@ export default function Sidebar({
         {/* Main Items */}
         {mainItems.map((item) => {
           const Icon = item.icon;
-          if (!hasAccess(item.roles)) return null;
+          if (!hasItemAccess(item)) return null;
           return (
             <button
               key={item.id}
@@ -208,15 +227,15 @@ export default function Sidebar({
 
         {/* Nav Groups */}
         {navGroups.map((group) => {
-          if (!hasAccess(group.roles)) return null;
+          const visibleItems = group.items.filter((item) => hasItemAccess(item));
+          if (visibleItems.length === 0) return null;
           return (
             <div key={group.title} className="mt-2">
               <p className="text-[10px] uppercase tracking-widest text-slate-500 font-extrabold pt-4 pb-2 px-3">
                 {group.title}
               </p>
-              {group.items.map((item) => {
+              {visibleItems.map((item) => {
                 const Icon = item.icon;
-                if (!hasAccess(item.roles)) return null;
                 return (
                   <button
                     key={item.id}
