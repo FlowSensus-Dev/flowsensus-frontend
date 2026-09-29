@@ -5,7 +5,7 @@ import {
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
   Save, User, FileCheck, Upload, Briefcase, Loader2,
   GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown,
-  Sparkles
+  Sparkles, HeartHandshake, Share2, Globe, Users, Check, ExternalLink
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -167,7 +167,25 @@ const BLANK_PERSONAL = {
   presentAddress: '',
   provincialAddress: '',
   role: '',
+  placeOfBirth: '',
+  noOfChildren: '0',
+  indigenousCommunity: '',
+  emergencyContactName: '',
+  emergencyContactRelationship: 'Spouse',
+  emergencyContactNumber: '',
+  facebookUrl: '',
+  whatsappNumber: '',
+  linkedinUrl: '',
 };
+
+// Applicant classification codes
+const OFW_EXCLUSIVE_CODES = ['FIRST_TIME_OFW', 'RETURNING_OFW'];
+const CLASSIFICATION_CHIPS = [
+  { code: 'FIRST_TIME_OFW',    label: 'First-Time OFW',     color: 'emerald' },
+  { code: 'RETURNING_OFW',     label: 'Returning OFW',      color: 'sky'     },
+  { code: 'MUSLIM',            label: 'Muslim',             color: 'violet'  },
+  { code: 'INDIGENOUS_PEOPLES',label: 'Indigenous Peoples', color: 'amber'   },
+];
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Registration({
@@ -253,6 +271,25 @@ export default function Registration({
   const [personal, setPersonal] = useState(BLANK_PERSONAL);
   const setP = (k: string, v: string) => setPersonal(p => ({ ...p, [k]: v }));
 
+  // ── Applicant Classification ──────────────────────────────────────────────
+  const [selectedApplicantTypes, setSelectedApplicantTypes] = useState<string[]>([]);
+  const handleToggleApplicantType = (code: string) => {
+    setSelectedApplicantTypes(prev => {
+      if (prev.includes(code)) {
+        // Deselect
+        return prev.filter(c => c !== code);
+      }
+      // Select — if it's an OFW exclusive code, remove the other OFW code first
+      let next = [...prev];
+      if (OFW_EXCLUSIVE_CODES.includes(code)) {
+        next = next.filter(c => !OFW_EXCLUSIVE_CODES.includes(c));
+      }
+      return [...next, code];
+    });
+  };
+
+  const isIndigenousSelected = selectedApplicantTypes.includes('INDIGENOUS_PEOPLES');
+
   const handleRemovePhoto = async () => {
     if (!photo) return;
     const photoToDelete = photo;
@@ -336,6 +373,7 @@ export default function Registration({
   // ── Clear form helper ─────────────────────────────────────────────────────
   const resetBlankForm = () => {
     setPersonal(BLANK_PERSONAL);
+    setSelectedApplicantTypes([]);
     setSelectedJobOrderId('');
     setIds([]);
     setEducation([]);
@@ -385,7 +423,17 @@ export default function Registration({
         presentAddress: app.presentAddress || '',
         provincialAddress: app.provincialAddress || '',
         role: app.role || '',
+        placeOfBirth: app.placeOfBirth || '',
+        noOfChildren: String(app.noOfChildren ?? 0),
+        indigenousCommunity: app.indigenousCommunity || '',
+        emergencyContactName: app.emergencyContactName || '',
+        emergencyContactRelationship: app.emergencyContactRelationship || 'Spouse',
+        emergencyContactNumber: app.emergencyContactNumber || '',
+        facebookUrl: app.facebookUrl || '',
+        whatsappNumber: app.whatsappNumber || '',
+        linkedinUrl: app.linkedinUrl || '',
       });
+      setSelectedApplicantTypes(app.applicantTypes || []);
       const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
       setSelectedJobOrderId(initialJo);
       if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
@@ -586,7 +634,16 @@ export default function Registration({
           presentAddress: app.presentAddress || '',
           provincialAddress: app.provincialAddress || '',
           role: app.role || '',
+          placeOfBirth: app.placeOfBirth || '',
+          noOfChildren: String(app.noOfChildren ?? 0),
+          emergencyContactName: app.emergencyContactName || '',
+          emergencyContactRelationship: app.emergencyContactRelationship || 'Spouse',
+          emergencyContactNumber: app.emergencyContactNumber || '',
+          facebookUrl: app.facebookUrl || '',
+          whatsappNumber: app.whatsappNumber || '',
+          linkedinUrl: app.linkedinUrl || '',
         });
+        setSelectedApplicantTypes(app.applicantTypes || []);
         const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
         setSelectedJobOrderId(initialJo);
         setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
@@ -659,6 +716,8 @@ export default function Registration({
           religion: personal.religion || 'Roman Catholic',
           height_cm: personal.height ? parseFloat(personal.height) : undefined,
           weight_kg: personal.weight ? parseFloat(personal.weight) : undefined,
+          place_of_birth: personal.placeOfBirth.trim() || undefined,
+          no_of_children: personal.noOfChildren ? parseInt(personal.noOfChildren, 10) : 0,
           present_address: personal.presentAddress.trim() || undefined,
           provincial_address: personal.provincialAddress.trim() || undefined,
           applied_role: personal.role.trim() || (selectedJob ? selectedJob.position : 'Applicant'),
@@ -667,6 +726,15 @@ export default function Registration({
           job_order_id: selectedJob?.jobOrderId ? parseInt(String(selectedJob.jobOrderId), 10) : undefined,
           employer_id: selectedJob?.employerId ? parseInt(String(selectedJob.employerId), 10) : undefined,
           country_id: selectedJob?.countryId ? parseInt(String(selectedJob.countryId), 10) : undefined,
+          emergency_contact_name: personal.emergencyContactName.trim() || undefined,
+          emergency_contact_relationship: personal.emergencyContactRelationship.trim() || undefined,
+          emergency_contact_number: personal.emergencyContactNumber.trim() || undefined,
+          is_indigenous: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES'),
+          indigenous_community: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES') ? personal.indigenousCommunity?.trim() || undefined : undefined,
+          facebook_url: personal.facebookUrl.trim() || undefined,
+          whatsapp_number: personal.whatsappNumber.trim() || undefined,
+          linkedin_url: personal.linkedinUrl.trim() || undefined,
+          applicant_types: selectedApplicantTypes,
           skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs,
           identifications: ids,
@@ -719,6 +787,17 @@ export default function Registration({
           religion: personal.religion,
           heightCm: personal.height ? parseFloat(personal.height) : undefined,
           weightKg: personal.weight ? parseFloat(personal.weight) : undefined,
+          placeOfBirth: personal.placeOfBirth,
+          noOfChildren: parseInt(personal.noOfChildren, 10) || 0,
+          applicantTypes: selectedApplicantTypes,
+          isIndigenous: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES'),
+          indigenousCommunity: personal.indigenousCommunity,
+          emergencyContactName: personal.emergencyContactName,
+          emergencyContactRelationship: personal.emergencyContactRelationship,
+          emergencyContactNumber: personal.emergencyContactNumber,
+          facebookUrl: personal.facebookUrl,
+          whatsappNumber: personal.whatsappNumber,
+          linkedinUrl: personal.linkedinUrl,
           skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           workExperience: payload.work_experience,
@@ -763,6 +842,17 @@ export default function Registration({
             present_address: personal.presentAddress?.trim() || null,
             provincial_address: personal.provincialAddress?.trim() || null,
             applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
+            place_of_birth: personal.placeOfBirth?.trim() || null,
+            no_of_children: personal.noOfChildren ? parseInt(personal.noOfChildren, 10) : 0,
+            emergency_contact_name: personal.emergencyContactName?.trim() || null,
+            emergency_contact_relationship: personal.emergencyContactRelationship?.trim() || null,
+            emergency_contact_number: personal.emergencyContactNumber?.trim() || null,
+            is_indigenous: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES'),
+            indigenous_community: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES') ? personal.indigenousCommunity?.trim() || null : null,
+            facebook_url: personal.facebookUrl?.trim() || null,
+            whatsapp_number: personal.whatsappNumber?.trim() || null,
+            linkedin_url: personal.linkedinUrl?.trim() || null,
+            applicant_types: selectedApplicantTypes,
             skills: skills,
             certifications: certs,
             identifications: ids,
@@ -815,6 +905,17 @@ export default function Registration({
             role: personal.role || (selectedJob ? selectedJob.position : 'Applicant'),
             jobOrder: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? 'Unassigned' : (currentApplicant?.jobOrder || 'Unassigned')),
             selectedJobOrderId: selectedJob ? selectedJob.code : (selectedJobOrderId === '' ? undefined : currentApplicant?.selectedJobOrderId),
+            placeOfBirth: personal.placeOfBirth,
+            noOfChildren: parseInt(personal.noOfChildren, 10) || 0,
+            applicantTypes: selectedApplicantTypes,
+            isIndigenous: selectedApplicantTypes.includes('INDIGENOUS_PEOPLES'),
+            indigenousCommunity: personal.indigenousCommunity,
+            emergencyContactName: personal.emergencyContactName,
+            emergencyContactRelationship: personal.emergencyContactRelationship,
+            emergencyContactNumber: personal.emergencyContactNumber,
+            facebookUrl: personal.facebookUrl,
+            whatsappNumber: personal.whatsappNumber,
+            linkedinUrl: personal.linkedinUrl,
             skills: skills,
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             identifications: ids,
@@ -1188,7 +1289,7 @@ export default function Registration({
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Civil Status</label>
                 <select className={inp} value={personal.civilStatus} onChange={e => setP('civilStatus', e.target.value)}>
-                  <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option>
+                  <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option><option>Solo Parent</option>
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -1202,6 +1303,15 @@ export default function Registration({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Place of Birth</label>
+                <input className={inp} value={personal.placeOfBirth} onChange={e => setP('placeOfBirth', e.target.value)} placeholder="City / Municipality" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">No. of Children</label>
+                <input className={inp} type="number" min="0" value={personal.noOfChildren} onChange={e => setP('noOfChildren', e.target.value)} />
+              </div>
+
               <div className="col-span-3">
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Present Address</label>
                 <input className={inp} value={personal.presentAddress} onChange={e => setP('presentAddress', e.target.value)} placeholder="Brgy., City, Province" />
@@ -1213,6 +1323,99 @@ export default function Registration({
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Target Position / Role</label>
                 <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} placeholder="e.g. Industrial Welder" />
+              </div>
+            </div>
+
+            {/* ── Classification ──────────────────────────────────────────── */}
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Users size={12} /> OFW Category & Classification
+              </p>
+              <p className="text-[11px] text-slate-400 mb-2">
+                <span className="font-semibold text-amber-600">First-Time OFW</span> and <span className="font-semibold text-sky-600">Returning OFW</span> are mutually exclusive. Muslim &amp; Indigenous may combine with either.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {CLASSIFICATION_CHIPS.map(chip => {
+                  const selected = selectedApplicantTypes.includes(chip.code);
+                  const colorMap: Record<string, string> = {
+                    emerald: selected ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50',
+                    sky:     selected ? 'bg-sky-600 text-white border-sky-600'         : 'bg-white text-sky-700 border-sky-300 hover:bg-sky-50',
+                    violet:  selected ? 'bg-violet-600 text-white border-violet-600'   : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50',
+                    amber:   selected ? 'bg-amber-500 text-white border-amber-500'     : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50',
+                  };
+                  return (
+                    <button
+                      key={chip.code}
+                      type="button"
+                      onClick={() => handleToggleApplicantType(chip.code)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${colorMap[chip.color]}`}
+                    >
+                      {selected && <Check size={11} />}
+                      {chip.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {isIndigenousSelected && (
+                <div className="mt-2 max-w-xs">
+                  <label className="block text-xs font-semibold text-amber-700 mb-1">Indigenous Community / Tribe</label>
+                  <input
+                    className={inp}
+                    value={personal.indigenousCommunity}
+                    onChange={e => setP('indigenousCommunity', e.target.value)}
+                    placeholder="e.g. Aeta, Manobo, Lumad, Ifugao..."
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* ── Emergency Contact ───────────────────────────────────────── */}
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <HeartHandshake size={12} /> Emergency Contact / Next of Kin
+              </p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Full Name</label>
+                  <input className={inp} value={personal.emergencyContactName} onChange={e => setP('emergencyContactName', e.target.value)} placeholder="Contact person's name" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Relationship</label>
+                  <select className={inp} value={personal.emergencyContactRelationship} onChange={e => setP('emergencyContactRelationship', e.target.value)}>
+                    {['Spouse', 'Parent', 'Sibling', 'Child', 'Relative', 'Friend', 'Other'].map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Contact Number</label>
+                  <input className={inp} value={personal.emergencyContactNumber} onChange={e => setP('emergencyContactNumber', e.target.value)} placeholder="+63 9XX XXX XXXX" />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Social Media ────────────────────────────────────────────── */}
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Share2 size={12} /> Social Media / Digital Presence
+              </p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Facebook URL</label>
+                  <div className="relative">
+                    <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input className={inp + ' pl-7'} value={personal.facebookUrl} onChange={e => setP('facebookUrl', e.target.value)} placeholder="facebook.com/..." />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">WhatsApp / Viber</label>
+                  <input className={inp} value={personal.whatsappNumber} onChange={e => setP('whatsappNumber', e.target.value)} placeholder="+63 9XX XXX XXXX" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">LinkedIn URL</label>
+                  <div className="relative">
+                    <ExternalLink size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input className={inp + ' pl-7'} value={personal.linkedinUrl} onChange={e => setP('linkedinUrl', e.target.value)} placeholder="linkedin.com/in/..." />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

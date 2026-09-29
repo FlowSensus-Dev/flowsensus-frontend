@@ -5,7 +5,8 @@ import {
   Briefcase, GraduationCap, Award, Languages,
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
   Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
-  ArrowLeft, ChevronLeft, ChevronRight, Edit2
+  ArrowLeft, ChevronLeft, ChevronRight, Edit2,
+  HeartHandshake, Share2, ExternalLink, Users, Check
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType } from '../../types';
 
@@ -487,6 +488,26 @@ export default function ApplicantProfile({
               )}
             </div>
           </div>
+          {/* Classification badges in header */}
+          {applicant.applicantTypes && applicant.applicantTypes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {applicant.applicantTypes.map(code => {
+                const meta: Record<string, { label: string; cls: string }> = {
+                  FIRST_TIME_OFW:     { label: 'First-Time OFW',     cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+                  RETURNING_OFW:      { label: 'Returning OFW',      cls: 'bg-sky-500/20 text-sky-300 border-sky-500/30'             },
+                  MUSLIM:             { label: 'Muslim',             cls: 'bg-violet-500/20 text-violet-300 border-violet-500/30'    },
+                  INDIGENOUS_PEOPLES: { label: 'Indigenous Peoples', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/30'      },
+                };
+                const m = meta[code] || { label: code, cls: 'bg-white/10 text-white/60 border-white/20' };
+                return (
+                  <span key={code} className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold flex items-center gap-1 ${m.cls}`}>
+                    <Check size={9} />{m.label}
+                    {code === 'INDIGENOUS_PEOPLES' && applicant.indigenousCommunity && ` (${applicant.indigenousCommunity})`}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <div className="flex flex-col items-end gap-2">
             <div className="text-right text-xs text-white/40">
               <p>Handler: {applicant.currentHandler}</p>
@@ -582,6 +603,7 @@ export default function ApplicantProfile({
               { label: 'Citizenship',    val: applicant.citizenship },
               { label: 'Height',         val: applicant.heightCm ? `${applicant.heightCm} cm` : undefined },
               { label: 'Weight',         val: applicant.weightKg ? `${applicant.weightKg} kg` : undefined },
+              { label: 'Place of Birth', val: applicant.placeOfBirth },
               { label: 'Children',       val: applicant.noOfChildren !== undefined ? applicant.noOfChildren : 0 },
             ].map(f => (
               <div key={f.label}>
@@ -602,6 +624,73 @@ export default function ApplicantProfile({
               </div>
             )}
           </div>
+
+          {/* Applicant Classification Badges */}
+          {(applicant.applicantTypes && applicant.applicantTypes.length > 0) && (
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1"><Users size={11} /> Classification</p>
+              <div className="flex flex-wrap gap-2">
+                {applicant.applicantTypes.map(code => {
+                  const meta: Record<string, { label: string; cls: string }> = {
+                    FIRST_TIME_OFW:     { label: 'First-Time OFW',     cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+                    RETURNING_OFW:      { label: 'Returning OFW',      cls: 'bg-sky-100 text-sky-700 border-sky-200'             },
+                    MUSLIM:             { label: 'Muslim',             cls: 'bg-violet-100 text-violet-700 border-violet-200'    },
+                    INDIGENOUS_PEOPLES: { label: 'Indigenous Peoples', cls: 'bg-amber-100 text-amber-700 border-amber-200'      },
+                  };
+                  const m = meta[code] || { label: code, cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+                  return (
+                    <span key={code} className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${m.cls}`}>
+                      <Check size={10} />{m.label}
+                    </span>
+                  );
+                })}
+                {applicant.isIndigenous && applicant.indigenousCommunity && (
+                  <span className="text-xs text-amber-600 font-medium ml-1">({applicant.indigenousCommunity})</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Emergency Contact */}
+          {applicant.emergencyContactName && (
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1"><HeartHandshake size={11} /> Emergency Contact</p>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-semibold text-[#0F172A]">{applicant.emergencyContactName}</span>
+                {applicant.emergencyContactRelationship && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{applicant.emergencyContactRelationship}</span>}
+                {applicant.emergencyContactNumber && (
+                  <span className="flex items-center gap-1 text-slate-500"><Phone size={12} />{applicant.emergencyContactNumber}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Social Media */}
+          {(applicant.facebookUrl || applicant.whatsappNumber || applicant.linkedinUrl) && (
+            <div className="border-t border-slate-100 mt-4 pt-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1"><Share2 size={11} /> Social & Digital</p>
+              <div className="flex flex-wrap gap-3">
+                {applicant.facebookUrl && (
+                  <a href={applicant.facebookUrl.startsWith('http') ? applicant.facebookUrl : `https://${applicant.facebookUrl}`} target="_blank" rel="noreferrer"
+                     className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                    <Globe size={13} /> Facebook <ExternalLink size={10} />
+                  </a>
+                )}
+                {applicant.whatsappNumber && (
+                  <a href={`https://wa.me/${applicant.whatsappNumber.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer"
+                     className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-800 font-medium transition-colors">
+                    <Phone size={13} /> WhatsApp <ExternalLink size={10} />
+                  </a>
+                )}
+                {applicant.linkedinUrl && (
+                  <a href={applicant.linkedinUrl.startsWith('http') ? applicant.linkedinUrl : `https://${applicant.linkedinUrl}`} target="_blank" rel="noreferrer"
+                     className="flex items-center gap-1.5 text-xs text-sky-600 hover:text-sky-800 font-medium transition-colors">
+                    <ExternalLink size={13} /> LinkedIn <ExternalLink size={10} />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

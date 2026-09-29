@@ -41,6 +41,16 @@ export interface ApplicantRecord {
   weightKg?: number;
   noOfChildren?: number;
   languagesSpoken?: string[];
+  applicantTypes?: string[];
+  isIndigenous?: boolean;
+  indigenousCommunity?: string;
+  facebookUrl?: string;
+  whatsappNumber?: string;
+  linkedinUrl?: string;
+  socialMedia?: Array<{ platform: string; url: string }>;
+  emergencyContactName?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactNumber?: string;
 
   // Skills and Qualifications
   skills?: string[];
@@ -81,7 +91,7 @@ export interface ApplicantRecord {
   testScores?: TestScores;
   matchScore?: number;
   matchReasons?: string[];
-  
+
   // Assessment validation
   hasCompleteAssessments?: boolean;
 
@@ -225,12 +235,14 @@ export interface JobOrder {
   employerName: string;
   slots: number;
   filledSlots: number;
-  salaryRange: string;
-  contractDuration: string;
+  salaryMin: number;
+  salaryMax: number;
+  salaryCurrency: string;
+  contractMonths: number;
   requirements: string[];
   minExperience: number;
   certifications: string[];
-  status: 'open' | 'closed' | 'filled' | 'pending';
+  status: 'open' | 'closed' | 'filled' | 'pending' | 'draft' | 'cancelled';
   datePosted: string;
   deadline: string;
   notes: string;
@@ -264,13 +276,23 @@ export interface EmployerRemark {
   content: string;
 }
 
+export interface ApplicantTypeLookup {
+  applicant_type_code: string;
+  type_name: string;
+}
+
+export interface JobCategoryLookup {
+  job_category_code: string;
+  category_name: string;
+}
+
 export const JOB_TYPE_OPTIONS = [
-  { value: 'all',          label: 'All Job Types'               },
+  { value: 'all', label: 'All Job Types' },
   { value: 'professional', label: 'Professional (Nurse, Engineer, Teacher)' },
-  { value: 'skilled',      label: 'Skilled / Technical Trade'   },
-  { value: 'hsw',          label: 'Household Service Worker'    },
-  { value: 'sea_based',    label: 'Sea-Based / Manning'         },
-  { value: 'driver',       label: 'Driver / Heavy Equipment'    },
+  { value: 'skilled', label: 'Skilled / Technical Trade' },
+  { value: 'hsw', label: 'Household Service Worker' },
+  { value: 'sea_based', label: 'Sea-Based / Manning' },
+  { value: 'driver', label: 'Driver / Heavy Equipment' },
 ] as const;
 
 export type JobTypeValue = typeof JOB_TYPE_OPTIONS[number]['value'];
@@ -280,12 +302,15 @@ export interface DocumentRequirement {
   name: string;
   description: string;
   isRequired: boolean;
-  appliesTo: 'all' | 'new_ofw' | 'returning_ofw' | 'muslim';
-  applicableJobTypes: JobTypeValue[];
+  applicantTypes: string[];
+  jobCategories: string[];
   expiryTracked: boolean;
   validityMonths?: number;
+  validityDays?: number;
   sortOrder: number;
   isActive: boolean;
+  appliesTo?: string;
+  applicableJobTypes?: string[];
 }
 
 export interface EvaluationTest {

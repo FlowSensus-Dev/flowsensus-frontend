@@ -8,16 +8,18 @@ import { JobOrder, EmployerProfile } from '../../types';
 import { api } from '../../../lib/api';
 
 const STATUS_META: Record<JobOrder['status'], { label: string; color: string; icon: React.ReactNode }> = {
-  open:    { label: 'Open',    color: '#10B981', icon: <CheckCircle2 size={13} /> },
+  open: { label: 'Open', color: '#10B981', icon: <CheckCircle2 size={13} /> },
   pending: { label: 'Pending', color: '#F59E0B', icon: <Clock size={13} /> },
-  filled:  { label: 'Filled',  color: '#0EA5E9', icon: <CheckCircle2 size={13} /> },
-  closed:  { label: 'Closed',  color: '#64748B', icon: <XCircle size={13} /> },
+  filled: { label: 'Filled', color: '#0EA5E9', icon: <CheckCircle2 size={13} /> },
+  closed: { label: 'Closed', color: '#64748B', icon: <XCircle size={13} /> },
+  draft: { label: 'Draft', color: '#94A3B8', icon: <Clock size={13} /> },
+  cancelled: { label: 'Cancelled', color: '#EF4444', icon: <XCircle size={13} /> },
 };
 
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
   code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
-  salaryRange: '', contractDuration: '', requirements: [], minExperience: 0, certifications: [],
-  status: 'pending', datePosted: new Date().toISOString().slice(0, 10), deadline: '', notes: '',
+  salaryMin: 0, salaryMax: 0, salaryCurrency: 'USD', contractMonths: 24, requirements: [], minExperience: 0, certifications: [],
+  status: 'draft', datePosted: new Date().toISOString().slice(0, 10), deadline: '', notes: '',
 };
 
 interface Props {
@@ -82,8 +84,10 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             employerName: jo.client_employer?.company_name || jo.employer_name || '',
             slots: jo.slots_requested || jo.total_slots || 1,
             filledSlots: jo.slots_filled || jo.filled_slots || 0,
-            salaryRange: jo.salary_range || '',
-            contractDuration: jo.contract_duration || '2 years',
+            salaryMin: Number(jo.salary_min) || 0,
+            salaryMax: Number(jo.salary_max) || 0,
+            salaryCurrency: jo.salary_currency || 'USD',
+            contractMonths: Number(jo.contract_months) || 24,
             requirements: Array.isArray(jo.required_skills) ? jo.required_skills : (Array.isArray(jo.requirements) ? jo.requirements : []),
             minExperience: jo.min_experience_years || 1,
             certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
@@ -129,6 +133,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     if (!editing.position.trim()) { showToast('Position is required'); return; }
     if (!editing.employerId) { showToast('Select an employer'); return; }
 
+    if (editing.slots <= 0) { showToast('Total slots must be greater than 0'); return; }
+    if (editing.salaryMax < editing.salaryMin) { showToast('Salary Max cannot be less than Salary Min'); return; }
+    if (editing.deadline && editing.datePosted && editing.deadline < editing.datePosted) { showToast('Deadline cannot be before Date Posted'); return; }
+    if (editing.contractMonths <= 0) { showToast('Contract duration must be greater than 0'); return; }
+    if (editing.minExperience < 0) { showToast('Min experience cannot be negative'); return; }
+    if (!/^[A-Z]{3}$/.test(editing.salaryCurrency)) { showToast('Salary currency must be a 3-letter code (e.g. USD)'); return; }
+
     setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
     const updatedEditing: JobOrder = {
@@ -139,18 +150,17 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
 
     const payload = {
       employer_id: parseInt(editing.employerId, 10) || 1,
-      position_title: editing.position,
-      job_order_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
-      slots_requested: editing.slots,
-      slots_filled: editing.filledSlots,
-      salary_range: editing.salaryRange,
-      contract_duration: editing.contractDuration,
+      position: editing.position,
+      job_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
+      total_slots: editing.slots,
+      salary_min: editing.salaryMin,
+      salary_max: editing.salaryMax,
+      salary_currency: editing.salaryCurrency,
+      contract_months: editing.contractMonths,
       min_experience_years: editing.minExperience,
-      required_certifications: editing.certifications,
-      required_skills: editing.requirements,
-      order_status: editing.status,
+      status: editing.status.toUpperCase(),
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
-      application_deadline: editing.deadline || undefined,
+      deadline: editing.deadline || undefined,
       notes: editing.notes,
     };
 
@@ -166,11 +176,14 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
       setEditing(null);
     } catch (err: any) {
-      console.warn('Backend save error, updating local state:', err);
-      if (isNew) setOrders(p => [...p, updatedEditing]);
-      else setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
-      showToast(`Saved locally: "${updatedEditing.code || updatedEditing.position}"`);
-      setEditing(null);
+      console.warn('Backend save error:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error occurred';
+      if (errorMsg.toLowerCase().includes('accreditation')) {
+        showToast(`Validation Error: ${errorMsg}. Cannot open job order without valid employer accreditation.`);
+      } else {
+        showToast(`Error saving job order: ${errorMsg}`);
+      }
+      // Do not update local state on error to prevent out-of-sync UI
     } finally {
       setIsSaving(false);
     }
@@ -214,7 +227,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
 
   const renderStars = (rating: number) => (
     <div className="flex gap-0.5">
-      {[1,2,3,4,5].map(n => <Star key={n} size={11} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'} />)}
+      {[1, 2, 3, 4, 5].map(n => <Star key={n} size={11} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'} />)}
     </div>
   );
 
@@ -274,115 +287,115 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
           </div>
         ) : (
           filtered.map(order => {
-          const meta = STATUS_META[order.status];
-          const emp = employers.find(e => e.id === order.employerId);
-          const isExpanded = expanded === order.id;
-          const available = order.slots - order.filledSlots;
-          const fillPct = order.slots > 0 ? (order.filledSlots / order.slots) * 100 : 0;
-          const isSuspended = emp?.status === 'suspended' || emp?.status === 'blacklisted';
+            const meta = STATUS_META[order.status];
+            const emp = employers.find(e => e.id === order.employerId);
+            const isExpanded = expanded === order.id;
+            const available = order.slots - order.filledSlots;
+            const fillPct = order.slots > 0 ? (order.filledSlots / order.slots) * 100 : 0;
+            const isSuspended = emp?.status === 'suspended' || emp?.status === 'blacklisted';
 
-          return (
-            <div key={order.id} className={`bg-white rounded-xl border overflow-hidden ${isSuspended ? 'border-red-200' : 'border-slate-200'}`}>
-              {isSuspended && (
-                <div className="bg-red-50 border-b border-red-200 px-5 py-2 flex items-center gap-2 text-xs text-red-600">
-                  <AlertTriangle size={13} /> Employer is suspended — do not process new applicants under this order
-                </div>
-              )}
-              <div className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setExpanded(isExpanded ? null : order.id)}>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#0EA5E9]/10 to-[#0EA5E9]/5 flex items-center justify-center flex-shrink-0">
-                  <Briefcase size={20} className="text-[#0EA5E9]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{order.code}</span>
-                    <span className="font-bold text-[#0F172A]">{order.position}</span>
-                    <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.color + '18', color: meta.color }}>
-                      {meta.icon} {meta.label}
-                    </span>
+            return (
+              <div key={order.id} className={`bg-white rounded-xl border overflow-hidden ${isSuspended ? 'border-red-200' : 'border-slate-200'}`}>
+                {isSuspended && (
+                  <div className="bg-red-50 border-b border-red-200 px-5 py-2 flex items-center gap-2 text-xs text-red-600">
+                    <AlertTriangle size={13} /> Employer is suspended — do not process new applicants under this order
                   </div>
-                  <div className="flex items-center gap-4 mt-1.5 text-xs text-slate-500 flex-wrap">
-                    <span className="flex items-center gap-1"><Globe size={11} /> {order.country}</span>
-                    <span className="flex items-center gap-1"><Building2 size={11} /> {order.employerName}</span>
-                    <span className="flex items-center gap-1"><DollarSign size={11} /> {order.salaryRange}</span>
-                    <span className="flex items-center gap-1"><Calendar size={11} /> Deadline: {order.deadline}</span>
+                )}
+                <div className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setExpanded(isExpanded ? null : order.id)}>
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#0EA5E9]/10 to-[#0EA5E9]/5 flex items-center justify-center flex-shrink-0">
+                    <Briefcase size={20} className="text-[#0EA5E9]" />
                   </div>
-                  <div className="flex items-center gap-3 mt-2">
-                    <div className="flex-1 max-w-[200px] h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${fillPct}%`, background: fillPct >= 100 ? '#64748B' : '#0EA5E9' }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{order.code}</span>
+                      <span className="font-bold text-[#0F172A]">{order.position}</span>
+                      <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.color + '18', color: meta.color }}>
+                        {meta.icon} {meta.label}
+                      </span>
                     </div>
-                    <span className="text-xs text-slate-500">{order.filledSlots}/{order.slots} slots filled</span>
-                    {available > 0 && <span className="text-xs font-semibold text-[#10B981]">{available} available</span>}
+                    <div className="flex items-center gap-4 mt-1.5 text-xs text-slate-500 flex-wrap">
+                      <span className="flex items-center gap-1"><Globe size={11} /> {order.country}</span>
+                      <span className="flex items-center gap-1"><Building2 size={11} /> {order.employerName}</span>
+                      <span className="flex items-center gap-1"><DollarSign size={11} /> {order.salaryCurrency} {order.salaryMin} - {order.salaryMax}</span>
+                      <span className="flex items-center gap-1"><Calendar size={11} /> Deadline: {order.deadline}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2">
+                      <div className="flex-1 max-w-[200px] h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${fillPct}%`, background: fillPct >= 100 ? '#64748B' : '#0EA5E9' }} />
+                      </div>
+                      <span className="text-xs text-slate-500">{order.filledSlots}/{order.slots} slots filled</span>
+                      {available > 0 && <span className="text-xs font-semibold text-[#10B981]">{available} available</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={e => { e.stopPropagation(); openEdit(order); }} className="p-2 hover:bg-blue-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); remove(order.id); }} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
+                      <Trash2 size={15} />
+                    </button>
+                    {isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={e => { e.stopPropagation(); openEdit(order); }} className="p-2 hover:bg-blue-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
-                    <Pencil size={15} />
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); remove(order.id); }} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
-                    <Trash2 size={15} />
-                  </button>
-                  {isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
-                </div>
-              </div>
 
-              {isExpanded && (
-                <div className="border-t border-slate-100 px-5 py-4 space-y-4">
-                  <div className="grid md:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Job Details</div>
-                      <div className="space-y-1.5 text-slate-700">
-                        <div><span className="text-slate-400 text-xs">Contract:</span> {order.contractDuration}</div>
-                        <div><span className="text-slate-400 text-xs">Min. Experience:</span> {order.minExperience} yr{order.minExperience !== 1 ? 's' : ''}</div>
-                        <div><span className="text-slate-400 text-xs">Posted:</span> {order.datePosted}</div>
-                        <div><span className="text-slate-400 text-xs">Deadline:</span> {order.deadline}</div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Documents</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {order.requirements.map(r => (
-                          <span key={r} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Certifications</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {order.certifications.length > 0
-                          ? order.certifications.map(c => <span key={c} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>)
-                          : <span className="text-xs text-slate-400 italic">None specified</span>
-                        }
-                      </div>
-                    </div>
-                  </div>
-                  {order.notes && (
-                    <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3 text-sm text-amber-800">
-                      <span className="font-semibold text-xs uppercase tracking-wider text-amber-600">Notes: </span>
-                      {order.notes}
-                    </div>
-                  )}
-                  {emp && (
-                    <div className="bg-slate-50 rounded-lg px-4 py-3 flex items-center gap-3 text-sm">
-                      <Building2 size={16} className="text-slate-400 flex-shrink-0" />
+                {isExpanded && (
+                  <div className="border-t border-slate-100 px-5 py-4 space-y-4">
+                    <div className="grid md:grid-cols-3 gap-4 text-sm">
                       <div>
-                        <span className="font-semibold text-[#0F172A]">{emp.companyName}</span>
-                        <span className="mx-2 text-slate-300">·</span>
-                        <span className="text-slate-500">{emp.industry}</span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {renderStars(emp.rating)}
-                          <span className="text-xs text-slate-500">{emp.totalDeployed} total deployed</span>
-                          <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: (emp.status === 'active' ? '#10B981' : '#EF4444') + '18', color: emp.status === 'active' ? '#10B981' : '#EF4444' }}>
-                            {emp.status}
-                          </span>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Job Details</div>
+                        <div className="space-y-1.5 text-slate-700">
+                          <div><span className="text-slate-400 text-xs">Contract:</span> {order.contractMonths} months</div>
+                          <div><span className="text-slate-400 text-xs">Min. Experience:</span> {order.minExperience} yr{order.minExperience !== 1 ? 's' : ''}</div>
+                          <div><span className="text-slate-400 text-xs">Posted:</span> {order.datePosted}</div>
+                          <div><span className="text-slate-400 text-xs">Deadline:</span> {order.deadline}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Documents</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {order.requirements.map(r => (
+                            <span key={r} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Certifications</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {order.certifications.length > 0
+                            ? order.certifications.map(c => <span key={c} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>)
+                            : <span className="text-xs text-slate-400 italic">None specified</span>
+                          }
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        }))}
+                    {order.notes && (
+                      <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3 text-sm text-amber-800">
+                        <span className="font-semibold text-xs uppercase tracking-wider text-amber-600">Notes: </span>
+                        {order.notes}
+                      </div>
+                    )}
+                    {emp && (
+                      <div className="bg-slate-50 rounded-lg px-4 py-3 flex items-center gap-3 text-sm">
+                        <Building2 size={16} className="text-slate-400 flex-shrink-0" />
+                        <div>
+                          <span className="font-semibold text-[#0F172A]">{emp.companyName}</span>
+                          <span className="mx-2 text-slate-300">·</span>
+                          <span className="text-slate-500">{emp.industry}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {renderStars(emp.rating)}
+                            <span className="text-xs text-slate-500">{emp.totalDeployed} total deployed</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: (emp.status === 'active' ? '#10B981' : '#EF4444') + '18', color: emp.status === 'active' ? '#10B981' : '#EF4444' }}>
+                              {emp.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }))}
       </div>
 
       {/* Edit / Add Modal */}
@@ -404,7 +417,27 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                   <input value={editing.position} onChange={e => setEditing(p => p ? { ...p, position: e.target.value } : p)} placeholder="e.g. Industrial Welder" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Employer *</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Employer *</label>
+                    <button type="button" onClick={() => {
+                      const name = prompt('Enter new employer name:');
+                      if (!name) return;
+                      const country = prompt('Enter employer country:');
+                      if (!country) return;
+                      const payload = { company_name: name, industry: 'General', country: country, registration_status: 'REGISTERED', compliance_status: 'COMPLIANT', star_rating: 3, total_deployed: 0, active_job_orders: 0 };
+                      api.post('/employers', payload).then(res => {
+                        const newEmp = { id: String(res.data.employer_id), companyName: name, country, industry: 'General', contactPerson: '', contactEmail: '', contactPhone: '', address: '', accreditationNo: '', accreditationExpiry: '', status: 'active' as any, rating: 3 as any, totalDeployed: 0, activeJobOrders: 0, remarks: [], createdAt: new Date().toISOString() };
+                        setEmployers(p => [...p, newEmp]);
+                        onEmployerChange(newEmp.id);
+                        showToast(`Employer "${name}" created.`);
+                      }).catch(err => {
+                        console.warn('Error creating employer', err);
+                        showToast('Failed to create employer inline. Try from Employers page.');
+                      });
+                    }} className="text-xs text-[#0EA5E9] hover:underline font-medium">
+                      + Create New
+                    </button>
+                  </div>
                   <select value={editing.employerId} onChange={e => onEmployerChange(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white">
                     <option value="">-- Select Employer --</option>
                     {employers.filter(e => e.status !== 'blacklisted').map(e => (
@@ -420,13 +453,23 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Total Slots</label>
                   <input type="number" min={1} value={editing.slots} onChange={e => setEditing(p => p ? { ...p, slots: parseInt(e.target.value) || 1 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Salary Range</label>
-                  <input value={editing.salaryRange} onChange={e => setEditing(p => p ? { ...p, salaryRange: e.target.value } : p)} placeholder="e.g. AED 2,800–3,400/mo" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                <div className="grid grid-cols-3 gap-2 col-span-1 md:col-span-2">
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Currency</label>
+                    <input value={editing.salaryCurrency} onChange={e => setEditing(p => p ? { ...p, salaryCurrency: e.target.value.toUpperCase() } : p)} maxLength={3} placeholder="USD" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Min Salary</label>
+                    <input type="number" value={editing.salaryMin} onChange={e => setEditing(p => p ? { ...p, salaryMin: parseFloat(e.target.value) || 0 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40" />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Max Salary</label>
+                    <input type="number" value={editing.salaryMax} onChange={e => setEditing(p => p ? { ...p, salaryMax: parseFloat(e.target.value) || 0 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40" />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Contract Duration</label>
-                  <input value={editing.contractDuration} onChange={e => setEditing(p => p ? { ...p, contractDuration: e.target.value } : p)} placeholder="e.g. 2 years" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Contract Duration (Months)</label>
+                  <input type="number" min={1} value={editing.contractMonths} onChange={e => setEditing(p => p ? { ...p, contractMonths: parseInt(e.target.value) || 24 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Min. Experience (years)</label>
