@@ -80,3 +80,58 @@ test('selector uses real application IDs, deduplicates, and omits missing IDs', 
   assert.equal(html.match(/value="91"/g).length, 1);
   assert.ok(!html.includes('Missing ID'));
 });
+
+
+test('renders forecast basis from PERT and SES', () => {
+  const mockPipeline = {
+    alpha_used: 0.35,
+    stages: [
+      { stage_name: 'Medical', pert_baseline: 12.0, current_forecast: 14.5, observation_count: 5, is_fallback: false },
+      { stage_name: 'CV & Endorsement', pert_baseline: 6.33, current_forecast: 6.33, observation_count: 0, is_fallback: true },
+      { stage_name: 'Under Employer Review', pert_baseline: 16.5, current_forecast: 16.5, observation_count: 0, is_fallback: true },
+      { stage_name: 'Final Deployment', pert_baseline: 14.33, current_forecast: 14.33, observation_count: 0, is_fallback: true },
+    ]
+  };
+
+  const mockResult = {
+    application_id: 5,
+    current_stage: 'CV & Endorsement',
+    days_spent_in_current_stage: 3,
+    stage_breakdown: {},
+    record: { estimated_remaining_days: 34.16 }
+  };
+
+  const html = render(SimulationResult, { result: mockResult, pipeline: mockPipeline });
+
+  // Renders the calculation details
+  assert.ok(html.includes('How this forecast was calculated'));
+  assert.ok(html.includes('CV &amp; Endorsement'));
+
+  // 6.33 - 3 = 3.33
+  assert.ok(html.includes('3.33'));
+  assert.ok(html.includes('16.50'));
+  assert.ok(html.includes('14.33'));
+  assert.ok(html.includes('= 34.16'));
+});
+
+test('clamps current stage remaining to zero if elapsed exceeds forecast', () => {
+  const mockPipeline = {
+    alpha_used: 0.35,
+    stages: [
+      { stage_name: 'CV & Endorsement', pert_baseline: 6.33, current_forecast: 6.33, observation_count: 0, is_fallback: true },
+      { stage_name: 'Under Employer Review', pert_baseline: 16.5, current_forecast: 16.5, observation_count: 0, is_fallback: true }
+    ]
+  };
+
+  const mockResult = {
+    application_id: 5,
+    current_stage: 'CV & Endorsement',
+    days_spent_in_current_stage: 30, // Exceeds 6.33
+    stage_breakdown: {},
+    record: { estimated_remaining_days: 16.5 }
+  };
+
+  const html = render(SimulationResult, { result: mockResult, pipeline: mockPipeline });
+  assert.ok(html.includes('clamped to 0'));
+  assert.ok(html.includes('max(6.33 - 30.00, 0) = 0.00'));
+});

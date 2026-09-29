@@ -6,6 +6,18 @@ function simulationPath(applicationId: number) {
   return `/forecasting/application/${applicationId}/simulation`;
 }
 
+export async function getApplicationForecast(applicationId: number): Promise<ApplicationForecastResponse> {
+  if (!Number.isSafeInteger(applicationId) || applicationId <= 0) throw new Error('Enter a valid positive Application ID.');
+  const { data } = await api.get(`/forecasting/application/${applicationId}`);
+  if (data?.application_id !== applicationId) throw new Error('Forecast response does not match the requested application.');
+  return data;
+}
+
+export async function getPipelineForecast(): Promise<any> {
+  const { data } = await api.get('/forecasting/pipeline');
+  return data;
+}
+
 export async function generateSimulation(applicationId: number, elapsedDays: number): Promise<ApplicationForecastResponse> {
   const path = simulationPath(applicationId);
   if (!Number.isFinite(elapsedDays) || elapsedDays < 0 || elapsedDays > 36500) throw new Error('Elapsed days must be between 0 and 36500.');
