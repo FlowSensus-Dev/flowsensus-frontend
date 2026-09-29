@@ -1519,15 +1519,10 @@ export default function App() {
     }
   }, [view]);
 
-  // Background polling to silently refresh data every 30 seconds
+  // Background polling disabled to prevent UI interruptions and state wipes while typing
+  // Manual refreshing or websockets should be used instead.
   useEffect(() => {
-    if (view !== "app" && view !== "super-admin") return;
-    
-    const interval = setInterval(() => {
-      fetchLiveBackendData();
-    }, 30000);
-
-    return () => clearInterval(interval);
+    // No-op
   }, [view]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {

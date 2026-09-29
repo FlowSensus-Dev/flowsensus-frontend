@@ -642,6 +642,7 @@ export default function Registration({
           facebookUrl: app.facebookUrl || '',
           whatsappNumber: app.whatsappNumber || '',
           linkedinUrl: app.linkedinUrl || '',
+          indigenousCommunity: app.indigenousCommunity || '',
         });
         setSelectedApplicantTypes(app.applicantTypes || []);
         const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
@@ -1202,7 +1203,8 @@ export default function Registration({
       {/* ── Personal Info ────────────────────────────────────────────────────── */}
       <div id="section-personal" className="scroll-mt-20 !mt-2">
         <Section title="Personal Information" icon={<User size={16} />} badge={<span className="text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">Required *</span>}>
-          <div className="flex gap-6">
+          {/* Row 1: Photo beside Name + Contact only */}
+          <div className="flex gap-6 items-start">
             {/* Photo */}
             <div className="flex-shrink-0">
               <div
@@ -1216,12 +1218,9 @@ export default function Registration({
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async e => {
                 const f = e.target.files?.[0]; if (!f) return;
-                // Preview immediately locally
                 const reader = new FileReader();
                 reader.onload = ev => setPhoto(ev.target?.result as string);
                 reader.readAsDataURL(f);
-
-                // Upload directly to Supabase Storage
                 try {
                   const formData = new FormData();
                   formData.append('file', f);
@@ -1239,7 +1238,7 @@ export default function Registration({
               {photo && <button type="button" onClick={handleRemovePhoto} className="text-[10px] text-slate-400 hover:text-red-500 mt-1 w-full text-center transition-colors">Remove</button>}
             </div>
 
-            {/* Fields */}
+            {/* Name + Contact (the only rows that sit beside the photo) */}
             <div className="flex-1 grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -1266,155 +1265,162 @@ export default function Registration({
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Mobile / Contact</label>
                 <input className={inp} value={personal.contact} onChange={e => setP('contact', e.target.value)} placeholder="+63 9XX XXX XXXX" />
               </div>
+            </div>
+          </div>
 
+          {/* Remaining fields — full width, no empty gap */}
+          <div className="grid grid-cols-3 gap-4 mt-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Date of Birth</label>
+              <input className={inp} type="date" value={personal.dateOfBirth} onChange={e => { setP('dateOfBirth', e.target.value); setP('age', calcAge(e.target.value)); }} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Age</label>
+              <input className={inp} type="number" value={personal.age} onChange={e => setP('age', e.target.value)} readOnly />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Gender</label>
+              <select className={inp} value={personal.sex} onChange={e => setP('sex', e.target.value)}>
+                <option>Male</option><option>Female</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Religion</label>
+              <input className={inp} value={personal.religion} onChange={e => setP('religion', e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Civil Status</label>
+              <select className={inp} value={personal.civilStatus} onChange={e => setP('civilStatus', e.target.value)}>
+                <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Date of Birth</label>
-                <input className={inp} type="date" value={personal.dateOfBirth} onChange={e => { setP('dateOfBirth', e.target.value); setP('age', calcAge(e.target.value)); }} />
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Weight (kg)</label>
+                <input className={inp} value={personal.weight} onChange={e => setP('weight', e.target.value)} placeholder="kg" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Age</label>
-                <input className={inp} type="number" value={personal.age} onChange={e => setP('age', e.target.value)} readOnly />
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Height (cm)</label>
+                <input className={inp} value={personal.height} onChange={e => setP('height', e.target.value)} placeholder="cm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Place of Birth</label>
+              <input className={inp} value={personal.placeOfBirth} onChange={e => setP('placeOfBirth', e.target.value)} placeholder="City / Municipality" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">No. of Children</label>
+              <input className={inp} type="number" min="0" value={personal.noOfChildren} onChange={e => setP('noOfChildren', e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Target Position / Role</label>
+              <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} placeholder="e.g. Industrial Welder" />
+            </div>
+
+            <div className="col-span-3">
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Present Address</label>
+              <input className={inp} value={personal.presentAddress} onChange={e => setP('presentAddress', e.target.value)} placeholder="Brgy., City, Province" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Provincial Address (if different)</label>
+              <input className={inp} value={personal.provincialAddress} onChange={e => setP('provincialAddress', e.target.value)} />
+            </div>
+            <div>{/* intentional spacer to keep grid even */}</div>
+          </div>
+
+          {/* ── OFW Category & Classification ─────────────────────────────────── */}
+          <div className="border-t border-slate-100 mt-5 pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <Users size={12} /> OFW Category &amp; Classification
+            </p>
+            <p className="text-[11px] text-slate-400 mb-2.5">
+              <span className="font-semibold text-amber-600">First-Time OFW</span> and <span className="font-semibold text-sky-600">Returning OFW</span> are mutually exclusive. Muslim &amp; Indigenous may combine with either.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {CLASSIFICATION_CHIPS.map(chip => {
+                const selected = selectedApplicantTypes.includes(chip.code);
+                const colorMap: Record<string, string> = {
+                  emerald: selected ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50',
+                  sky:     selected ? 'bg-sky-600 text-white border-sky-600'         : 'bg-white text-sky-700 border-sky-300 hover:bg-sky-50',
+                  violet:  selected ? 'bg-violet-600 text-white border-violet-600'   : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50',
+                  amber:   selected ? 'bg-amber-500 text-white border-amber-500'     : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50',
+                };
+                return (
+                  <button
+                    key={chip.code}
+                    type="button"
+                    onClick={() => handleToggleApplicantType(chip.code)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${colorMap[chip.color]}`}
+                  >
+                    {selected && <Check size={11} />}
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+            {isIndigenousSelected && (
+              <div className="mt-3 max-w-sm">
+                <label className="block text-xs font-semibold text-amber-700 mb-1">Indigenous Community / Tribe</label>
+                <input
+                  className={inp}
+                  value={personal.indigenousCommunity}
+                  onChange={e => setP('indigenousCommunity', e.target.value)}
+                  placeholder="e.g. Aeta, Manobo, Lumad, Ifugao..."
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ── Emergency Contact ─────────────────────────────────────────────── */}
+          <div className="border-t border-slate-100 mt-5 pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <HeartHandshake size={12} /> Emergency Contact / Next of Kin
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Full Name</label>
+                <input className={inp} value={personal.emergencyContactName} onChange={e => setP('emergencyContactName', e.target.value)} placeholder="Contact person's name" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Gender</label>
-                <select className={inp} value={personal.sex} onChange={e => setP('sex', e.target.value)}>
-                  <option>Male</option><option>Female</option>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Relationship</label>
+                <select className={inp} value={personal.emergencyContactRelationship} onChange={e => setP('emergencyContactRelationship', e.target.value)}>
+                  {['Spouse', 'Parent', 'Sibling', 'Child', 'Relative', 'Friend', 'Other'].map(r => <option key={r}>{r}</option>)}
                 </select>
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Religion</label>
-                <input className={inp} value={personal.religion} onChange={e => setP('religion', e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Civil Status</label>
-                <select className={inp} value={personal.civilStatus} onChange={e => setP('civilStatus', e.target.value)}>
-                  <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option><option>Solo Parent</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Weight</label>
-                  <input className={inp} value={personal.weight} onChange={e => setP('weight', e.target.value)} placeholder="kg" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Height</label>
-                  <input className={inp} value={personal.height} onChange={e => setP('height', e.target.value)} placeholder="cm or ft" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Place of Birth</label>
-                <input className={inp} value={personal.placeOfBirth} onChange={e => setP('placeOfBirth', e.target.value)} placeholder="City / Municipality" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">No. of Children</label>
-                <input className={inp} type="number" min="0" value={personal.noOfChildren} onChange={e => setP('noOfChildren', e.target.value)} />
-              </div>
-
-              <div className="col-span-3">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Present Address</label>
-                <input className={inp} value={personal.presentAddress} onChange={e => setP('presentAddress', e.target.value)} placeholder="Brgy., City, Province" />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Provincial Address (if different)</label>
-                <input className={inp} value={personal.provincialAddress} onChange={e => setP('provincialAddress', e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Target Position / Role</label>
-                <input className={inp} value={personal.role} onChange={e => setP('role', e.target.value)} placeholder="e.g. Industrial Welder" />
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Contact Number</label>
+                <input className={inp} value={personal.emergencyContactNumber} onChange={e => setP('emergencyContactNumber', e.target.value)} placeholder="+63 9XX XXX XXXX" />
               </div>
             </div>
+          </div>
 
-            {/* ── Classification ──────────────────────────────────────────── */}
-            <div className="border-t border-slate-100 mt-4 pt-4">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Users size={12} /> OFW Category & Classification
-              </p>
-              <p className="text-[11px] text-slate-400 mb-2">
-                <span className="font-semibold text-amber-600">First-Time OFW</span> and <span className="font-semibold text-sky-600">Returning OFW</span> are mutually exclusive. Muslim &amp; Indigenous may combine with either.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {CLASSIFICATION_CHIPS.map(chip => {
-                  const selected = selectedApplicantTypes.includes(chip.code);
-                  const colorMap: Record<string, string> = {
-                    emerald: selected ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50',
-                    sky:     selected ? 'bg-sky-600 text-white border-sky-600'         : 'bg-white text-sky-700 border-sky-300 hover:bg-sky-50',
-                    violet:  selected ? 'bg-violet-600 text-white border-violet-600'   : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50',
-                    amber:   selected ? 'bg-amber-500 text-white border-amber-500'     : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50',
-                  };
-                  return (
-                    <button
-                      key={chip.code}
-                      type="button"
-                      onClick={() => handleToggleApplicantType(chip.code)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${colorMap[chip.color]}`}
-                    >
-                      {selected && <Check size={11} />}
-                      {chip.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {isIndigenousSelected && (
-                <div className="mt-2 max-w-xs">
-                  <label className="block text-xs font-semibold text-amber-700 mb-1">Indigenous Community / Tribe</label>
-                  <input
-                    className={inp}
-                    value={personal.indigenousCommunity}
-                    onChange={e => setP('indigenousCommunity', e.target.value)}
-                    placeholder="e.g. Aeta, Manobo, Lumad, Ifugao..."
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* ── Emergency Contact ───────────────────────────────────────── */}
-            <div className="border-t border-slate-100 mt-4 pt-4">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <HeartHandshake size={12} /> Emergency Contact / Next of Kin
-              </p>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Full Name</label>
-                  <input className={inp} value={personal.emergencyContactName} onChange={e => setP('emergencyContactName', e.target.value)} placeholder="Contact person's name" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Relationship</label>
-                  <select className={inp} value={personal.emergencyContactRelationship} onChange={e => setP('emergencyContactRelationship', e.target.value)}>
-                    {['Spouse', 'Parent', 'Sibling', 'Child', 'Relative', 'Friend', 'Other'].map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Contact Number</label>
-                  <input className={inp} value={personal.emergencyContactNumber} onChange={e => setP('emergencyContactNumber', e.target.value)} placeholder="+63 9XX XXX XXXX" />
+          {/* ── Social Media / Digital Presence ───────────────────────────────── */}
+          <div className="border-t border-slate-100 mt-5 pt-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <Share2 size={12} /> Social Media / Digital Presence
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Facebook URL</label>
+                <div className="relative">
+                  <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input className={inp + ' pl-7'} value={personal.facebookUrl} onChange={e => setP('facebookUrl', e.target.value)} placeholder="facebook.com/..." />
                 </div>
               </div>
-            </div>
-
-            {/* ── Social Media ────────────────────────────────────────────── */}
-            <div className="border-t border-slate-100 mt-4 pt-4">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Share2 size={12} /> Social Media / Digital Presence
-              </p>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Facebook URL</label>
-                  <div className="relative">
-                    <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input className={inp + ' pl-7'} value={personal.facebookUrl} onChange={e => setP('facebookUrl', e.target.value)} placeholder="facebook.com/..." />
-                  </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">WhatsApp / Viber URL</label>
+                <div className="relative">
+                  <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input className={inp + ' pl-7'} value={personal.whatsappNumber} onChange={e => setP('whatsappNumber', e.target.value)} placeholder="wa.me/639XXXXXXXXX" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">WhatsApp / Viber</label>
-                  <input className={inp} value={personal.whatsappNumber} onChange={e => setP('whatsappNumber', e.target.value)} placeholder="+63 9XX XXX XXXX" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">LinkedIn URL</label>
-                  <div className="relative">
-                    <ExternalLink size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input className={inp + ' pl-7'} value={personal.linkedinUrl} onChange={e => setP('linkedinUrl', e.target.value)} placeholder="linkedin.com/in/..." />
-                  </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">LinkedIn URL</label>
+                <div className="relative">
+                  <ExternalLink size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input className={inp + ' pl-7'} value={personal.linkedinUrl} onChange={e => setP('linkedinUrl', e.target.value)} placeholder="linkedin.com/in/..." />
                 </div>
               </div>
             </div>

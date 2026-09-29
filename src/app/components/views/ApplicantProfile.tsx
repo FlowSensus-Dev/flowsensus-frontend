@@ -6,8 +6,9 @@ import {
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
   Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
   ArrowLeft, ChevronLeft, ChevronRight, Edit2,
-  HeartHandshake, Share2, ExternalLink, Users, Check
+  HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2
 } from 'lucide-react';
+import { api } from '../../../lib/api';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType } from '../../types';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
@@ -128,18 +129,53 @@ export default function ApplicantProfile({
     "Other (see details below)",
   ];
 
-  const handleStopProcessing = () => {
+  const handleStopProcessing = async () => {
     if (!stopReason.trim() || !applicant || !updateApplicant) return;
-    updateApplicant(applicant.id, {
+    
+    const updates = {
       isStopped: true, stoppedReason: stopReason, stoppedBy: currentUserName,
       stoppedAt: new Date().toISOString(), stoppedPhase: applicant.phase,
       status: 'Processing Stopped',
       phaseDescription: `Processing halted by ${currentUserName}: ${stopReason}`,
-    });
+    };
+    
+    // Optimistic local update
+    updateApplicant(applicant.id, updates);
+    
+    // Backend update
+    try {
+      await api.put(`/applicants/${applicant.id}`, updates);
+    } catch (err) {
+      console.error('Failed to save stop processing to backend:', err);
+      showToast?.('Failed to save status to backend, but updated locally.');
+    }
+
     addActivityLog?.({ applicantId: applicant.id, action: 'Processing Stopped', performedBy: currentUserName, department: 'Recruitment', details: `Stopped at Phase ${applicant.phase}. Reason: ${stopReason}` });
     showToast?.('Processing stopped. Applicant record has been locked.');
     setShowStopModal(false);
     setStopReason('');
+  };
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDeleteApplicant = async () => {
+    if (!applicant) return;
+    setIsDeleting(true);
+    try {
+      await api.delete(`/applicants/${applicant.id}`);
+      showToast?.('Applicant deleted successfully.');
+      if (onBack) {
+        onBack();
+      } else {
+        window.location.reload();
+      }
+    } catch (err: any) {
+      console.error('Failed to delete applicant:', err);
+      showToast?.(err?.response?.data?.detail || 'Failed to delete applicant.');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
   };
 
   const validateFlag = (flagId: string) => {
@@ -514,14 +550,25 @@ export default function ApplicantProfile({
               <p className="mt-0.5">{applicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
-            {!(applicant.status === 'Processing Stopped') && updateApplicant && (
-              <button
-                onClick={() => setShowStopModal(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
-              >
-                <OctagonX size={13} /> Stop Processing
-              </button>
-            )}
+            <div className="flex gap-2">
+              {applicant.status === 'Processing Stopped' && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  disabled={isDeleting}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 size={13} /> {isDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              )}
+              {!(applicant.status === 'Processing Stopped') && updateApplicant && (
+                <button
+                  onClick={() => setShowStopModal(true)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
+                >
+                  <OctagonX size={13} /> Stop Processing
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -677,7 +724,7 @@ export default function ApplicantProfile({
                   </a>
                 )}
                 {applicant.whatsappNumber && (
-                  <a href={`https://wa.me/${applicant.whatsappNumber.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer"
+                  <a href={applicant.whatsappNumber.startsWith('http') ? applicant.whatsappNumber : `https://${applicant.whatsappNumber}`} target="_blank" rel="noreferrer"
                      className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-800 font-medium transition-colors">
                     <Phone size={13} /> WhatsApp <ExternalLink size={10} />
                   </a>
@@ -1336,6 +1383,41 @@ export default function ApplicantProfile({
                 className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-sm font-semibold rounded-lg transition-colors"
               >
                 <OctagonX size={15} /> Confirm Stop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ─────────────────────────────────────────────── */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-200">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-red-500" />
+              </div>
+              <div>
+                <h2 className="font-bold text-[#0F172A]">Delete Applicant</h2>
+                <p className="text-xs text-slate-500 mt-0.5">This action cannot be undone.</p>
+              </div>
+              <button onClick={() => setShowDeleteModal(false)} className="ml-auto text-slate-400 hover:text-slate-600"><X size={20} /></button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700 space-y-1">
+                <p className="font-semibold text-sm mb-1">Warning:</p>
+                <p>Are you sure you want to permanently delete the applicant <strong>{applicant?.name}</strong>?</p>
+                <p className="mt-2">Note: This is a soft-delete in the system. The record and associated photo are retained in the cloud database for compliance and audit trail purposes but will no longer appear in your active agency lists.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
+              <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-medium text-slate-600">Cancel</button>
+              <button
+                onClick={handleDeleteApplicant}
+                disabled={isDeleting}
+                className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />} Confirm Delete
               </button>
             </div>
           </div>
