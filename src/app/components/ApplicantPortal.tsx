@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import type { ApplicationForecastResponse } from '../types';
 import { completedApplication, portalError, loadPortal, loadPortalForecast } from '../portal';
 import type { PortalApplication, PortalProfile } from '../portal';
+import DefenseSimulationBadge from './DefenseSimulationBadge';
 
 const card = 'min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 sm:p-6';
 const button = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:opacity-50';
@@ -87,6 +88,7 @@ function Forecast({ application, profile, token }: { application: PortalApplicat
       : loading ? <Loading message="Loading application forecast..." />
       : error ? <Notice message={error} retry={() => setAttempt(a => a + 1)} />
       : <>
+        <DefenseSimulationBadge isSimulation={result?.is_simulation} />
         <div className="rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 to-slate-50 p-5 sm:p-6">
           <p className={`${label} flex items-center gap-2`}><CalendarDays aria-hidden="true" size={16} />Estimated deployment date</p>
           <p className="mt-3 text-3xl font-bold tracking-tight text-sky-900">{result?.record?.estimated_deployment_date ? date(result.record.estimated_deployment_date) : 'ETA unavailable'}</p>

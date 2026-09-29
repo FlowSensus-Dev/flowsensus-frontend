@@ -9,10 +9,11 @@ import {
 } from 'lucide-react';
 import { UserRole, ApplicantRecord, ActivityLog } from '../types';
 import { api } from '../../lib/api';
+import ForecastingDefenseSimulator from './ForecastingDefenseSimulator';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type AdminView = 'overview' | 'tenants' | 'onboarding' | 'audit';
+type AdminView = 'overview' | 'tenants' | 'onboarding' | 'audit' | 'simulation';
 
 // Verified field names from GET /audit-logs AuditLogResponse schema
 interface LiveAuditLog {
@@ -264,6 +265,7 @@ export default function SuperAdminDashboard({
   });
 
   const NAV = [
+    { key: 'simulation' as AdminView, label: 'Defense Simulator', icon: <Clock size={17} /> },
     { key: 'overview' as AdminView, label: 'Overview', icon: <BarChart3 size={17} /> },
     { key: 'tenants' as AdminView, label: 'Tenant Management', icon: <Building2 size={17} /> },
     { key: 'onboarding' as AdminView, label: 'Agency Onboarding', icon: <UserPlus size={17} /> },
@@ -271,6 +273,7 @@ export default function SuperAdminDashboard({
   ];
 
   const TITLES: Record<AdminView, string> = {
+    simulation: 'Forecasting Defense Simulator',
     overview: 'Platform Overview',
     tenants: 'Tenant Management',
     onboarding: 'Agency Onboarding',
@@ -375,6 +378,7 @@ export default function SuperAdminDashboard({
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
+          {view === 'simulation' && <ForecastingDefenseSimulator applicants={applicants} />}
 
           {/* ── Overview ──────────────────────────────────────────────── */}
           {view === 'overview' && (

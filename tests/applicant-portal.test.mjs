@@ -22,6 +22,16 @@ const profile = { applicant_id: 7, agency_id: 2 };
 const application = { application_id: 91, applicant_id: 7 };
 const signal = () => new AbortController().signal;
 
+test('normal forecasting GET preserves backend simulation and normal forecast flags', async () => {
+  for (const is_simulation of [true, false, undefined]) {
+    const forecast = { application_id: 91, applicant_id: 7, agency_id: 2, is_simulation, record: null, limitations: [] };
+    respond = () => forecast;
+    assert.deepEqual(await portal.loadPortalForecast(91, profile, 'session-token', signal()), forecast);
+    assert.equal(requests.at(-1).url, '/forecasting/application/91');
+    assert.equal(requests.at(-1).method, 'get');
+  }
+});
+
 test('profile and applications are requested without frontend ownership parameters', async () => {
   requests.length = 0;
   respond = config => config.url.endsWith('/applications') ? [application] : profile;

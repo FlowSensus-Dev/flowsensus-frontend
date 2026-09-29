@@ -344,6 +344,7 @@ export interface ApplicationForecastRecord {
 }
 
 export interface ApplicationForecastResponse {
+  is_simulation?: boolean;
   agency_id: number;
   application_id: number;
   applicant_id?: number | null;
