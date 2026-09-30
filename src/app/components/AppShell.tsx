@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
-import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord } from '../types';
+import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
 import { api } from '../../lib/api';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
@@ -151,6 +151,34 @@ export default function AppShell({
   }, [applicants, selectedApplicantId]);
 
   const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
+  const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+
+  // Fetch live evaluation templates from backend
+  const fetchEvaluationTemplates = async () => {
+    try {
+      const res = await api.get('/evaluations/templates');
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
+          id: String(t.test_template_id || t.id),
+          name: t.name,
+          type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+          description: t.description || '',
+          maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+          passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+          weight: Number(t.weight_percentage ?? t.weight ?? 10),
+          scoringGuide: t.scoring_guide || t.scoringGuide || '',
+          isActive: Boolean(t.is_active ?? t.isActive ?? true),
+        }));
+        setEvaluationTemplates(liveTests);
+      }
+    } catch (err) {
+      console.warn('Could not fetch evaluation templates:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchEvaluationTemplates();
+  }, []);
 
   // Fetch live workflow module permissions from backend
   useEffect(() => {
@@ -338,6 +366,9 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            evaluationTemplates={evaluationTemplates}
+            onTemplatesUpdated={fetchEvaluationTemplates}
+            globalJobOrders={globalJobOrders}
           />
         );
       case 'profiling':
@@ -492,6 +523,8 @@ export default function AppShell({
             showToast={showToastNotification}
             currentUserName={currentUserName}
             onPermissionsUpdated={(newPerms) => setWorkflowPermissions(newPerms)}
+            onTemplatesUpdated={(tpls) => setEvaluationTemplates(tpls)}
+            globalJobOrders={globalJobOrders}
           />
         );
       }

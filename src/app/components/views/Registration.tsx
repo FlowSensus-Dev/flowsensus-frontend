@@ -805,7 +805,7 @@ export default function Registration({
           employmentHistory: employment,
           employmentFlags: flags,
           address: personal.presentAddress || personal.provincialAddress,
-          testScores: { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' },
+          testScores: undefined,
           matchScore: 85,
         };
 

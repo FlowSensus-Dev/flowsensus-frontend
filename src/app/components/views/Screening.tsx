@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../../../lib/api';
+import { jsPDF } from 'jspdf';
 import {
   Microscope,
   FileCheck2,
@@ -27,9 +28,19 @@ import {
   ShieldAlert,
   Info,
   Download,
-  RotateCcw
+  RotateCcw,
+  Brain,
+  Heart,
+  Wrench,
+  Languages,
+  Stethoscope,
+  Sliders,
+  MessageSquare,
+  Sparkles,
+  Save,
+  Search,
 } from 'lucide-react';
-import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
+import { WorkflowState, ActivityLog, ApplicantRecord, EvaluationTest, DynamicTestScore, TestScores } from '../../types';
 
 interface ScreeningProps {
   workflow: WorkflowState;
@@ -40,9 +51,22 @@ interface ScreeningProps {
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   selectedApplicantId?: string;
   applicants?: ApplicantRecord[];
+  evaluationTemplates?: EvaluationTest[];
+  onTemplatesUpdated?: () => void;
+  globalJobOrders?: any[];
 }
 
-// Standardized Passing Criteria
+const TEST_TYPE_THEMES: Record<string, { label: string; bg: string; border: string; text: string; bar: string; icon: any }> = {
+  skills: { label: 'Skills / Aptitude', bg: 'bg-[#F59E0B]/5', border: 'border-[#F59E0B]/20', text: 'text-[#F59E0B]', bar: 'bg-[#F59E0B]', icon: Wrench },
+  language: { label: 'Language Proficiency', bg: 'bg-[#10B981]/5', border: 'border-[#10B981]/20', text: 'text-[#10B981]', bar: 'bg-[#10B981]', icon: Languages },
+  eq: { label: 'EQ / Personality', bg: 'bg-[#EC4899]/5', border: 'border-[#EC4899]/20', text: 'text-[#EC4899]', bar: 'bg-[#EC4899]', icon: Heart },
+  iq: { label: 'IQ / Aptitude', bg: 'bg-[#8B5CF6]/5', border: 'border-[#8B5CF6]/20', text: 'text-[#8B5CF6]', bar: 'bg-[#8B5CF6]', icon: Brain },
+  medical: { label: 'Medical Review', bg: 'bg-[#EF4444]/5', border: 'border-[#EF4444]/20', text: 'text-[#EF4444]', bar: 'bg-[#EF4444]', icon: Stethoscope },
+  interview: { label: 'Interview', bg: 'bg-[#0EA5E9]/5', border: 'border-[#0EA5E9]/20', text: 'text-[#0EA5E9]', bar: 'bg-[#0EA5E9]', icon: MessageSquare },
+  custom: { label: 'Custom Assessment', bg: 'bg-[#64748B]/5', border: 'border-[#64748B]/20', text: 'text-[#64748B]', bar: 'bg-[#64748B]', icon: Sliders },
+};
+
+// Fallback Standardized Passing Criteria
 const ENGLISH_PASS_SCORE = 60;
 const TRADE_PASS_SCORE = 70;
 const IQ_PASS_SCORE = 50;
@@ -55,6 +79,44 @@ const PARTNER_CLINICS = [
   'American Outpatient Clinic — Ermita, Manila'
 ];
 
+// Helper to determine if an evaluation is required for the specific applicant based on Job Order
+const isTestApplicableToApplicant = (
+  test: EvaluationTest,
+  applicant: ApplicantRecord | undefined,
+  jobOrdersList?: any[]
+): boolean => {
+  if (!test.applicableJobOrders || test.applicableJobOrders.length === 0) {
+    return true; // General evaluation, applies to all candidates
+  }
+  if (!applicant) return true;
+
+  const appJobId = String(applicant.selectedJobOrderId || '').trim().toLowerCase();
+  const appJobCode = String(applicant.jobOrder || '').trim().toLowerCase();
+  const appRole = String(applicant.role || applicant.appliedPosition || applicant.appliedRole || '').trim().toLowerCase();
+
+  return test.applicableJobOrders.some(target => {
+    const t = String(target).trim().toLowerCase();
+    if (!t) return false;
+    if (appJobId && (t === appJobId || t === `jo-${appJobId}`)) return true;
+    if (appJobCode && (t === appJobCode || appJobCode.includes(t) || t.includes(appJobCode))) return true;
+    if (appRole && (t === appRole || appRole.includes(t) || t.includes(appRole))) return true;
+
+    if (jobOrdersList && jobOrdersList.length > 0) {
+      const matchedJo = jobOrdersList.find(jo =>
+        String(jo.job_order_id || jo.id) === t ||
+        String(jo.job_order_code || jo.job_code || '').toLowerCase() === t
+      );
+      if (matchedJo) {
+        const joId = String(matchedJo.job_order_id || matchedJo.id || '').toLowerCase();
+        const joCode = String(matchedJo.job_order_code || matchedJo.job_code || '').toLowerCase();
+        const joPos = String(matchedJo.position_title || matchedJo.position || '').toLowerCase();
+        if (appJobId === joId || appJobCode === joCode || appRole === joPos || appRole.includes(joPos)) return true;
+      }
+    }
+    return false;
+  });
+};
+
 export default function Screening({
   workflow,
   updateWorkflow,
@@ -64,9 +126,67 @@ export default function Screening({
   updateApplicant,
   selectedApplicantId: initialApplicantId = '1',
   applicants = [],
+  evaluationTemplates = [],
+  onTemplatesUpdated,
+  globalJobOrders,
 }: ScreeningProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
   const [listView, setListView] = useState(true);
+
+  // Dynamic evaluation templates state (fetched from Supabase or passed as props)
+  const [templates, setTemplates] = useState<EvaluationTest[]>(evaluationTemplates);
+
+  useEffect(() => {
+    if (evaluationTemplates && evaluationTemplates.length > 0) {
+      setTemplates(evaluationTemplates);
+    }
+  }, [evaluationTemplates]);
+
+  useEffect(() => {
+    if (!evaluationTemplates || evaluationTemplates.length === 0) {
+      api.get('/evaluations/templates')
+        .then(res => {
+          if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+            const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
+              id: String(t.test_template_id || t.id),
+              name: t.name,
+              type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+              description: t.description || '',
+              maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+              passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+              weight: Number(t.weight_percentage ?? t.weight ?? 10),
+              scoringGuide: t.scoring_guide || t.scoringGuide || '',
+              isActive: Boolean(t.is_active ?? t.isActive ?? true),
+              scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+              applicableJobOrders: Array.isArray(t.applicable_job_orders)
+                ? t.applicable_job_orders
+                : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+            }));
+            setTemplates(liveTests);
+          }
+        })
+        .catch(err => console.warn('Could not fetch evaluation templates in Screening:', err));
+    }
+  }, []);
+
+  // ── Find currently selected applicant ───────────────────────────────────────
+  const selectedApplicant = applicants.find(a => String(a.id) === String(selectedApplicantId)) || applicants[0];
+  const initializedForApplicantId = useRef<string | null>(null);
+
+  const activeEvaluationTests: EvaluationTest[] = useMemo(() => {
+    const active = templates.filter(t => t.isActive);
+    const applicable = active.filter(t => isTestApplicableToApplicant(t, selectedApplicant, globalJobOrders));
+    if (applicable.length > 0) return applicable;
+    if (active.length > 0) return active;
+    // Fallback matching default 5 evaluations from DB
+    return [
+      { id: '1', name: 'Trade & Technical Skills Assessment', type: 'skills', description: 'Evaluates candidate technical skills, trade test precision, tools handling', maxScore: 100, passingScore: 70, weight: 30, isActive: true, scoringType: 'numeric', scoringGuide: '' },
+      { id: '2', name: 'English & Language Aptitude', type: 'language', description: 'Assesses functional spoken English, workplace comprehension, oral interview', maxScore: 100, passingScore: 60, weight: 20, isActive: true, scoringType: 'numeric', scoringGuide: '' },
+      { id: '3', name: 'Psychological & EQ Interview', type: 'eq', description: 'Measures emotional resilience, adaptability, homesickness handling, attitude', maxScore: 100, passingScore: 75, weight: 25, isActive: true, scoringType: 'numeric', scoringGuide: '' },
+      { id: '4', name: 'Cognitive & Aptitude Test (IQ)', type: 'iq', description: 'Assesses problem-solving ability, numerical calculation, situational judgment', maxScore: 100, passingScore: 60, weight: 15, isActive: true, scoringType: 'numeric', scoringGuide: '' },
+      { id: '5', name: 'Pre-Employment Medical Review', type: 'medical', description: 'Physical fitness evaluation, vital signs screening, and baseline verification', maxScore: 100, passingScore: 80, weight: 10, isActive: true, scoringType: 'pass_fail', scoringGuide: '' },
+    ];
+  }, [templates, selectedApplicant, globalJobOrders]);
 
   // Modals state
   const [showStopModal, setShowStopModal] = useState(false);
@@ -78,57 +198,80 @@ export default function Screening({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showReviewScoreModal, setShowReviewScoreModal] = useState(false);
 
-  // Local scores state
-  const [examScores, setExamScores] = useState<{
-    englishProficiency: number | string;
-    tradeSkills: number | string;
-    iqAptitude: number | string;
-    personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending';
-    employerSpecific: string;
-  }>({
-    englishProficiency: '',
-    tradeSkills: '',
-    iqAptitude: '',
-    personalityEQ: 'Pending',
-    employerSpecific: '',
-  });
+  // Dynamic scores state: Score Obtained (raw), Total Score (items), and Pass/Fail verdict
+  const [dynamicRawScores, setDynamicRawScores] = useState<Record<string, number | string>>({});
+  const [dynamicTotalItems, setDynamicTotalItems] = useState<Record<string, number | string>>({});
+  const [dynamicPassFail, setDynamicPassFail] = useState<Record<string, 'Pass' | 'Fail' | ''>>({});
+
+  const [phase1Search, setPhase1Search] = useState('');
+  const [phase2Search, setPhase2Search] = useState('');
+  const [phase3Search, setPhase3Search] = useState('');
+
+  const [employerSpecificNotes, setEmployerSpecificNotes] = useState('');
+  const [personalityEQVerdict, setPersonalityEQVerdict] = useState<'Suitable' | 'Not Suitable' | 'Pending'>('Pending');
 
   // Score correction modal local state
-  const [reviewFormScores, setReviewFormScores] = useState({
-    englishProficiency: 0,
-    tradeSkills: 0,
-    iqAptitude: 0,
-    personalityEQ: 'Suitable' as 'Suitable' | 'Not Suitable' | 'Pending',
-    employerSpecific: '',
-  });
+  const [reviewDynamicRawScores, setReviewDynamicRawScores] = useState<Record<string, number | string>>({});
+  const [reviewDynamicTotalItems, setReviewDynamicTotalItems] = useState<Record<string, number | string>>({});
+  const [reviewDynamicPassFail, setReviewDynamicPassFail] = useState<Record<string, 'Pass' | 'Fail' | ''>>({});
+  const [reviewEQVerdict, setReviewEQVerdict] = useState<'Suitable' | 'Not Suitable' | 'Pending'>('Pending');
+  const [reviewEmployerNotes, setReviewEmployerNotes] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
   const [generatedReferralIds, setGeneratedReferralIds] = useState<Set<string>>(new Set());
 
-  // ── Find currently selected applicant ───────────────────────────────────────
-  const selectedApplicant = applicants.find(a => String(a.id) === String(selectedApplicantId)) || applicants[0];
-  const initializedForApplicantId = useRef<string | null>(null);
-
-  // Synchronize exam scores whenever active applicant changes
+  // Synchronize dynamic scores whenever active applicant or active tests change
   useEffect(() => {
     if (selectedApplicant?.id !== initializedForApplicantId.current) {
-      if (selectedApplicant?.testScores) {
-        setExamScores({
-          englishProficiency: selectedApplicant.testScores.englishProficiency ?? '',
-          tradeSkills: selectedApplicant.testScores.tradeSkills ?? '',
-          iqAptitude: selectedApplicant.testScores.iqAptitude ?? '',
-          personalityEQ: selectedApplicant.testScores.personalityEQ || 'Pending',
-          employerSpecific: selectedApplicant.testScores.employerSpecific || '',
-        });
-      } else {
-        setExamScores({
-          englishProficiency: '',
-          tradeSkills: '',
-          iqAptitude: '',
-          personalityEQ: 'Pending',
-          employerSpecific: '',
-        });
-      }
+      const initialRaw: Record<string, number | string> = {};
+      const initialTotal: Record<string, number | string> = {};
+      const initialPF: Record<string, 'Pass' | 'Fail' | ''> = {};
+      const ts = selectedApplicant?.testScores;
+      const testsObj = ts?.tests || {};
+
+      activeEvaluationTests.forEach(test => {
+        const stored = testsObj[test.id] || testsObj[test.name];
+        if (stored) {
+          if (test.scoringType === 'pass_fail' || stored.scoringType === 'pass_fail') {
+            initialPF[test.id] = (stored.passed || stored.score >= 100 || stored.statusText === 'Passed') ? 'Pass' : (stored.score === 0 ? 'Fail' : '');
+          } else {
+            initialRaw[test.id] = stored.rawScore !== undefined ? stored.rawScore : stored.score;
+            initialTotal[test.id] = stored.totalItems ?? stored.maxScore ?? test.maxScore ?? 100;
+          }
+          return;
+        }
+
+        // Fallbacks for legacy applicant profiles
+        const lower = test.name.toLowerCase();
+        if (test.scoringType === 'pass_fail') {
+          if (test.type === 'eq' || lower.includes('psychological') || lower.includes('eq')) {
+            initialPF[test.id] = ts?.personalityEQ === 'Suitable' ? 'Pass' : (ts?.personalityEQ === 'Not Suitable' ? 'Fail' : '');
+          } else {
+            initialPF[test.id] = '';
+          }
+        } else {
+          let legacyVal: number | string = '';
+          if (test.type === 'skills' || lower.includes('trade') || lower.includes('skill')) {
+            legacyVal = ts?.tradeSkills ?? '';
+          } else if (test.type === 'language' || lower.includes('english') || lower.includes('language')) {
+            legacyVal = ts?.languageProficiency ?? ts?.englishProficiency ?? '';
+          } else if (test.type === 'iq' || lower.includes('iq') || lower.includes('aptitude') || lower.includes('cognitive')) {
+            legacyVal = ts?.iqAptitude ?? '';
+          } else if (test.type === 'eq' || lower.includes('psychological') || lower.includes('eq')) {
+            legacyVal = ts?.personalityEQ === 'Suitable' ? test.passingScore : (ts?.personalityEQ === 'Not Suitable' ? 50 : '');
+          } else if (test.type === 'medical' || lower.includes('medical')) {
+            legacyVal = (ts as any)?.medicalScore ?? (ts as any)?.medicalReviewScore ?? '';
+          }
+          initialRaw[test.id] = legacyVal;
+          initialTotal[test.id] = test.maxScore || 100;
+        }
+      });
+
+      setDynamicRawScores(initialRaw);
+      setDynamicTotalItems(initialTotal);
+      setDynamicPassFail(initialPF);
+      setEmployerSpecificNotes(ts?.employerSpecific || '');
+      setPersonalityEQVerdict(ts?.personalityEQ || 'Pending');
 
       if (selectedApplicant?.medicalReferralGenerated) {
         setGeneratedReferralIds(prev => new Set([...prev, selectedApplicant.id]));
@@ -136,23 +279,86 @@ export default function Screening({
 
       initializedForApplicantId.current = selectedApplicant?.id || null;
     }
-  }, [selectedApplicant]);
+  }, [selectedApplicant, activeEvaluationTests]);
 
-  // ── Helpers to evaluate score passing ──────────────────────────────────────
-  const englishVal = examScores.englishProficiency === '' ? 0 : Number(examScores.englishProficiency);
-  const tradeVal = examScores.tradeSkills === '' ? 0 : Number(examScores.tradeSkills);
-  const iqVal = examScores.iqAptitude === '' ? 0 : Number(examScores.iqAptitude);
+  // ── Calculation and evaluation engine for candidate scores ────────────────
+  const getTestEvaluationResult = (
+    test: EvaluationTest,
+    rawScoresMap = dynamicRawScores,
+    totalItemsMap = dynamicTotalItems,
+    passFailMap = dynamicPassFail
+  ) => {
+    if (test.scoringType === 'pass_fail') {
+      const verdict = passFailMap[test.id] || '';
+      const isPass = verdict === 'Pass';
+      const hasEntry = verdict === 'Pass' || verdict === 'Fail';
+      return {
+        score: isPass ? 100 : 0,
+        rawScore: isPass ? 100 : 0,
+        totalItems: 100,
+        percentage: isPass ? 100 : (verdict === 'Fail' ? 0 : undefined),
+        passed: isPass,
+        hasEntry,
+        verdict,
+      };
+    } else {
+      const raw = rawScoresMap[test.id];
+      const total = totalItemsMap[test.id] !== undefined && totalItemsMap[test.id] !== ''
+        ? Number(totalItemsMap[test.id])
+        : (test.maxScore || 100);
+      const hasEntry = raw !== '' && raw !== undefined && !isNaN(Number(raw));
+      const numRaw = hasEntry ? Number(raw) : 0;
+      const numTotal = total > 0 ? total : 100;
+      const pct = hasEntry
+        ? Math.min(100, Math.max(0, Math.round((numRaw / numTotal) * 1000) / 10))
+        : undefined;
+      const isPass = pct !== undefined ? pct >= test.passingScore : false;
+      return {
+        score: pct ?? 0,
+        rawScore: numRaw,
+        totalItems: numTotal,
+        percentage: pct,
+        passed: isPass,
+        hasEntry,
+        verdict: isPass ? 'Pass' : 'Fail',
+      };
+    }
+  };
 
-  const englishPass = typeof examScores.englishProficiency === 'number' && examScores.englishProficiency >= ENGLISH_PASS_SCORE;
-  const tradePass = typeof examScores.tradeSkills === 'number' && examScores.tradeSkills >= TRADE_PASS_SCORE;
-  const iqPass = typeof examScores.iqAptitude === 'number' && examScores.iqAptitude >= IQ_PASS_SCORE;
+  const isTestPassed = (test: EvaluationTest, rawMap = dynamicRawScores, totalMap = dynamicTotalItems, pfMap = dynamicPassFail): boolean => {
+    return getTestEvaluationResult(test, rawMap, totalMap, pfMap).passed;
+  };
 
-  const phase1AllPassed = englishPass && tradePass && iqPass;
-  const eqPass = examScores.personalityEQ === 'Suitable';
-  const eqFail = examScores.personalityEQ === 'Not Suitable';
-  const eqPending = examScores.personalityEQ === 'Pending' || !examScores.personalityEQ;
+  const phase1AllPassed = activeEvaluationTests.length > 0 && activeEvaluationTests.every(t => isTestPassed(t));
+  const eqPass = personalityEQVerdict === 'Suitable';
+  const eqFail = personalityEQVerdict === 'Not Suitable';
+  const eqPending = personalityEQVerdict === 'Pending' || !personalityEQVerdict;
 
   const allScoresPassed = phase1AllPassed && eqPass;
+
+  const totalActiveWeight = activeEvaluationTests.reduce((acc, t) => acc + (t.weight || 0), 0);
+  const currentWeightedScore = Math.round(
+    activeEvaluationTests.reduce((acc, t) => {
+      const res = getTestEvaluationResult(t);
+      const wt = t.weight || 0;
+      return acc + (res.score * wt);
+    }, 0) / (totalActiveWeight > 0 ? totalActiveWeight : 1)
+  );
+
+  const handleRawScoreChange = (testId: string, value: string) => {
+    setDynamicRawScores(prev => ({ ...prev, [testId]: value }));
+  };
+
+  const handleTotalItemsChange = (testId: string, value: string) => {
+    setDynamicTotalItems(prev => ({ ...prev, [testId]: value }));
+  };
+
+  const handleSetPassFail = (testId: string, verdict: 'Pass' | 'Fail') => {
+    setDynamicPassFail(prev => ({
+      ...prev,
+      [testId]: prev[testId] === verdict ? '' : verdict,
+    }));
+  };
 
   // Has medical referral been generated for selected applicant?
   const hasMedicalReferral = Boolean(
@@ -160,13 +366,10 @@ export default function Screening({
   );
 
   // ── Filter applicants active in the Screening module ───────────────────────
-  // Once an applicant transitions to Medical Referral ('Medical Clearance') or beyond,
-  // they no longer appear in ANY sub-phase of the Screening Panel.
   const screeningPool = useMemo(() => {
     return applicants.filter(a => {
       if (a.isStopped || a.status === 'Processing Stopped') return false;
 
-      // Exclude applicants who progressed to Medical Referral / Fit-to-Work or beyond
       const postScreeningStatuses = [
         'Medical Clearance',
         'Medical Referral',
@@ -185,69 +388,90 @@ export default function Screening({
       ];
       if (postScreeningStatuses.includes(a.status)) return false;
 
-      // Only include candidates active in screening (Phase 1, Provisional, Pending Interview, Review Score)
       return true;
     });
   }, [applicants]);
 
-  // Helper: check if an applicant in pool has passed Phase 1 (3 tests)
+  // Helper: check if an applicant in pool has passed Phase 1
   const isApplicantPhase1Passed = (a: ApplicantRecord): boolean => {
     const ts = a.testScores;
     if (!ts) return false;
-    const eng = typeof ts.englishProficiency === 'number' && ts.englishProficiency >= ENGLISH_PASS_SCORE;
-    const trade = typeof ts.tradeSkills === 'number' && ts.tradeSkills >= TRADE_PASS_SCORE;
-    const iq = typeof ts.iqAptitude === 'number' && ts.iqAptitude >= IQ_PASS_SCORE;
-    return eng && trade && iq;
+    if (ts.allPassed !== undefined) return Boolean(ts.allPassed);
+    if (ts.tests && Object.keys(ts.tests).length > 0) {
+      return Object.values(ts.tests).every((t: any) => Boolean(t.passed));
+    }
+    // Check against active evaluation templates
+    if (activeEvaluationTests.length > 0) {
+      return activeEvaluationTests.every(t => {
+        const lower = t.name.toLowerCase();
+        if (t.type === 'skills' || lower.includes('trade')) return (ts.tradeSkills ?? 0) >= t.passingScore;
+        if (t.type === 'language' || lower.includes('english')) return ((ts.languageProficiency ?? ts.englishProficiency) ?? 0) >= t.passingScore;
+        if (t.type === 'iq' || lower.includes('iq')) return (ts.iqAptitude ?? 0) >= t.passingScore;
+        return true;
+      });
+    }
+    return (
+      (ts.englishProficiency ?? 0) >= ENGLISH_PASS_SCORE &&
+      (ts.tradeSkills ?? 0) >= TRADE_PASS_SCORE &&
+      (ts.iqAptitude ?? 0) >= IQ_PASS_SCORE
+    );
   };
 
-  // Helper: check if applicant failed any Phase 1 test
+  // Helper: check if applicant failed any evaluation test
   const isApplicantPhase1Failed = (a: ApplicantRecord): boolean => {
     const ts = a.testScores;
     if (!ts) return false;
-    const hasAnyScore = typeof ts.englishProficiency === 'number' || typeof ts.tradeSkills === 'number' || typeof ts.iqAptitude === 'number';
+    const hasAnyScore =
+      (ts.tests && Object.keys(ts.tests).length > 0) ||
+      typeof ts.englishProficiency === 'number' ||
+      typeof ts.tradeSkills === 'number' ||
+      typeof ts.iqAptitude === 'number' ||
+      typeof ts.overallScore === 'number';
     if (!hasAnyScore) return false;
     return !isApplicantPhase1Passed(a);
   };
 
   // ── 3 Sub-Phases Division ──────────────────────────────────────────────────
   // Phase 1 — Pending Screening:
-  // Newly registered candidates or candidates who haven't passed the 3 tests yet.
-  // Core Rule: Any applicant who failed 1 or more of the 3 tests gets status = "Provisional"
+  // Newly registered candidates or candidates who haven't passed all evaluations yet.
+  // Any applicant who failed 1 or more evaluations gets status = "Provisional"
   // and stays in this phase (does not auto-advance, not removed from pipeline).
   const phase1Applicants = useMemo(() => {
     return screeningPool.filter(a => {
-      // If status is Provisional from Phase 1 test failure:
-      if (a.status === 'Provisional') {
-        return !isApplicantPhase1Passed(a);
-      }
-      // If status is explicitly Review Score or Pending Interview, they are in phase 2 or 3
-      if (a.status === 'Review Score for Medical Referral') return false;
-      if (a.status === 'Pending Interview' && isApplicantPhase1Passed(a)) return false;
+      // If candidate has not passed all Phase 1 evaluations, they MUST be in Phase 1
+      if (!isApplicantPhase1Passed(a)) return true;
 
-      // Otherwise, if they haven't passed Phase 1 tests, they stay in Phase 1
-      return !isApplicantPhase1Passed(a) || a.status === 'Initial Screening' || a.status === 'Applicant Registration';
+      // If they are still in initial intake statuses, keep in Phase 1
+      if (a.status === 'Applicant Registration' || a.status === 'Initial Screening') return true;
+
+      // Otherwise, they have passed Phase 1 and advance to Phase 2 or 3
+      return false;
     });
   }, [screeningPool]);
 
   // Phase 2 — Pending Interview:
-  // Applicant passed all 3 Phase 1 tests -> advances here for Personality/EQ Assessment.
-  // If failed EQ -> status = "Provisional", stays here (or awaiting re-assessment).
+  // Applicant passed all Phase 1 evaluations -> advances here for Personality/EQ Assessment.
+  // Stays here until interview is conducted and marked Suitable.
   const phase2Applicants = useMemo(() => {
     return screeningPool.filter(a => {
+      // Must have passed Phase 1 evaluations
       if (!isApplicantPhase1Passed(a)) return false;
-      if (a.status === 'Review Score for Medical Referral') return false;
+      if (a.status === 'Applicant Registration' || a.status === 'Initial Screening') return false;
+
       const eq = a.testScores?.personalityEQ;
-      // If EQ is 'Suitable' and status is not Provisional, they move to Phase 3
+      // If interview is marked 'Suitable' and status is not Provisional, advances to Phase 3
       if (eq === 'Suitable' && a.status !== 'Provisional') return false;
+
       return true;
     });
   }, [screeningPool]);
 
   // Phase 3 — Review Score for Medical Referral:
-  // Reached ONLY once all tests + interview are passed (no fails, no unresolved Provisional status).
+  // Reached ONLY once all evaluations + interview are passed (no fails, no unresolved Provisional status).
   const phase3Applicants = useMemo(() => {
     return screeningPool.filter(a => {
       if (!isApplicantPhase1Passed(a)) return false;
+      if (a.status === 'Applicant Registration' || a.status === 'Initial Screening') return false;
       const eq = a.testScores?.personalityEQ;
       if (eq !== 'Suitable') return false;
       if (a.status === 'Provisional') return false;
@@ -255,86 +479,218 @@ export default function Screening({
     });
   }, [screeningPool]);
 
-  // ── Score change handlers ──────────────────────────────────────────────────
-  const handleScoreChange = (field: 'englishProficiency' | 'tradeSkills' | 'iqAptitude', val: string) => {
-    if (val === '') {
-      setExamScores(prev => ({ ...prev, [field]: '' }));
-      return;
-    }
-    const parsed = parseInt(val, 10);
-    if (isNaN(parsed)) return;
+  // Filtered applicants per sub-phase based on search inputs
+  const filteredPhase1 = useMemo(() => {
+    const q = phase1Search.trim().toLowerCase();
+    if (!q) return phase1Applicants;
+    return phase1Applicants.filter(a =>
+      (a.name && a.name.toLowerCase().includes(q)) ||
+      (a.applicantCode && a.applicantCode.toLowerCase().includes(q)) ||
+      (a.id && String(a.id).toLowerCase().includes(q)) ||
+      (a.role && a.role.toLowerCase().includes(q)) ||
+      (a.jobOrder && a.jobOrder.toLowerCase().includes(q))
+    );
+  }, [phase1Applicants, phase1Search]);
 
-    if (parsed > 100) {
-      showToast('Score cannot exceed 100');
-      setExamScores(prev => ({ ...prev, [field]: 100 }));
-      return;
-    }
-    if (parsed < 0) {
-      showToast('Score cannot be negative');
-      setExamScores(prev => ({ ...prev, [field]: 0 }));
-      return;
-    }
+  const filteredPhase2 = useMemo(() => {
+    const q = phase2Search.trim().toLowerCase();
+    if (!q) return phase2Applicants;
+    return phase2Applicants.filter(a =>
+      (a.name && a.name.toLowerCase().includes(q)) ||
+      (a.applicantCode && a.applicantCode.toLowerCase().includes(q)) ||
+      (a.id && String(a.id).toLowerCase().includes(q)) ||
+      (a.role && a.role.toLowerCase().includes(q)) ||
+      (a.jobOrder && a.jobOrder.toLowerCase().includes(q))
+    );
+  }, [phase2Applicants, phase2Search]);
 
-    setExamScores(prev => ({ ...prev, [field]: parsed }));
+  const filteredPhase3 = useMemo(() => {
+    const q = phase3Search.trim().toLowerCase();
+    if (!q) return phase3Applicants;
+    return phase3Applicants.filter(a =>
+      (a.name && a.name.toLowerCase().includes(q)) ||
+      (a.applicantCode && a.applicantCode.toLowerCase().includes(q)) ||
+      (a.id && String(a.id).toLowerCase().includes(q)) ||
+      (a.role && a.role.toLowerCase().includes(q)) ||
+      (a.jobOrder && a.jobOrder.toLowerCase().includes(q))
+    );
+  }, [phase3Applicants, phase3Search]);
+
+  // ── Save Scores as Draft (Partial or In-Progress) ──────────────────────────
+  const handleSaveDraftScores = async () => {
+    if (isSaving || !selectedApplicant) return;
+    setIsSaving(true);
+    try {
+      const applicantId = selectedApplicant.id;
+
+      const testsRecord: Record<string, DynamicTestScore> = {};
+      let enteredCount = 0;
+      activeEvaluationTests.forEach(t => {
+        const res = getTestEvaluationResult(t);
+        if (res.hasEntry) enteredCount++;
+        testsRecord[t.id] = {
+          id: t.id,
+          templateId: t.id,
+          name: t.name,
+          score: res.score,
+          rawScore: res.rawScore,
+          totalItems: res.totalItems,
+          scoringType: t.scoringType || 'numeric',
+          statusText: t.scoringType === 'pass_fail' ? (res.passed ? 'Passed' : 'Failed') : `${res.score}%`,
+          maxScore: res.totalItems || t.maxScore || 100,
+          passingScore: t.passingScore,
+          weight: t.weight,
+          passed: res.passed,
+          type: t.type,
+        };
+      });
+
+      const engScore = Number(Object.values(testsRecord).find(t => t.type === 'language' || t.name.toLowerCase().includes('english'))?.score ?? 0);
+      const tradeScore = Number(Object.values(testsRecord).find(t => t.type === 'skills' || t.name.toLowerCase().includes('trade'))?.score ?? 0);
+      const iqScore = Number(Object.values(testsRecord).find(t => t.type === 'iq' || t.name.toLowerCase().includes('iq'))?.score ?? 0);
+
+      const currentEQ = personalityEQVerdict === 'Suitable' || personalityEQVerdict === 'Not Suitable' ? personalityEQVerdict : 'Pending';
+
+      const cleanScores: TestScores = {
+        tests: testsRecord,
+        overallScore: currentWeightedScore,
+        allPassed: false, // Draft is never marked as allPassed
+        englishProficiency: engScore || undefined,
+        tradeSkills: tradeScore || undefined,
+        iqAptitude: iqScore || undefined,
+        personalityEQ: currentEQ,
+        employerSpecific: employerSpecificNotes || undefined,
+      };
+
+      const currentStatus = selectedApplicant.status === 'Provisional' ? 'Provisional' : (selectedApplicant.status || 'Initial Screening');
+      const phaseDesc = `Draft evaluation scores saved (${enteredCount} of ${activeEvaluationTests.length} tests recorded). Candidate remains in Phase 1 pending test completion.`;
+
+      updateApplicant(applicantId, {
+        status: currentStatus,
+        phaseDescription: phaseDesc,
+        testScores: cleanScores,
+        phase: 1,
+      });
+
+      addActivityLog({
+        applicantId,
+        action: 'Draft Evaluation Scores Saved',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Saved ${enteredCount} of ${activeEvaluationTests.length} evaluation scores as draft. Candidate remains in Phase 1.`,
+      });
+
+      showToast(`✓ Saved ${enteredCount} of ${activeEvaluationTests.length} test scores as draft. Candidate remains in Phase 1.`);
+
+      const numericId = parseInt(applicantId, 10);
+      if (!isNaN(numericId)) {
+        await Promise.all([
+          api.post(`/examinations`, {
+            applicantId: numericId,
+            ...cleanScores,
+          }).catch(console.error),
+          api.put(`/applicants/${numericId}`, {
+            application_id: selectedApplicant.applicationId,
+            application_status: currentStatus,
+            status_code: currentStatus,
+            status: currentStatus,
+            phase_description: phaseDesc,
+            testScores: cleanScores,
+          }).catch(console.error),
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save draft scores. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // ── Phase 1: Save & Evaluate 3 Tests ───────────────────────────────────────
+  // ── Phase 1: Save & Complete Phase 1 Evaluations ─────────────────────────
   const handleEvaluatePhase1 = async () => {
     if (isSaving || !selectedApplicant) return;
 
-    // Check if scores are inputted
-    if (examScores.englishProficiency === '' || examScores.tradeSkills === '' || examScores.iqAptitude === '') {
-      showToast('Please enter scores for all 3 standardized tests before evaluating.');
+    // Check if scores/verdicts are inputted for all active evaluations
+    const missingTests = activeEvaluationTests.filter(t => !getTestEvaluationResult(t).hasEntry);
+    if (missingTests.length > 0) {
+      showToast(`Cannot complete Phase 1: ${missingTests.length} test(s) still pending. Use "Save Draft" to save partial progress.`);
       return;
     }
 
     setIsSaving(true);
     try {
       const applicantId = selectedApplicant.id;
-      const cleanScores = {
-        englishProficiency: Number(examScores.englishProficiency) || 0,
-        tradeSkills: Number(examScores.tradeSkills) || 0,
-        iqAptitude: Number(examScores.iqAptitude) || 0,
-        personalityEQ: examScores.personalityEQ,
-        employerSpecific: examScores.employerSpecific || undefined,
+
+      // Build structured dynamic tests record
+      const testsRecord: Record<string, DynamicTestScore> = {};
+      activeEvaluationTests.forEach(t => {
+        const res = getTestEvaluationResult(t);
+        testsRecord[t.id] = {
+          id: t.id,
+          templateId: t.id,
+          name: t.name,
+          score: res.score,
+          rawScore: res.rawScore,
+          totalItems: res.totalItems,
+          scoringType: t.scoringType || 'numeric',
+          statusText: t.scoringType === 'pass_fail' ? (res.passed ? 'Passed' : 'Failed') : `${res.score}%`,
+          maxScore: res.totalItems || t.maxScore || 100,
+          passingScore: t.passingScore,
+          weight: t.weight,
+          passed: res.passed,
+          type: t.type,
+        };
+      });
+
+      // Mapped legacy values for compatibility
+      const engScore = Number(Object.values(testsRecord).find(t => t.type === 'language' || t.name.toLowerCase().includes('english'))?.score ?? 0);
+      const tradeScore = Number(Object.values(testsRecord).find(t => t.type === 'skills' || t.name.toLowerCase().includes('trade'))?.score ?? 0);
+      const iqScore = Number(Object.values(testsRecord).find(t => t.type === 'iq' || t.name.toLowerCase().includes('iq'))?.score ?? 0);
+
+      const p1Passed = activeEvaluationTests.every(t => testsRecord[t.id]?.passed);
+
+      // Phase 1 evaluates written & practical test scores.
+      // Phase 2 interview remains Pending until conducted in Phase 2!
+      const currentEQ = personalityEQVerdict === 'Suitable' || personalityEQVerdict === 'Not Suitable' ? personalityEQVerdict : 'Pending';
+
+      const cleanScores: TestScores = {
+        tests: testsRecord,
+        overallScore: currentWeightedScore,
+        allPassed: p1Passed,
+        englishProficiency: engScore || undefined,
+        tradeSkills: tradeScore || undefined,
+        iqAptitude: iqScore || undefined,
+        personalityEQ: currentEQ,
+        employerSpecific: employerSpecificNotes || undefined,
       };
 
-      const p1Passed =
-        cleanScores.englishProficiency >= ENGLISH_PASS_SCORE &&
-        cleanScores.tradeSkills >= TRADE_PASS_SCORE &&
-        cleanScores.iqAptitude >= IQ_PASS_SCORE;
+      setPersonalityEQVerdict(currentEQ);
 
       let newStatus = selectedApplicant.status;
       let phaseDesc = selectedApplicant.phaseDescription;
 
       if (p1Passed) {
-        // If EQ was already marked Suitable, advance directly to Review Score for Medical Referral
-        if (cleanScores.personalityEQ === 'Suitable') {
-          newStatus = 'Review Score for Medical Referral';
-          phaseDesc = 'Passed all 3 standardized tests and Personality/EQ interview. Cleared for Phase 3: Review Score for Medical Referral.';
-        } else {
-          newStatus = 'Pending Interview';
-          phaseDesc = 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.';
-        }
+        // ALWAYS advance to Phase 2: Pending Interview, NEVER skip directly to Phase 3!
+        newStatus = 'Pending Interview';
+        phaseDesc = `Passed all ${activeEvaluationTests.length} standardized tests. Cleared for Phase 2: Suitability & EQ Interview.`;
       } else {
-        // Core Rule: If any 1 or more failed -> set Applicant Status = "Provisional".
-        // Applicant stays in this phase (does not auto-advance).
         newStatus = 'Provisional';
         const failedSummary: string[] = [];
-        if (cleanScores.englishProficiency < ENGLISH_PASS_SCORE) {
-          failedSummary.push(`English: ${cleanScores.englishProficiency}% (pass is ≥${ENGLISH_PASS_SCORE}%)`);
-        }
-        if (cleanScores.tradeSkills < TRADE_PASS_SCORE) {
-          failedSummary.push(`Trade Skills: ${cleanScores.tradeSkills}% (pass is ≥${TRADE_PASS_SCORE}%)`);
-        }
-        if (cleanScores.iqAptitude < IQ_PASS_SCORE) {
-          failedSummary.push(`IQ/Aptitude: ${cleanScores.iqAptitude}% (pass is ≥${IQ_PASS_SCORE}%)`);
-        }
+        activeEvaluationTests.forEach(t => {
+          const rec = testsRecord[t.id];
+          if (!rec?.passed) {
+            if (t.scoringType === 'pass_fail') {
+              failedSummary.push(`${t.name}: Failed clearance`);
+            } else {
+              failedSummary.push(`${t.name}: ${rec.score}% (${rec.rawScore}/${rec.totalItems}, pass is ≥${t.passingScore}%)`);
+            }
+          }
+        });
         phaseDesc = `Provisional holding state — test score criteria unmet in: ${failedSummary.join(', ')}. Candidate remains active in pipeline.`;
       }
 
       // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
-      // Instantly clear or set Provisional status in UI without waiting for network calls
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
@@ -344,34 +700,36 @@ export default function Screening({
 
       addActivityLog({
         applicantId,
-        action: p1Passed ? 'Phase 1 Passed — Advanced to Pending Interview' : 'Phase 1 Evaluated — Status Set to Provisional',
+        action: p1Passed ? 'Screening Phase 1 Passed — Cleared for Interview' : 'Phase 1 Evaluated — Status Set to Provisional',
         performedBy: currentUserName,
         department: 'Recruitment',
         details: p1Passed
-          ? `All 3 tests passed (English: ${cleanScores.englishProficiency}%, Trade: ${cleanScores.tradeSkills}%, IQ: ${cleanScores.iqAptitude}%). Applicant advanced to Phase 2 (Pending Interview).`
-          : `Applicant placed in Provisional status due to unmet test score criteria. Candidate retained in pipeline.`,
+          ? `All ${activeEvaluationTests.length} evaluations passed (Aggregate: ${currentWeightedScore}%). Candidate advanced to Phase 2: Pending Interview.`
+          : `Applicant placed in Provisional status due to unmet evaluation criteria. Candidate retained in pipeline.`,
       });
 
       if (p1Passed) {
-        showToast('✓ All 3 tests passed! Applicant cleared.');
+        showToast(`✓ All ${activeEvaluationTests.length} tests passed! Candidate advanced to Phase 2: Pending Interview.`);
       } else {
         showToast('Scores saved. Applicant status set to "Provisional" (remains in pipeline).');
       }
 
-      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
+      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL TO SUPABASE) ─────────────
       const numericId = parseInt(applicantId, 10);
       if (!isNaN(numericId)) {
         await Promise.all([
           api.post(`/examinations`, {
             applicantId: numericId,
-            ...cleanScores
+            ...cleanScores,
           }).catch(console.error),
           api.put(`/applicants/${numericId}`, {
             application_id: selectedApplicant.applicationId,
             application_status: newStatus,
+            status_code: newStatus,
+            status: newStatus,
             phase_description: phaseDesc,
-            testScores: cleanScores
-          }).catch(console.error)
+            testScores: cleanScores,
+          }).catch(console.error),
         ]);
       }
     } catch (err) {
@@ -387,42 +745,72 @@ export default function Screening({
     if (isSaving || !selectedApplicant) return;
 
     if (!phase1AllPassed) {
-      showToast('Cannot complete EQ evaluation until all 3 Phase 1 tests have been passed.');
+      showToast(`Cannot complete EQ evaluation until all ${activeEvaluationTests.length} Phase 1 tests have been passed.`);
       return;
     }
 
     setIsSaving(true);
     try {
       const applicantId = selectedApplicant.id;
-      const cleanScores = {
-        englishProficiency: Number(examScores.englishProficiency) || 0,
-        tradeSkills: Number(examScores.tradeSkills) || 0,
-        iqAptitude: Number(examScores.iqAptitude) || 0,
+
+      // Re-create cleanScores keeping all active test scores
+      const testsRecord: Record<string, DynamicTestScore> = {};
+      activeEvaluationTests.forEach(t => {
+        const res = getTestEvaluationResult(t);
+        let score = res.score;
+        let isPass = res.passed;
+        if (t.type === 'eq') {
+          score = outcome === 'Suitable' ? Math.max(score, t.passingScore) : (outcome === 'Not Suitable' ? Math.min(score, t.passingScore - 10) : score);
+          isPass = outcome === 'Suitable';
+        }
+        testsRecord[t.id] = {
+          id: t.id,
+          templateId: t.id,
+          name: t.name,
+          score,
+          rawScore: res.rawScore,
+          totalItems: res.totalItems,
+          scoringType: t.scoringType || 'numeric',
+          statusText: t.scoringType === 'pass_fail' ? (isPass ? 'Passed' : 'Failed') : `${score}%`,
+          maxScore: t.maxScore || 100,
+          passingScore: t.passingScore,
+          weight: t.weight,
+          passed: isPass,
+          type: t.type,
+        };
+      });
+
+      const engScore = Number(Object.values(testsRecord).find(t => t.type === 'language' || t.name.toLowerCase().includes('english'))?.score ?? 0);
+      const tradeScore = Number(Object.values(testsRecord).find(t => t.type === 'skills' || t.name.toLowerCase().includes('trade'))?.score ?? 0);
+      const iqScore = Number(Object.values(testsRecord).find(t => t.type === 'iq' || t.name.toLowerCase().includes('iq'))?.score ?? 0);
+
+      const cleanScores: TestScores = {
+        tests: testsRecord,
+        overallScore: currentWeightedScore,
+        allPassed: phase1AllPassed,
+        englishProficiency: engScore || undefined,
+        tradeSkills: tradeScore || undefined,
+        iqAptitude: iqScore || undefined,
         personalityEQ: outcome,
-        employerSpecific: examScores.employerSpecific || undefined,
+        employerSpecific: employerSpecificNotes || undefined,
       };
 
-      setExamScores(prev => ({ ...prev, personalityEQ: outcome }));
+      setPersonalityEQVerdict(outcome);
 
       let newStatus = selectedApplicant.status;
       let phaseDesc = selectedApplicant.phaseDescription;
 
       if (outcome === 'Suitable') {
-        // If passed -> advances to Phase 3 (Review Score for Medical Referral)
         newStatus = 'Review Score for Medical Referral';
         phaseDesc = 'Personality/EQ Assessment passed (Suitable). Ready for Phase 3: Review Score for Medical Referral.';
       } else if (outcome === 'Not Suitable') {
-        // Core Rule: If failed -> set Applicant Status = "Provisional". Not removed from pipeline.
         newStatus = 'Provisional';
         phaseDesc = 'Provisional holding state — applicant evaluated as Not Suitable for the job order during Personality/EQ interview. Retained in pipeline.';
       } else {
-        // Unselected / reset -> reverted back to Pending Interview
         newStatus = 'Pending Interview';
-        phaseDesc = 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.';
+        phaseDesc = `Passed all ${activeEvaluationTests.length} evaluations. Cleared for Phase 2: Personality & EQ Assessment.`;
       }
 
-      // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
-      // Instantly wipe Provisional status or reset status in the UI without network lag
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
@@ -435,15 +823,15 @@ export default function Screening({
         action: outcome === 'Suitable'
           ? 'Phase 2 Passed — Cleared for Phase 3'
           : outcome === 'Not Suitable'
-          ? 'Phase 2 Failed — Status Set to Provisional'
-          : 'Interview Verdict Reset to Pending',
+            ? 'Phase 2 Failed — Status Set to Provisional'
+            : 'Interview Verdict Reset to Pending',
         performedBy: currentUserName,
         department: 'Recruitment',
         details: outcome === 'Suitable'
           ? `Applicant passed Personality/EQ Assessment as 'Suitable'. Advanced to Phase 3: Review Score for Medical Referral.`
           : outcome === 'Not Suitable'
-          ? `Applicant evaluated as 'Not Suitable' in Personality/EQ interview. Status set to Provisional (applicant remains in pipeline).`
-          : `Personality/EQ assessment unselected and reset. Status reverted to Pending Interview.`,
+            ? `Applicant evaluated as 'Not Suitable' in Personality/EQ interview. Status set to Provisional (applicant remains in pipeline).`
+            : `Personality/EQ assessment unselected and reset. Status reverted to Pending Interview.`,
       });
 
       if (outcome === 'Suitable') {
@@ -454,20 +842,21 @@ export default function Screening({
         showToast('Interview verdict unselected. Status reset to "Pending Interview".');
       }
 
-      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
       const numericId = parseInt(applicantId, 10);
       if (!isNaN(numericId)) {
         await Promise.all([
           api.post(`/examinations`, {
             applicantId: numericId,
-            ...cleanScores
+            ...cleanScores,
           }).catch(console.error),
           api.put(`/applicants/${numericId}`, {
             application_id: selectedApplicant.applicationId,
             application_status: newStatus,
+            status_code: newStatus,
+            status: newStatus,
             phase_description: phaseDesc,
-            testScores: cleanScores
-          }).catch(console.error)
+            testScores: cleanScores,
+          }).catch(console.error),
         ]);
       }
     } catch (err) {
@@ -480,13 +869,21 @@ export default function Screening({
 
   // ── Phase 3: Button 1 — REVIEW SCORE ───────────────────────────────────────
   const handleOpenReviewScoresModal = () => {
-    setReviewFormScores({
-      englishProficiency: Number(examScores.englishProficiency) || 0,
-      tradeSkills: Number(examScores.tradeSkills) || 0,
-      iqAptitude: Number(examScores.iqAptitude) || 0,
-      personalityEQ: examScores.personalityEQ,
-      employerSpecific: examScores.employerSpecific || '',
+    const rawMap: Record<string, number | string> = {};
+    const totalMap: Record<string, number | string> = {};
+    const pfMap: Record<string, 'Pass' | 'Fail' | ''> = {};
+
+    activeEvaluationTests.forEach(t => {
+      rawMap[t.id] = dynamicRawScores[t.id] ?? '';
+      totalMap[t.id] = dynamicTotalItems[t.id] ?? t.maxScore ?? 100;
+      pfMap[t.id] = dynamicPassFail[t.id] ?? '';
     });
+
+    setReviewDynamicRawScores(rawMap);
+    setReviewDynamicTotalItems(totalMap);
+    setReviewDynamicPassFail(pfMap);
+    setReviewEQVerdict(personalityEQVerdict);
+    setReviewEmployerNotes(employerSpecificNotes);
     setShowReviewScoreModal(true);
   };
 
@@ -495,27 +892,58 @@ export default function Screening({
     setIsSaving(true);
     try {
       const applicantId = selectedApplicant.id;
-      const cleanScores = {
-        englishProficiency: Number(reviewFormScores.englishProficiency) || 0,
-        tradeSkills: Number(reviewFormScores.tradeSkills) || 0,
-        iqAptitude: Number(reviewFormScores.iqAptitude) || 0,
-        personalityEQ: reviewFormScores.personalityEQ,
-        employerSpecific: reviewFormScores.employerSpecific || undefined,
-      };
 
-      setExamScores({
-        englishProficiency: cleanScores.englishProficiency,
-        tradeSkills: cleanScores.tradeSkills,
-        iqAptitude: cleanScores.iqAptitude,
-        personalityEQ: cleanScores.personalityEQ,
-        employerSpecific: cleanScores.employerSpecific || '',
+      const testsRecord: Record<string, DynamicTestScore> = {};
+      activeEvaluationTests.forEach(t => {
+        const res = getTestEvaluationResult(t, reviewDynamicRawScores, reviewDynamicTotalItems, reviewDynamicPassFail);
+        testsRecord[t.id] = {
+          id: t.id,
+          templateId: t.id,
+          name: t.name,
+          score: res.score,
+          rawScore: res.rawScore,
+          totalItems: res.totalItems,
+          scoringType: t.scoringType || 'numeric',
+          statusText: t.scoringType === 'pass_fail' ? (res.passed ? 'Passed' : 'Failed') : `${res.score}%`,
+          maxScore: t.maxScore || 100,
+          passingScore: t.passingScore,
+          weight: t.weight,
+          passed: res.passed,
+          type: t.type,
+        };
       });
 
-      const p1Pass =
-        cleanScores.englishProficiency >= ENGLISH_PASS_SCORE &&
-        cleanScores.tradeSkills >= TRADE_PASS_SCORE &&
-        cleanScores.iqAptitude >= IQ_PASS_SCORE;
-      const eqPass = cleanScores.personalityEQ === 'Suitable';
+      const p1Pass = activeEvaluationTests.every(t => testsRecord[t.id]?.passed);
+      const eqPass = reviewEQVerdict === 'Suitable';
+
+      const engScore = Number(Object.values(testsRecord).find(t => t.type === 'language' || t.name.toLowerCase().includes('english'))?.score ?? 0);
+      const tradeScore = Number(Object.values(testsRecord).find(t => t.type === 'skills' || t.name.toLowerCase().includes('trade'))?.score ?? 0);
+      const iqScore = Number(Object.values(testsRecord).find(t => t.type === 'iq' || t.name.toLowerCase().includes('iq'))?.score ?? 0);
+
+      const correctedWeightedScore = Math.round(
+        activeEvaluationTests.reduce((acc, t) => {
+          const res = getTestEvaluationResult(t, reviewDynamicRawScores, reviewDynamicTotalItems, reviewDynamicPassFail);
+          const wt = t.weight || 0;
+          return acc + (res.score * wt);
+        }, 0) / (totalActiveWeight > 0 ? totalActiveWeight : 1)
+      );
+
+      const cleanScores: TestScores = {
+        tests: testsRecord,
+        overallScore: correctedWeightedScore,
+        allPassed: p1Pass,
+        englishProficiency: engScore || undefined,
+        tradeSkills: tradeScore || undefined,
+        iqAptitude: iqScore || undefined,
+        personalityEQ: reviewEQVerdict,
+        employerSpecific: reviewEmployerNotes || undefined,
+      };
+
+      setDynamicRawScores(reviewDynamicRawScores);
+      setDynamicTotalItems(reviewDynamicTotalItems);
+      setDynamicPassFail(reviewDynamicPassFail);
+      setPersonalityEQVerdict(reviewEQVerdict);
+      setEmployerSpecificNotes(reviewEmployerNotes);
 
       let newStatus = selectedApplicant.status;
       let phaseDesc = selectedApplicant.phaseDescription;
@@ -524,8 +952,8 @@ export default function Screening({
         newStatus = 'Review Score for Medical Referral';
         phaseDesc = 'Scores reviewed and updated. Cleared for Medical Referral generation.';
       } else if (p1Pass && !eqPass) {
-        newStatus = cleanScores.personalityEQ === 'Not Suitable' ? 'Provisional' : 'Pending Interview';
-        phaseDesc = cleanScores.personalityEQ === 'Not Suitable'
+        newStatus = reviewEQVerdict === 'Not Suitable' ? 'Provisional' : 'Pending Interview';
+        phaseDesc = reviewEQVerdict === 'Not Suitable'
           ? 'Provisional holding state — Personality/EQ assessment is Not Suitable.'
           : 'Pending Personality/EQ Assessment interview.';
       } else {
@@ -533,7 +961,6 @@ export default function Screening({
         phaseDesc = 'Provisional holding state — score correction placed applicant below passing criteria in Phase 1.';
       }
 
-      // ── 1. IMMEDIATE OPTIMISTIC UPDATE ────────────────────────────────────
       updateApplicant(applicantId, {
         status: newStatus,
         phaseDescription: phaseDesc,
@@ -546,7 +973,7 @@ export default function Screening({
         action: 'Review Score Updated',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Scores corrected: English ${cleanScores.englishProficiency}%, Trade ${cleanScores.tradeSkills}%, IQ ${cleanScores.iqAptitude}%, EQ: ${cleanScores.personalityEQ}. Resulting status: ${newStatus}.`,
+        details: `Scores corrected. Overall score: ${correctedWeightedScore}%. Resulting status: ${newStatus}.`,
       });
 
       setShowReviewScoreModal(false);
@@ -556,20 +983,21 @@ export default function Screening({
         showToast('✓ Scores successfully corrected and updated.');
       }
 
-      // ── 2. BACKGROUND API PERSISTENCE (PARALLEL) ──────────────────────────
       const numericId = parseInt(applicantId, 10);
       if (!isNaN(numericId)) {
         await Promise.all([
           api.post(`/examinations`, {
             applicantId: numericId,
-            ...cleanScores
+            ...cleanScores,
           }).catch(console.error),
           api.put(`/applicants/${numericId}`, {
             application_id: selectedApplicant.applicationId,
             application_status: newStatus,
+            status_code: newStatus,
+            status: newStatus,
             phase_description: phaseDesc,
-            testScores: cleanScores
-          }).catch(console.error)
+            testScores: cleanScores,
+          }).catch(console.error),
         ]);
       }
     } catch (err) {
@@ -589,7 +1017,7 @@ export default function Screening({
     setShowReferralModal(true);
   };
 
-  const handlePrintReferralPdf = () => {
+  const handleDownloadScreeningSummaryPdf = () => {
     if (!selectedApplicant) return;
     setIsGeneratingReferral(true);
 
@@ -600,166 +1028,297 @@ export default function Screening({
         month: 'long',
         day: 'numeric'
       });
-      const refNo = `MR-${new Date().getFullYear()}-${String(applicantId).padStart(5, '0')}`;
+      const refNo = `SCR-${new Date().getFullYear()}-${String(selectedApplicant.applicantCode || applicantId).padStart(5, '0')}`;
 
-      // Open print window with official Flowsensus Medical Referral document
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Medical Referral — ${selectedApplicant.name}</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #0F172A; }
-              .header { border-bottom: 3px solid #0EA5E9; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; }
-              .title { font-size: 24px; font-weight: 800; color: #0F172A; text-transform: uppercase; margin: 0; }
-              .subtitle { font-size: 13px; color: #64748B; margin: 4px 0 0 0; }
-              .badge { background: #0EA5E9; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 12px; }
-              .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.5px; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
-              .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px; }
-              .box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
-              .label { font-size: 11px; text-transform: uppercase; color: #64748B; font-weight: 600; }
-              .val { font-size: 15px; font-weight: 700; color: #0F172A; margin-top: 2px; }
-              .scores-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-              .scores-table th { background: #F1F5F9; text-align: left; padding: 8px 12px; font-size: 12px; text-transform: uppercase; }
-              .scores-table td { padding: 8px 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; }
-              .signature-block { margin-top: 40px; display: flex; justify-content: space-between; }
-              .sig-line { border-top: 1px solid #0F172A; width: 220px; text-align: center; padding-top: 6px; font-size: 12px; font-weight: 700; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <div>
-                <h1 class="title">Flowsensus Universal Ops</h1>
-                <p class="subtitle">Official Pre-Employment Medical Examination (PEME) Referral Order</p>
-              </div>
-              <div style="text-align: right;">
-                <span class="badge">REFERRAL ORDER</span>
-                <p style="font-size: 12px; color: #64748B; margin-top: 6px;">Ref No: <strong>${refNo}</strong></p>
-                <p style="font-size: 12px; color: #64748B;">Date: ${refDate}</p>
-              </div>
-            </div>
-
-            <div class="section-title">Referred Healthcare Partner Facility</div>
-            <div class="box">
-              <div class="label">Accredited Clinic Name</div>
-              <div class="val">${selectedClinic}</div>
-              <p style="font-size: 12px; color: #64748B; margin: 4px 0 0 0;">Pre-Employment Medical Examination (PEME) standard overseas work clearance package</p>
-            </div>
-
-            <div class="section-title">Applicant / Candidate Profile</div>
-            <div class="grid">
-              <div class="box">
-                <div class="label">Full Name</div>
-                <div class="val">${selectedApplicant.name}</div>
-              </div>
-              <div class="box">
-                <div class="label">Applicant Code</div>
-                <div class="val">${selectedApplicant.applicantCode || selectedApplicant.id}</div>
-              </div>
-              <div class="box">
-                <div class="label">Applied Trade / Role</div>
-                <div class="val">${selectedApplicant.role}</div>
-              </div>
-              <div class="box">
-                <div class="label">Job Order Allocation</div>
-                <div class="val">${selectedApplicant.jobOrder || 'Unassigned'}</div>
-              </div>
-            </div>
-
-            <div class="section-title">Standardized Screening Results Summary (All Passed)</div>
-            <table class="scores-table">
-              <thead>
-                <tr>
-                  <th>Evaluation Exam</th>
-                  <th>Minimum Passing</th>
-                  <th>Score Recorded</th>
-                  <th>Verdict</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>1. English Proficiency Test</td>
-                  <td>60%</td>
-                  <td>${examScores.englishProficiency}%</td>
-                  <td style="color: #10B981;">✓ PASSED</td>
-                </tr>
-                <tr>
-                  <td>2. Trade / Skills Practical Test</td>
-                  <td>70%</td>
-                  <td>${examScores.tradeSkills}%</td>
-                  <td style="color: #10B981;">✓ PASSED</td>
-                </tr>
-                <tr>
-                  <td>3. IQ / Aptitude Assessment</td>
-                  <td>50%</td>
-                  <td>${examScores.iqAptitude}%</td>
-                  <td style="color: #10B981;">✓ PASSED</td>
-                </tr>
-                <tr>
-                  <td>4. Personality / EQ Suitability Interview</td>
-                  <td>Suitable</td>
-                  <td>${examScores.personalityEQ}</td>
-                  <td style="color: #10B981;">✓ SUITABLE</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div class="signature-block">
-              <div>
-                <p style="font-size: 12px; color: #64748B; margin-bottom: 40px;">Candidate Signature & Conforme</p>
-                <div class="sig-line">${selectedApplicant.name}</div>
-              </div>
-              <div>
-                <p style="font-size: 12px; color: #64748B; margin-bottom: 40px;">Digital Recruiter Endorsement</p>
-                <div class="sig-line">${currentUserName} (Recruitment Dept)</div>
-              </div>
-            </div>
-            <script>
-              window.onload = function() {
-                window.print();
-              };
-            </script>
-          </body>
-          </html>
-        `);
-        printWindow.document.close();
-      }
-
-      // Record in local state that referral has been generated
-      setGeneratedReferralIds(prev => new Set([...prev, applicantId]));
-
-      // Update applicant record
-      updateApplicant(applicantId, {
-        medicalReferralGenerated: true,
-        medicalReferralClinic: selectedClinic,
-        medicalReferralDate: new Date().toISOString(),
+      // Initialize formal A4 portrait document (210mm x 297mm)
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
       });
 
+      const pageWidth = 210;
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2); // 180mm
+
+      let y = 16;
+
+      // ── Header (Formal, Plain, Official Recruitment Agency Standard) ──
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text('FLOWSENSUS UNIVERSAL RECRUITMENT OPERATIONS', margin, y);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('OFFICIAL CANDIDATE SCREENING & EVALUATION REPORT', margin, y + 4.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`REF NO: ${refNo}`, 195, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(`DATE: ${refDate}`, 195, y + 4.5, { align: 'right' });
+
+      y += 8;
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, 195, y);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y + 0.8, 195, y + 0.8);
+
+      y += 4.5;
+
+      // ── Section I: Candidate Identification & Allocation ──
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. CANDIDATE IDENTIFICATION & ALLOCATION', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const gridH = 14;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, gridH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + gridH);
+      doc.line(margin, y + 7, 195, y + 7);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('FULL NAME:', margin + 3, y + 3);
+      doc.text('APPLICANT CODE:', margin + 93, y + 3);
+      doc.text('APPLIED TRADE / ROLE:', margin + 3, y + 10);
+      doc.text('ASSIGNED JOB ORDER:', margin + 93, y + 10);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(selectedApplicant.name || 'N/A'), margin + 3, y + 5.8);
+      doc.text(String(selectedApplicant.applicantCode || selectedApplicant.id || 'N/A'), margin + 93, y + 5.8);
+      doc.text(String(selectedApplicant.role || 'Unspecified'), margin + 3, y + 12.8);
+      doc.text(String(selectedApplicant.jobOrder || 'Unassigned / General Pool'), margin + 93, y + 12.8);
+
+      y += gridH + 4.5;
+
+      // ── Section II: Phase 1 Standardized Technical & Competency Evaluations ──
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('II. PHASE 1 — STANDARDIZED COMPETENCY & TECHNICAL EVALUATIONS', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const colW = [10, 65, 30, 25, 25, 25]; // sum = 180
+      const tableHeaders = ['#', 'EVALUATION ASSESSMENT', 'CATEGORY', 'PASSING THRESHOLD', 'SCORE', 'VERDICT'];
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentWidth, 5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+
+      let curX = margin;
+      doc.text(tableHeaders[0], curX + 2, y + 3.5); curX += colW[0];
+      doc.text(tableHeaders[1], curX + 2, y + 3.5); curX += colW[1];
+      doc.text(tableHeaders[2], curX + 2, y + 3.5); curX += colW[2];
+      doc.text(tableHeaders[3], curX + 2, y + 3.5); curX += colW[3];
+      doc.text(tableHeaders[4], curX + 2, y + 3.5); curX += colW[4];
+      doc.text(tableHeaders[5], curX + 2, y + 3.5);
+
+      y += 5;
+
+      activeEvaluationTests.forEach((t, i) => {
+        const res = getTestEvaluationResult(t);
+        const passed = res.passed;
+        const isPassFail = t.scoringType === 'pass_fail';
+        const benchmark = isPassFail ? 'Pass' : `Min. ${t.passingScore}%`;
+        const scoreDisplay = isPassFail
+          ? (res.verdict === 'Pass' ? 'PASSED' : (res.verdict === 'Fail' ? 'FAILED' : 'PENDING'))
+          : (res.hasEntry ? `${res.rawScore} / ${res.totalItems} (${res.score}%)` : 'PENDING');
+        const verdictDisplay = passed ? 'PASSED' : (res.hasEntry ? 'FAILED' : 'PENDING');
+
+        const catDisplay = t.type === 'skills'
+          ? 'Trade / Skills'
+          : t.type === 'language'
+            ? 'Language Aptitude'
+            : t.type === 'iq'
+              ? 'Cognitive / IQ'
+              : t.type === 'eq'
+                ? 'EQ / Psychological'
+                : t.type === 'medical'
+                  ? 'Medical Review'
+                  : 'General Test';
+
+        const rowH = 6;
+        if (i % 2 === 1) {
+          doc.setFillColor(249, 250, 251);
+          doc.rect(margin, y, contentWidth, rowH, 'F');
+        }
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(margin, y, contentWidth, rowH, 'S');
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+
+        let rx = margin;
+        doc.text(String(i + 1), rx + 2, y + 4.2); rx += colW[0];
+        doc.setFont('helvetica', 'bold');
+        const truncatedName = t.name.length > 34 ? t.name.substring(0, 32) + '...' : t.name;
+        doc.text(truncatedName, rx + 2, y + 4.2); rx += colW[1];
+        doc.setFont('helvetica', 'normal');
+        doc.text(catDisplay, rx + 2, y + 4.2); rx += colW[2];
+        doc.text(benchmark, rx + 2, y + 4.2); rx += colW[3];
+        doc.text(scoreDisplay, rx + 2, y + 4.2); rx += colW[4];
+        doc.setFont('helvetica', 'bold');
+        doc.text(verdictDisplay, rx + 2, y + 4.2);
+        y += rowH;
+      });
+
+      // Aggregate Summary Row
+      y += 2;
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 7, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 7, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`CANDIDATE WEIGHTED AGGREGATE SCORE: ${currentWeightedScore}%`, margin + 4, y + 4.8);
+      doc.text(`STATUS: ${phase1AllPassed ? 'PHASE 1 QUALIFIED' : 'PROVISIONAL'}`, 195 - 4, y + 4.8, { align: 'right' });
+      y += 11;
+
+      // ── Section III: Phase 2 Personality & EQ Interview ──
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('III. PHASE 2 — PERSONALITY & BEHAVIORAL SUITABILITY INTERVIEW', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const eqH = 17;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, eqH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + 8.5);
+      doc.line(margin, y + 8.5, 195, y + 8.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('INTERVIEW VERDICT:', margin + 3, y + 3);
+      doc.text('EVALUATING OFFICER:', margin + 93, y + 3);
+      doc.text('EVALUATION OBSERVATIONS & REMARKS:', margin + 3, y + 11.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      const verdictText = personalityEQVerdict === 'Suitable'
+        ? 'SUITABLE — Recommended for Overseas Placement'
+        : (personalityEQVerdict === 'Not Suitable' ? 'NOT SUITABLE (Provisional)' : 'PENDING ASSESSMENT');
+      doc.text(verdictText, margin + 3, y + 6);
+      doc.text(`${currentUserName} (Screening Operations)`, margin + 93, y + 6);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(51, 65, 85);
+      const remarksText = 'Candidate demonstrates appropriate behavioral stability, professional aptitude, and readiness for deployment.';
+      doc.text(remarksText, margin + 3, y + 14.5);
+
+      y += eqH + 5;
+
+      // ── Section IV: Official Endorsement & Conforme ──
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('IV. OFFICIAL ENDORSEMENT & CONFORME', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const sigH = 26;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, sigH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + sigH);
+
+      // Left signature (Candidate)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CANDIDATE ACKNOWLEDGMENT & CONFORME:', margin + 4, y + 4);
+      doc.line(margin + 4, y + 16, margin + 84, y + 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(selectedApplicant.name), margin + 4, y + 19.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Candidate Signature over Printed Name / Date', margin + 4, y + 23);
+
+      // Right signature (Officer)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AUTHORIZED SCREENING OFFICER ENDORSEMENT:', margin + 94, y + 4);
+      doc.line(margin + 94, y + 16, margin + 176, y + 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${currentUserName} (Screening Operations)`, margin + 94, y + 19.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Verified Evaluator Signature & Seal / Date', margin + 94, y + 23);
+
+      // ── Footer (Plain, Formal Standard) ──
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(margin, 285, 195, 285);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('CONFIDENTIAL • FLOWSENSUS OPERATIONS SYSTEM • OFFICIAL SCREENING RECORD • A4 STANDARD • PAGE 1 OF 1', 105, 288.5, { align: 'center' });
+
+      // Save and trigger browser download
+      const cleanFileName = `Flowsensus_Screening_Summary_${(selectedApplicant.name || 'Candidate').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+      doc.save(cleanFileName);
+
+      setGeneratedReferralIds(prev => new Set([...prev, applicantId]));
       addActivityLog({
         applicantId,
-        action: 'Medical Referral PDF Generated',
+        action: 'Downloaded Screening Summary PDF (A4)',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Generated official Medical Referral PDF to ${selectedClinic}. Digital signature of recruiter ${currentUserName} logged. Candidate is now eligible for status update to Medical Referral.`,
+        details: `Generated and downloaded formal A4 Candidate Screening & Evaluation Report for ${selectedApplicant.name}.`,
       });
-
-      setShowReferralModal(false);
-      showToast('✓ Medical Referral PDF generated successfully! Recruiter signature logged. You can now Update Applicant Status.');
+      showToast(`✓ Downloaded formal Screening Summary PDF for ${selectedApplicant.name}`);
     } catch (err) {
       console.error(err);
-      showToast('Failed to generate Medical Referral PDF.');
+      showToast('Failed to generate summary PDF.');
     } finally {
       setIsGeneratingReferral(false);
     }
   };
 
   // ── Phase 3: Button 3 — UPDATE APPLICANT STATUS ────────────────────────────
-  // Must trigger confirmation modal before executing transition — no silent moves!
   const handleOpenUpdateStatusConfirmation = () => {
-    if (!hasMedicalReferral) {
-      showToast('Please generate the Medical Referral PDF first before updating applicant status.');
+    if (!allScoresPassed) {
+      showToast('Cannot update status: candidate must pass all evaluation tests and the suitability interview.');
       return;
     }
     setShowUpdateStatusModal(true);
@@ -777,7 +1336,7 @@ export default function Screening({
         phase: 2,
         currentHandler: 'Maria Santos',
         currentDepartment: 'Admin',
-        phaseDescription: `Medical referral issued to ${selectedApplicant.medicalReferralClinic || selectedClinic}. Awaiting examination clearance from clinic.`,
+        phaseDescription: 'Screening completed. Applicant endorsed for Medical Clearance.',
       };
 
       if (!isNaN(numericId)) {
@@ -797,14 +1356,14 @@ export default function Screening({
 
       addActivityLog({
         applicantId,
-        action: 'Screening Completed — Moved to Medical Referral',
+        action: 'Screening Completed — Moved to Medical Clearance',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Medical referral generated. Moved to Medical Referral phase (now active in Fit-to-Work module).`,
+        details: `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Endorsed for Medical Clearance.`,
       });
 
       setShowUpdateStatusModal(false);
-      showToast(`✓ ${selectedApplicant.name} moved to Medical Referral (now in Fit-to-Work module).`);
+      showToast(`✓ ${selectedApplicant.name} successfully moved to Medical Clearance.`);
 
       // Return to Screening overview; applicant will no longer appear in any screening sub-phase
       setListView(true);
@@ -914,26 +1473,60 @@ export default function Screening({
 
         {/* ── SUB-PHASE 1: PENDING SCREENING ──────────────────────────────── */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
                 Phase 1 — Pending Screening
               </h3>
               <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                {phase1Applicants.length}
+                {phase1Search ? `${filteredPhase1.length} of ${phase1Applicants.length}` : phase1Applicants.length}
               </span>
             </div>
-            <span className="text-xs text-slate-400">English (≥60%) • Trade Skills (≥70%) • IQ/Aptitude (≥50%)</span>
+
+            <div className="flex items-center gap-2">
+              <span className="hidden xl:inline text-xs text-slate-400">English (≥60%) • Trade Skills (≥70%) • IQ/Aptitude (≥50%)</span>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={phase1Search}
+                  onChange={e => setPhase1Search(e.target.value)}
+                  placeholder="Search Phase 1 (name, code, role)..."
+                  className="pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all w-56 sm:w-64 text-slate-700 shadow-2xs"
+                />
+                {phase1Search && (
+                  <button
+                    type="button"
+                    onClick={() => setPhase1Search('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {phase1Applicants.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 py-8 text-center text-slate-400 text-sm">
               No applicants currently pending Phase 1 standardized testing
             </div>
+          ) : filteredPhase1.length === 0 ? (
+            <div className="bg-white rounded-xl border border-dashed border-slate-300 py-6 text-center text-slate-400 text-sm">
+              <p>No applicants match &quot;{phase1Search}&quot; in Phase 1</p>
+              <button
+                type="button"
+                onClick={() => setPhase1Search('')}
+                className="mt-2 text-xs text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
+              >
+                Clear search filter
+              </button>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {phase1Applicants.map(a => {
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              {filteredPhase1.map(a => {
                 const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
                 const isProvisional = a.status === 'Provisional';
 
@@ -942,13 +1535,12 @@ export default function Screening({
                     key={a.id}
                     onClick={() => openApplicant(a.id)}
                     disabled={activeFlags.length > 0}
-                    className={`w-full text-left bg-white rounded-xl border px-5 py-4 flex items-center gap-4 transition-all cursor-pointer ${
-                      activeFlags.length > 0
+                    className={`w-full text-left bg-white rounded-xl border px-5 py-4 flex items-center gap-4 transition-all cursor-pointer ${activeFlags.length > 0
                         ? 'border-amber-200 opacity-60 cursor-not-allowed'
                         : isProvisional
-                        ? 'border-amber-300 hover:border-amber-500 bg-amber-50/20 hover:shadow-sm'
-                        : 'border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm'
-                    }`}
+                          ? 'border-amber-300 hover:border-amber-500 bg-amber-50/20 hover:shadow-sm'
+                          : 'border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm'
+                      }`}
                   >
                     {a.photoDataUrl || a.photo ? (
                       <img
@@ -994,7 +1586,11 @@ export default function Screening({
                           <>
                             <span>•</span>
                             <span className="text-slate-400">
-                              Scores: Eng {a.testScores.englishProficiency ?? '-'}% | Trade {a.testScores.tradeSkills ?? '-'}% | IQ {a.testScores.iqAptitude ?? '-'}%
+                              {a.testScores.overallScore !== undefined
+                                ? `Score: ${a.testScores.overallScore}% aggregate`
+                                : a.testScores.tests && Object.keys(a.testScores.tests).length > 0
+                                  ? `Evaluations: ${Object.values(a.testScores.tests).filter((t: any) => t.passed).length}/${Object.keys(a.testScores.tests).length} passed`
+                                  : `Scores: Eng ${a.testScores.englishProficiency ?? '-'}% | Trade ${a.testScores.tradeSkills ?? '-'}% | IQ ${a.testScores.iqAptitude ?? '-'}%`}
                             </span>
                           </>
                         )}
@@ -1016,26 +1612,60 @@ export default function Screening({
 
         {/* ── SUB-PHASE 2: PENDING INTERVIEW ──────────────────────────────── */}
         <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#0EA5E9]"></span>
                 Phase 2 — Pending Interview (Personality/EQ)
               </h3>
               <span className="text-xs bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-bold">
-                {phase2Applicants.length}
+                {phase2Search ? `${filteredPhase2.length} of ${phase2Applicants.length}` : phase2Applicants.length}
               </span>
             </div>
-            <span className="text-xs text-slate-400">Passed 3 Standardized Tests • Awaiting Suitability Interview</span>
+
+            <div className="flex items-center gap-2">
+              <span className="hidden xl:inline text-xs text-slate-400">Passed Standardized Tests • Awaiting Suitability Interview</span>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={phase2Search}
+                  onChange={e => setPhase2Search(e.target.value)}
+                  placeholder="Search Phase 2 (name, code, role)..."
+                  className="pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all w-56 sm:w-64 text-slate-700 shadow-2xs"
+                />
+                {phase2Search && (
+                  <button
+                    type="button"
+                    onClick={() => setPhase2Search('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {phase2Applicants.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 py-8 text-center text-slate-400 text-sm">
               No applicants currently pending Phase 2 personality/EQ assessment
             </div>
+          ) : filteredPhase2.length === 0 ? (
+            <div className="bg-white rounded-xl border border-dashed border-slate-300 py-6 text-center text-slate-400 text-sm">
+              <p>No applicants match &quot;{phase2Search}&quot; in Phase 2</p>
+              <button
+                type="button"
+                onClick={() => setPhase2Search('')}
+                className="mt-2 text-xs text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
+              >
+                Clear search filter
+              </button>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {phase2Applicants.map(a => {
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              {filteredPhase2.map(a => {
                 const isProvisional = a.status === 'Provisional';
                 return (
                   <button
@@ -1088,28 +1718,62 @@ export default function Screening({
           )}
         </div>
 
-        {/* ── SUB-PHASE 3: REVIEW SCORE FOR MEDICAL REFERRAL ──────────────── */}
+        {/* ── SUB-PHASE 3: REVIEW AND FINALIZE SCORE ──────────────── */}
         <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                Phase 3 — Review Score for Medical Referral
+                Phase 3 — Review and Finalize Score
               </h3>
               <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                {phase3Applicants.length}
+                {phase3Search ? `${filteredPhase3.length} of ${phase3Applicants.length}` : phase3Applicants.length}
               </span>
             </div>
-            <span className="text-xs text-slate-400">All Tests & Interview Passed • Ready for PDF & Status Dispatch</span>
+
+            <div className="flex items-center gap-2">
+              <span className="hidden xl:inline text-xs text-slate-400">All Tests & Interview Passed • Ready to Finalize</span>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={phase3Search}
+                  onChange={e => setPhase3Search(e.target.value)}
+                  placeholder="Search Phase 3 (name, code, role)..."
+                  className="pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all w-56 sm:w-64 text-slate-700 shadow-2xs"
+                />
+                {phase3Search && (
+                  <button
+                    type="button"
+                    onClick={() => setPhase3Search('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {phase3Applicants.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 py-8 text-center text-slate-400 text-sm">
               No applicants currently waiting in Phase 3
             </div>
+          ) : filteredPhase3.length === 0 ? (
+            <div className="bg-white rounded-xl border border-dashed border-slate-300 py-6 text-center text-slate-400 text-sm">
+              <p>No applicants match &quot;{phase3Search}&quot; in Phase 3</p>
+              <button
+                type="button"
+                onClick={() => setPhase3Search('')}
+                className="mt-2 text-xs text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
+              >
+                Clear search filter
+              </button>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {phase3Applicants.map(a => {
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              {filteredPhase3.map(a => {
                 const referralDone = a.medicalReferralGenerated || generatedReferralIds.has(a.id);
                 return (
                   <button
@@ -1138,11 +1802,6 @@ export default function Screening({
                         <span className="text-xs text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
                           <CheckCircle2 size={11} /> 100% Passed
                         </span>
-                        {referralDone && (
-                          <span className="text-xs text-sky-800 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                            <FileCheck2 size={11} /> Referral Generated
-                          </span>
-                        )}
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         {a.role} {a.jobOrder ? `• ${a.jobOrder}` : ''}
@@ -1151,7 +1810,7 @@ export default function Screening({
 
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                        {referralDone ? 'Ready to Update Status →' : 'Review & Generate Referral →'}
+                        Review & Finalize Score →
                       </span>
                       <ChevronRight size={16} className="text-slate-400" />
                     </div>
@@ -1260,13 +1919,12 @@ export default function Screening({
           {/* Step 1 */}
           <div className="flex items-center gap-2">
             <div
-              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                phase1AllPassed
+              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${phase1AllPassed
                   ? 'bg-emerald-500 text-white'
                   : selectedApplicant?.status === 'Provisional' && !phase1AllPassed
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-[#0EA5E9] text-white'
-              }`}
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-[#0EA5E9] text-white'
+                }`}
             >
               {phase1AllPassed ? '✓' : '1'}
             </div>
@@ -1280,13 +1938,12 @@ export default function Screening({
           {/* Step 2 */}
           <div className="flex items-center gap-2">
             <div
-              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                eqPass
+              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${eqPass
                   ? 'bg-emerald-500 text-white'
                   : phase1AllPassed
-                  ? 'bg-[#0EA5E9] text-white'
-                  : 'bg-slate-800 text-slate-500'
-              }`}
+                    ? 'bg-[#0EA5E9] text-white'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
             >
               {eqPass ? '✓' : '2'}
             </div>
@@ -1295,8 +1952,8 @@ export default function Screening({
                 eqPass
                   ? 'text-emerald-400 font-bold'
                   : phase1AllPassed
-                  ? 'text-sky-300 font-medium'
-                  : 'text-slate-500'
+                    ? 'text-sky-300 font-medium'
+                    : 'text-slate-500'
               }
             >
               Phase 2: Suitability Interview (EQ)
@@ -1308,13 +1965,12 @@ export default function Screening({
           {/* Step 3 */}
           <div className="flex items-center gap-2">
             <div
-              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                hasMedicalReferral
+              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${hasMedicalReferral
                   ? 'bg-emerald-500 text-white'
                   : allScoresPassed
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-800 text-slate-500'
-              }`}
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
             >
               {hasMedicalReferral ? '✓' : '3'}
             </div>
@@ -1329,27 +1985,33 @@ export default function Screening({
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
         <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-amber-900">
-          <p className="font-bold text-sm text-amber-950 mb-1">How This Works</p>
-          <ul className="space-y-1 text-amber-800 leading-relaxed list-none">
-            <li>✔ If the applicant <strong>passes all 3 tests</strong>, they move on to the Personality Interview (Phase 2).</li>
+          <p className="font-bold text-sm text-amber-950 mb-1.5">How This Works</p>
+          <ul className="space-y-1.5 text-amber-800 leading-relaxed list-none">
+            <li>✔ If the applicant <strong>passes all tests</strong>, they move on to the Personality Interview (Phase 2).</li>
             <li>⚠ If they <strong>fail any test</strong>, their status is set to <strong>Provisional</strong> — they stay in the pipeline. You can re-score them later, or use <em>Stop Processing</em> to end their application.</li>
-            <li>✔ Once <strong>all tests and the interview are passed</strong>, you can generate their Medical Referral and move them forward.</li>
+            <li>✔ Once <strong>all tests and the interview are passed</strong>, you can review their score and generate their screening summary results and move them forward.</li>
           </ul>
         </div>
       </div>
 
       {/* ── SECTION 1: PHASE 1 — STANDARDIZED TEST SCORECARD ─────────────────── */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <ClipboardCheck className="w-6 h-6 text-[#0EA5E9]" />
             <div>
               <h3 className="font-black text-[#0F172A] text-lg">Phase 1 — Standardized Test Scorecard</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Staff records scores for the 3 core qualification exams</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Staff records scores for the {activeEvaluationTests.length} active qualification evaluations
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Weighted Aggregate</span>
+              <span className="text-base font-extrabold text-[#0EA5E9]">{currentWeightedScore}%</span>
+            </div>
             {phase1AllPassed ? (
               <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-full flex items-center gap-1">
                 <CheckCircle2 size={13} /> Phase 1 Passed
@@ -1366,156 +2028,237 @@ export default function Screening({
           </div>
         </div>
 
-        <div className="space-y-6">
-          {/* 1. English Proficiency Test */}
-          <div className="bg-[#0EA5E9]/5 p-5 rounded-xl border-2 border-[#0EA5E9]/20">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="font-bold text-[#0F172A] text-sm">1. English Proficiency Test</p>
-                <p className="text-xs text-[#64748B] mt-0.5">
-                  Communication ability (grammar, comprehension, oral interview) • Passing: ≥{ENGLISH_PASS_SCORE}%
-                </p>
-              </div>
-              <span
-                className={`px-3 py-1 text-xs font-bold rounded-full ${
-                  englishPass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                }`}
-              >
-                {englishPass ? '✓ Pass' : '✗ Below Pass'}
-              </span>
-            </div>
-            <div className="flex items-center gap-4">
-              <input
-                type="number"
-                value={examScores.englishProficiency}
-                onChange={(e) => handleScoreChange('englishProficiency', e.target.value)}
-                max={100}
-                min={0}
-                placeholder="0"
-                className="w-28 border-2 border-[#0EA5E9]/30 px-3 py-2 rounded-lg text-2xl font-black text-[#0EA5E9] focus:border-[#0EA5E9] outline-none text-center bg-white"
-              />
-              <span className="text-sm text-[#64748B] font-semibold">/ 100</span>
-              <div className="flex-1 bg-slate-200 rounded-full h-3">
-                <div
-                  className={`h-3 rounded-full transition-all ${englishPass ? 'bg-[#10B981]' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(100, Math.max(0, englishVal))}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
+        <div className="space-y-5">
+          {activeEvaluationTests.map((test, index) => {
+            const theme = TEST_TYPE_THEMES[test.type] || TEST_TYPE_THEMES.custom;
+            const Icon = theme.icon;
+            const evalResult = getTestEvaluationResult(test);
+            const isPass = evalResult.passed;
+            const hasEntry = evalResult.hasEntry;
+            const isPassFail = test.scoringType === 'pass_fail';
+            const currentPF = dynamicPassFail[test.id] || '';
+            const rawVal = dynamicRawScores[test.id] ?? '';
+            const totalVal = dynamicTotalItems[test.id] ?? (test.maxScore || 100);
+            const pctFilled = isPassFail
+              ? (currentPF === 'Pass' ? 100 : (currentPF === 'Fail' ? 0 : 0))
+              : Math.min(100, Math.max(0, evalResult.percentage ?? 0));
+            const effWeight = totalActiveWeight > 0 ? Math.round((test.weight / totalActiveWeight) * 100) : test.weight;
+            const isJobOrderSpecific = Boolean(test.applicableJobOrders && test.applicableJobOrders.length > 0);
 
-          {/* 2. Trade/Skills Test - MOST CRITICAL */}
-          <div className="bg-[#F59E0B]/5 p-5 rounded-xl border-2 border-[#F59E0B]/20">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
-                  2. Trade / Skills Test
-                  <span className="px-2 py-0.5 bg-[#F59E0B] text-white text-xs font-bold rounded">MOST CRITICAL</span>
-                </p>
-                <p className="text-xs text-[#64748B] mt-0.5">
-                  Practical job capability (hands-on demo, actual performance benchmark) • Passing: ≥{TRADE_PASS_SCORE}%
-                </p>
-              </div>
-              <span
-                className={`px-3 py-1 text-xs font-bold rounded-full ${
-                  tradePass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                }`}
-              >
-                {tradePass ? '✓ Pass' : '✗ Below Pass'}
-              </span>
-            </div>
-            <div className="flex items-center gap-4">
-              <input
-                type="number"
-                value={examScores.tradeSkills}
-                onChange={(e) => handleScoreChange('tradeSkills', e.target.value)}
-                max={100}
-                min={0}
-                placeholder="0"
-                className="w-28 border-2 border-[#F59E0B]/30 px-3 py-2 rounded-lg text-2xl font-black text-[#F59E0B] focus:border-[#F59E0B] outline-none text-center bg-white"
-              />
-              <span className="text-sm text-[#64748B] font-semibold">/ 100</span>
-              <div className="flex-1 bg-slate-200 rounded-full h-3">
-                <div
-                  className={`h-3 rounded-full transition-all ${tradePass ? 'bg-[#10B981]' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(100, Math.max(0, tradeVal))}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
+            return (
+              <div key={test.id} className={`${theme.bg} p-5 rounded-xl border-2 ${theme.border} transition-all`}>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className={`p-2 rounded-lg bg-white shadow-xs ${theme.text}`}>
+                      <Icon size={18} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-[#0F172A] text-sm">{index + 1}. {test.name}</p>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded">
+                          {theme.label}
+                        </span>
+                        <span className={`px-2 py-0.5 text-white text-[10px] font-extrabold rounded ${theme.bar}`}>
+                          {test.weight}% Weight {totalActiveWeight !== 100 ? `(${effWeight}% eff.)` : ''}
+                        </span>
+                        {isJobOrderSpecific && (
+                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded border border-indigo-200">
+                            Job Order: {test.applicableJobOrders!.join(', ')}
+                          </span>
+                        )}
+                        {isPassFail ? (
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] font-extrabold rounded border border-purple-200">
+                            Pass / Fail Clearance
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-sky-100 text-sky-800 text-[10px] font-extrabold rounded border border-sky-200">
+                            Numeric Scoring
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#64748B] mt-0.5">
+                        {test.description || 'Evaluation benchmark'} • {isPassFail ? (
+                          <span className="text-purple-800 font-semibold">Grading: Pass or Fail Clearance</span>
+                        ) : (
+                          <>Passing benchmark: <strong className="text-slate-800">≥{test.passingScore}%</strong></>
+                        )}
+                        {isJobOrderSpecific && (
+                          <span className="text-indigo-600 font-medium ml-1.5">
+                            (Specific requirement for {test.applicableJobOrders!.join(', ')})
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
 
-          {/* 3. IQ / Aptitude Test */}
-          <div className="bg-[#8B5CF6]/5 p-5 rounded-xl border-2 border-[#8B5CF6]/20">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="font-bold text-[#0F172A] text-sm">3. IQ / Aptitude Test</p>
-                <p className="text-xs text-[#64748B] mt-0.5">
-                  Learning ability, problem-solving, logical reasoning • Passing: ≥{IQ_PASS_SCORE}%
-                </p>
-              </div>
-              <span
-                className={`px-3 py-1 text-xs font-bold rounded-full ${
-                  iqPass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                }`}
-              >
-                {iqPass ? '✓ Pass' : '✗ Below Pass'}
-              </span>
-            </div>
-            <div className="flex items-center gap-4">
-              <input
-                type="number"
-                value={examScores.iqAptitude}
-                onChange={(e) => handleScoreChange('iqAptitude', e.target.value)}
-                max={100}
-                min={0}
-                placeholder="0"
-                className="w-28 border-2 border-[#8B5CF6]/30 px-3 py-2 rounded-lg text-2xl font-black text-[#8B5CF6] focus:border-[#8B5CF6] outline-none text-center bg-white"
-              />
-              <span className="text-sm text-[#64748B] font-semibold">/ 100</span>
-              <div className="flex-1 bg-slate-200 rounded-full h-3">
-                <div
-                  className={`h-3 rounded-full transition-all ${iqPass ? 'bg-[#10B981]' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(100, Math.max(0, iqVal))}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
+                  <span
+                    className={`px-3 py-1 text-xs font-bold rounded-full ${!hasEntry
+                        ? 'bg-slate-100 text-slate-500'
+                        : isPass
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                          : 'bg-red-100 text-red-600 border border-red-300'
+                      }`}
+                  >
+                    {!hasEntry ? '⏱ Pending' : isPass ? (isPassFail ? '✓ Cleared' : '✓ Pass') : (isPassFail ? '✗ Failed' : '✗ Below Pass')}
+                  </span>
+                </div>
 
-          {/* Optional Employer-Specific Tests */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <p className="font-bold text-[#0F172A] text-xs uppercase tracking-wide mb-1">
-              Employer-Specific Tests / Skills Notes <span className="text-slate-400 font-normal">(Optional)</span>
-            </p>
-            <textarea
-              value={examScores.employerSpecific}
-              onChange={(e) => setExamScores(prev => ({ ...prev, employerSpecific: e.target.value }))}
-              rows={2}
-              placeholder="e.g. Passed welding test (4G SMAW); Certified culinary demo for domestic kitchen."
-              className="w-full border border-slate-300 px-3 py-2 rounded-lg text-xs focus:border-[#0EA5E9] outline-none bg-white"
-            ></textarea>
-          </div>
+                {isPassFail ? (
+                  /* Pass / Fail binary selector */
+                  <div className="flex items-center gap-3 pt-2">
+                    <span className="text-xs text-slate-600 font-bold uppercase tracking-wider">Evaluation Verdict:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleSetPassFail(test.id, 'Pass')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${currentPF === 'Pass'
+                          ? 'bg-emerald-600 text-white shadow-emerald-600/25 ring-2 ring-emerald-500/30'
+                          : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700'
+                        }`}
+                    >
+                      <CheckCircle2 size={15} /> Passed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetPassFail(test.id, 'Fail')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${currentPF === 'Fail'
+                          ? 'bg-red-600 text-white shadow-red-600/25 ring-2 ring-red-500/30'
+                          : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-red-400 hover:text-red-700'
+                        }`}
+                    >
+                      <AlertTriangle size={15} /> Failed
+                    </button>
+                    {currentPF && (
+                      <span className={`text-xs font-bold ml-2 ${currentPF === 'Pass' ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {currentPF === 'Pass' ? '✓ Satisfies Job Order Requirement' : '✗ Does Not Meet Clearance'}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  /* Numeric Scoring with Score Obtained & Total Score inputs */
+                  <div className="pt-1">
+                    <div className="flex items-end gap-4 flex-wrap">
+                      {/* Score Obtained */}
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
+                          Score Obtained
+                        </label>
+                        <input
+                          type="number"
+                          value={rawVal}
+                          onChange={(e) => handleRawScoreChange(test.id, e.target.value)}
+                          min={0}
+                          placeholder="0"
+                          className={`w-28 border-2 px-3 py-2 rounded-lg text-xl font-black ${theme.text} ${theme.border} focus:border-[#0EA5E9] outline-none text-center bg-white shadow-xs`}
+                        />
+                      </div>
+
+                      <span className="text-2xl text-slate-400 font-bold mb-2">/</span>
+
+                      {/* Total Score */}
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
+                          Total Score
+                        </label>
+                        <input
+                          type="number"
+                          value={totalVal}
+                          onChange={(e) => handleTotalItemsChange(test.id, e.target.value)}
+                          min={1}
+                          placeholder={String(test.maxScore || 100)}
+                          className="w-24 border-2 border-slate-200 px-3 py-2 rounded-lg text-lg font-bold text-slate-700 focus:border-[#0EA5E9] outline-none text-center bg-white shadow-xs"
+                        />
+                        <span className="text-[9px] text-slate-400 block mt-0.5 text-center font-medium">Per candidate</span>
+                      </div>
+
+                      {/* Auto-Computed Rating Display */}
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
+                          Calculated Rating
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <div className={`px-3 py-2 rounded-lg border font-black text-base min-w-[76px] text-center ${evalResult.percentage === undefined
+                              ? 'bg-slate-100 border-slate-200 text-slate-400'
+                              : isPass
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-xs'
+                                : 'bg-red-50 border-red-300 text-red-600 shadow-xs'
+                            }`}>
+                            {evalResult.percentage !== undefined ? `${evalResult.percentage}%` : '— %'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Visual progress bar */}
+                      <div className="flex-1 min-w-[140px] mb-3">
+                        <div className="flex justify-between text-[10px] text-slate-400 font-semibold mb-1">
+                          <span>0%</span>
+                          <span>Passing: {test.passingScore}%</span>
+                          <span>100%</span>
+                        </div>
+                        <div className="bg-slate-200 rounded-full h-3 overflow-hidden">
+                          <div
+                            className={`h-3 rounded-full transition-all duration-300 ${isPass ? 'bg-[#10B981]' : (hasEntry ? 'bg-red-500' : 'bg-slate-300')
+                              }`}
+                            style={{ width: `${pctFilled}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Phase 1 Evaluation Action Bar */}
-        <div className="pt-4 border-t border-slate-200 flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Phase 1 Verdict</p>
-            <p className={`text-base font-extrabold ${phase1AllPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {phase1AllPassed
-                ? '✓ All 3 Tests Meet Passing Criteria'
-                : '⚠️ Criteria Not Met — Saving Will Mark Applicant as Provisional'}
-            </p>
-          </div>
+        {(() => {
+          const enteredCount = activeEvaluationTests.filter(t => getTestEvaluationResult(t).hasEntry).length;
+          const isAllEntered = enteredCount === activeEvaluationTests.length;
+          const failedCount = activeEvaluationTests.filter(t => !isTestPassed(t)).length;
 
-          <button
-            onClick={handleEvaluatePhase1}
-            disabled={isSaving}
-            className="px-6 py-2.5 bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-50 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
-            Save & Evaluate Phase 1 Scores
-          </button>
-        </div>
+          return (
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Phase 1 Evaluation Status</p>
+                <p className={`text-sm font-extrabold ${!isAllEntered ? 'text-sky-700' : phase1AllPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {!isAllEntered
+                    ? `⏱ ${enteredCount} of ${activeEvaluationTests.length} Evaluations Recorded (Draft mode available)`
+                    : phase1AllPassed
+                      ? `✓ All ${activeEvaluationTests.length} Tests Meet Passing Criteria — Ready for Phase 2 Interview`
+                      : `⚠️ Criteria Not Met in ${failedCount} Test(s) — Saving will mark Applicant as Provisional`}
+                </p>
+                {!isAllEntered && (
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Save Draft stores partial scores and keeps the candidate in Phase 1 until all evaluations are scored.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleSaveDraftScores}
+                  disabled={isSaving}
+                  className="px-4 py-2.5 bg-white border-2 border-slate-300 hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                  title="Save partial test scores as draft without advancing candidate"
+                >
+                  <Save className="w-4 h-4 text-slate-500" />
+                  Save Draft (Keep in Phase 1)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleEvaluatePhase1}
+                  disabled={isSaving}
+                  className="px-6 py-2.5 bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
+                  Save & Complete Phase 1
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── SECTION 2: PHASE 2 — PENDING INTERVIEW (EQ ASSESSMENT) ───────────── */}
@@ -1532,13 +2275,12 @@ export default function Screening({
           </div>
 
           <span
-            className={`px-3 py-1 text-xs font-bold rounded-full ${
-              eqPass
+            className={`px-3 py-1 text-xs font-bold rounded-full ${eqPass
                 ? 'bg-emerald-100 text-emerald-700'
                 : eqFail
-                ? 'bg-amber-100 text-amber-800'
-                : 'bg-slate-100 text-slate-600'
-            }`}
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
           >
             {eqPass ? '✓ Suitable (Pass)' : eqFail ? '✗ Not Suitable (Provisional)' : '⏱ Pending Interview'}
           </span>
@@ -1549,7 +2291,7 @@ export default function Screening({
             <AlertCircle className="w-6 h-6 text-slate-400 mx-auto mb-2" />
             <p className="font-bold text-slate-700">Phase 2 Interview is Locked</p>
             <p className="text-xs text-slate-500 mt-0.5 max-w-md mx-auto">
-              The applicant must pass all 3 Standardized Tests (English ≥60%, Trade Skills ≥70%, IQ ≥50%) before proceeding to the Personality / EQ Assessment interview.
+              The applicant must pass all {activeEvaluationTests.length} qualification evaluations before proceeding to the Personality / EQ Assessment interview.
             </p>
           </div>
         ) : (
@@ -1559,7 +2301,7 @@ export default function Screening({
                 <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block">
                   Suitability Verdict for Job Order: {selectedApplicant?.jobOrder || 'Current Position'}
                 </label>
-                {(examScores.personalityEQ === 'Suitable' || examScores.personalityEQ === 'Not Suitable') && (
+                {(personalityEQVerdict === 'Suitable' || personalityEQVerdict === 'Not Suitable') && (
                   <button
                     type="button"
                     onClick={() => handleEvaluatePhase2('Pending')}
@@ -1575,24 +2317,23 @@ export default function Screening({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => handleEvaluatePhase2(examScores.personalityEQ === 'Suitable' ? 'Pending' : 'Suitable')}
+                  onClick={() => handleEvaluatePhase2(personalityEQVerdict === 'Suitable' ? 'Pending' : 'Suitable')}
                   disabled={isSaving}
-                  className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                    examScores.personalityEQ === 'Suitable'
+                  className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${personalityEQVerdict === 'Suitable'
                       ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20'
                       : 'border-slate-200 hover:border-emerald-300 bg-white'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-sm text-emerald-900">✓ Suitable (Pass)</span>
-                    {examScores.personalityEQ === 'Suitable' && (
+                    {personalityEQVerdict === 'Suitable' && (
                       <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
                     Candidate meets emotional, behavioral, and communication standards for overseas deployment. Advances to Phase 3.
                   </p>
-                  {examScores.personalityEQ === 'Suitable' && (
+                  {personalityEQVerdict === 'Suitable' && (
                     <span className="inline-block mt-2 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded">
                       Click again to unselect
                     </span>
@@ -1601,24 +2342,23 @@ export default function Screening({
 
                 <button
                   type="button"
-                  onClick={() => handleEvaluatePhase2(examScores.personalityEQ === 'Not Suitable' ? 'Pending' : 'Not Suitable')}
+                  onClick={() => handleEvaluatePhase2(personalityEQVerdict === 'Not Suitable' ? 'Pending' : 'Not Suitable')}
                   disabled={isSaving}
-                  className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                    examScores.personalityEQ === 'Not Suitable'
+                  className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${personalityEQVerdict === 'Not Suitable'
                       ? 'border-amber-500 bg-amber-50/60 ring-2 ring-amber-500/20'
                       : 'border-slate-200 hover:border-amber-300 bg-white'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-sm text-amber-900">✗ Not Suitable → Provisional</span>
-                    {examScores.personalityEQ === 'Not Suitable' && (
+                    {personalityEQVerdict === 'Not Suitable' && (
                       <AlertTriangle className="w-5 h-5 text-amber-600" />
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
                     Behavioral concerns or mismatch detected. Sets status to Provisional — candidate remains in pipeline. Staff may re-evaluate or stop processing.
                   </p>
-                  {examScores.personalityEQ === 'Not Suitable' && (
+                  {personalityEQVerdict === 'Not Suitable' && (
                     <span className="inline-block mt-2 text-[11px] font-semibold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded">
                       Click again to unselect
                     </span>
@@ -1630,33 +2370,31 @@ export default function Screening({
         )}
       </div>
 
-      {/* ── SECTION 3: PHASE 3 — REVIEW SCORE FOR MEDICAL REFERRAL ─────────── */}
+      {/* ── SECTION 3: PHASE 3 — REVIEW AND FINALIZE SCORE ─────────── */}
       <div
-        className={`rounded-xl shadow-sm border p-8 space-y-6 ${
-          allScoresPassed
+        className={`rounded-xl shadow-sm border p-8 space-y-6 ${allScoresPassed
             ? 'bg-gradient-to-br from-emerald-50/30 via-white to-sky-50/30 border-emerald-300 ring-2 ring-emerald-500/10'
             : 'bg-white border-slate-200 opacity-70'
-        }`}
+          }`}
       >
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div className="flex items-center gap-2">
             <FileCheck2 className={`w-6 h-6 ${allScoresPassed ? 'text-emerald-600' : 'text-slate-400'}`} />
             <div>
               <h3 className="font-black text-[#0F172A] text-lg">
-                Phase 3 — Review Score for Medical Referral
+                Phase 3 — Review and Finalize Score
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Unlocked only when all 3 tests + EQ interview are passed (no fails, no unresolved Provisional status)
+                Unlocked once all {activeEvaluationTests.length} evaluations and suitability criteria are met (no fails, no unresolved Provisional status)
               </p>
             </div>
           </div>
 
           <span
-            className={`px-3 py-1 text-xs font-bold rounded-full ${
-              allScoresPassed
+            className={`px-3 py-1 text-xs font-bold rounded-full ${allScoresPassed
                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                 : 'bg-slate-100 text-slate-500'
-            }`}
+              }`}
           >
             {allScoresPassed ? '✓ Phase 3 Active' : '🔒 Locked'}
           </span>
@@ -1667,62 +2405,67 @@ export default function Screening({
             <AlertCircle className="w-6 h-6 text-slate-400 mx-auto mb-2" />
             <p className="font-bold text-slate-700">Phase 3 Locked</p>
             <p className="text-xs text-slate-500 mt-0.5 max-w-md mx-auto">
-              The applicant only reaches this phase once all 3 standardized tests and the Personality/EQ suitability interview are passed.
+              The applicant reaches this phase once all {activeEvaluationTests.length} qualification evaluations and the Personality/EQ suitability interview are passed.
             </p>
           </div>
         ) : (
           <div className="space-y-6">
             {/* Scorecard Summary Grid */}
             <div className="bg-white border border-emerald-200 rounded-xl p-5 shadow-xs">
-              <p className="text-xs font-bold text-emerald-900 uppercase tracking-wider mb-3">
-                Verified Evaluation Results (Cleared for Medical Referral)
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-400 font-semibold block uppercase">1. English</span>
-                  <span className="text-base font-extrabold text-slate-800">{examScores.englishProficiency}%</span>
-                  <span className="text-emerald-600 font-bold block mt-0.5">✓ Pass (≥60%)</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-400 font-semibold block uppercase">2. Trade Skills</span>
-                  <span className="text-base font-extrabold text-slate-800">{examScores.tradeSkills}%</span>
-                  <span className="text-emerald-600 font-bold block mt-0.5">✓ Pass (≥70%)</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-400 font-semibold block uppercase">3. IQ / Aptitude</span>
-                  <span className="text-base font-extrabold text-slate-800">{examScores.iqAptitude}%</span>
-                  <span className="text-emerald-600 font-bold block mt-0.5">✓ Pass (≥50%)</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-400 font-semibold block uppercase">4. Personality/EQ</span>
-                  <span className="text-base font-extrabold text-emerald-700">{examScores.personalityEQ}</span>
-                  <span className="text-emerald-600 font-bold block mt-0.5">✓ Suitable</span>
-                </div>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <p className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                  Verified Evaluation Results (Cleared for Medical Referral)
+                </p>
+                <span className="text-xs font-extrabold text-[#0EA5E9] bg-sky-50 px-2.5 py-0.5 rounded border border-sky-200">
+                  Overall Aggregate: {currentWeightedScore}%
+                </span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
+                {activeEvaluationTests.map((t, idx) => {
+                  const res = getTestEvaluationResult(t);
+                  const passed = res.passed;
+                  const isPassFail = t.scoringType === 'pass_fail';
+                  return (
+                    <div key={t.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <span className="text-slate-400 font-semibold block uppercase truncate text-[11px]" title={t.name}>
+                        {idx + 1}. {t.name}
+                      </span>
+                      <span className="text-base font-extrabold text-slate-800">
+                        {isPassFail
+                          ? (res.verdict === 'Pass' ? 'Passed' : res.verdict === 'Fail' ? 'Failed' : '—')
+                          : (res.hasEntry ? `${res.rawScore} / ${res.totalItems}` : '—')}
+                      </span>
+                      {!isPassFail && res.percentage !== undefined && (
+                        <span className="text-xs font-semibold text-slate-500 block">
+                          ({res.percentage}%)
+                        </span>
+                      )}
+                      <span className={`font-bold block mt-0.5 text-[11px] ${passed ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {passed
+                          ? (isPassFail ? '✓ Cleared' : `✓ Pass (≥${t.passingScore}%)`)
+                          : (isPassFail ? '✗ Failed' : `✗ Below (≥${t.passingScore}%)`)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Referral Status Notice */}
-            {hasMedicalReferral ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between text-xs text-emerald-900">
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                  <div>
-                    <span className="font-bold text-emerald-950">Medical Referral PDF Generated</span>
-                    <p className="text-emerald-700 text-xs mt-0.5">
-                      Assigned Clinic: <strong>{selectedApplicant?.medicalReferralClinic || selectedClinic}</strong> • Recruiter signature logged.
-                    </p>
-                  </div>
+            {/* Screening Clearance Status Notice */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between text-xs text-emerald-900">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <div>
+                  <span className="font-bold text-emerald-950">Candidate Cleared Phase 1 Evaluations & Phase 2 Interview</span>
+                  <p className="text-emerald-700 text-xs mt-0.5">
+                    All {activeEvaluationTests.length} evaluations and suitability interview criteria met with <strong>{currentWeightedScore}%</strong> aggregate rating.
+                  </p>
                 </div>
-                <span className="bg-emerald-200 text-emerald-900 px-2.5 py-1 rounded-md font-bold">
-                  Status Update Unlocked
-                </span>
               </div>
-            ) : (
-              <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 text-xs text-sky-900 flex items-center gap-2.5">
-                <AlertCircle className="w-4 h-4 text-[#0EA5E9] flex-shrink-0" />
-                <span>Click <strong>&ldquo;Generate Medical Referral&rdquo;</strong> to produce the official referral PDF and unlock status dispatch.</span>
-              </div>
-            )}
+              <span className="bg-emerald-200 text-emerald-900 px-2.5 py-1 rounded-md font-bold">
+                ✓ Clearance Complete
+              </span>
+            </div>
 
             {/* ── THE 3 REQUIRED PHASE 3 BUTTONS ────────────────────────────── */}
             <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1737,28 +2480,28 @@ export default function Screening({
               </button>
 
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Button 2: GENERATE MEDICAL REFERRAL (Enabled: only when ALL scores passed) */}
+                {/* Button 2: DOWNLOAD SCREENING SUMMARY PDF (A4) */}
                 <button
                   type="button"
-                  onClick={handleOpenReferralModal}
+                  onClick={handleDownloadScreeningSummaryPdf}
                   disabled={!allScoresPassed}
-                  className="px-6 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                  className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                  title="Download official formal A4 candidate screening, evaluation scores, and interview summary report"
                 >
-                  <Printer className="w-4 h-4" />
-                  {hasMedicalReferral ? 'Re-Generate Medical Referral' : 'Generate Medical Referral'}
+                  <Download className="w-4 h-4" />
+                  Download Summary PDF (A4)
                 </button>
 
-                {/* Button 3: UPDATE APPLICANT STATUS (Enabled: only after Generate Medical Referral clicked at least once) */}
+                {/* Button 3: UPDATE APPLICANT STATUS (Enabled immediately when evaluations and interview are passed) */}
                 <button
                   type="button"
                   onClick={handleOpenUpdateStatusConfirmation}
-                  disabled={!hasMedicalReferral}
-                  title={!hasMedicalReferral ? 'Requires Medical Referral to be generated first' : 'Move applicant to Medical Referral'}
-                  className={`px-6 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer ${
-                    hasMedicalReferral
+                  disabled={!allScoresPassed}
+                  title={!allScoresPassed ? 'Requires all evaluation tests and suitability interview to be passed' : 'Update status and advance candidate'}
+                  className={`px-6 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer ${allScoresPassed
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none'
-                  }`}
+                    }`}
                 >
                   <ArrowRight className="w-4 h-4" />
                   Update Applicant Status
@@ -1852,70 +2595,105 @@ export default function Screening({
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 <span>
-                  <strong>Notice:</strong> If any score is reduced below passing criteria (English &lt;60%, Trade &lt;70%, IQ &lt;50%, or EQ Not Suitable), the candidate will automatically be set to <em>Provisional</em> status and returned to the appropriate evaluation sub-phase.
+                  <strong>Notice:</strong> If any score is reduced below passing criteria, the candidate will automatically be set to <em>Provisional</em> status and returned to the appropriate evaluation sub-phase.
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">English (≥60%)</label>
-                  <input
-                    type="number"
-                    max={100}
-                    min={0}
-                    value={reviewFormScores.englishProficiency}
-                    onChange={e =>
-                      setReviewFormScores(prev => ({
-                        ...prev,
-                        englishProficiency: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0))
-                      }))
-                    }
-                    className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-800 text-center"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Trade (≥70%)</label>
-                  <input
-                    type="number"
-                    max={100}
-                    min={0}
-                    value={reviewFormScores.tradeSkills}
-                    onChange={e =>
-                      setReviewFormScores(prev => ({
-                        ...prev,
-                        tradeSkills: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0))
-                      }))
-                    }
-                    className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-800 text-center"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">IQ (≥50%)</label>
-                  <input
-                    type="number"
-                    max={100}
-                    min={0}
-                    value={reviewFormScores.iqAptitude}
-                    onChange={e =>
-                      setReviewFormScores(prev => ({
-                        ...prev,
-                        iqAptitude: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0))
-                      }))
-                    }
-                    className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-800 text-center"
-                  />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1">
+                {activeEvaluationTests.map(t => {
+                  const isPassFail = t.scoringType === 'pass_fail';
+                  const res = getTestEvaluationResult(t, reviewDynamicRawScores, reviewDynamicTotalItems, reviewDynamicPassFail);
+                  if (isPassFail) {
+                    const curPf = reviewDynamicPassFail[t.id] || '';
+                    return (
+                      <div key={t.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <label className="text-xs font-bold text-slate-700 uppercase block mb-1 truncate" title={t.name}>
+                          {t.name}
+                        </label>
+                        <span className="text-[10px] text-purple-700 font-semibold block mb-2">Pass / Fail Clearance</span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setReviewDynamicPassFail(prev => ({ ...prev, [t.id]: prev[t.id] === 'Pass' ? '' : 'Pass' }))}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${curPf === 'Pass' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white border border-slate-300 text-slate-600 hover:border-emerald-400'
+                              }`}
+                          >
+                            ✓ Passed
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReviewDynamicPassFail(prev => ({ ...prev, [t.id]: prev[t.id] === 'Fail' ? '' : 'Fail' }))}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${curPf === 'Fail' ? 'bg-red-600 text-white shadow-xs' : 'bg-white border border-slate-300 text-slate-600 hover:border-red-400'
+                              }`}
+                          >
+                            ✗ Failed
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const curRaw = reviewDynamicRawScores[t.id] ?? '';
+                  const curTotal = reviewDynamicTotalItems[t.id] ?? t.maxScore ?? 100;
+                  return (
+                    <div key={t.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700 uppercase truncate" title={t.name}>
+                          {t.name}
+                        </label>
+                        <span className="text-[10px] font-bold text-slate-500">
+                          Pass: ≥{t.passingScore}%
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1">
+                          <span className="text-[9px] text-slate-400 block uppercase font-bold">Score Obtained</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={curRaw}
+                            onChange={e =>
+                              setReviewDynamicRawScores(prev => ({
+                                ...prev,
+                                [t.id]: e.target.value
+                              }))
+                            }
+                            className="w-full border-2 border-slate-200 px-2 py-1.5 rounded-lg font-bold text-slate-800 text-center text-sm bg-white"
+                          />
+                        </div>
+                        <span className="text-slate-400 font-bold self-end mb-1">/</span>
+                        <div className="w-20">
+                          <span className="text-[9px] text-slate-400 block uppercase font-bold">Total Score</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={curTotal}
+                            onChange={e =>
+                              setReviewDynamicTotalItems(prev => ({
+                                ...prev,
+                                [t.id]: e.target.value
+                              }))
+                            }
+                            className="w-full border-2 border-slate-200 px-2 py-1.5 rounded-lg font-bold text-slate-800 text-center text-sm bg-white"
+                          />
+                        </div>
+                        <div className="w-16 text-right self-end mb-1">
+                          <span className={`text-xs font-black ${res.passed ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {res.percentage !== undefined ? `${res.percentage}%` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Personality / EQ Outcome</label>
                 <select
-                  value={reviewFormScores.personalityEQ}
+                  value={reviewEQVerdict}
                   onChange={e =>
-                    setReviewFormScores(prev => ({
-                      ...prev,
-                      personalityEQ: e.target.value as any
-                    }))
+                    setReviewEQVerdict(e.target.value as any)
                   }
                   className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg text-sm font-semibold bg-white"
                 >
@@ -1923,16 +2701,6 @@ export default function Screening({
                   <option value="Not Suitable">✗ Not Suitable (Provisional)</option>
                   <option value="Pending">⏱ Pending Assessment</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Employer-Specific Notes</label>
-                <textarea
-                  value={reviewFormScores.employerSpecific}
-                  onChange={e => setReviewFormScores(prev => ({ ...prev, employerSpecific: e.target.value }))}
-                  rows={2}
-                  className="w-full border-2 border-slate-200 px-3 py-2 rounded-lg text-xs"
-                />
               </div>
             </div>
 
@@ -2029,7 +2797,7 @@ export default function Screening({
                 </button>
                 <button
                   type="button"
-                  onClick={handlePrintReferralPdf}
+                  onClick={handleDownloadScreeningSummaryPdf}
                   disabled={isGeneratingReferral}
                   className="flex-1 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 text-white rounded-xl font-bold shadow-md shadow-[#0EA5E9]/20 flex items-center justify-center gap-2 cursor-pointer transition-colors"
                 >
@@ -2040,8 +2808,8 @@ export default function Screening({
                     </>
                   ) : (
                     <>
-                      <Printer className="w-4 h-4" />
-                      Generate & Print PDF
+                      <Download className="w-4 h-4" />
+                      Download Summary PDF
                     </>
                   )}
                 </button>
@@ -2051,10 +2819,7 @@ export default function Screening({
         </div>
       )}
 
-      {/* ───────────────────────────────────────────────────────────────────────
-          MODAL 4: CONFIRM MOVE TO MEDICAL REFERRAL (Button 3)
-          "Must trigger a confirmation modal before the transition executes — no silent moves"
-      ──────────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 4: CONFIRM MOVE TO MEDICAL CLEARANCE */}
       {showUpdateStatusModal && (
         <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-100">
@@ -2064,10 +2829,10 @@ export default function Screening({
 
             <div className="text-center">
               <h3 className="font-extrabold text-[#0F172A] text-lg">
-                Move Applicant to Medical Referral?
+                Move to Medical Clearance?
               </h3>
               <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                Are you sure you want to move <strong>{selectedApplicant?.name}</strong> to the Medical Referral phase?
+                Are you sure you want to endorse <strong>{selectedApplicant?.name}</strong> for Medical Clearance?
               </p>
             </div>
 
@@ -2077,17 +2842,11 @@ export default function Screening({
                 <span className="font-bold text-slate-800">{selectedApplicant?.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Assigned Clinic:</span>
-                <span className="font-semibold text-slate-800 truncate max-w-[200px]">
-                  {selectedApplicant?.medicalReferralClinic || selectedClinic}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Next Destination:</span>
-                <span className="font-bold text-emerald-700">Fit to Work Module (Admin Clearance)</span>
+                <span className="text-slate-400">Next Step:</span>
+                <span className="font-bold text-emerald-700">Medical Clearance</span>
               </div>
               <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
-                Notice: The applicant will be moved completely out of the Screening Panel and will appear in the Fit to Work module.
+                The applicant will be moved out of Screening and will proceed to the Medical Clearance phase.
               </div>
             </div>
 

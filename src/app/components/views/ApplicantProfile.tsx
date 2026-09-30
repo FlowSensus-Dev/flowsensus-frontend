@@ -9,7 +9,7 @@ import {
   HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2
 } from 'lucide-react';
 import { api } from '../../../lib/api';
-import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest } from '../../types';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
@@ -107,6 +107,28 @@ export default function ApplicantProfile({
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
   const [customReason, setCustomReason] = useState('');
+  const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+
+  useEffect(() => {
+    api.get('/evaluations/templates')
+      .then(res => {
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const live: EvaluationTest[] = res.data.map((t: any) => ({
+            id: String(t.test_template_id || t.id),
+            name: t.name,
+            type: (t.test_type || t.type || 'custom') as any,
+            description: t.description || '',
+            maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+            passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+            weight: Number(t.weight_percentage ?? t.weight ?? 10),
+            scoringGuide: t.scoring_guide || t.scoringGuide || '',
+            isActive: Boolean(t.is_active ?? t.isActive ?? true),
+          }));
+          setEvaluationTemplates(live.filter(t => t.isActive));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Stop Processing
   const [showStopModal, setShowStopModal] = useState(false);
@@ -402,9 +424,30 @@ export default function ApplicantProfile({
 
       case 'scores':
         if (applicant?.testScores) {
-          const passed = (applicant.testScores.englishProficiency >= 60) &&
-                         (applicant.testScores.tradeSkills >= 70) &&
-                         (applicant.testScores.iqAptitude >= 50);
+          let passed = false;
+          if (applicant.testScores.allPassed !== undefined) {
+            passed = Boolean(applicant.testScores.allPassed);
+          } else if (applicant.testScores.tests && Object.keys(applicant.testScores.tests).length > 0) {
+            passed = Object.values(applicant.testScores.tests).every((t: any) => Boolean(t.passed));
+          } else if (evaluationTemplates.length > 0) {
+            passed = evaluationTemplates.every(t => {
+              const lower = t.name.toLowerCase();
+              if (t.type === 'skills' || lower.includes('trade') || lower.includes('skill')) {
+                return (applicant.testScores?.tradeSkills ?? 0) >= t.passingScore;
+              }
+              if (t.type === 'language' || lower.includes('english') || lower.includes('language')) {
+                return ((applicant.testScores?.languageProficiency ?? applicant.testScores?.englishProficiency) ?? 0) >= t.passingScore;
+              }
+              if (t.type === 'iq' || lower.includes('iq') || lower.includes('aptitude')) {
+                return (applicant.testScores?.iqAptitude ?? 0) >= t.passingScore;
+              }
+              return true;
+            });
+          } else {
+            passed = ((applicant.testScores.englishProficiency ?? 0) >= 60) &&
+                     ((applicant.testScores.tradeSkills ?? 0) >= 70) &&
+                     ((applicant.testScores.iqAptitude ?? 0) >= 50);
+          }
           return (
             <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${passed ? 'bg-emerald-500/20 text-emerald-600' : 'bg-red-500/20 text-red-500'}`}>
               {passed ? 'Pass' : 'Review'}
@@ -1235,38 +1278,108 @@ export default function ApplicantProfile({
         )}
         {applicant.testScores ? (
           <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            {[
-              { label: 'English Proficiency', val: applicant.testScores.englishProficiency, pass: 60, color: '#0EA5E9' },
-              { label: 'Trade / Skills Test',  val: applicant.testScores.tradeSkills,        pass: 70, color: '#F59E0B' },
-              { label: 'IQ / Aptitude',        val: applicant.testScores.iqAptitude,         pass: 50, color: '#8B5CF6' },
-            ].map(s => {
-              const hasScore = typeof s.val === 'number' && !isNaN(s.val);
-              return (
-                <div key={s.label} className="flex items-center gap-4">
-                  <div className="w-36 flex-shrink-0">
-                    <p className="text-xs font-semibold text-slate-500">{s.label}</p>
-                    <span className={`text-xs font-bold ${!hasScore ? 'text-slate-400' : (s.val as number) >= s.pass ? 'text-[#10B981]' : 'text-red-500'}`}>
-                      {!hasScore ? 'Pending' : (s.val as number) >= s.pass ? '✓ Pass' : '✗ Fail'}
-                    </span>
-                  </div>
-                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: hasScore ? `${Math.min(100, Math.max(0, s.val as number))}%` : '0%', background: s.color }} />
-                  </div>
-                  <span className="text-lg font-black w-16 text-right" style={{ color: hasScore ? s.color : '#94A3B8' }}>
-                    {hasScore ? `${s.val}%` : '—'}
+            {applicant.testScores.overallScore !== undefined && (
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Weighted Aggregate</span>
+                  <p className="text-xs text-slate-400">Calculated from agency evaluation scoring weights</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-black text-[#0EA5E9]">{applicant.testScores.overallScore}%</span>
+                  <span className={`block text-[11px] font-bold ${applicant.testScores.allPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {applicant.testScores.allPassed ? '✓ All Passing Marks Met' : '⚠️ Below Passing Benchmark'}
                   </span>
                 </div>
-              );
-            })}
-            <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
-              <span className="text-sm text-slate-500 font-medium">Personality / EQ</span>
-              <span className={`text-sm font-bold ${applicant.testScores.personalityEQ === 'Suitable' ? 'text-[#10B981]' : applicant.testScores.personalityEQ === 'Not Suitable' ? 'text-red-500' : 'text-slate-400'}`}>
-                {applicant.testScores.personalityEQ}
-              </span>
-            </div>
+              </div>
+            )}
+
+            {/* Dynamic test cards */}
+            {(() => {
+              const testItems: Array<{ label: string; val: number | string | undefined; pass: number; max: number; weight?: number; color: string; passed?: boolean }> = [];
+              const colors = ['#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#EF4444', '#0EA5E9', '#64748B'];
+
+              if (applicant.testScores?.tests && Object.keys(applicant.testScores.tests).length > 0) {
+                Object.values(applicant.testScores.tests).forEach((t, i) => {
+                  testItems.push({
+                    label: t.name,
+                    val: t.score,
+                    pass: t.passingScore,
+                    max: t.maxScore || 100,
+                    weight: t.weight,
+                    passed: t.passed,
+                    color: colors[i % colors.length],
+                  });
+                });
+              } else if (evaluationTemplates.length > 0) {
+                evaluationTemplates.forEach((t, i) => {
+                  const lower = t.name.toLowerCase();
+                  let val: any = undefined;
+                  if (t.type === 'skills' || lower.includes('trade') || lower.includes('skill')) {
+                    val = applicant.testScores?.tradeSkills;
+                  } else if (t.type === 'language' || lower.includes('english') || lower.includes('language')) {
+                    val = applicant.testScores?.languageProficiency ?? applicant.testScores?.englishProficiency;
+                  } else if (t.type === 'iq' || lower.includes('iq') || lower.includes('aptitude')) {
+                    val = applicant.testScores?.iqAptitude;
+                  } else if (applicant.testScores && (applicant.testScores as any)[t.id] !== undefined) {
+                    val = (applicant.testScores as any)[t.id];
+                  }
+                  testItems.push({
+                    label: t.name,
+                    val,
+                    pass: t.passingScore,
+                    max: t.maxScore || 100,
+                    weight: t.weight,
+                    passed: typeof val === 'number' ? val >= t.passingScore : undefined,
+                    color: colors[i % colors.length],
+                  });
+                });
+              } else {
+                testItems.push(
+                  { label: 'English Proficiency', val: applicant.testScores?.englishProficiency, pass: 60, max: 100, color: '#0EA5E9' },
+                  { label: 'Trade / Skills Test', val: applicant.testScores?.tradeSkills, pass: 70, max: 100, color: '#F59E0B' },
+                  { label: 'IQ / Aptitude', val: applicant.testScores?.iqAptitude, pass: 50, max: 100, color: '#8B5CF6' }
+                );
+              }
+
+              return testItems.map(s => {
+                const hasScore = typeof s.val === 'number' && !isNaN(s.val);
+                const isPass = s.passed !== undefined ? s.passed : (hasScore && (s.val as number) >= s.pass);
+                const pct = hasScore ? Math.min(100, Math.max(0, ((s.val as number) / (s.max || 100)) * 100)) : 0;
+                return (
+                  <div key={s.label} className="flex items-center gap-4">
+                    <div className="w-52 flex-shrink-0">
+                      <p className="text-xs font-semibold text-slate-700 truncate" title={s.label}>{s.label}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className={`text-[11px] font-bold ${!hasScore ? 'text-slate-400' : isPass ? 'text-[#10B981]' : 'text-red-500'}`}>
+                          {!hasScore ? 'Pending' : isPass ? '✓ Pass' : '✗ Fail'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          (≥{s.pass}%{s.weight ? ` • ${s.weight}% wt` : ''})
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: isPass ? '#10B981' : (hasScore ? '#EF4444' : s.color) }} />
+                    </div>
+                    <span className="text-lg font-black w-20 text-right" style={{ color: hasScore ? (isPass ? '#10B981' : '#EF4444') : '#94A3B8' }}>
+                      {hasScore ? `${s.val}%` : '—'}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
+
+            {applicant.testScores.personalityEQ && (
+              <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
+                <span className="text-sm text-slate-500 font-medium">Personality / EQ Interview</span>
+                <span className={`text-sm font-bold ${applicant.testScores.personalityEQ === 'Suitable' ? 'text-[#10B981]' : applicant.testScores.personalityEQ === 'Not Suitable' ? 'text-red-500' : 'text-slate-400'}`}>
+                  {applicant.testScores.personalityEQ}
+                </span>
+              </div>
+            )}
             {applicant.testScores.employerSpecific && (
               <div className="bg-blue-50 rounded-lg px-4 py-2.5 text-sm text-[#0F172A]">
-                <span className="text-xs font-bold text-blue-500 uppercase">Employer-Specific: </span>
+                <span className="text-xs font-bold text-blue-500 uppercase">Employer-Specific Notes: </span>
                 {applicant.testScores.employerSpecific}
               </div>
             )}

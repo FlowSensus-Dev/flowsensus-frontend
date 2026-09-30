@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  Plus, Pencil, Trash2, Save, X, Info,
+  Plus, Pencil, Trash2, Save, X, Info, Search,
   Brain, Heart, Wrench, Languages, Stethoscope, MessageSquare,
   Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight, Loader2,
   ShieldCheck, Lock, Check, RefreshCw, UserPlus, Microscope, Sparkles,
@@ -181,16 +181,20 @@ const BLANK_TEST: Omit<EvaluationTest, 'id'> = {
   passingScore: 60,
   weight: 10,
   isActive: true,
-  scoringGuide: ''
+  scoringGuide: '',
+  scoringType: 'numeric',
+  applicableJobOrders: [],
 };
 
 interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
   onPermissionsUpdated?: (perms: Record<string, UserRole[]>) => void;
+  onTemplatesUpdated?: (templates: EvaluationTest[]) => void;
+  globalJobOrders?: any[];
 }
 
-export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Props) {
+export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTemplatesUpdated, globalJobOrders }: Props) {
   const [tab, setTab] = useState<'evaluations' | 'workflow'>('evaluations');
   
   // Evaluation Templates State
@@ -199,6 +203,39 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNewTest, setIsNewTest] = useState(false);
   const [isSavingTest, setIsSavingTest] = useState(false);
+
+  // Available Job Orders for targeting specific tests
+  const [jobOrders, setJobOrders] = useState<any[]>(globalJobOrders || []);
+  const [jobOrderSearch, setJobOrderSearch] = useState('');
+
+  useEffect(() => {
+    if (globalJobOrders && globalJobOrders.length > 0) {
+      setJobOrders(globalJobOrders);
+    } else {
+      api.get('/job-orders')
+        .then(res => {
+          if (res.data && Array.isArray(res.data)) {
+            setJobOrders(res.data);
+          }
+        })
+        .catch(err => console.warn('Could not load job orders in EvaluationSetup:', err));
+    }
+  }, [globalJobOrders]);
+
+  const filteredJobOrders = useMemo(() => {
+    const q = jobOrderSearch.trim().toLowerCase();
+    if (!q) {
+      return jobOrders.slice(0, 5);
+    }
+    return jobOrders
+      .filter(jo => {
+        const code = String(jo.job_order_code || jo.job_code || jo.code || (jo.job_order_id ? `JO-${jo.job_order_id}` : '')).toLowerCase();
+        const pos = String(jo.position_title || jo.position || '').toLowerCase();
+        const id = String(jo.job_order_id || jo.id || '');
+        return code.includes(q) || pos.includes(q) || id.includes(q);
+      })
+      .slice(0, 5);
+  }, [jobOrders, jobOrderSearch]);
 
   // Workflow Module Access State
   const [modules, setModules] = useState<WorkflowModuleAccess[]>(DEFAULT_WORKFLOW_MODULES);
@@ -223,8 +260,13 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
           weight: Number(t.weight_percentage ?? t.weight ?? 10),
           scoringGuide: t.scoring_guide || t.scoringGuide || '',
           isActive: Boolean(t.is_active ?? t.isActive ?? true),
+          scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+          applicableJobOrders: Array.isArray(t.applicable_job_orders)
+            ? t.applicable_job_orders
+            : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
         }));
         setTests(liveTests);
+        onTemplatesUpdated?.(liveTests);
       }
     } catch (err) {
       console.warn('Could not fetch live evaluation templates from backend:', err);
@@ -272,8 +314,12 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
   }, []);
 
   // ── Evaluation Operations ───────────────────────────────────────────────
+  const generalTests = tests.filter(t => t.isActive && (!t.applicableJobOrders || t.applicableJobOrders.length === 0));
+  const jobSpecificTests = tests.filter(t => t.isActive && t.applicableJobOrders && t.applicableJobOrders.length > 0);
+  const generalWeight = generalTests.reduce((s, t) => s + t.weight, 0);
   const totalWeight = tests.filter(t => t.isActive).reduce((s, t) => s + t.weight, 0);
-  const weightOk = totalWeight === 100;
+  const hasJobSpecific = jobSpecificTests.length > 0;
+  const weightOk = hasJobSpecific ? generalWeight === 100 : totalWeight === 100;
 
   const openNewTest = () => {
     setEditingTest({ ...BLANK_TEST, id: `ev-${Date.now()}` });
@@ -285,6 +331,23 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
     setIsNewTest(false);
   };
 
+  const toggleJobOrderSelection = (targetId: string, targetCode: string) => {
+    if (!editingTest) return;
+    const current = editingTest.applicableJobOrders || [];
+    const exists = current.includes(targetId) || current.includes(targetCode);
+    const updated = exists
+      ? current.filter(id => id !== targetId && id !== targetCode)
+      : [...current, targetId];
+    setEditingTest({ ...editingTest, applicableJobOrders: updated });
+  };
+
+  const removeJobOrderSelection = (targetId: string) => {
+    if (!editingTest) return;
+    const current = editingTest.applicableJobOrders || [];
+    const updated = current.filter(id => id !== targetId);
+    setEditingTest({ ...editingTest, applicableJobOrders: updated });
+  };
+
   const saveTest = async () => {
     if (!editingTest || isSavingTest) return;
     if (!editingTest.name.trim()) { showToast('Test name is required'); return; }
@@ -292,40 +355,47 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
 
     setIsSavingTest(true);
     try {
+      const scoringType = editingTest.scoringType || 'numeric';
+      const applicableJobOrders = editingTest.applicableJobOrders || [];
+
+      const payload = {
+        name: editingTest.name,
+        test_type: editingTest.type,
+        description: editingTest.description,
+        max_score: scoringType === 'pass_fail' ? 100 : (editingTest.maxScore || 100),
+        passing_score: scoringType === 'pass_fail' ? 100 : (editingTest.passingScore || 60),
+        weight_percentage: editingTest.weight,
+        scoring_guide: editingTest.scoringGuide,
+        is_active: editingTest.isActive,
+        scoring_type: scoringType,
+        applicable_job_orders: applicableJobOrders,
+      };
+
       if (isNewTest) {
-        const payload = {
-          name: editingTest.name,
-          test_type: editingTest.type,
-          description: editingTest.description,
-          max_score: editingTest.maxScore,
-          passing_score: editingTest.passingScore,
-          weight_percentage: editingTest.weight,
-          scoring_guide: editingTest.scoringGuide,
-          is_active: editingTest.isActive,
-        };
         const res = await api.post('/evaluations/templates', payload);
         const created = res.data;
         const newTest: EvaluationTest = {
           ...editingTest,
           id: String(created.test_template_id || created.id),
+          scoringType,
+          applicableJobOrders,
         };
-        setTests(p => [...p, newTest]);
+        setTests(p => {
+          const next = [...p, newTest];
+          onTemplatesUpdated?.(next);
+          return next;
+        });
         showToast(`Evaluation "${editingTest.name}" added to database`);
       } else {
         const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
         if (!isNaN(numId)) {
-          await api.put(`/evaluations/templates/${numId}`, {
-            name: editingTest.name,
-            test_type: editingTest.type,
-            description: editingTest.description,
-            max_score: editingTest.maxScore,
-            passing_score: editingTest.passingScore,
-            weight_percentage: editingTest.weight,
-            scoring_guide: editingTest.scoringGuide,
-            is_active: editingTest.isActive,
-          });
+          await api.put(`/evaluations/templates/${numId}`, payload);
         }
-        setTests(p => p.map(t => t.id === editingTest.id ? editingTest : t));
+        setTests(p => {
+          const next = p.map(t => t.id === editingTest.id ? { ...editingTest, scoringType, applicableJobOrders } : t);
+          onTemplatesUpdated?.(next);
+          return next;
+        });
         showToast(`Evaluation "${editingTest.name}" updated in database`);
       }
       setEditingTest(null);
@@ -343,14 +413,22 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
     if (!isNaN(numId)) {
       try {
         await api.delete(`/evaluations/templates/${numId}`);
-        setTests(p => p.filter(t => t.id !== id));
+        setTests(p => {
+          const next = p.filter(t => t.id !== id);
+          onTemplatesUpdated?.(next);
+          return next;
+        });
         showToast(`Evaluation "${t?.name}" deleted from database`);
       } catch (err: any) {
         console.error('Failed to delete template:', err);
         showToast('Error deleting template: ' + (err.response?.data?.detail || err.message));
       }
     } else {
-      setTests(p => p.filter(t => t.id !== id));
+      setTests(p => {
+        const next = p.filter(t => t.id !== id);
+        onTemplatesUpdated?.(next);
+        return next;
+      });
       showToast(`Evaluation removed`);
     }
   };
@@ -368,7 +446,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
         console.warn('Backend toggle template failed:', err);
       }
     }
-    setTests(p => p.map(t => t.id === id ? { ...t, isActive: nextState } : t));
+    setTests(p => {
+      const next = p.map(t => t.id === id ? { ...t, isActive: nextState } : t);
+      onTemplatesUpdated?.(next);
+      return next;
+    });
   };
 
   // ── Workflow Role Module Access Operations ──────────────────────────────
@@ -503,29 +585,74 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
       {/* ── TAB 1: EVALUATIONS & SCORING ───────────────────────────────────── */}
       {tab === 'evaluations' && (
         <>
-          {/* Weight summary */}
-          <div className={`flex flex-wrap items-center gap-4 px-5 py-4 rounded-xl border ${weightOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-            <div className={`flex items-center gap-2 font-semibold text-sm ${weightOk ? 'text-emerald-700' : 'text-amber-700'}`}>
-              {weightOk ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-              Total active weight: <span className="text-lg font-bold ml-1">{totalWeight}%</span>
+          {/* General Baseline Weight Summary */}
+          <div className={`flex flex-wrap items-center justify-between gap-4 px-5 py-4 rounded-xl border ${weightOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className={`flex items-center gap-2 font-semibold text-sm ${weightOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {weightOk ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                <span>
+                  General Baseline Weight: <span className="text-lg font-bold ml-1">{generalWeight}%</span> / 100%
+                </span>
+              </div>
             </div>
-            <div className="flex-1 h-2.5 bg-white/70 rounded-full overflow-hidden min-w-[160px] flex">
-              {tests.filter(t => t.isActive).map(t => (
-                <div key={t.id} className="h-full" style={{ width: `${t.weight}%`, background: TEST_TYPE_META[t.type].color }} title={`${t.name}: ${t.weight}%`} />
+
+            <div className="flex-1 h-2.5 bg-white/70 rounded-full overflow-hidden min-w-[160px] max-w-xs flex border border-slate-200">
+              {generalTests.map(t => (
+                <div key={t.id} className="h-full" style={{ width: `${t.weight}%`, background: TEST_TYPE_META[t.type].color }} title={`${t.name}: ${t.weight}% (General)`} />
               ))}
             </div>
-            {!weightOk && <span className="text-xs font-semibold text-amber-700">Active weights must total exactly 100% (currently {totalWeight}%)</span>}
+
+            {!weightOk ? (
+              <span className="text-xs font-semibold text-amber-700">
+                General baseline evaluations must total exactly 100% (currently {generalWeight}%)
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-emerald-700">
+                ✓ General baseline evaluations total exactly 100%
+              </span>
+            )}
           </div>
 
-          {/* Weight bars legend */}
-          <div className="flex flex-wrap gap-3">
-            {tests.filter(t => t.isActive).map(t => (
-              <div key={t.id} className="flex items-center gap-1.5 text-xs text-slate-600 bg-white px-2.5 py-1 rounded-md border border-slate-200">
+          {/* General Baseline Legend (Only General Active Tests) */}
+          <div className="flex flex-wrap gap-2.5">
+            {generalTests.map(t => (
+              <div key={t.id} className="flex items-center gap-1.5 text-xs text-slate-600 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: TEST_TYPE_META[t.type].color }} />
-                <span>{t.name}</span>
-                <span className="font-bold text-slate-800">{t.weight}%</span>
+                <span className="font-medium text-slate-700">{t.name}</span>
+                <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">{t.weight}%</span>
               </div>
             ))}
+          </div>
+
+          {/* Explanation: How Job-Order-Specific Assessments Are Computed */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600">
+            <div className="flex items-center gap-2 font-bold text-[#0F172A] text-sm mb-1.5">
+              <Info className="w-4 h-4 text-[#0EA5E9] flex-shrink-0" />
+              <span>How Job-Order-Specific Assessments Are Computed</span>
+            </div>
+            <p className="text-slate-500 text-xs mb-3">
+              Because different job orders have distinct trade requirements, job-specific assessments are not combined into a single static global weight. Instead, scoring is dynamically calculated per candidate:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="bg-white p-3 rounded-lg border border-slate-200">
+                <span className="font-bold text-[#0F172A] text-xs block mb-1">1. Universal General Baseline</span>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  General assessments (e.g. English, EQ, IQ) apply to all applicants across the agency and sum to the 100% baseline weight.
+                </p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-slate-200">
+                <span className="font-bold text-[#0F172A] text-xs block mb-1">2. Target Job Order Isolation</span>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  Tests linked to specific Job Orders (e.g. welding tests, culinary demos) only appear for candidates applying for that job order. Other candidates are completely unaffected.
+                </p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-slate-200">
+                <span className="font-bold text-[#0F172A] text-xs block mb-1">3. Dynamic Per-Candidate Normalization</span>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  When a candidate has job-specific numeric tests, weights normalize to 100% effective rating for that applicant. Pass/Fail clearance tests require a verified Pass without altering percentage weights.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Tests table */}
@@ -566,17 +693,41 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-[#0F172A]">{test.name}</div>
                           <div className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">{test.description}</div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {test.applicableJobOrders && test.applicableJobOrders.length > 0 ? (
+                              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
+                                Required for {test.applicableJobOrders.length} Job Order(s)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                General (All Applicants)
+                              </span>
+                            )}
+                            {test.scoringType === 'pass_fail' && (
+                              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                Pass / Fail Mode
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3.5">
                           <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full w-fit" style={{ background: meta.color + '18', color: meta.color }}>
                             {meta.icon} {meta.label}
                           </span>
                         </td>
-                        <td className="px-4 py-3.5 text-center font-mono font-semibold text-[#0F172A]">{test.maxScore}</td>
+                        <td className="px-4 py-3.5 text-center font-mono font-semibold text-[#0F172A]">
+                          {test.scoringType === 'pass_fail' ? '—' : test.maxScore}
+                        </td>
                         <td className="px-4 py-3.5 text-center">
-                          <span className="font-mono font-semibold px-2 py-0.5 rounded text-xs" style={{ background: verdictColor(test.passingScore, test.maxScore * 0.5) + '18', color: verdictColor(test.passingScore, test.maxScore * 0.5) }}>
-                            {test.passingScore}
-                          </span>
+                          {test.scoringType === 'pass_fail' ? (
+                            <span className="font-semibold px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              ✓ Pass Required
+                            </span>
+                          ) : (
+                            <span className="font-mono font-semibold px-2 py-0.5 rounded text-xs" style={{ background: verdictColor(test.passingScore, test.maxScore * 0.5) + '18', color: verdictColor(test.passingScore, test.maxScore * 0.5) }}>
+                              {test.passingScore}%
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 text-center">
                           <div className="flex flex-col items-center gap-1">
@@ -877,46 +1028,237 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated }: Pro
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] resize-none"
                 />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Max Score</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={editingTest.maxScore}
-                    onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Pass Mark</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={editingTest.maxScore}
-                    value={editingTest.passingScore}
-                    onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Weight %</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={editingTest.weight}
-                    onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
-                  />
+              {/* Scoring Model Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  Scoring Model
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'numeric' } : p)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      editingTest.scoringType !== 'pass_fail'
+                        ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="font-semibold text-xs text-slate-900">Numerical Scoring</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Calculated score out of total items with a minimum passing percentage benchmark</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'pass_fail' } : p)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      editingTest.scoringType === 'pass_fail'
+                        ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="font-semibold text-xs text-slate-900">Pass / Fail Clearance</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Direct clearance outcome without numerical item scoring (e.g. medical, trade demo)</div>
+                  </button>
                 </div>
               </div>
+
+              {/* Scoring Criteria Inputs */}
+              {editingTest.scoringType !== 'pass_fail' ? (
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Total Score</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editingTest.maxScore}
+                      onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
+                      placeholder="100"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Passing Mark (%)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editingTest.passingScore}
+                      onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
+                      placeholder="60"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Weight %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editingTest.weight}
+                      onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
+                      placeholder="10"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-700">Clearance Threshold</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Staff awards binary Pass or Fail verdict in Screening Panel.</div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Weight %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editingTest.weight}
+                      onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
+                      placeholder="10"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Job Order Scope Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Applicant Requirement Scope
+                  </label>
+                  <span className="text-[11px] font-medium text-slate-500">
+                    {(editingTest.applicableJobOrders || []).length === 0
+                      ? 'General (All Applicants)'
+                      : `Targeted to ${(editingTest.applicableJobOrders || []).length} Job Order(s)`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTest(p => p ? { ...p, applicableJobOrders: [] } : p)}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                      (editingTest.applicableJobOrders || []).length === 0
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    All Job Orders (General)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editingTest.applicableJobOrders) {
+                        setEditingTest(p => p ? { ...p, applicableJobOrders: [] } : p);
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                      (editingTest.applicableJobOrders || []).length > 0
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    Specific Job Orders Only
+                  </button>
+                </div>
+
+                {/* Job Order Search and Multi-Select Area */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={jobOrderSearch}
+                      onChange={e => setJobOrderSearch(e.target.value)}
+                      placeholder="Search job orders by title or code (e.g. Welder, JO-298-WEL-0)..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+                    />
+                  </div>
+
+                  {/* Top 5 Matching Results */}
+                  <div className="space-y-1">
+                    <div className="text-[11px] font-medium text-slate-400 px-0.5">Matching Job Orders (Click to select/unselect):</div>
+                    {filteredJobOrders.length === 0 ? (
+                      <div className="text-xs text-slate-400 py-2 text-center bg-white rounded-lg border border-dashed border-slate-200">
+                        No matching job orders found
+                      </div>
+                    ) : (
+                      filteredJobOrders.map(jo => {
+                        const joId = String(jo.job_order_id || jo.id);
+                        const joCode = jo.job_order_code || jo.job_code || jo.code || `JO-${joId}`;
+                        const joPos = jo.position_title || jo.position || 'Open Role';
+                        const isSelected = (editingTest.applicableJobOrders || []).includes(joId) || (editingTest.applicableJobOrders || []).includes(joCode);
+
+                        return (
+                          <div
+                            key={joId}
+                            onClick={() => toggleJobOrderSelection(joId, joCode)}
+                            className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-sky-50 border-sky-300 text-sky-900 font-semibold shadow-2xs'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate pr-2">
+                              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold shrink-0">
+                                {joCode}
+                              </span>
+                              <span className="truncate">{joPos}</span>
+                            </div>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 transition-colors ${
+                              isSelected ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}>
+                              {isSelected ? '✓ Selected' : '+ Add'}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Currently Selected Job Orders Chips */}
+                  {editingTest.applicableJobOrders && editingTest.applicableJobOrders.length > 0 && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                        Selected Requirements ({editingTest.applicableJobOrders.length}):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                        {editingTest.applicableJobOrders.map(targetId => {
+                          const matchedJo = jobOrders.find(j => String(j.job_order_id || j.id) === targetId || String(j.job_order_code || j.job_code) === targetId);
+                          const joCode = matchedJo ? (matchedJo.job_order_code || matchedJo.job_code || targetId) : targetId;
+                          const joTitle = matchedJo ? (matchedJo.position_title || matchedJo.position || '') : '';
+                          const label = joTitle ? `${joCode}: ${joTitle}` : joCode;
+
+                          return (
+                            <span
+                              key={targetId}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-100 text-sky-800 border border-sky-200 shadow-2xs"
+                            >
+                              <span className="truncate max-w-[220px]">{label}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); removeJobOrderSelection(targetId); }}
+                                className="hover:text-red-600 ml-0.5 transition-colors"
+                                title="Remove requirement"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Scoring Guide / Instructions</label>
                 <textarea
                   value={editingTest.scoringGuide}
                   onChange={e => setEditingTest(p => p ? { ...p, scoringGuide: e.target.value } : p)}
-                  rows={3}
+                  rows={2}
                   placeholder="Describe evaluation scoring rubrics or interviewer guidelines..."
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] resize-none"
                 />

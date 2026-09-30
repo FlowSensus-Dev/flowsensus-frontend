@@ -399,11 +399,13 @@ export default function SmartProfiling({
 
     candidatePool.forEach((a) => {
       const hasScores = Boolean(a.testScores);
-      const hasEq = Boolean(a.testScores?.personalityEQ);
-      const hasSkills = a.testScores?.tradeSkills !== undefined && a.testScores?.tradeSkills !== null;
-      const hasIq = a.testScores?.iqAptitude !== undefined && a.testScores?.iqAptitude !== null;
+      const hasCompleteEvaluation = a.testScores?.allPassed !== undefined
+        ? true
+        : Boolean(a.testScores?.personalityEQ) &&
+          a.testScores?.tradeSkills !== undefined &&
+          a.testScores?.iqAptitude !== undefined;
 
-      if (a.hasCompleteAssessments === false || !hasScores || !hasEq || !hasSkills || !hasIq) {
+      if (a.hasCompleteAssessments === false || !hasScores || !hasCompleteEvaluation) {
         incomplete.push(a);
       } else {
         eligible.push(a);
@@ -438,16 +440,18 @@ export default function SmartProfiling({
       const eqStatus = String(applicant.testScores?.personalityEQ ?? 'Missing');
 
       const validScores = [techScore, iqScore, interviewScore].filter((s) => s > 0);
-      const assessmentScore = validScores.length > 0
+      const computedAvg = validScores.length > 0
         ? Math.round((validScores.reduce((a, b) => a + b, 0) / validScores.length) * 10) / 10
         : 0;
+      const assessmentScore = applicant.testScores?.overallScore !== undefined
+        ? Number(applicant.testScores.overallScore)
+        : computedAvg;
 
       // Core Examination Clearance Gates
-      const techPass = techScore >= 70;
-      const iqPass = iqScore >= 50;
-      const interviewPass = interviewScore >= 60;
       const eqPass = eqStatus.trim().toLowerCase() === 'suitable';
-      const allGatesPass = techPass && iqPass && interviewPass && eqPass;
+      const allGatesPass = applicant.testScores?.allPassed !== undefined
+        ? Boolean(applicant.testScores.allPassed) && (eqPass || !applicant.testScores.personalityEQ)
+        : (techScore >= 70 && iqScore >= 50 && interviewScore >= 60 && eqPass);
 
       const strengths: string[] = [];
       const gaps: string[] = [];

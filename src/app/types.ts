@@ -217,13 +217,33 @@ export interface ExpenseRecord {
   timestamp?: string;
 }
 
+export interface DynamicTestScore {
+  id?: string;
+  templateId?: string;
+  name: string;
+  type?: string;
+  scoringType?: 'numeric' | 'pass_fail';
+  rawScore?: number; // Score obtained (e.g. 42)
+  totalItems?: number; // Total points/items (e.g. 50)
+  score: number; // Computed percentage (0-100), or 100 for pass / 0 for fail
+  maxScore: number;
+  passingScore: number;
+  weight?: number;
+  passed: boolean;
+  percentage?: number;
+  statusText?: 'Passed' | 'Failed' | string;
+}
+
 export interface TestScores {
-  englishProficiency: number; // Out of 100
+  englishProficiency?: number; // Out of 100
   languageProficiency?: number; // Out of 100 (generalized language assessment)
-  tradeSkills: number; // Out of 100
-  iqAptitude: number; // Out of 100
-  personalityEQ: 'Suitable' | 'Not Suitable' | 'Pending'; // Assessment result
+  tradeSkills?: number; // Out of 100
+  iqAptitude?: number; // Out of 100
+  personalityEQ?: 'Suitable' | 'Not Suitable' | 'Pending'; // Assessment result
   employerSpecific?: string; // Optional employer-specific test notes
+  tests?: Record<string, DynamicTestScore>; // Dynamic test scores from Evaluation & Workflow Setup
+  overallScore?: number; // Weighted aggregate score (0-100)
+  allPassed?: boolean; // True if all active tests meet their passing criteria
 }
 
 export interface JobOrder {
@@ -323,6 +343,8 @@ export interface EvaluationTest {
   weight: number;
   isActive: boolean;
   scoringGuide: string;
+  scoringType?: 'numeric' | 'pass_fail';
+  applicableJobOrders?: string[]; // IDs or codes of applicable job orders. If empty or undefined, applies to all applicants.
 }
 
 export interface WorkflowPhase {

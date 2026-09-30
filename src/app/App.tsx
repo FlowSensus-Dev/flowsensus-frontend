@@ -1288,10 +1288,11 @@ export default function App() {
           name: fullName,
           firstName: item.first_name || '',
           middleName: item.middle_name || '',
-          lastName: item.last_name || '',
           role: item.applied_position || item.applied_role || item.position || item.appliedRole || 'Applicant',
+          appliedPosition: item.applied_position || item.position || item.applied_role || '',
+          appliedRole: item.applied_position || item.applied_role || item.position || '',
           jobOrder: formattedJobOrderCode,
-          selectedJobOrderId: formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined,
+          selectedJobOrderId: item.job_order_id ? String(item.job_order_id) : (formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined),
           phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
           status: item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration',
           currentHandler: item.current_handler || 'System Agent',
@@ -1334,9 +1335,9 @@ export default function App() {
           address: item.present_address || item.provincial_address || 'Philippines',
           employmentHistory: parsedEmploymentHistory,
           employmentFlags: parsedFlags,
-          testScores: item.test_scores == null
-            ? { englishProficiency: 85, tradeSkills: 88, iqAptitude: 80, personalityEQ: 'Suitable' }
-            : (Object.keys(item.test_scores).length === 0 ? undefined : item.test_scores),
+          testScores: (item.test_scores && typeof item.test_scores === 'object' && Object.keys(item.test_scores).length > 0)
+            ? item.test_scores
+            : undefined,
           matchScore: 90,
           photoDocumentId: item.photo_document_id || item.photoDocumentId || undefined,
           photoUrl: item.photo_url || item.photo || '',

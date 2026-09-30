@@ -51,17 +51,24 @@ export const ENGLISH_PASS_SCORE = 60;
 export const TRADE_PASS_SCORE = 70;
 export const IQ_PASS_SCORE = 50;
 
-export function evaluatePhase1Scores(scores: { englishProficiency: number; tradeSkills: number; iqAptitude: number }) {
-  const passed =
-    scores.englishProficiency >= ENGLISH_PASS_SCORE &&
-    scores.tradeSkills >= TRADE_PASS_SCORE &&
-    scores.iqAptitude >= IQ_PASS_SCORE;
+export function evaluatePhase1Scores(scores: { englishProficiency?: number; tradeSkills?: number; iqAptitude?: number; allPassed?: boolean; tests?: Record<string, any> }) {
+  let passed = false;
+  if (scores.allPassed !== undefined) {
+    passed = Boolean(scores.allPassed);
+  } else if (scores.tests && Object.keys(scores.tests).length > 0) {
+    passed = Object.values(scores.tests).every((t: any) => Boolean(t.passed));
+  } else {
+    passed =
+      (scores.englishProficiency ?? 0) >= ENGLISH_PASS_SCORE &&
+      (scores.tradeSkills ?? 0) >= TRADE_PASS_SCORE &&
+      (scores.iqAptitude ?? 0) >= IQ_PASS_SCORE;
+  }
 
   return {
     passed,
     nextStatus: passed ? ('Pending Interview' as const) : ('Provisional' as const),
     phaseDescription: passed
-      ? 'Passed all 3 standardized tests (English, Trade, IQ). Cleared for Phase 2: Personality & EQ Assessment.'
+      ? 'Passed all qualification evaluations. Cleared for Phase 2: Personality & EQ Assessment.'
       : 'Provisional holding state — test score criteria unmet. Candidate remains active in pipeline for re-testing.',
   };
 }
@@ -77,13 +84,21 @@ export function evaluatePhase2Interview(outcome: 'Suitable' | 'Not Suitable') {
   };
 }
 
-export function canGenerateMedicalReferral(scores?: { englishProficiency: number; tradeSkills: number; iqAptitude: number; personalityEQ?: string } | null) {
+export function canGenerateMedicalReferral(scores?: { englishProficiency?: number; tradeSkills?: number; iqAptitude?: number; personalityEQ?: string; allPassed?: boolean; tests?: Record<string, any> } | null) {
   if (!scores) return false;
+  const isEqSuitable = scores.personalityEQ === 'Suitable';
+  if (scores.allPassed !== undefined) {
+    return Boolean(scores.allPassed) && isEqSuitable;
+  }
+  if (scores.tests && Object.keys(scores.tests).length > 0) {
+    const allPassed = Object.values(scores.tests).every((t: any) => Boolean(t.passed));
+    return allPassed && isEqSuitable;
+  }
   return (
-    scores.englishProficiency >= ENGLISH_PASS_SCORE &&
-    scores.tradeSkills >= TRADE_PASS_SCORE &&
-    scores.iqAptitude >= IQ_PASS_SCORE &&
-    scores.personalityEQ === 'Suitable'
+    (scores.englishProficiency ?? 0) >= ENGLISH_PASS_SCORE &&
+    (scores.tradeSkills ?? 0) >= TRADE_PASS_SCORE &&
+    (scores.iqAptitude ?? 0) >= IQ_PASS_SCORE &&
+    isEqSuitable
   );
 }
 
@@ -120,7 +135,15 @@ export function filterScreeningSubPhases(applicants: ApplicantRecord[]) {
   const isPhase1Passed = (a: ApplicantRecord) => {
     const ts = a.testScores;
     if (!ts) return false;
-    return ts.englishProficiency >= ENGLISH_PASS_SCORE && ts.tradeSkills >= TRADE_PASS_SCORE && ts.iqAptitude >= IQ_PASS_SCORE;
+    if (ts.allPassed !== undefined) return Boolean(ts.allPassed);
+    if (ts.tests && Object.keys(ts.tests).length > 0) {
+      return Object.values(ts.tests).every((t: any) => Boolean(t.passed));
+    }
+    return (
+      (ts.englishProficiency ?? 0) >= ENGLISH_PASS_SCORE &&
+      (ts.tradeSkills ?? 0) >= TRADE_PASS_SCORE &&
+      (ts.iqAptitude ?? 0) >= IQ_PASS_SCORE
+    );
   };
 
   const phase1 = pool.filter(a => {
