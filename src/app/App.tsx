@@ -1166,7 +1166,10 @@ export default function App() {
           ? item.certifications.map((c: any) => typeof c === 'string' ? c : (c.title || c.name || '')).filter(Boolean)
           : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
 
-        const parsedCertificateRecords: CertificateRecord[] = (Array.isArray(item.certifications) ? item.certifications : []).map((c: any, idx: number) => {
+        const rawCertList = (Array.isArray(item.certificateRecords) && item.certificateRecords.length > 0)
+          ? item.certificateRecords
+          : (Array.isArray(item.certifications) ? item.certifications : []);
+        const parsedCertificateRecords: CertificateRecord[] = rawCertList.map((c: any, idx: number) => {
           if (typeof c === 'string') {
             return {
               id: `cert-${item.applicant_id}-${idx}`,
@@ -1181,11 +1184,11 @@ export default function App() {
           return {
             id: c.id || `cert-${item.applicant_id}-${idx}`,
             title: c.title || c.name || 'Certificate',
-            serialNo: c.serialNo || c.serial_no || '—',
+            serialNo: c.serialNo || c.serial_no || c.certificate_no || '—',
             issuedBy: c.issuedBy || c.issued_by || (c.title?.includes('TESDA') ? 'TESDA' : 'Accredited Issuer'),
-            noOfHours: c.noOfHours || c.no_of_hours || '—',
-            competencyDateIssued: c.competencyDateIssued || c.dateIssued || c.issued || '—',
-            expiryDate: c.expiryDate || c.expiry || 'No expiry',
+            noOfHours: c.noOfHours ? String(c.noOfHours) : (c.no_of_hours ? String(c.no_of_hours) : '—'),
+            competencyDateIssued: c.competencyDateIssued || c.dateIssued || c.issue_date || c.issued || '—',
+            expiryDate: c.expiryDate || c.expiry_date || c.expiry || 'No expiry',
             proofDocumentUrl: c.proofDocumentUrl || c.proof_url
           };
         });
@@ -1201,8 +1204,11 @@ export default function App() {
           proofDocumentUrl: t.proofDocumentUrl || t.proof_url
         }));
 
-        const parsedLanguages: LanguageRecord[] = (Array.isArray(item.languages) ? item.languages : []).map((l: any, idx: number) => {
-          const competency = l.competency || l.proficiency || 'Conversational';
+        const rawLangList = (Array.isArray(item.languageRecords) && item.languageRecords.length > 0)
+          ? item.languageRecords
+          : (Array.isArray(item.languages) ? item.languages : []);
+        const parsedLanguages: LanguageRecord[] = rawLangList.map((l: any, idx: number) => {
+          const competency = l.competency || l.fluency_level || l.proficiency || 'Conversational';
           const defaultRating = competency.toLowerCase().includes('native') ? 10 :
                                 competency.toLowerCase().includes('fluent') ? 9 :
                                 competency.toLowerCase().includes('proficient') ? 8 :
@@ -1210,7 +1216,7 @@ export default function App() {
                                 competency.toLowerCase().includes('basic') ? 5 : 6;
           return {
             id: l.id || `lang-${item.applicant_id}-${idx}`,
-            language: l.language || 'English',
+            language: l.language || l.language_name || 'English',
             competency,
             spokenRating: typeof l.spokenRating === 'number' ? l.spokenRating : defaultRating,
             writtenRating: typeof l.writtenRating === 'number' ? l.writtenRating : defaultRating
@@ -1335,6 +1341,7 @@ export default function App() {
           address: item.present_address || item.provincial_address || 'Philippines',
           employmentHistory: parsedEmploymentHistory,
           employmentFlags: parsedFlags,
+          requirements: Array.isArray(item.requirements) ? item.requirements : [],
           testScores: (item.test_scores && typeof item.test_scores === 'object' && Object.keys(item.test_scores).length > 0)
             ? item.test_scores
             : undefined,

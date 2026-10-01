@@ -205,6 +205,51 @@ export default function Registration({
   const [isLoadingJobOrders, setIsLoadingJobOrders] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
+  // ── Lookups and Catalogs (Datalist auto-complete with free typing) ────────
+  const [availableIdTypes, setAvailableIdTypes] = useState<string[]>(ID_TYPES);
+  const [availableCertifications, setAvailableCertifications] = useState<string[]>([]);
+  const [availableRequirements, setAvailableRequirements] = useState<any[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<string[]>([]);
+  const [availableLanguages, setAvailableLanguages] = useState<string[]>([]);
+
+  useEffect(() => {
+    // 1. Identification Types from Supabase
+    api.get('/lookups/identification-types').then(res => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const fromDb = res.data.map((t: any) => t.type_name || t.type_code).filter(Boolean);
+        setAvailableIdTypes(Array.from(new Set([...fromDb, ...ID_TYPES])));
+      }
+    }).catch(() => {});
+
+    // 2. All Requirements & Certifications from Supabase
+    api.get('/requirements').then(res => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setAvailableRequirements(res.data);
+        const certs = res.data
+          .filter((r: any) => r.category === 'CERTIFICATION')
+          .map((r: any) => r.requirement_name)
+          .filter(Boolean);
+        setAvailableCertifications(certs);
+      }
+    }).catch(() => {});
+
+    // 3. Skills Catalog from Supabase
+    api.get('/lookups/skills').then(res => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const sList = res.data.map((s: any) => s.skill_name).filter(Boolean);
+        setAvailableSkills(sList);
+      }
+    }).catch(() => {});
+
+    // 4. Languages from Supabase
+    api.get('/lookups/languages').then(res => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const lList = res.data.map((l: any) => l.language_name).filter(Boolean);
+        setAvailableLanguages(lList);
+      }
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     const fetchLiveJobOrders = async () => {
       setIsLoadingJobOrders(true);
@@ -221,6 +266,8 @@ export default function Registration({
             employerId: jo.employer_id || jo.client_employer?.employer_id,
             countryId: jo.country_id || jo.client_employer?.country_id,
             available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
+            requirements: Array.isArray(jo.requirements) ? jo.requirements : (Array.isArray(jo.job_order_requirement) ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean) : []),
+            detailedRequirements: Array.isArray(jo.detailedRequirements) ? jo.detailedRequirements : (Array.isArray(jo.job_order_requirements) ? jo.job_order_requirements : [])
           }));
           setOpenJobOrders(liveOrders);
         }
@@ -324,6 +371,51 @@ export default function Registration({
   const setId = (id: string, k: keyof IdentificationRecord, v: string) => setIds(p => p.map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeId = (id: string) => setIds(p => p.filter(x => x.id !== id));
 
+  // ── Requirements Checklist ───────────────────────────────────────────────
+  const [applicantRequirements, setApplicantRequirements] = useState<Array<{
+    applicant_req_id?: number;
+    requirement_id?: number;
+    name: string;
+    category: string;
+    status: string;
+    is_mandatory?: boolean;
+    expiration_date?: string;
+    issue_date?: string;
+  }>>([]);
+  const [reqInput, setReqInput] = useState('');
+  const [reqCategory, setReqCategory] = useState<'DOCUMENT' | 'CERTIFICATION' | 'MEDICAL' | 'OTHER'>('DOCUMENT');
+  const [reqStatus, setReqStatus] = useState<string>('PENDING');
+  const [reqIsMandatory, setReqIsMandatory] = useState<boolean>(true);
+
+  const addApplicantRequirement = (name: string, category = reqCategory, status = reqStatus, isMandatory = reqIsMandatory) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (applicantRequirements.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
+      showToast(`"${trimmed}" is already in requirements checklist.`);
+      return;
+    }
+    const matched = availableRequirements.find(r => (r.requirement_name || '').toLowerCase() === trimmed.toLowerCase());
+    setApplicantRequirements(prev => [
+      ...prev,
+      {
+        requirement_id: matched?.requirement_id,
+        name: matched?.requirement_name || trimmed,
+        category: matched?.category || category,
+        status: status,
+        is_mandatory: isMandatory,
+      }
+    ]);
+    setReqInput('');
+  };
+
+  const removeApplicantRequirement = (name: string) => {
+    setApplicantRequirements(prev => prev.filter(r => r.name !== name));
+  };
+
+  const setApplicantReqField = (name: string, field: string, value: any) => {
+    setApplicantRequirements(prev => prev.map(r => r.name === name ? { ...r, [field]: value } : r));
+  };
+
   // ── Education ─────────────────────────────────────────────────────────────
   const [education, setEducation] = useState<EducationRecord[]>([]);
   const addEdu = () => setEducation(p => [...p, { id: `edu-${Date.now()}`, level: '', school: '', course: '', yearGraduated: '' }]);
@@ -376,6 +468,8 @@ export default function Registration({
     setSelectedApplicantTypes([]);
     setSelectedJobOrderId('');
     setIds([]);
+    setApplicantRequirements([]);
+    setReqInput('');
     setEducation([]);
     setSkills([]);
     setSkillInput('');
@@ -438,6 +532,8 @@ export default function Registration({
       setSelectedJobOrderId(initialJo);
       if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
       else setIds([]);
+      if (app.requirements && app.requirements.length > 0) setApplicantRequirements(app.requirements);
+      else setApplicantRequirements([]);
       if (app.education && app.education.length > 0) setEducation(app.education);
       else setEducation([]);
       if (app.skills && Array.isArray(app.skills) && app.skills.length > 0) setSkills([...app.skills]);
@@ -568,6 +664,7 @@ export default function Registration({
       selectedJobOrderId !== (app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '')) ||
       photo !== (app.photo || app.photoDataUrl || '') ||
       JSON.stringify(ids) !== JSON.stringify(app.identifications || []) ||
+      JSON.stringify(applicantRequirements) !== JSON.stringify(app.requirements || []) ||
       JSON.stringify(education) !== JSON.stringify(app.education || []) ||
       JSON.stringify(skills) !== JSON.stringify(app.skills || []) ||
       JSON.stringify(certs) !== JSON.stringify(app.certificateRecords || []) ||
@@ -577,7 +674,7 @@ export default function Registration({
     );
   }, [
     selectedApplicantId, applicants, personal, selectedJobOrderId,
-    photo, ids, education, skills, certs, trainings, languages, employment, isFormFilled
+    photo, ids, applicantRequirements, education, skills, certs, trainings, languages, employment, isFormFilled
   ]);
 
   // Cancel button only appears if an applicant is selected or if user has started typing/making changes
@@ -588,6 +685,7 @@ export default function Registration({
     return {
       personal: Boolean(personal.firstName.trim() && personal.lastName.trim()),
       identifications: ids.length > 0,
+      requirements: applicantRequirements.length > 0,
       education: education.length > 0,
       skills: skills.length > 0,
       certificates: certs.length > 0,
@@ -595,7 +693,7 @@ export default function Registration({
       languages: languages.length > 0,
       employment: employment.length > 0,
     };
-  }, [personal, ids, education, skills, certs, trainings, languages, employment]);
+  }, [personal, ids, applicantRequirements, education, skills, certs, trainings, languages, employment]);
 
   const completedCount = useMemo(() => {
     return Object.values(sectionStatus).filter(Boolean).length;
@@ -648,6 +746,8 @@ export default function Registration({
         const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
         setSelectedJobOrderId(initialJo);
         setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
+        setApplicantRequirements(app.requirements && app.requirements.length > 0 ? [...app.requirements] : []);
+        setReqInput('');
         setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
         setSkills(app.skills && Array.isArray(app.skills) && app.skills.length > 0 ? [...app.skills] : []);
         setSkillInput('');
@@ -744,6 +844,7 @@ export default function Registration({
           skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs,
           identifications: ids,
+          requirements: applicantRequirements,
           education: education,
           trainings: trainings,
           languages: languages,
@@ -806,6 +907,8 @@ export default function Registration({
           linkedinUrl: personal.linkedinUrl,
           skills: skills.length > 0 ? skills : certs.map((c: any) => c.title || c.name || '').filter(Boolean),
           certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
+          identifications: ids,
+          requirements: applicantRequirements,
           workExperience: payload.work_experience,
           employmentHistory: employment,
           employmentFlags: flags,
@@ -862,6 +965,7 @@ export default function Registration({
             skills: skills,
             certifications: certs,
             identifications: ids,
+            requirements: applicantRequirements,
             education: education,
             trainings: trainings,
             languages: languages,
@@ -925,6 +1029,7 @@ export default function Registration({
             skills: skills,
             certifications: certs.map((c: any) => c.title || c.name || '').filter(Boolean),
             identifications: ids,
+            requirements: applicantRequirements,
             education: education,
             certificateRecords: certs,
             trainings: trainings,
@@ -955,6 +1060,7 @@ export default function Registration({
   const sections = [
     { id: 'personal', label: 'Personal Info' },
     { id: 'identifications', label: 'Identifications' },
+    { id: 'requirements', label: 'Requirements' },
     { id: 'education', label: 'Education' },
     { id: 'skills', label: 'Core Skills' },
     { id: 'certificates', label: 'Certificates' },
@@ -1461,10 +1567,13 @@ export default function Registration({
                 {ids.map(row => (
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                     <td className={td}>
-                      <select className={inp} value={row.type} onChange={e => setId(row.id, 'type', e.target.value)}>
-                        <option value="">-- Select Identification Type --</option>
-                        {ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      <input
+                        list="id-types-list"
+                        className={inp}
+                        value={row.type}
+                        onChange={e => setId(row.id, 'type', e.target.value)}
+                        placeholder="Type or select ID type..."
+                      />
                     </td>
                     <td className={td}><input className={inp} value={row.identificationNo} onChange={e => setId(row.id, 'identificationNo', e.target.value)} placeholder="ID / Serial Number" /></td>
                     <td className={td}><input className={inp} type="date" value={row.expiryDate} onChange={e => setId(row.id, 'expiryDate', e.target.value)} /></td>
@@ -1473,10 +1582,194 @@ export default function Registration({
                 ))}
               </tbody>
             </table>
+            <datalist id="id-types-list">
+              {availableIdTypes.map(t => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
           <button onClick={addId} className="mt-3 flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
             <Plus size={15} /> Add Identification
           </button>
+        </Section>
+      </div>
+
+      {/* ── Requirements & Document Clearances ─────────────────────────────────── */}
+      <div id="section-requirements" className="scroll-mt-28">
+        <Section
+          title="Document & Regulatory Requirements"
+          icon={<FileCheck size={16} />}
+          badge={<span className="text-xs text-slate-400 font-medium">{applicantRequirements.length} recorded</span>}
+        >
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                Select requirements from the standard Supabase catalog or type custom preferred requirements (documents, medicals, clearances, or certificates).
+              </p>
+              {selectedJobOrderId && (() => {
+                const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
+                const joReqs: string[] = (jo?.requirements || []).concat(
+                  (jo?.detailedRequirements || []).map((dr: any) => typeof dr === 'string' ? dr : dr.name)
+                ).filter(Boolean);
+                const missingReqs = joReqs.filter(r => !applicantRequirements.some(ar => ar.name.toLowerCase() === r.toLowerCase()));
+                if (missingReqs.length === 0) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      missingReqs.forEach(r => addApplicantRequirement(r, 'DOCUMENT', 'PENDING', true));
+                      showToast(`Added ${missingReqs.length} requirement(s) from Job Order ${jo?.code}.`);
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-blue-50 text-[#0EA5E9] hover:bg-blue-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
+                  >
+                    <Plus size={13} /> Import {missingReqs.length} Job Order Req{missingReqs.length > 1 ? 's' : ''}
+                  </button>
+                );
+              })()}
+            </div>
+
+            {/* Input row with datalist (Fetch all available in Supabase, or type preferred) */}
+            <div className="flex flex-wrap gap-2 items-center bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+              <input
+                list="req-catalog-list"
+                value={reqInput}
+                onChange={e => setReqInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addApplicantRequirement(reqInput);
+                  }
+                }}
+                placeholder="Type or select a requirement (e.g. NBI Clearance, Medical, OWWA)..."
+                className="flex-1 min-w-[240px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+              />
+              <datalist id="req-catalog-list">
+                {availableRequirements.map((r: any) => (
+                  <option key={r.requirement_id || r.requirement_name} value={r.requirement_name}>
+                    {r.category ? `(${r.category})` : ''}
+                  </option>
+                ))}
+              </datalist>
+
+              <select
+                value={reqCategory}
+                onChange={e => setReqCategory(e.target.value as any)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
+              >
+                <option value="DOCUMENT">Document</option>
+                <option value="CERTIFICATION">Certification</option>
+                <option value="MEDICAL">Medical</option>
+                <option value="OTHER">Other</option>
+              </select>
+
+              <select
+                value={reqStatus}
+                onChange={e => setReqStatus(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
+              >
+                <option value="PENDING">Pending</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="VERIFIED">Verified</option>
+              </select>
+
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer px-1">
+                <input
+                  type="checkbox"
+                  checked={reqIsMandatory}
+                  onChange={e => setReqIsMandatory(e.target.checked)}
+                  className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                />
+                Mandatory
+              </label>
+
+              <button
+                type="button"
+                onClick={() => addApplicantRequirement(reqInput)}
+                className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0 shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Add Requirement
+              </button>
+            </div>
+
+            {/* Checklist Table */}
+            {applicantRequirements.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className={th}>Requirement Name</th>
+                      <th className={th}>Category</th>
+                      <th className={th}>Type</th>
+                      <th className={th}>Status</th>
+                      <th className={th}>Expiration Date</th>
+                      <th className={th + ' w-10'}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {applicantRequirements.map((row) => (
+                      <tr key={row.name} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className={td}>
+                          <span className="font-semibold text-slate-800">{row.name}</span>
+                        </td>
+                        <td className={td}>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                            {row.category}
+                          </span>
+                        </td>
+                        <td className={td}>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            row.is_mandatory !== false ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {row.is_mandatory !== false ? 'Mandatory' : 'Optional'}
+                          </span>
+                        </td>
+                        <td className={td}>
+                          <select
+                            value={row.status || 'PENDING'}
+                            onChange={e => setApplicantReqField(row.name, 'status', e.target.value)}
+                            className={`text-xs px-2.5 py-1 rounded-lg border font-semibold ${
+                              (row.status || '').toUpperCase() === 'VERIFIED'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                : (row.status || '').toUpperCase() === 'SUBMITTED'
+                                ? 'bg-sky-50 text-sky-700 border-sky-300'
+                                : 'bg-amber-50 text-amber-700 border-amber-300'
+                            }`}
+                          >
+                            <option value="PENDING">Pending</option>
+                            <option value="SUBMITTED">Submitted</option>
+                            <option value="VERIFIED">Verified</option>
+                            <option value="REJECTED">Rejected</option>
+                          </select>
+                        </td>
+                        <td className={td}>
+                          <input
+                            type="date"
+                            value={row.expiration_date || ''}
+                            onChange={e => setApplicantReqField(row.name, 'expiration_date', e.target.value)}
+                            className="text-xs px-2 py-1 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                          />
+                        </td>
+                        <td className={td}>
+                          <button
+                            type="button"
+                            onClick={() => removeApplicantRequirement(row.name)}
+                            className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                            title={`Remove ${row.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 italic py-4 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                No requirements recorded yet. Select or type a requirement above to add one.
+              </div>
+            )}
+          </div>
         </Section>
       </div>
 
@@ -1533,6 +1826,7 @@ export default function Registration({
             {/* Input row */}
             <div className="flex gap-2">
               <input
+                list="skills-catalog-list"
                 className={inp}
                 placeholder="e.g. Communication, Microsoft Office, Heavy Equipment Operation, Arc Welding..."
                 value={skillInput}
@@ -1544,6 +1838,11 @@ export default function Registration({
                   }
                 }}
               />
+              <datalist id="skills-catalog-list">
+                {availableSkills.map(s => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
               <button
                 type="button"
                 onClick={() => addSkill(skillInput)}
@@ -1629,7 +1928,15 @@ export default function Registration({
               <tbody>
                 {certs.map(row => (
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className={td}><input className={inp} value={row.title} onChange={e => setCert(row.id, 'title', e.target.value)} placeholder="Certificate name" /></td>
+                    <td className={td}>
+                      <input
+                        list="cert-catalog-list"
+                        className={inp}
+                        value={row.title}
+                        onChange={e => setCert(row.id, 'title', e.target.value)}
+                        placeholder="Certificate name (type or select)"
+                      />
+                    </td>
                     <td className={td}><input className={inp} value={row.serialNo} onChange={e => setCert(row.id, 'serialNo', e.target.value)} placeholder="Serial / Cert No." /></td>
                     <td className={td}><input className={inp} value={row.issuedBy} onChange={e => setCert(row.id, 'issuedBy', e.target.value)} placeholder="Issuing body" /></td>
                     <td className={td}><input className={inp} value={row.noOfHours} onChange={e => setCert(row.id, 'noOfHours', e.target.value)} placeholder="hrs" /></td>
@@ -1640,6 +1947,11 @@ export default function Registration({
                 ))}
               </tbody>
             </table>
+            <datalist id="cert-catalog-list">
+              {availableCertifications.map(c => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
           <button onClick={addCert} className="mt-3 flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
             <Plus size={15} /> Add Certificate
@@ -1701,7 +2013,15 @@ export default function Registration({
               <tbody>
                 {languages.map(row => (
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className={td}><input className={inp} value={row.language} onChange={e => setLang(row.id, 'language', e.target.value)} placeholder="Language / Dialect" /></td>
+                    <td className={td}>
+                      <input
+                        list="languages-catalog-list"
+                        className={inp}
+                        value={row.language}
+                        onChange={e => setLang(row.id, 'language', e.target.value)}
+                        placeholder="Language / Dialect (type or select)"
+                      />
+                    </td>
                     <td className={td}>
                       <select className={inp} value={row.competency} onChange={e => setLang(row.id, 'competency', e.target.value)}>
                         {LANG_COMPETENCY.map(l => <option key={l}>{l}</option>)}
@@ -1714,6 +2034,11 @@ export default function Registration({
                 ))}
               </tbody>
             </table>
+            <datalist id="languages-catalog-list">
+              {availableLanguages.map(l => (
+                <option key={l} value={l} />
+              ))}
+            </datalist>
           </div>
           <button onClick={addLang} className="mt-3 flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
             <Plus size={15} /> Add Language

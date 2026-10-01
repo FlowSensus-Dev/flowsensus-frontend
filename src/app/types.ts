@@ -55,6 +55,7 @@ export interface ApplicantRecord {
   // Skills and Qualifications
   skills?: string[];
   certifications?: string[];
+  languages?: any[];
 
   // Work Experience (legacy)
   workExperience?: WorkExperience[];
@@ -87,6 +88,16 @@ export interface ApplicantRecord {
   // System fields
   address?: string;
   documents?: DocumentRecord[];
+  requirements?: Array<{
+    applicant_req_id?: number;
+    requirement_id?: number;
+    name: string;
+    category: string;
+    status: string;
+    ocr_validation_status?: string;
+    expiration_date?: string;
+    issue_date?: string;
+  }>;
   expenses?: ExpenseRecord[];
   testScores?: TestScores;
   matchScore?: number;
@@ -246,6 +257,12 @@ export interface TestScores {
   allPassed?: boolean; // True if all active tests meet their passing criteria
 }
 
+export interface DetailedReq {
+  name: string;
+  category: 'DOCUMENT' | 'CERTIFICATION';
+  isMandatory: boolean;
+}
+
 export interface JobOrder {
   id: string;
   code: string;
@@ -259,9 +276,10 @@ export interface JobOrder {
   salaryMax: number;
   salaryCurrency: string;
   contractMonths: number;
-  requirements: string[];
+  requirements: string[]; // For backward compatibility
+  certifications: string[]; // For backward compatibility
+  detailedRequirements?: DetailedReq[];
   minExperience: number;
-  certifications: string[];
   status: 'open' | 'closed' | 'filled' | 'pending' | 'draft' | 'cancelled';
   datePosted: string;
   deadline: string;

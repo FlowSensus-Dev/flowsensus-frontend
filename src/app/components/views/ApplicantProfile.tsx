@@ -9,7 +9,7 @@ import {
   HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2
 } from 'lucide-react';
 import { api } from '../../../lib/api';
-import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
@@ -371,7 +371,8 @@ export default function ApplicantProfile({
         return null;
 
       case 'skills': {
-        const count = (applicant?.skills || []).length + (applicant?.certificateRecords || []).length + (applicant?.trainings || []).length;
+        const certCount = (applicant?.certificateRecords || []).length || (applicant?.certifications || []).length;
+        const count = (applicant?.skills || []).length + certCount + (applicant?.trainings || []).length;
         if (count > 0) {
           return (
             <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'skills' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
@@ -382,15 +383,17 @@ export default function ApplicantProfile({
         return null;
       }
 
-      case 'languages':
-        if ((applicant?.languageRecords || []).length > 0) {
+      case 'languages': {
+        const langCount = (applicant?.languageRecords || []).length || ((applicant as any)?.languages || []).length;
+        if (langCount > 0) {
           return (
             <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'languages' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
-              {applicant?.languageRecords?.length}
+              {langCount}
             </span>
           );
         }
         return null;
+      }
 
       case 'education':
         if ((applicant?.education || []).length > 0) {
@@ -402,10 +405,13 @@ export default function ApplicantProfile({
         }
         return null;
 
-      case 'ids':
-        if ((applicant?.identifications || []).length > 0) {
+      case 'ids': {
+        const totalDocs = (applicant?.identifications || []).length + (applicant?.requirements || []).length;
+        if (totalDocs > 0) {
           const hasExpired = (applicant?.identifications || []).some(
             id => id.expiryDate && new Date(id.expiryDate) < new Date()
+          ) || (applicant?.requirements || []).some(
+            req => req.expiration_date && new Date(req.expiration_date) < new Date()
           );
           if (hasExpired) {
             return (
@@ -416,11 +422,12 @@ export default function ApplicantProfile({
           }
           return (
             <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium ${activeSection === 'ids' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
-              {applicant?.identifications?.length}
+              {totalDocs}
             </span>
           );
         }
         return null;
+      }
 
       case 'scores':
         if (applicant?.testScores) {
@@ -1101,37 +1108,54 @@ export default function ApplicantProfile({
         )}
 
         {/* Certificates */}
-        {(applicant.certificateRecords || []).length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Certificates & Licenses</p>
-            {(applicant.certificateRecords || []).map(row => (
-              <div key={row.id} className="bg-white rounded-xl border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
-                      {row.proofDocumentUrl && (
-                        <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
-                      )}
+        {(() => {
+          const certs = (applicant.certificateRecords && applicant.certificateRecords.length > 0)
+            ? applicant.certificateRecords
+            : (Array.isArray(applicant.certifications) && applicant.certifications.length > 0)
+              ? applicant.certifications.map((c: any, idx: number) => ({
+                  id: `cert-fallback-${idx}`,
+                  title: typeof c === 'string' ? c : (c.title || c.name || 'Certificate'),
+                  issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || 'Accredited Issuer') : 'Accredited Issuer',
+                  serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
+                  noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
+                  competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
+                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'No expiry') : 'No expiry',
+                  proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
+                }))
+              : [];
+          if (certs.length === 0) return null;
+          return (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Certificates & Licenses ({certs.length})</p>
+              {certs.map(row => (
+                <div key={row.id} className="bg-white rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
+                        {row.proofDocumentUrl && (
+                          <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">Issued by {row.issuedBy}</p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5">Issued by {row.issuedBy}</p>
+                    <code className="text-xs text-[#0EA5E9] bg-blue-50 px-2 py-1 rounded flex-shrink-0">{row.serialNo || '—'}</code>
                   </div>
-                  <code className="text-xs text-[#0EA5E9] bg-blue-50 px-2 py-1 rounded flex-shrink-0">{row.serialNo || '—'}</code>
+                  <div className="grid grid-cols-3 gap-3 mt-2.5 text-xs text-slate-500">
+                    <div><span className="text-slate-400">Hours: </span>{row.noOfHours || '—'}</div>
+                    <div><span className="text-slate-400">Issued: </span>{row.competencyDateIssued || '—'}</div>
+                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate || 'No expiry'}</div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mt-2.5 text-xs text-slate-500">
-                  <div><span className="text-slate-400">Hours: </span>{row.noOfHours || '—'}</div>
-                  <div><span className="text-slate-400">Issued: </span>{row.competencyDateIssued || '—'}</div>
-                  <div><span className="text-slate-400">Expires: </span>{row.expiryDate || 'No expiry'}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Trainings */}
         {(applicant.trainings || []).length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Trainings Attended</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Trainings Attended ({applicant.trainings?.length})</p>
             {(applicant.trainings || []).map(row => (
               <div key={row.id} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -1156,7 +1180,7 @@ export default function ApplicantProfile({
           </div>
         )}
 
-        {(applicant.skills || []).length === 0 && (applicant.certificateRecords || []).length === 0 && (applicant.trainings || []).length === 0 && (
+        {(applicant.skills || []).length === 0 && (applicant.certificateRecords || []).length === 0 && (applicant.certifications || []).length === 0 && (applicant.trainings || []).length === 0 && (
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No skills or certificates recorded</div>
         )}
       </div>
@@ -1167,29 +1191,48 @@ export default function ApplicantProfile({
           <Languages size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Language Proficiency</h3>
         </div>
-        {(applicant.languageRecords || []).length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No language records</div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_1fr_1fr] text-[10px] font-bold text-slate-400 uppercase tracking-wider px-5 py-2.5 bg-slate-50 border-b border-slate-100">
-              <span>Language</span><span>Competency</span><span>Spoken</span><span>Written</span>
-            </div>
-            {(applicant.languageRecords || []).map((row, idx) => (
-              <div key={row.id} className={`grid grid-cols-[1fr_1fr_1fr_1fr] items-center px-5 py-3.5 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
-                <span className="font-semibold text-sm text-[#0F172A]">{row.language}</span>
-                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full w-fit">{row.competency}</span>
-                <div className="flex items-center gap-2 pr-4">
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[#0EA5E9]" style={{ width: `${row.spokenRating * 10}%` }} /></div>
-                  <span className="text-xs font-bold text-[#0EA5E9] w-8 text-right">{row.spokenRating}/10</span>
-                </div>
-                <div className="flex items-center gap-2 pr-4">
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[#8B5CF6]" style={{ width: `${row.writtenRating * 10}%` }} /></div>
-                  <span className="text-xs font-bold text-[#8B5CF6] w-8 text-right">{row.writtenRating}/10</span>
-                </div>
+        {(() => {
+          const rawLangs = (applicant as any)?.languages;
+          const langs: LanguageRecord[] = (applicant.languageRecords && applicant.languageRecords.length > 0)
+            ? applicant.languageRecords
+            : (Array.isArray(rawLangs) && rawLangs.length > 0)
+              ? rawLangs.map((l: any, idx: number): LanguageRecord => {
+                  const langName = typeof l === 'string' ? l : (l.language || l.language_name || 'English');
+                  const comp = typeof l === 'object' ? (l.competency || l.fluency_level || 'Conversational') : 'Conversational';
+                  return {
+                    id: `lang-fallback-${idx}`,
+                    language: langName,
+                    competency: comp,
+                    spokenRating: typeof l === 'object' && typeof l.spokenRating === 'number' ? l.spokenRating : 7,
+                    writtenRating: typeof l === 'object' && typeof l.writtenRating === 'number' ? l.writtenRating : 7
+                  };
+                })
+              : [];
+          if (langs.length === 0) {
+            return <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No language records</div>;
+          }
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="grid grid-cols-[1fr_1fr_1fr_1fr] text-[10px] font-bold text-slate-400 uppercase tracking-wider px-5 py-2.5 bg-slate-50 border-b border-slate-100">
+                <span>Language</span><span>Competency</span><span>Spoken</span><span>Written</span>
               </div>
-            ))}
-          </div>
-        )}
+              {langs.map((row: LanguageRecord, idx: number) => (
+                <div key={row.id} className={`grid grid-cols-[1fr_1fr_1fr_1fr] items-center px-5 py-3.5 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
+                  <span className="font-semibold text-sm text-[#0F172A]">{row.language}</span>
+                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full w-fit">{row.competency}</span>
+                  <div className="flex items-center gap-2 pr-4">
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[#0EA5E9]" style={{ width: `${row.spokenRating * 10}%` }} /></div>
+                    <span className="text-xs font-bold text-[#0EA5E9] w-8 text-right">{row.spokenRating}/10</span>
+                  </div>
+                  <div className="flex items-center gap-2 pr-4">
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[#8B5CF6]" style={{ width: `${row.writtenRating * 10}%` }} /></div>
+                    <span className="text-xs font-bold text-[#8B5CF6] w-8 text-right">{row.writtenRating}/10</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Education ─────────────────────────────────────────────────────────── */}
@@ -1222,46 +1265,107 @@ export default function ApplicantProfile({
       </div>
 
       {/* ── IDs & Documents ────────────────────────────────────────────────────── */}
-      <div ref={el => { sectionRefs.current['ids'] = el; }} id="ids" className="scroll-mt-24 pt-6 space-y-4">
+      <div ref={el => { sectionRefs.current['ids'] = el; }} id="ids" className="scroll-mt-24 pt-6 space-y-5">
         <div className="flex items-center gap-2">
           <IdCard size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Identifications & Documents</h3>
         </div>
-        {(applicant.identifications || []).length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No identification records</div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            {(applicant.identifications || []).map((row, idx) => {
-              const isExpired = row.expiryDate && new Date(row.expiryDate) < new Date();
-              return (
-                <div key={row.id} className={`flex items-center gap-4 px-5 py-3.5 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <IdCard size={14} className="text-slate-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-sm text-[#0F172A]">{row.type}</p>
-                      {row.proofDocumentUrl
-                        ? <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
-                        : <span className="flex items-center gap-1 text-xs text-amber-500"><FileX size={11} /> No scan</span>
-                      }
+
+        {/* Government Identifications */}
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Government Identifications ({applicant.identifications?.length || 0})</p>
+          {(applicant.identifications || []).length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 py-6 text-center text-slate-400 text-sm">No identification records</div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+              {(applicant.identifications || []).map((row) => {
+                const isExpired = row.expiryDate && new Date(row.expiryDate) < new Date();
+                return (
+                  <div key={row.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                      <IdCard size={14} className="text-slate-500" />
                     </div>
-                    <code className="text-xs text-[#0EA5E9]">{row.identificationNo || '—'}</code>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm text-[#0F172A]">{row.type}</p>
+                        {row.proofDocumentUrl
+                          ? <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
+                          : <span className="flex items-center gap-1 text-xs text-amber-500"><FileX size={11} /> No scan</span>
+                        }
+                      </div>
+                      <code className="text-xs text-[#0EA5E9] font-mono">{row.identificationNo || '—'}</code>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      {row.expiryDate ? (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
+                          {isExpired ? '⚠ Expired: ' : 'Exp: '}{row.expiryDate}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">No expiry</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    {row.expiryDate ? (
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {isExpired ? '⚠ Expired' : 'Exp: '}{row.expiryDate}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-400">No expiry</span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Regulatory & Compliance Requirements from Supabase */}
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-1.5">
+            <FileCheck size={13} className="text-[#0EA5E9]" /> Regulatory &amp; Compliance Clearances ({applicant.requirements?.length || 0})
+          </p>
+          {(applicant.requirements || []).length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 py-6 text-center text-slate-400 text-sm">
+              No regulatory or compliance clearance records
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+              {(applicant.requirements || []).map((req, idx) => {
+                const isVerified = (req.status || '').toUpperCase() === 'VERIFIED' || (req.ocr_validation_status || '').toUpperCase() === 'PASSED';
+                const isExpired = req.expiration_date && new Date(req.expiration_date) < new Date();
+                return (
+                  <div key={req.applicant_req_id || `req-${idx}`} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isVerified ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                      <FileCheck size={15} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm text-[#0F172A]">{req.name}</p>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                          {req.category}
+                        </span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                          isVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {req.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
+                        {req.issue_date && <span>Issued: {req.issue_date}</span>}
+                        {req.expiration_date && (
+                          <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
+                            Expires: {req.expiration_date} {isExpired && '(Expired)'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {req.ocr_validation_status && (
+                      <div className="text-right flex-shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                          req.ocr_validation_status.toUpperCase() === 'PASSED' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          OCR: {req.ocr_validation_status}
+                        </span>
+                      </div>
                     )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Test Scores ───────────────────────────────────────────────────────── */}

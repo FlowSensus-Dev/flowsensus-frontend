@@ -18,7 +18,7 @@ const STATUS_META: Record<JobOrder['status'], { label: string; color: string; ic
 
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
   code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
-  salaryMin: 0, salaryMax: 0, salaryCurrency: 'USD', contractMonths: 24, requirements: [], minExperience: 0, certifications: [],
+  salaryMin: 0, salaryMax: 0, salaryCurrency: 'USD', contractMonths: 24, requirements: [], minExperience: 0, certifications: [], detailedRequirements: [],
   status: 'draft', datePosted: new Date().toISOString().slice(0, 10), deadline: '', notes: '',
 };
 
@@ -41,6 +41,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   const [certInput, setCertInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [catalogRequirements, setCatalogRequirements] = useState<any[]>([]);
+  const [reqIsMandatory, setReqIsMandatory] = useState(true);
+  const [certIsMandatory, setCertIsMandatory] = useState(true);
 
   // ── Fetch Live Data on Mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -97,6 +100,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       : [])),
             minExperience: jo.min_experience_years || 1,
             certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
+            detailedRequirements: Array.isArray(jo.job_order_requirements)
+              ? jo.job_order_requirements.map((r: any) => ({
+                  name: r.requirement?.requirement_name || r.requirement_name,
+                  category: r.category || r.requirement?.category || 'DOCUMENT',
+                  isMandatory: r.is_mandatory ?? true
+                }))
+              : [],
             status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
             datePosted: jo.date_posted || '',
             deadline: jo.application_deadline || jo.deadline || '',
@@ -109,6 +119,10 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       } finally {
         setIsLoading(false);
       }
+      try {
+        const reqRes = await api.get('/requirements');
+        if (reqRes.data) setCatalogRequirements(reqRes.data);
+      } catch (err) {}
     };
     fetchLiveJobOrders();
   }, [globalJobOrders, globalEmployers]);
@@ -128,10 +142,12 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   };
 
   const openEdit = (o: JobOrder) => {
-    setEditing({ ...o, requirements: [...o.requirements], certifications: [...o.certifications] });
+    setEditing({ ...o, requirements: [...o.requirements], certifications: [...o.certifications], detailedRequirements: o.detailedRequirements ? [...o.detailedRequirements] : [] });
     setIsNew(false);
     setReqInput('');
     setCertInput('');
+    setReqIsMandatory(true);
+    setCertIsMandatory(true);
   };
 
   const save = async () => {
@@ -168,6 +184,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
       deadline: editing.deadline || undefined,
       notes: editing.notes,
+      requirements: editing.requirements,
+      certifications: editing.certifications,
+      job_order_requirements: editing.detailedRequirements?.map(r => ({
+        requirement_name: r.name,
+        category: r.category,
+        is_mandatory: r.isMandatory
+      })),
     };
 
     try {
@@ -207,17 +230,26 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     }
   };
 
-  const addTag = (field: 'requirements' | 'certifications', val: string) => {
+  const addDetailedTag = (category: 'DOCUMENT' | 'CERTIFICATION', val: string, isMandatory: boolean) => {
     const v = val.trim();
     if (!v || !editing) return;
-    if (editing[field].includes(v)) return;
-    setEditing(p => p ? { ...p, [field]: [...p[field], v] } : p);
-    if (field === 'requirements') setReqInput('');
-    else setCertInput('');
+    const exists = editing.detailedRequirements?.some(r => r.name.toLowerCase() === v.toLowerCase());
+    if (exists) return;
+    setEditing(p => p ? {
+      ...p,
+      detailedRequirements: [...(p.detailedRequirements || []), { name: v, category, isMandatory }],
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...p[category === 'DOCUMENT' ? 'requirements' : 'certifications'], v]
+    } : p);
+    if (category === 'DOCUMENT') { setReqInput(''); setReqIsMandatory(true); }
+    else { setCertInput(''); setCertIsMandatory(true); }
   };
 
-  const removeTag = (field: 'requirements' | 'certifications', val: string) => {
-    setEditing(p => p ? { ...p, [field]: p[field].filter(x => x !== val) } : p);
+  const removeDetailedTag = (category: 'DOCUMENT' | 'CERTIFICATION', val: string) => {
+    setEditing(p => p ? {
+      ...p,
+      detailedRequirements: (p.detailedRequirements || []).filter(r => r.name !== val),
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: p[category === 'DOCUMENT' ? 'requirements' : 'certifications'].filter(x => x !== val)
+    } : p);
   };
 
   const onEmployerChange = (empId: string) => {
@@ -359,18 +391,35 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       <div>
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Documents</div>
                         <div className="flex flex-wrap gap-1.5">
-                          {order.requirements.map(r => (
-                            <span key={r} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r}</span>
-                          ))}
+                          {order.detailedRequirements && order.detailedRequirements.length > 0 ? (
+                            order.detailedRequirements.filter(r => r.category === 'DOCUMENT').map(r => (
+                              <span key={r.name} className={`text-xs px-2 py-0.5 rounded-full ${r.isMandatory ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {r.name} {!r.isMandatory && '(Optional)'}
+                              </span>
+                            ))
+                          ) : (
+                            order.requirements.map(r => (
+                              <span key={r} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r}</span>
+                            ))
+                          )}
                         </div>
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Required Certifications</div>
                         <div className="flex flex-wrap gap-1.5">
-                          {order.certifications.length > 0
-                            ? order.certifications.map(c => <span key={c} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>)
-                            : <span className="text-xs text-slate-400 italic">None specified</span>
-                          }
+                          {order.detailedRequirements && order.detailedRequirements.length > 0 ? (
+                            order.detailedRequirements.filter(r => r.category === 'CERTIFICATION').length > 0 ? (
+                              order.detailedRequirements.filter(r => r.category === 'CERTIFICATION').map(c => (
+                                <span key={c.name} className={`text-xs px-2 py-0.5 rounded-full ${c.isMandatory ? 'bg-purple-50 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                  {c.name} {!c.isMandatory && '(Optional)'}
+                                </span>
+                              ))
+                            ) : <span className="text-xs text-slate-400 italic">None specified</span>
+                          ) : (
+                            order.certifications.length > 0
+                              ? order.certifications.map(c => <span key={c} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>)
+                              : <span className="text-xs text-slate-400 italic">None specified</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -501,16 +550,25 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Required Documents</label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editing.requirements.map(r => (
-                    <span key={r} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
-                      {r}
-                      <button onClick={() => removeTag('requirements', r)} className="hover:text-red-500 transition-colors"><X size={11} /></button>
+                  {editing.detailedRequirements?.filter(r => r.category === 'DOCUMENT').map(r => (
+                    <span key={r.name} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${r.isMandatory ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {r.name} {!r.isMandatory && '(Optional)'}
+                      <button onClick={() => removeDetailedTag('DOCUMENT', r.name)} className="hover:text-red-500 transition-colors ml-1"><X size={11} /></button>
                     </span>
                   ))}
                 </div>
-                <div className="flex gap-2">
-                  <input value={reqInput} onChange={e => setReqInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag('requirements', reqInput); } }} placeholder="Type requirement and press Enter" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
-                  <button onClick={() => addTag('requirements', reqInput)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input list="doc-catalog" value={reqInput} onChange={e => setReqInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('DOCUMENT', reqInput, reqIsMandatory); } }} placeholder="Select or type document..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <datalist id="doc-catalog">
+                    {catalogRequirements.filter(r => r.category === 'DOCUMENT').map(r => (
+                      <option key={r.requirement_id} value={r.requirement_name} />
+                    ))}
+                  </datalist>
+                  <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={reqIsMandatory} onChange={e => setReqIsMandatory(e.target.checked)} className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                    Mandatory
+                  </label>
+                  <button onClick={() => addDetailedTag('DOCUMENT', reqInput, reqIsMandatory)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
                 </div>
               </div>
 
@@ -518,16 +576,25 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Required Certifications</label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editing.certifications.map(c => (
-                    <span key={c} className="flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded-full">
-                      {c}
-                      <button onClick={() => removeTag('certifications', c)} className="hover:text-red-500 transition-colors"><X size={11} /></button>
+                  {editing.detailedRequirements?.filter(r => r.category === 'CERTIFICATION').map(r => (
+                    <span key={r.name} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${r.isMandatory ? 'bg-purple-50 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {r.name} {!r.isMandatory && '(Optional)'}
+                      <button onClick={() => removeDetailedTag('CERTIFICATION', r.name)} className="hover:text-red-500 transition-colors ml-1"><X size={11} /></button>
                     </span>
                   ))}
                 </div>
-                <div className="flex gap-2">
-                  <input value={certInput} onChange={e => setCertInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag('certifications', certInput); } }} placeholder="Type certification and press Enter" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
-                  <button onClick={() => addTag('certifications', certInput)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input list="cert-catalog" value={certInput} onChange={e => setCertInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('CERTIFICATION', certInput, certIsMandatory); } }} placeholder="Select or type certification..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <datalist id="cert-catalog">
+                    {catalogRequirements.filter(r => r.category === 'CERTIFICATION').map(r => (
+                      <option key={r.requirement_id} value={r.requirement_name} />
+                    ))}
+                  </datalist>
+                  <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={certIsMandatory} onChange={e => setCertIsMandatory(e.target.checked)} className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                    Mandatory
+                  </label>
+                  <button onClick={() => addDetailedTag('CERTIFICATION', certInput, certIsMandatory)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
                 </div>
               </div>
 
