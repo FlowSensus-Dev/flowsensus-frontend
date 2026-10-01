@@ -1,0 +1,626 @@
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router';
+import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
+import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
+import { api } from '../../lib/api';
+import Sidebar from './Sidebar';
+import Dashboard from './views/Dashboard';
+import ApplicantList from './views/ApplicantList';
+import ApplicantProfile from './views/ApplicantProfile';
+import Registration from './views/Registration';
+import Screening from './views/Screening';
+import SmartProfiling from './views/SmartProfiling';
+import CVEncoding from './views/CVEncoding';
+import EndorsementTracker from './views/EndorsementTracker';
+import FitToWork from './views/FitToWork';
+import DocumentOCR from './views/DocumentOCR';
+import ComplianceAlerts from './views/ComplianceAlerts';
+import ExpenseLedger from './views/ExpenseLedger';
+import PredictiveForecast from './views/PredictiveForecast';
+import UserManagement from './views/UserManagement';
+import DeploymentHistory from './views/DeploymentHistory';
+import OperationalReports from './views/OperationalReports';
+import ManagerHub from './views/ManagerHub';
+import RecruitmentDashboard from './views/dashboards/RecruitmentDashboard';
+import AdminDashboard from './views/dashboards/AdminDashboard';
+import AccountingDashboard from './views/dashboards/AccountingDashboard';
+import ManagementDashboard from './views/dashboards/ManagementDashboard';
+import UserProfile from './views/UserProfile';
+import RequirementsSetup from './views/RequirementsSetup';
+import EvaluationSetup from './views/EvaluationSetup';
+import JobOrders from './views/JobOrders';
+import EmployerProfiles from './views/EmployerProfiles';
+
+export type ViewType =
+  | 'dashboard'
+  | 'applicants'
+  | 'registration'
+  | 'screening'
+  | 'profiling'
+  | 'cv'
+  | 'endorsement'
+  | 'fittowork'
+  | 'ocr'
+  | 'alerts'
+  | 'expense'
+  | 'manager'
+  | 'forecast'
+  | 'users'
+  | 'history'
+  | 'reports'
+  | 'profile'
+  | 'requirements'
+  | 'evaluation'
+  | 'joborders'
+  | 'employers';
+
+interface AppShellProps {
+  currentUserRole: UserRole;
+  currentUserRoles?: UserRole[];
+  currentUserName: string;
+  workflow: WorkflowState;
+  updateWorkflow: (updates: Partial<WorkflowState>) => void;
+  applicants: ApplicantRecord[];
+  applicantsLoaded?: boolean;
+  updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
+  addApplicant?: (newApplicant: ApplicantRecord) => void;
+  activityLogs: ActivityLog[];
+  addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
+  expenses: ExpenseRecord[];
+  addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  onLogout: () => void;
+  isSuperAdmin?: boolean;
+  onSuperAdminDashboard?: () => void;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
+  globalStaff?: any[];
+  globalRoles?: any[];
+  globalPipelineForecast?: any;
+}
+
+export default function AppShell({
+  currentUserRole,
+  currentUserRoles,
+  currentUserName,
+  workflow,
+  updateWorkflow,
+  applicants,
+  applicantsLoaded,
+  updateApplicant,
+  addApplicant,
+  activityLogs,
+  addActivityLog,
+  expenses,
+  addExpense,
+  onLogout,
+  isSuperAdmin,
+  onSuperAdminDashboard,
+  globalJobOrders,
+  globalEmployers,
+  globalStaff,
+  globalRoles,
+  globalPipelineForecast,
+}: AppShellProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Extract current view from URL (e.g. /app/dashboard)
+  const pathParts = location.pathname.split('/');
+  const rawView = pathParts[2];
+  const currentView: ViewType = (rawView as ViewType) || 'dashboard';
+
+  const setCurrentView = (view: ViewType | 'applicant') => {
+    if (view === 'applicant') {
+      navigate('/app/applicants');
+    } else {
+      if (view === 'applicants') {
+        setSelectedApplicantId(null);
+      }
+      navigate(`/app/${view}`);
+    }
+  };
+
+  useEffect(() => {
+    if (rawView === 'applicant') {
+      navigate('/app/applicants', { replace: true });
+    }
+  }, [rawView, navigate]);
+
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(() => {
+    return localStorage.getItem('flowsensus_selected_applicant') || 'new';
+  });
+  const [toastMessage, setToastMessage] = useState('');
+  const [showToast, setShowToast] = useState(false);
+
+  // Persist selectedApplicantId to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedApplicantId) {
+      localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
+    } else {
+      localStorage.removeItem('flowsensus_selected_applicant');
+    }
+  }, [selectedApplicantId]);
+
+  // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
+  useEffect(() => {
+    if (applicants.length > 0 && selectedApplicantId && selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))) {
+      const fallbackId = String(applicants[0].id);
+      setSelectedApplicantId(fallbackId);
+      localStorage.setItem('flowsensus_selected_applicant', fallbackId);
+    }
+  }, [applicants, selectedApplicantId]);
+
+  const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
+  const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+
+  // Fetch live evaluation templates from backend
+  const fetchEvaluationTemplates = async () => {
+    try {
+      const res = await api.get('/evaluations/templates');
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
+          id: String(t.test_template_id || t.id),
+          name: t.name,
+          type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+          description: t.description || '',
+          maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+          passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+          weight: Number(t.weight_percentage ?? t.weight ?? 10),
+          scoringGuide: t.scoring_guide || t.scoringGuide || '',
+          isActive: Boolean(t.is_active ?? t.isActive ?? true),
+        }));
+        setEvaluationTemplates(liveTests);
+      }
+    } catch (err) {
+      console.warn('Could not fetch evaluation templates:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchEvaluationTemplates();
+  }, []);
+
+  // Fetch live workflow module permissions from backend
+  useEffect(() => {
+    const fetchWorkflowPerms = async () => {
+      try {
+        const res = await api.get('/workflow/modules');
+        if (res.data && Array.isArray(res.data)) {
+          const map: Record<string, UserRole[]> = {};
+          res.data.forEach((m: any) => {
+            const key = m.module_key || m.moduleKey;
+            const roles = m.assigned_roles || m.assignedRoles || [];
+            if (key) map[key] = roles;
+          });
+          setWorkflowPermissions(map);
+        }
+      } catch (err) {
+        console.warn('Could not fetch workflow module permissions:', err);
+      }
+    };
+    fetchWorkflowPerms();
+  }, []);
+
+  const showToastNotification = (message: string) => {
+    setToastMessage(message);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3500);
+  };
+
+
+  const handleViewApplicant = (applicantId: string) => {
+    setSelectedApplicantId(String(applicantId));
+    navigate('/app/applicants');
+  };
+
+  const handleNavigate = (view: ViewType) => {
+    if (view === 'registration') {
+      setSelectedApplicantId('new');
+    }
+    setCurrentView(view);
+  };
+
+  const renderView = () => {
+    if (applicantsLoaded === false) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <Loader2 size={36} className="animate-spin mb-4 text-[#0EA5E9]" />
+          <p className="font-medium text-lg">Loading Workspace Data...</p>
+        </div>
+      );
+    }
+
+    const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId)) || applicants[0];
+
+
+    switch (currentView) {
+      case 'dashboard':
+        if (isSuperAdmin) {
+          return (
+            <div className="space-y-12 pb-12">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Management Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Recruitment Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Admin & Visa Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
+                </div>
+                <div className="p-6">
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Render role-specific dashboards
+        switch (currentUserRole) {
+          case 'Recruitment':
+            return (
+              <RecruitmentDashboard
+                applicants={applicants}
+                activityLogs={activityLogs}
+                onViewApplicant={handleViewApplicant}
+                onNavigate={handleNavigate}
+              />
+            );
+          case 'Admin':
+            return (
+              <AdminDashboard
+                applicants={applicants}
+                onViewApplicant={handleViewApplicant}
+                onNavigate={handleNavigate}
+              />
+            );
+          case 'Accounting':
+            return (
+              <AccountingDashboard
+                applicants={applicants}
+                expenses={expenses}
+                onNavigate={handleNavigate}
+                onAddExpense={addExpense}
+              />
+            );
+          case 'Management':
+            return (
+              <ManagementDashboard
+                applicants={applicants}
+                activityLogs={activityLogs}
+                onViewApplicant={handleViewApplicant}
+                onNavigate={handleNavigate}
+              />
+            );
+          default:
+            return (
+              <Dashboard
+                applicants={applicants}
+                activityLogs={activityLogs}
+                currentUserRole={currentUserRole}
+                onViewApplicant={handleViewApplicant}
+              />
+            );
+        }
+      case 'applicants':
+        return (
+          <ApplicantList
+            applicants={applicants}
+            onViewApplicant={handleViewApplicant}
+            currentUserName={currentUserName}
+            onNavigate={handleNavigate}
+            selectedApplicantId={selectedApplicantId || undefined}
+            onClearSelection={() => setSelectedApplicantId(null)}
+            activityLogs={activityLogs}
+            expenses={expenses}
+            updateApplicant={updateApplicant}
+            addActivityLog={addActivityLog}
+            showToast={showToastNotification}
+            onEditApplicant={() => setCurrentView('registration')}
+          />
+        );
+      case 'registration':
+        return (
+          <Registration
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            selectedApplicantId={selectedApplicantId || undefined}
+            updateApplicant={updateApplicant}
+            addApplicant={addApplicant}
+            applicants={applicants}
+            globalJobOrders={globalJobOrders}
+          />
+        );
+      case 'screening':
+        return (
+          <Screening
+            workflow={workflow}
+            updateWorkflow={updateWorkflow}
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            updateApplicant={updateApplicant}
+            selectedApplicantId={selectedApplicantId || undefined}
+            applicants={applicants}
+            evaluationTemplates={evaluationTemplates}
+            onTemplatesUpdated={fetchEvaluationTemplates}
+            globalJobOrders={globalJobOrders}
+          />
+        );
+      case 'profiling':
+        return (
+          <SmartProfiling
+            showToast={showToastNotification}
+            applicants={applicants}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            selectedApplicantId={selectedApplicantId || undefined}
+            onSelectApplicant={setSelectedApplicantId}
+            onViewApplicant={handleViewApplicant}
+            updateApplicant={(id, data) => updateApplicant(String(id), data)}
+            workflow={workflow}
+            globalJobOrders={globalJobOrders}
+            onNavigate={(view: string) => setCurrentView(view as any)}
+          />
+        );
+
+      case 'cv':
+        return (
+          <CVEncoding
+            workflow={workflow}
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            updateApplicant={updateApplicant}
+            selectedApplicantId={selectedApplicantId || undefined}
+            applicants={applicants}
+          />
+        );
+      case 'endorsement':
+        return (
+          <EndorsementTracker
+            applicants={applicants}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            updateApplicant={updateApplicant}
+          />
+        );
+      case 'fittowork':
+        return (
+          <FitToWork
+            workflow={workflow}
+            updateWorkflow={updateWorkflow}
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            updateApplicant={updateApplicant}
+            selectedApplicantId={selectedApplicantId || undefined}
+            applicants={applicants}
+          />
+        );
+      case 'ocr':
+        return (
+          <DocumentOCR
+            workflow={workflow}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            showToast={showToastNotification}
+            selectedApplicantId={selectedApplicantId || undefined}
+            applicants={applicants}
+          />
+        );
+      case 'alerts':
+        return <ComplianceAlerts applicants={applicants} showToast={showToastNotification} />;
+      case 'expense':
+        return (
+          <ExpenseLedger
+            workflow={workflow}
+            expenses={expenses}
+            addExpense={addExpense}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            showToast={showToastNotification}
+            selectedApplicantId={selectedApplicantId || undefined}
+            applicants={applicants}
+          />
+        );
+      case 'manager':
+        return (
+          <ManagerHub
+            workflow={workflow}
+            updateWorkflow={updateWorkflow}
+            showToast={showToastNotification}
+            applicants={applicants}
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            updateApplicant={updateApplicant}
+            selectedApplicantId={selectedApplicantId || undefined}
+          />
+        );
+      case 'forecast':
+        return (
+          <PredictiveForecast
+            applicants={applicants}
+            applicantsLoaded={applicantsLoaded}
+            selectedApplicantId={selectedApplicantId || undefined}
+            globalPipelineForecast={globalPipelineForecast}
+          />
+        );
+      case 'history':
+        return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
+      case 'reports':
+        return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
+      case 'users':
+        return (
+          <UserManagement
+            currentUserName={currentUserName}
+            addActivityLog={addActivityLog}
+            globalStaff={globalStaff}
+            globalRoles={globalRoles}
+          />
+        );
+      case 'profile':
+        return (
+          <UserProfile
+            currentUserName={currentUserName}
+            currentUserRole={currentUserRole}
+            activityLogs={activityLogs}
+            showToast={showToastNotification}
+          />
+        );
+      case 'requirements':
+        return <RequirementsSetup showToast={showToastNotification} currentUserName={currentUserName} />;
+      case 'evaluation': {
+        const userRolesList = (currentUserRoles && currentUserRoles.length > 0)
+          ? currentUserRoles
+          : [currentUserRole];
+        const canAccess = isSuperAdmin || userRolesList.includes('Management');
+        if (!canAccess) {
+          return (
+            <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm">
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Lock size={22} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">Access Restricted</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                The Evaluation & Workflow configuration module is restricted exclusively to the Management role.
+              </p>
+              <button
+                onClick={() => handleNavigate('dashboard')}
+                className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Return to Dashboard
+              </button>
+            </div>
+          );
+        }
+        return (
+          <EvaluationSetup
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            onPermissionsUpdated={(newPerms) => setWorkflowPermissions(newPerms)}
+            onTemplatesUpdated={(tpls) => setEvaluationTemplates(tpls)}
+            globalJobOrders={globalJobOrders}
+          />
+        );
+      }
+      case 'joborders':
+        return (
+          <JobOrders
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            globalJobOrders={globalJobOrders}
+            globalEmployers={globalEmployers}
+          />
+        );
+      case 'employers':
+        return (
+          <EmployerProfiles
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            globalEmployers={globalEmployers}
+          />
+        );
+      default:
+        return (
+          <Dashboard
+            applicants={applicants}
+            activityLogs={activityLogs}
+            currentUserRole={currentUserRole}
+            onViewApplicant={handleViewApplicant}
+          />
+        );
+    }
+  };
+
+  return (
+    <div className="w-full h-full flex bg-[#F1F5F9] overflow-hidden">
+      <Sidebar
+        currentUserRole={currentUserRole}
+        currentUserRoles={currentUserRoles}
+        currentView={currentView}
+        onViewChange={handleNavigate}
+        isSuperAdmin={isSuperAdmin}
+        onSuperAdminDashboard={onSuperAdminDashboard}
+        workflowPermissions={workflowPermissions}
+      />
+
+      {/* Main Content Area */}
+      <div className="flex-1 h-full flex flex-col overflow-hidden relative">
+        {/* Top Bar */}
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
+          <div className="flex items-center gap-4 flex-1"></div>
+          <div className="flex items-center gap-6 ml-4">
+            {isSuperAdmin && onSuperAdminDashboard && (
+              <button
+                onClick={onSuperAdminDashboard}
+                className="flex text-xs font-extrabold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 hover:border-amber-400 px-3 py-1.5 rounded-full items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                title="Return to Superadmin Multi-Tenant Dashboard"
+              >
+                <Crown size={13} className="text-amber-600" />
+                <span className="hidden sm:inline">Super Admin Console</span>
+              </button>
+            )}
+            <button
+              onClick={() => setCurrentView('profile')}
+              className="hidden md:flex text-xs font-bold text-[#0F172A] bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200 hover:border-[#0EA5E9] hover:bg-[#0EA5E9]/5 transition-all cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span> {currentUserName}
+            </button>
+            <button className="relative hover:text-[#0EA5E9] transition-colors">
+              <Bell className="w-5 h-5 text-[#475569]" />
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EF4444] rounded-full text-white text-[10px] flex items-center justify-center font-bold border-2 border-white">
+                {activityLogs.length > 9 ? '9+' : activityLogs.length}
+              </span>
+            </button>
+            <div className="h-6 w-px bg-slate-200"></div>
+            <button
+              onClick={onLogout}
+              className="text-sm font-bold text-[#475569] hover:text-[#EF4444] transition-colors flex items-center gap-2"
+            >
+              Logout <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* Toast Notification */}
+        <div
+          className={`absolute top-20 right-8 bg-[#0F172A] text-white px-5 py-4 rounded-lg shadow-2xl z-50 flex items-center gap-3 text-sm font-semibold border-l-4 border-[#0EA5E9] transition-transform duration-300 ${showToast ? 'translate-x-0' : 'translate-x-[150%]'
+            }`}
+        >
+          <Info className="w-5 h-5 text-[#0EA5E9]" />
+          <span>{toastMessage}</span>
+        </div>
+
+        {/* Views Container */}
+        <div className="flex-1 overflow-y-auto px-6 sm:px-8 pb-8 relative">
+          <div className="pt-6">{renderView()}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
