@@ -677,6 +677,11 @@ export default function Registration({
 
   // ── Save Profile (Create New or Update Existing) ──────────────────────────
   const handleSave = async () => {
+    if (!selectedJobOrderId || !selectedJobOrderId.trim()) {
+      showToast('Please select a Job Order before saving.');
+      return;
+    }
+
     if (!personal.firstName.trim() || !personal.lastName.trim()) {
       showToast('First Name and Last Name are required.');
       return;
@@ -1082,10 +1087,15 @@ export default function Registration({
       )}
 
       {/* Job Order Selector */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <Briefcase size={13} /> Prospecting Job Order
-        </label>
+      <div className={`bg-white rounded-xl border p-4 transition-all ${!selectedJobOrderId ? 'border-amber-300 ring-1 ring-amber-200/60 shadow-sm' : 'border-slate-200'}`}>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+            <Briefcase size={13} className="text-[#0EA5E9]" /> Prospecting Job Order <span className="text-red-500 font-bold">*</span>
+          </label>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${selectedJobOrderId ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+            {selectedJobOrderId ? '✓ Selected' : 'Required *'}
+          </span>
+        </div>
         <select
           value={selectedJobOrderId}
           onChange={e => {
@@ -1093,23 +1103,29 @@ export default function Registration({
             const jo = openJobOrders.find(j => j.id === e.target.value);
             if (jo) setPersonal(p => ({ ...p, role: jo.position }));
           }}
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white"
+          className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white transition-colors ${
+            !selectedJobOrderId ? 'border-amber-300 text-slate-600 bg-amber-50/20' : 'border-slate-200 text-slate-800'
+          }`}
         >
-          <option value="">{isLoadingJobOrders ? 'Loading job orders...' : '-- Select job order applicant is applying for --'}</option>
+          <option value="">{isLoadingJobOrders ? 'Loading job orders...' : '-- Select job order applicant is applying for (Required) --'}</option>
           {openJobOrders.map(jo => (
             <option key={jo.id} value={jo.id}>
               {jo.code} · {jo.position} · {jo.country} ({jo.employerName}) · {jo.available} slot{jo.available !== 1 ? 's' : ''} open
             </option>
           ))}
         </select>
-        {selectedJobOrderId && (() => {
+        {selectedJobOrderId ? (() => {
           const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
           return jo ? (
             <p className="text-xs text-[#0EA5E9] mt-1.5 flex items-center gap-1">
               <CheckCircle2 size={11} /> Role field auto-filled to "{jo.position}" — change in Personal Info if needed
             </p>
           ) : null;
-        })()}
+        })() : (
+          <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1 font-medium">
+            <AlertCircle size={12} /> A job order must be selected to register or save this applicant.
+          </p>
+        )}
       </div>
 
       {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
@@ -1891,6 +1907,10 @@ export default function Registration({
             <span className="flex items-center gap-1.5 text-amber-600 font-medium">
               <AlertCircle size={14} /> Run Employment Flag Check in Work Experience section before saving
             </span>
+          ) : !selectedJobOrderId ? (
+            <span className="text-amber-600 font-medium flex items-center gap-1.5">
+              <AlertCircle size={14} /> A Job Order must be selected before saving
+            </span>
           ) : !personal.firstName.trim() || !personal.lastName.trim() ? (
             <span className="text-amber-600 font-medium flex items-center gap-1.5">
               <AlertCircle size={14} /> Candidate First Name and Last Name are required to register
@@ -1915,8 +1935,8 @@ export default function Registration({
           )}
           <button
             onClick={handleSave}
-            disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !personal.firstName.trim() || !personal.lastName.trim()
+            disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !selectedJobOrderId || !personal.firstName.trim() || !personal.lastName.trim()}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !selectedJobOrderId || !personal.firstName.trim() || !personal.lastName.trim()
               ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
               : selectedApplicantId === 'new'
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
