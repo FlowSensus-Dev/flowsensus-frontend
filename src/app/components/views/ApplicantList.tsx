@@ -33,7 +33,7 @@ interface ApplicantListProps {
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
   0: { title: 'Process Stopped', desc: 'Application permanently halted by agency staff due to candidate withdrawal, failed requirements, or critical background flags.', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  1: { title: 'Registration & Screening', desc: 'Collects personal details and required documents, scores trade and aptitude tests, and conducts the EQ interview. Applicants who pass advance to medical clearance; failing any test sets their status to Provisional.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
+  1: { title: 'Registration & Screening', desc: 'Collects personal details and required documents, General tests and job-order specific tests, and conducts the EQ interview. Applicants who pass advance to medical clearance; failing any test sets their status to Provisional.', color: '#0ea5e9', bg: '#f0f9ff', border: '#bae6fd' },
   2: { title: 'Medical Clearance', desc: 'Issues clinic referrals for pre-employment medical exams and validates Fit-to-Work results. Fit candidates proceed to profile encoding; unfit candidates are held under Provisional status.', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
   3: { title: 'CV Encoding & Management Approval', desc: 'Encodes candidate qualifications into standard agency CV format, calculates job readiness, and secures management sign-off before employer submission.', color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8' },
   4: { title: 'Employer Endorsement', desc: 'Submits approved CVs to overseas employers, coordinates client interviews, and logs selection decisions and hiring confirmations.', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
@@ -204,13 +204,12 @@ export default function ApplicantList({
               <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
                 Phase {selectedApplicant.phase}
               </span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                selectedApplicant.status === 'Provisional'
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${selectedApplicant.status === 'Provisional'
                   ? 'bg-amber-50 text-amber-800 border-amber-300'
                   : selectedApplicant.status === 'Processing Stopped'
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}>
                 {selectedApplicant.status}
               </span>
             </div>
@@ -278,7 +277,7 @@ export default function ApplicantList({
               className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] bg-white text-slate-800"
             />
           </div>
-          <select 
+          <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[150px] truncate"
@@ -286,7 +285,7 @@ export default function ApplicantList({
             <option value="all">All Statuses</option>
             {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select 
+          <select
             value={roleFilter}
             onChange={e => setRoleFilter(e.target.value)}
             className="border border-slate-300 rounded text-sm px-3 py-2 text-slate-600 bg-white focus:outline-none min-w-[120px] max-w-[150px] truncate"
@@ -338,45 +337,42 @@ export default function ApplicantList({
           <button
             onClick={() => setPhaseFilter('all')}
             style={{ zIndex: 30, backgroundColor: phaseFilter === 'all' ? '#0F172A' : '#e2e8f0' }}
-            className={`h-11 px-4 text-[12px] font-bold transition-all flex items-center justify-center rounded-l-md whitespace-nowrap flex-shrink-0 ${
-              phaseFilter === 'all' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
-            } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,0_50%)]`}
+            className={`h-11 px-4 text-[12px] font-bold transition-all flex items-center justify-center rounded-l-md whitespace-nowrap flex-shrink-0 ${phaseFilter === 'all' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+              } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,0_50%)]`}
           >
             All <span className="font-normal opacity-80 ml-1">({applicants.length})</span>
           </button>
-          
+
           {phaseCounts.map((p, idx) => {
             const meta = PHASE_META[p.phase] || PHASE_META[1];
             const isSelected = phaseFilter === p.phase;
             const zIndex = 29 - idx;
-            
+
             return (
               <button
                 key={p.phase}
                 onClick={() => setPhaseFilter(p.phase)}
                 style={{ zIndex, backgroundColor: isSelected ? meta.color : '#e2e8f0' }}
-                className={`h-11 pl-7 pr-4 -ml-3 flex-1 min-w-fit text-[12px] font-bold transition-all flex items-center justify-center whitespace-nowrap ${
-                  isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
-                } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
+                className={`h-11 pl-7 pr-4 -ml-3 flex-1 min-w-fit text-[12px] font-bold transition-all flex items-center justify-center whitespace-nowrap ${isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+                  } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
               >
                 Ph.{p.phase} {meta.title} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
               </button>
             );
           })}
-          
+
           {stoppedCount > 0 && (
             <button
               onClick={() => setPhaseFilter('stopped')}
               style={{ zIndex: 10, backgroundColor: phaseFilter === 'stopped' ? '#ef4444' : '#e2e8f0' }}
-              className={`h-11 pl-7 pr-4 -ml-3 text-[12px] font-bold transition-all flex items-center justify-center rounded-r-md whitespace-nowrap flex-shrink-0 ${
-                phaseFilter === 'stopped' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
-              } [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,14px_50%)]`}
+              className={`h-11 pl-7 pr-4 -ml-3 text-[12px] font-bold transition-all flex items-center justify-center rounded-r-md whitespace-nowrap flex-shrink-0 ${phaseFilter === 'stopped' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
+                } [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,14px_50%)]`}
             >
               Process Stopped <span className="ml-1 opacity-80 font-normal">({stoppedCount})</span>
             </button>
           )}
         </div>
-        
+
         {/* Description underneath navigation */}
         <div className="text-[13px] text-slate-600 font-medium px-1 italic">
           {phaseFilter === 'all' && "View and filter all active, placed, and stopped applicants across every stage of the agency pipeline."}
@@ -453,32 +449,30 @@ export default function ApplicantList({
 
                     {/* Applicant Status Badge Beside Phase */}
                     {a.status && (
-                      <span className={`text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm flex items-center gap-1.5 ${
-                        a.status === 'Processing Stopped'
+                      <span className={`text-[10px] px-2.5 py-1 rounded-md font-extrabold border shadow-sm flex items-center gap-1.5 ${a.status === 'Processing Stopped'
                           ? 'bg-red-50 text-red-700 border-red-200'
                           : a.status === 'Provisional'
-                          ? 'bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-200/80'
-                          : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : a.status.toLowerCase().includes('medical')
-                          ? 'bg-pink-50 text-pink-700 border-pink-200'
-                          : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
-                          ? 'bg-purple-50 text-purple-700 border-purple-200'
-                          : 'bg-sky-50 text-sky-700 border-sky-200'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                          a.status === 'Processing Stopped'
+                            ? 'bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-200/80'
+                            : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : a.status.toLowerCase().includes('medical')
+                                ? 'bg-pink-50 text-pink-700 border-pink-200'
+                                : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                  : 'bg-sky-50 text-sky-700 border-sky-200'
+                        }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.status === 'Processing Stopped'
                             ? 'bg-red-500'
                             : a.status === 'Provisional'
-                            ? 'bg-amber-500 animate-pulse'
-                            : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
-                            ? 'bg-emerald-500'
-                            : a.status.toLowerCase().includes('medical')
-                            ? 'bg-pink-500'
-                            : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
-                            ? 'bg-purple-500'
-                            : 'bg-[#0EA5E9]'
-                        }`} />
+                              ? 'bg-amber-500 animate-pulse'
+                              : a.status.toLowerCase().includes('deployed') || a.status.toLowerCase().includes('completed') || a.status.toLowerCase().includes('cleared')
+                                ? 'bg-emerald-500'
+                                : a.status.toLowerCase().includes('medical')
+                                  ? 'bg-pink-500'
+                                  : a.status.toLowerCase().includes('interview') || a.status.toLowerCase().includes('screening')
+                                    ? 'bg-purple-500'
+                                    : 'bg-[#0EA5E9]'
+                          }`} />
                         <span className="opacity-70 font-semibold">Status:</span>
                         <span className="truncate">{a.status}</span>
                       </span>
