@@ -40,8 +40,14 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          // ── Vendor: React core ───────────────────────────────────────────
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+          // ── Vendor: React core & essentials ─────────────────────────────
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/') ||
+            id.includes('node_modules/use-sync-external-store/') ||
+            id.includes('node_modules/react-is/')
+          ) {
             return 'vendor-react';
           }
           // ── Vendor: React Router ─────────────────────────────────────────
@@ -60,8 +66,24 @@ export default defineConfig({
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-icons';
           }
+          // ── Vendor: MUI & Emotion ────────────────────────────────────────
+          if (id.includes('node_modules/@mui/') || id.includes('node_modules/@emotion/')) {
+            return 'vendor-mui';
+          }
+          // ── Vendor: Radix UI ─────────────────────────────────────────────
+          if (id.includes('node_modules/@radix-ui/')) {
+            return 'vendor-radix';
+          }
+          // ── Vendor: Animation & Motion ───────────────────────────────────
+          if (id.includes('node_modules/motion')) {
+            return 'vendor-motion';
+          }
+          // ── Vendor: PDF generation (jsPDF) ───────────────────────────────
+          if (id.includes('node_modules/jspdf')) {
+            return 'vendor-pdf';
+          }
           // ── Vendor: Charts / Recharts ────────────────────────────────────
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) {
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3') || id.includes('node_modules/victory-vendor')) {
             return 'vendor-charts';
           }
           // ── Vendor: All other node_modules ───────────────────────────────
