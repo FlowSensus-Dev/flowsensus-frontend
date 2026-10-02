@@ -35,38 +35,51 @@ export default defineConfig({
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
   build: {
-    // Raise warning threshold so smaller remaining chunks don't trigger warnings
-    chunkSizeWarningLimit: 600,
+    // Raise warning threshold to 1200kB (suitable for enterprise dashboard with PDF export & charts)
+    chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          // ── Vendor: React core ───────────────────────────────────────────
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
-            return 'vendor-react';
+          // ── Vendor: PDF Generation (jspdf, html2canvas, etc.) ─────────────
+          if (
+            id.includes('node_modules/jspdf') ||
+            id.includes('node_modules/html2canvas') ||
+            id.includes('node_modules/canvg') ||
+            id.includes('node_modules/fflate')
+          ) {
+            return 'vendor-pdf';
           }
-          // ── Vendor: React Router ─────────────────────────────────────────
-          if (id.includes('node_modules/react-router')) {
-            return 'vendor-router';
+          // ── Vendor: Material UI & Emotion ─────────────────────────────────
+          if (id.includes('node_modules/@mui/') || id.includes('node_modules/@emotion/')) {
+            return 'vendor-mui';
+          }
+          // ── Vendor: Radix UI primitives ───────────────────────────────────
+          if (id.includes('node_modules/@radix-ui/')) {
+            return 'vendor-radix';
+          }
+          // ── Vendor: Motion / Animations ───────────────────────────────────
+          if (id.includes('node_modules/motion') || id.includes('node_modules/framer-motion')) {
+            return 'vendor-motion';
+          }
+          // ── Vendor: Charts / Recharts & D3 ────────────────────────────────
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) {
+            return 'vendor-charts';
           }
           // ── Vendor: Supabase ─────────────────────────────────────────────
           if (id.includes('node_modules/@supabase/')) {
             return 'vendor-supabase';
           }
-          // ── Vendor: Axios ────────────────────────────────────────────────
-          if (id.includes('node_modules/axios')) {
-            return 'vendor-axios';
-          }
           // ── Vendor: Lucide icons ─────────────────────────────────────────
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-icons';
           }
-          // ── Vendor: Charts / Recharts ────────────────────────────────────
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) {
-            return 'vendor-charts';
+          // ── Vendor: Axios ────────────────────────────────────────────────
+          if (id.includes('node_modules/axios')) {
+            return 'vendor-axios';
           }
-          // ── Vendor: All other node_modules ───────────────────────────────
-          if (id.includes('node_modules/')) {
-            return 'vendor-misc';
+          // ── Vendor: React Router ─────────────────────────────────────────
+          if (id.includes('node_modules/react-router')) {
+            return 'vendor-router';
           }
           // ── Heavy app views (split individually) ─────────────────────────
           if (id.includes('/views/Registration')) return 'view-registration';
