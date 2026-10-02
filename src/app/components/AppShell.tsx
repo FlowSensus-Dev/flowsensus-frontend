@@ -30,6 +30,7 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
+import { Skeleton, SkeletonAvatar, SkeletonBadge } from './ui/skeleton';
 
 export type ViewType =
   | 'dashboard'
@@ -223,9 +224,41 @@ export default function AppShell({
   const renderView = () => {
     if (applicantsLoaded === false) {
       return (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-          <Loader2 size={36} className="animate-spin mb-4 text-[#0EA5E9]" />
-          <p className="font-medium text-lg">Loading Workspace Data...</p>
+        <div className="space-y-6 p-6">
+          {/* KPI metric cards row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-8 w-8 rounded-lg" />
+                </div>
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-2.5 w-20 bg-slate-100" />
+              </div>
+            ))}
+          </div>
+          {/* Main records table / list */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-8 w-28 rounded-lg" />
+            </div>
+            <div className="divide-y divide-slate-100">
+              {[...Array(7)].map((_, i) => (
+                <div key={i} className="px-6 py-4 flex items-center gap-4">
+                  <SkeletonAvatar />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-48" />
+                    <Skeleton className="h-2.5 w-32 bg-slate-100" />
+                  </div>
+                  <SkeletonBadge />
+                  <SkeletonBadge className="w-16" />
+                  <Skeleton className="h-8 w-8 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }

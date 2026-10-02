@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { UserRole, ApplicantRecord, ActivityLog } from '../types';
 import { api } from '../../lib/api';
+import { Skeleton } from './ui/skeleton';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -393,10 +394,7 @@ export default function SuperAdminDashboard({
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: m.color + '18', color: m.color }}>{m.icon}</div>
                     </div>
                     {agenciesLoading ? (
-                      <div className="flex items-center gap-2 mt-1">
-                        <Loader2 size={18} className="text-slate-400 animate-spin" />
-                        <span className="text-slate-400 text-sm">Loading…</span>
-                      </div>
+                      <Skeleton className="h-8 w-16 mt-1" />
                     ) : agenciesError ? (
                       <p className="text-xl font-bold text-red-500 text-sm">—</p>
                     ) : (
@@ -415,10 +413,7 @@ export default function SuperAdminDashboard({
                     </div>
                   </div>
                   {staffLoading ? (
-                    <div className="flex items-center gap-2 mt-1">
-                      <Loader2 size={18} className="text-slate-400 animate-spin" />
-                      <span className="text-slate-400 text-sm">Loading…</span>
-                    </div>
+                    <Skeleton className="h-8 w-16 mt-1" />
                   ) : (
                     <p className="text-3xl font-black text-[#0F172A]">
                       {staffCount !== null ? staffCount : '—'}
@@ -446,7 +441,20 @@ export default function SuperAdminDashboard({
               <div className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
                 <h3 className="font-bold text-[#0F172A] text-sm mb-4">Workspace Status Overview</h3>
                 {agenciesLoading ? (
-                  <p className="text-slate-400 text-sm text-center py-4 flex items-center justify-center gap-2"><Loader2 className="animate-spin" size={16} /> Loading workspace data...</p>
+                  <div className="flex gap-4 items-center justify-around py-3">
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-7 w-12 mx-auto" />
+                      <Skeleton className="h-2.5 w-10 mx-auto bg-slate-100" />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-7 w-12 mx-auto" />
+                      <Skeleton className="h-2.5 w-14 mx-auto bg-slate-100" />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-7 w-12 mx-auto" />
+                      <Skeleton className="h-2.5 w-18 mx-auto bg-slate-100" />
+                    </div>
+                  </div>
                 ) : agenciesError ? (
                   <p className="text-red-400 text-sm text-center py-4">Error loading workspace data: {agenciesError}</p>
                 ) : agencies.length === 0 ? (
@@ -525,13 +533,25 @@ export default function SuperAdminDashboard({
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {agenciesLoading ? (
-                        <tr>
-                          <td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">
-                            <div className="flex items-center justify-center gap-2">
-                              <Loader2 className="animate-spin" size={18} /> Loading workspaces...
-                            </div>
-                          </td>
-                        </tr>
+                        <>
+                          {[...Array(4)].map((_, i) => (
+                            <tr key={i}>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-2">
+                                  <Skeleton className="h-7 w-7 rounded-md flex-shrink-0" />
+                                  <div className="space-y-1">
+                                    <Skeleton className="h-3.5 w-32" />
+                                    <Skeleton className="h-2.5 w-20 bg-slate-100" />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3"><Skeleton className="h-3.5 w-28" /></td>
+                              <td className="px-5 py-3"><Skeleton className="h-3 w-36 bg-slate-100" /></td>
+                              <td className="px-5 py-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                              <td className="px-5 py-3"><Skeleton className="h-3 w-20 bg-slate-100" /></td>
+                            </tr>
+                          ))}
+                        </>
                       ) : agenciesError ? (
                         <tr>
                           <td colSpan={5} className="px-5 py-10 text-center text-red-400 text-sm">

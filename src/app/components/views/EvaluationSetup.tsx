@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { EvaluationTest, WorkflowModuleAccess, UserRole } from '../../types';
 import { api } from '../../../lib/api';
+import { Skeleton, SkeletonBadge, SkeletonIcon } from '../ui/skeleton';
 
 const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: React.ReactNode; color: string }> = {
   interview: { label: 'Interview', icon: <MessageSquare size={15} />, color: '#0EA5E9' },
@@ -672,14 +673,29 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                 </thead>
                 <tbody>
                   {loadingTests ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center">
-                        <div className="flex flex-col items-center justify-center">
-                          <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
-                          <p className="text-[#64748B] font-medium">Loading evaluation templates from database...</p>
-                        </div>
-                      </td>
-                    </tr>
+                    <>
+                      {[...Array(4)].map((_, i) => (
+                        <tr key={i}>
+                          <td className="px-4 py-3">
+                            <div className="space-y-1.5">
+                              <Skeleton className="h-3.5 w-44" />
+                              <Skeleton className="h-2.5 w-64 bg-slate-100" />
+                            </div>
+                          </td>
+                          <td className="px-4 py-3"><SkeletonBadge className="w-32" /></td>
+                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                          <td className="px-4 py-3 text-center"><Skeleton className="h-6 w-10 rounded-full mx-auto bg-slate-100" /></td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <Skeleton className="h-7 w-7 rounded" />
+                              <Skeleton className="h-7 w-7 rounded" />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </>
                   ) : tests.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
@@ -861,9 +877,31 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
           {/* Modules List Grouped by Phase */}
           {loadingModules ? (
-            <div className="py-12 flex flex-col items-center justify-center bg-white rounded-xl border border-slate-200">
-              <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
-              <p className="text-slate-500 font-medium">Loading workflow module permissions from database...</p>
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-white rounded-xl border border-slate-200 shadow-2xs">
+                  <div className="p-5 flex flex-wrap md:flex-nowrap items-center justify-between gap-4">
+                    <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                      <SkeletonIcon className="h-10 w-10 rounded-xl" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-4 w-40" />
+                          <SkeletonBadge className="w-20" />
+                        </div>
+                        <Skeleton className="h-3 w-60 bg-slate-100" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-6 w-12 rounded-full" />
+                  </div>
+                  <div className="px-5 pb-4 border-t border-slate-100 pt-3">
+                    <div className="flex gap-3 flex-wrap">
+                      {[...Array(6)].map((_, j) => (
+                        <SkeletonBadge key={j} className="w-24" />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="space-y-4">

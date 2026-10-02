@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles, Loader2 } from 'lucide-react';
+import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ActivityLog, UserRole } from '../../types';
 import { api } from '../../../lib/api';
 
@@ -382,14 +383,32 @@ export default function UserManagement({ currentUserName, addActivityLog, global
           </thead>
           <tbody className="divide-y divide-slate-100 font-medium">
             {loading ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center">
-                  <div className="flex flex-col items-center justify-center">
-                    <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
-                    <p className="text-[#64748B] font-medium">Loading staff accounts...</p>
-                  </div>
-                </td>
-              </tr>
+              <>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <SkeletonAvatar />
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-3.5 w-32" />
+                          <Skeleton className="h-2.5 w-44 bg-slate-100" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4"><Skeleton className="h-3.5 w-20" /></td>
+                    <td className="px-6 py-4"><SkeletonBadge className="w-24" /></td>
+                    <td className="px-6 py-4"><SkeletonBadge className="w-20" /></td>
+                    <td className="px-6 py-4"><SkeletonBadge className="w-16" /></td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <Skeleton className="h-8 w-8 rounded-lg" />
+                        <Skeleton className="h-8 w-8 rounded-lg" />
+                        <Skeleton className="h-8 w-8 rounded-lg" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
             ) : errorMsg ? (
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center">

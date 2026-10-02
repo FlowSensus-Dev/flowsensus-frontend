@@ -28,6 +28,7 @@ import {
 import { jsPDF } from 'jspdf';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
 import { api } from '../../../lib/api';
+import { Skeleton } from '../ui/skeleton';
 import SearchableJobOrderSelector from '../SearchableJobOrderSelector';
 import ApplicantProfile from './ApplicantProfile';
 import {
@@ -157,10 +158,7 @@ export default function SmartProfiling({
           });
           setJobOrders(liveOrders);
 
-          if (!selectedJobOrderId && liveOrders.length > 0) {
-            const firstWithVacancies = liveOrders.find((j: any) => j.vacancies > 0) || liveOrders[0];
-            setSelectedJobOrderId(String(firstWithVacancies.realId));
-          }
+          // Do NOT auto-select: cluster only fires after explicit user selection
         }
       } catch (err) {
         console.warn('Could not fetch live job orders for smart profiling:', err);
@@ -204,7 +202,7 @@ export default function SmartProfiling({
 
   // Selected job order object
   const currentJobOrder = useMemo(() => {
-    if (!selectedJobOrderId) return jobOrders[0] || null;
+    if (!selectedJobOrderId) return null; // No auto-fallback: user must explicitly select
     const strTarget = String(selectedJobOrderId).trim();
     return (
       jobOrders.find(
@@ -213,7 +211,7 @@ export default function SmartProfiling({
           String(j.id || '').trim() === strTarget ||
           String(j.code || '').trim() === strTarget ||
           (j.jobOrderId && String(j.jobOrderId).trim() === strTarget)
-      ) || jobOrders[0] || null
+      ) || null
     );
   }, [jobOrders, selectedJobOrderId]);
 
@@ -1728,7 +1726,10 @@ export default function SmartProfiling({
                   2
                 </span>
                 <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                  Step 2: Ranked Candidate Shortlist for {currentJobOrder?.position || 'Job Order'} #{currentJobOrder?.id || ''}
+                  {currentJobOrder
+                    ? <>Step 2: Ranked Candidate Shortlist for {currentJobOrder.position} #{currentJobOrder.id}</>
+                    : <span className="text-slate-400 font-semibold">Step 2: Select a job order above to view ranked candidates</span>
+                  }
                 </h3>
                 {agencyProfile?.agency_name && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200/80">
@@ -1758,6 +1759,34 @@ export default function SmartProfiling({
                 <span className="text-red-700">
                   Not Recommended: <strong className="font-extrabold">{notRecommendedCount}</strong>
                 </span>
+
+                {/* Audit Info — lives inline in the KPI row, proportional inside the card */}
+                <div className="relative ml-auto">
+                  <button
+                    type="button"
+                    onMouseEnter={() => setShowTooltip(true)}
+                    onMouseLeave={() => setShowTooltip(false)}
+                    onClick={() => setShowTooltip(!showTooltip)}
+                    className="text-slate-400 hover:text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 text-xs font-medium cursor-pointer border border-transparent hover:border-slate-200"
+                    title="Assessment calculation details"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                    <span className="text-[11px] text-slate-500 font-semibold">Audit Info</span>
+                  </button>
+
+                  {showTooltip && (
+                    <div className="absolute right-0 top-8 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+                      <p className="font-semibold text-slate-100 leading-snug">
+                        *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
+                      </p>
+                      {incompleteCandidates.length > 0 && (
+                        <p className="text-amber-400 mt-1.5 text-[11px]">
+                          {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
@@ -1808,9 +1837,12 @@ export default function SmartProfiling({
 
               {/* Allied Trade Recognition Active Tag & Informative Description */}
               {isSynthesizingCluster ? (
-                <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center gap-2 text-xs text-teal-800">
-                  <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
-                  <span>Matching allied job titles and skills for {currentJobOrder?.position || 'this position'}...</span>
+                <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-1">
+                    <Skeleton className="h-5 w-28 rounded-full bg-teal-200/60" />
+                    <Skeleton className="h-4 w-44 bg-teal-200/40" />
+                  </div>
+                  <Skeleton className="h-5 w-36 rounded-md bg-teal-200/60 flex-shrink-0" />
                 </div>
               ) : activeJobCluster ? (
                 <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
@@ -1844,35 +1876,6 @@ export default function SmartProfiling({
                   </div>
                 </div>
               ) : null}
-            </div>
-
-
-            {/* Info Tooltip (A2 diagnostic transparency) */}
-            <div className="relative self-start lg:self-center">
-              <button
-                type="button"
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
-                onClick={() => setShowTooltip(!showTooltip)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-colors flex items-center gap-1.5 text-xs font-medium cursor-pointer"
-                title="Assessment calculation details"
-              >
-                <Info className="w-4 h-4" />
-                <span className="text-[11px] text-slate-500 font-semibold hidden sm:inline">Audit Info</span>
-              </button>
-
-              {showTooltip && (
-                <div className="absolute right-0 top-8 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
-                  <p className="font-semibold text-slate-100 leading-snug">
-                    *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
-                  </p>
-                  {incompleteCandidates.length > 0 && (
-                    <p className="text-amber-400 mt-1.5 text-[11px]">
-                      {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>

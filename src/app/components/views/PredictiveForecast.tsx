@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
+import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 
 interface StageForecast {
   stage_name: string;
@@ -291,9 +292,54 @@ export default function PredictiveForecast({
 
   if (!applicantsLoaded) {
     return (
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 flex flex-col justify-center items-center h-64">
-        <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
-        <p className="text-sm text-slate-500 mt-4 font-medium">Loading forecasting data...</p>
+      <div className="space-y-6 w-full">
+        {/* Connection banner skeleton */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-3 w-3 rounded-full" />
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-40" />
+              <Skeleton className="h-2.5 w-56 bg-slate-100" />
+            </div>
+          </div>
+          <Skeleton className="h-8 w-32 rounded-lg" />
+        </div>
+        {/* 3 KPI stat cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-7 w-7 rounded-lg" />
+              </div>
+              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-2.5 w-32 bg-slate-100" />
+            </div>
+          ))}
+        </div>
+        {/* Stage timeline cards */}
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-6 w-6 rounded" />
+                  <Skeleton className="h-4 w-44" />
+                </div>
+                <SkeletonBadge />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[...Array(3)].map((_, j) => (
+                  <div key={j} className="space-y-1.5">
+                    <Skeleton className="h-2.5 w-16 bg-slate-100" />
+                    <Skeleton className="h-5 w-12" />
+                  </div>
+                ))}
+              </div>
+              <Skeleton className="h-1.5 w-full rounded-full mt-4 bg-slate-100" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

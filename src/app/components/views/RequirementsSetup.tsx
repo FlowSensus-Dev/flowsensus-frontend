@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { DocumentRequirement, ApplicantTypeLookup, JobCategoryLookup } from '../../types';
 import { api } from '../../../lib/api';
+import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 
 const BADGE_PALETTE = [
   { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }, // Blue
@@ -477,14 +478,26 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-14 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-3" />
-                      <p className="text-slate-500 text-sm font-medium">Loading requirements catalog...</p>
-                    </div>
-                  </td>
-                </tr>
+                <>
+                  {[...Array(5)].map((_, i) => (
+                    <tr key={i}>
+                      <td className="px-2 py-3 w-8"><Skeleton className="h-4 w-4 mx-auto" /></td>
+                      <td className="px-3 py-3 w-8"><Skeleton className="h-3.5 w-6" /></td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-3.5 w-44" />
+                          <Skeleton className="h-4 w-14 rounded bg-slate-100" />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><SkeletonBadge className="w-20" /></td>
+                      <td className="px-4 py-3 min-w-[180px]"><SkeletonBadge className="w-28" /></td>
+                      <td className="px-4 py-3 min-w-[180px]"><SkeletonBadge className="w-24" /></td>
+                      <td className="px-3 py-3 w-24 text-center"><Skeleton className="h-4 w-4 rounded mx-auto" /></td>
+                      <td className="px-3 py-3 w-28 text-center"><SkeletonBadge className="w-16 mx-auto" /></td>
+                      <td className="px-3 py-3 w-20 text-center"><SkeletonBadge className="w-14 mx-auto" /></td>
+                    </tr>
+                  ))}
+                </>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-12 text-center text-slate-500">

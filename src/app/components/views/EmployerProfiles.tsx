@@ -5,7 +5,9 @@ import {
   ThumbsUp, ThumbsDown, MessageSquare, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle2, Clock, Briefcase, Loader2
 } from 'lucide-react';
+import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 import { EmployerProfile, EmployerRemark } from '../../types';
+
 import { api } from '../../../lib/api';
 
 const STATUS_META: Record<EmployerProfile['status'], { label: string; color: string; icon: React.ReactNode }> = {
@@ -230,9 +232,25 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
       {/* Employer cards */}
       <div className="space-y-3">
         {isLoading ? (
-          <div className="py-12 flex flex-col items-center justify-center text-slate-400">
-            <Loader2 className="w-8 h-8 text-[#0EA5E9] animate-spin mb-4" />
-            <p>Loading employer profiles...</p>
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="flex items-center gap-4 px-5 py-4">
+                  <Skeleton className="h-12 w-12 rounded-xl flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-48" />
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-3 w-24 bg-slate-100" />
+                      <Skeleton className="h-3 w-20 bg-slate-100" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Skeleton className="h-4 w-24 bg-slate-100" />
+                    <SkeletonBadge />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-8 text-center text-slate-500 bg-white rounded-xl border border-slate-200">
