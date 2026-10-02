@@ -54,7 +54,7 @@ export function findClusterForText(text: string, clustersMap?: Record<string, an
 }
 
 // ── Applicant Profiling Stage Detection Helper ──────────────────────────────────
-// Checks if applicant is currently in the 'Applicant Profiling' stage (Phase 2)
+// Checks if applicant is currently in the 'Applicant Profiling' stage (after passing screening and medical clearance)
 export function isApplicantInProfiling(applicant: ApplicantRecord): boolean {
   if (!applicant) return false;
   const s = String(
@@ -64,7 +64,10 @@ export function isApplicantInProfiling(applicant: ApplicantRecord): boolean {
     (applicant as any).application_status ||
     ''
   ).trim().toLowerCase();
-  return s === 'applicant profiling' || s === 'profiling' || applicant.phase === 2;
+  if (s === 'medical clearance' || s === 'medical referral' || s === 'provisional' || s === 'initial screening' || s === 'applicant registration') {
+    return false;
+  }
+  return s === 'applicant profiling' || s === 'profiling';
 }
 
 // ── Job Order Preference Mismatch Detection ────────────────────────────────────

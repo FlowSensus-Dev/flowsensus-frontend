@@ -17,6 +17,7 @@ import {
   Loader2,
   Send,
   UserCheck,
+  Users,
   TrendingUp,
   ArrowLeft,
   Lock,
@@ -368,19 +369,33 @@ export default function SmartProfiling({
 
   // Filter pool: Configurable pipeline scope (Profiling Stage Only [Default], All Active Pool, Assigned to Job Order)
   const candidatePool = useMemo(() => {
+    // As long as no job order is selected, no candidate is evaluated or displayed
+    if (!currentJobOrder || !selectedJobOrderId) return [];
+
     return applicants.filter((a) => {
       if (a.isStopped || a.status === 'Processing Stopped') return false;
+
       if (pipelineScope === 'profiling') {
+        // Only applicants who reached the Applicant Profiling stage (passed screening and cleared medical)
         return isApplicantInProfiling(a);
       }
+
       if (pipelineScope === 'assigned') {
-        const assignedJoId = (a as any).job_order_id || (a as any).assignedJobOrderId;
-        return String(assignedJoId) === String(selectedJobOrderId);
+        // Applicants assigned to this target Job Order
+        const assignedJoId = String((a as any).job_order_id || (a as any).assignedJobOrderId || a.selectedJobOrderId || '').trim();
+        const currentJoRealId = String(currentJobOrder?.realId ?? currentJobOrder?.job_order_id ?? '').trim();
+        const currentJoCode = String(currentJobOrder?.id ?? currentJobOrder?.code ?? selectedJobOrderId ?? '').trim();
+        return (
+          (currentJoRealId && assignedJoId === currentJoRealId) ||
+          (currentJoCode && assignedJoId === currentJoCode) ||
+          (selectedJobOrderId && assignedJoId === String(selectedJobOrderId).trim())
+        );
       }
-      // 'all': Active applicants in the agency pool eligible for cross-order evaluation
+
+      // 'all': All active candidates in the agency pool for smart readiness evaluation
       return true;
     });
-  }, [applicants, pipelineScope, selectedJobOrderId]);
+  }, [applicants, pipelineScope, selectedJobOrderId, currentJobOrder]);
 
   // A2 Precondition check: candidates with complete assessments vs incomplete
   const { eligibleCandidates, incompleteCandidates } = useMemo(() => {
@@ -407,7 +422,7 @@ export default function SmartProfiling({
 
   // 2. Evaluate and Rank Candidates using Dynamic Job-Fit / Readiness Scoring Engine
   const rankedCandidates: RankedCandidate[] = useMemo(() => {
-    if (eligibleCandidates.length === 0) return [];
+    if (!currentJobOrder || !selectedJobOrderId || eligibleCandidates.length === 0) return [];
 
     const jobPos = (currentJobOrder?.position || '').trim();
     const jobCountry = (currentJobOrder?.country || '').trim();
@@ -935,9 +950,20 @@ export default function SmartProfiling({
         daysRemaining: undefined as number | undefined,
       };
 
+      const appStatus = String(applicant.status || (applicant as any).applicant_status || '').trim().toLowerCase();
+      const isMedicallyCleared = 
+        appStatus === 'applicant profiling' || 
+        appStatus.includes('cv') || 
+        appStatus.includes('endorse') || 
+        appStatus.includes('deploy') || 
+        Boolean((applicant as any).medicalCleared);
+      const isUnfitOrProvisional = appStatus === 'provisional' || (applicant as any).clearance_status === 'UNFIT_TO_WORK';
+
       const medicalStatus = {
-        valid: true,
-        status: 'Verified Fit-to-Work',
+        valid: isMedicallyCleared,
+        status: isMedicallyCleared
+          ? 'Verified Fit-to-Work'
+          : (isUnfitOrProvisional ? 'Unfit-to-Work (Provisional)' : 'Clearance Pending (Clinic Evaluation In Progress)'),
         expiry: undefined as string | undefined,
       };
 
@@ -1043,35 +1069,38 @@ export default function SmartProfiling({
       // Overall Readiness Score
       const readinessScore = Math.min(100, Math.max(0, Math.round(roleScore + certScore + expScore + skillScore + overseasScore)));
 
-      // Three-tier analytical classification per UC-03 Option 2 (80% / 60%)
+      // Three-tier analytical classification: ≥90% = Recommended, 75–89% = For Further Review, <75% = Not Recommended
+      // Score thresholds ALWAYS take priority. Pending exam states only add warning notes.
       let classification: 'Recommended' | 'For Further Review' | 'Not Recommended';
       const failureReasons: string[] = [];
 
-      if (clearanceStatus === 'failed') {
-        // Candidate failed one or more recorded examination gates
-        classification = 'Not Recommended';
-        failedExamDescriptions.forEach((d) => failureReasons.push(`Failed assessment requirement: ${d}`));
-      } else if (clearanceStatus === 'pending_job_specific') {
-        // High Job-Fit credentials are preserved! Candidate is placed in 'For Further Review'
-        // pending administration of this employer's custom job-order test.
-        classification = 'For Further Review';
-        failureReasons.push(
-          `Job-Order Specific Exam pending: Candidate must complete "${pendingJobSpecificTestNames.join(', ')}" mandated for ${jobPos} before final endorsement.`
-        );
-      } else if (clearanceStatus === 'pending_general') {
-        // Candidate qualifications qualify for review, but general examination assessments are pending
-        classification = 'For Further Review';
-        failureReasons.push('Assessment examination clearance pending (candidate has not yet completed evaluation testing)');
-      } else if (readinessScore >= 80) {
+      // Step 1: Determine score-based classification first (always authoritative)
+      if (readinessScore >= 90) {
         classification = 'Recommended';
-      } else if (readinessScore >= 60) {
+      } else if (readinessScore >= 75) {
         classification = 'For Further Review';
       } else {
         classification = 'Not Recommended';
       }
 
-      if (readinessScore < 60 && !failureReasons.some((r) => r.includes('Readiness score'))) {
-        failureReasons.push(`Readiness score (${readinessScore}%) is below the 60% threshold for ${jobPos}`);
+      // Step 2: Hard overrides only for outright exam failures
+      if (clearanceStatus === 'failed') {
+        // Candidate failed one or more recorded examination gates — override to Not Recommended
+        classification = 'Not Recommended';
+        failedExamDescriptions.forEach((d) => failureReasons.push(`Failed assessment requirement: ${d}`));
+      } else if (clearanceStatus === 'pending_job_specific') {
+        // Pending job-specific exam: cap at 'For Further Review' max (can't be Recommended yet)
+        if (classification === 'Recommended') classification = 'For Further Review';
+        failureReasons.push(
+          `Job-Order Specific Exam pending: Candidate must complete "${pendingJobSpecificTestNames.join(', ')}" mandated for ${jobPos} before final endorsement.`
+        );
+      } else if (clearanceStatus === 'pending_general') {
+        // Pending general exam: note it but do NOT change score-based classification
+        failureReasons.push('Assessment examination clearance pending (candidate has not yet completed evaluation testing)');
+      }
+
+      if (readinessScore < 75 && !failureReasons.some((r) => r.includes('Readiness score'))) {
+        failureReasons.push(`Readiness score (${readinessScore}%) is below the 75% threshold for ${jobPos}`);
       }
 
       const compliancePassed = passportStatus.valid && nbiStatus.valid && medicalStatus.valid;
@@ -1160,6 +1189,26 @@ export default function SmartProfiling({
   const recommendedCount = rankedCandidates.filter((c) => c.classification === 'Recommended').length;
   const reviewCount = rankedCandidates.filter((c) => c.classification === 'For Further Review').length;
   const notRecommendedCount = rankedCandidates.filter((c) => c.classification === 'Not Recommended').length;
+
+  // ── Scope filter counts for Applicant Profiling ───────────────────────────
+  const profilingScopeCounts = useMemo(() => {
+    const profiling = applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped' && isApplicantInProfiling(a)).length;
+    const all = applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length;
+    const assigned = currentJobOrder
+      ? applicants.filter((a) => {
+          if (a.isStopped || a.status === 'Processing Stopped') return false;
+          const assignedJoId = String((a as any).job_order_id || (a as any).assignedJobOrderId || a.selectedJobOrderId || '').trim();
+          const currentJoRealId = String(currentJobOrder.realId ?? currentJobOrder.job_order_id ?? '').trim();
+          const currentJoCode = String(currentJobOrder.id ?? currentJobOrder.code ?? selectedJobOrderId ?? '').trim();
+          return (
+            (currentJoRealId && assignedJoId === currentJoRealId) ||
+            (currentJoCode && assignedJoId === currentJoCode) ||
+            (selectedJobOrderId && assignedJoId === String(selectedJobOrderId).trim())
+          );
+        }).length
+      : 0;
+    return { profiling, all, assigned };
+  }, [applicants, currentJobOrder, selectedJobOrderId]);
 
   // Handler: Open Candidate Profile Overlay directly without leaving the screen
   const handleOpenProfileOverlay = (applicant: ApplicantRecord) => {
@@ -1761,6 +1810,9 @@ export default function SmartProfiling({
                   <p className="font-semibold text-slate-100 leading-snug">
                     *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
                   </p>
+                  <p className="text-slate-300 mt-1.5 text-[11px]">
+                    Classification: Recommended (≥90%), For Further Review (75%–89%), Not Recommended (&lt;75%).
+                  </p>
                   {incompleteCandidates.length > 0 && (
                     <p className="text-amber-400 mt-1.5 text-[11px]">
                       {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
@@ -1771,64 +1823,91 @@ export default function SmartProfiling({
             </div>
           </div>
 
-          {/* KPI Header Bar & Scope Filters Row */}
-          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
+          {/* KPI Header Bar & Scope Filters Row (Consistent System Design) */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-3 border-t border-slate-100">
             {/* KPI Stats */}
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-              <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                Total Evaluated: <strong className="text-slate-900 font-extrabold">{totalEvaluated}</strong>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+              <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs flex items-center gap-1.5">
+                <span className="text-slate-500 font-medium">Total Evaluated:</span>
+                <strong className="text-slate-900 font-black">{totalEvaluated}</strong>
               </span>
-              <span className="bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
-                Recommended: <strong className="font-extrabold">{recommendedCount}</strong>
+              <span className="bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-xs flex items-center gap-1.5">
+                <span className="text-emerald-700 font-medium">Recommended:</span>
+                <strong className="font-black text-emerald-950">{recommendedCount}</strong>
               </span>
-              <span className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-lg border border-amber-200 shadow-2xs">
-                For Review: <strong className="font-extrabold">{reviewCount}</strong>
+              <span className="bg-amber-50 text-amber-800 px-3 py-1.5 rounded-lg border border-amber-200 shadow-xs flex items-center gap-1.5">
+                <span className="text-amber-700 font-medium">For Review:</span>
+                <strong className="font-black text-amber-950">{reviewCount}</strong>
               </span>
-              <span className="bg-red-50 text-red-800 px-2.5 py-1 rounded-lg border border-red-200 shadow-2xs">
-                Not Recommended: <strong className="font-extrabold">{notRecommendedCount}</strong>
+              <span className="bg-rose-50 text-rose-800 px-3 py-1.5 rounded-lg border border-rose-200 shadow-xs flex items-center gap-1.5">
+                <span className="text-rose-700 font-medium">Not Recommended:</span>
+                <strong className="font-black text-rose-950">{notRecommendedCount}</strong>
               </span>
             </div>
 
             {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setPipelineScope('profiling')}
-                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'profiling'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                  Applicant Profiling Stage ({applicants.filter((a) => !a.isStopped && isApplicantInProfiling(a)).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPipelineScope('all')}
-                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'all'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                  All Active Pool ({applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPipelineScope('assigned')}
-                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'assigned'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                  Assigned to Job Order
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setPipelineScope('profiling')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                  pipelineScope === 'profiling'
+                    ? 'bg-slate-900 text-white shadow-xs border border-slate-900'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Applicant Profiling</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  pipelineScope === 'profiling' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {profilingScopeCounts.profiling}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPipelineScope('all')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                  pipelineScope === 'all'
+                    ? 'bg-sky-600 text-white shadow-xs border border-sky-600'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>All Active Pool</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  pipelineScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {profilingScopeCounts.all}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPipelineScope('assigned')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                  pipelineScope === 'assigned'
+                    ? 'bg-emerald-600 text-white shadow-xs border border-emerald-600'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>Assigned to Job Order</span>
+                {currentJobOrder && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    pipelineScope === 'assigned' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {profilingScopeCounts.assigned}
+                  </span>
+                )}
+              </button>
 
               {Object.keys(dynamicClusters).length > 0 && (
-                <span className="text-[11px] text-slate-600 font-medium bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
-                  <Sparkles className="w-3 h-3 text-amber-500" />
+                <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-1.5 shadow-xs">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                   <span>{Object.keys(dynamicClusters).length} Recognized Trade Families</span>
-                </span>
+                </div>
               )}
             </div>
           </div>
@@ -1892,7 +1971,21 @@ export default function SmartProfiling({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {rankedCandidates.length === 0 ? (
+              {!currentJobOrder ? (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center text-slate-500 font-medium">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center mx-auto mb-3 text-sky-600 shadow-2xs">
+                      <Briefcase className="w-6 h-6" />
+                    </div>
+                    <p className="text-slate-900 font-black text-base mb-1">
+                      No Foreign Job Order Selected
+                    </p>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                      Select an active foreign job order in Step 1 above to analyze candidate readiness, evaluation match scores, and trade family compatibility.
+                    </p>
+                  </td>
+                </tr>
+              ) : rankedCandidates.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
                     <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -2428,9 +2521,9 @@ export default function SmartProfiling({
                   <span className="text-xs text-slate-500">
                     {!activeModalCandidate.hasRecordedAssessments && 'Candidate background qualifies, but examination assessments are pending.'}
                     {activeModalCandidate.hasRecordedAssessments && !activeModalCandidate.allGatesPass && 'Exam clearance blocked: candidate failed one or more mandatory examination gates.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && 'Exceeds 80% readiness threshold and passed all examination checks.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && 'Meets 60%-79% readiness threshold for recruiter review.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && 'Below 60% readiness threshold for this position.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && 'Exceeds 90% readiness threshold and passed all examination checks.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && 'Meets 75%-89% readiness threshold for recruiter review.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && 'Below 75% readiness threshold for this position.'}
                   </span>
                 </div>
 

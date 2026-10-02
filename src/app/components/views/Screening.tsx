@@ -39,6 +39,10 @@ import {
   Sparkles,
   Save,
   Search,
+  Undo2,
+  User,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord, EvaluationTest, DynamicTestScore, TestScores } from '../../types';
 
@@ -70,14 +74,6 @@ const TEST_TYPE_THEMES: Record<string, { label: string; bg: string; border: stri
 const ENGLISH_PASS_SCORE = 60;
 const TRADE_PASS_SCORE = 70;
 const IQ_PASS_SCORE = 50;
-
-const PARTNER_CLINICS = [
-  'Makati Medical Center — Health Services Clinic',
-  "St. Luke's Medical Center — Global City PEME Dept",
-  'Cardinal Santos Medical Center — Wellness Clinic',
-  'Physicians Diagnostic Services Center (PDS)',
-  'American Outpatient Clinic — Ermita, Manila'
-];
 
 // Helper to determine if an evaluation is required for the specific applicant based on Job Order
 const isTestApplicableToApplicant = (
@@ -177,26 +173,34 @@ export default function Screening({
     const active = templates.filter(t => t.isActive);
     const applicable = active.filter(t => isTestApplicableToApplicant(t, selectedApplicant, globalJobOrders));
     if (applicable.length > 0) return applicable;
-    if (active.length > 0) return active;
-    // Fallback matching default 5 evaluations from DB
-    return [
-      { id: '1', name: 'Trade & Technical Skills Assessment', type: 'skills', description: 'Evaluates candidate technical skills, trade test precision, tools handling', maxScore: 100, passingScore: 70, weight: 30, isActive: true, scoringType: 'numeric', scoringGuide: '' },
-      { id: '2', name: 'English & Language Aptitude', type: 'language', description: 'Assesses functional spoken English, workplace comprehension, oral interview', maxScore: 100, passingScore: 60, weight: 20, isActive: true, scoringType: 'numeric', scoringGuide: '' },
-      { id: '3', name: 'Psychological & EQ Interview', type: 'eq', description: 'Measures emotional resilience, adaptability, homesickness handling, attitude', maxScore: 100, passingScore: 75, weight: 25, isActive: true, scoringType: 'numeric', scoringGuide: '' },
-      { id: '4', name: 'Cognitive & Aptitude Test (IQ)', type: 'iq', description: 'Assesses problem-solving ability, numerical calculation, situational judgment', maxScore: 100, passingScore: 60, weight: 15, isActive: true, scoringType: 'numeric', scoringGuide: '' },
-      { id: '5', name: 'Pre-Employment Medical Review', type: 'medical', description: 'Physical fitness evaluation, vital signs screening, and baseline verification', maxScore: 100, passingScore: 80, weight: 10, isActive: true, scoringType: 'pass_fail', scoringGuide: '' },
-    ];
+    return active;
   }, [templates, selectedApplicant, globalJobOrders]);
 
   // Modals state
   const [showStopModal, setShowStopModal] = useState(false);
   const [stopReason, setStopReason] = useState('');
   const [showReferralModal, setShowReferralModal] = useState(false);
-  const [selectedClinic, setSelectedClinic] = useState(PARTNER_CLINICS[0]);
+  const [partnerClinicsList, setPartnerClinicsList] = useState<any[]>([]);
+  const [selectedClinic, setSelectedClinic] = useState<string>('');
+  const [screeningQueueTab, setScreeningQueueTab] = useState<'ALL' | 'MY_QUEUE' | 'UNASSIGNED'>('ALL');
   const [isGeneratingReferral, setIsGeneratingReferral] = useState(false);
   const [showUpdateStatusModal, setShowUpdateStatusModal] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showReviewScoreModal, setShowReviewScoreModal] = useState(false);
+
+  useEffect(() => {
+    api.get<any[]>('/clinics')
+      .then(res => {
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          setPartnerClinicsList(res.data);
+          const names = res.data.map((c: any) => c.clinicName || c.clinic_name);
+          if (names.length > 0) {
+            setSelectedClinic(prev => prev && names.includes(prev) ? prev : names[0]);
+          }
+        }
+      })
+      .catch(err => console.warn('Could not load clinics in Screening:', err));
+  }, []);
 
   // Dynamic scores state: Score Obtained (raw), Total Score (items), and Pass/Fail verdict
   const [dynamicRawScores, setDynamicRawScores] = useState<Record<string, number | string>>({});
@@ -365,32 +369,51 @@ export default function Screening({
     selectedApplicant?.medicalReferralGenerated || (selectedApplicant && generatedReferralIds.has(selectedApplicant.id))
   );
 
+  // ── All active candidates in Screening (prior to turnover queue filter) ───
+  const allActiveScreeningCandidates = useMemo(() => {
+    const postScreeningStatuses = [
+      'Medical Clearance',
+      'Medical Referral',
+      'Applicant Profiling',
+      'CV Encoding',
+      'CV Approval',
+      'Endorse to Employer',
+      'Under Employer Review',
+      'Waiting Selection',
+      'Endorse for Administrative Processing',
+      'Pre-Deployment Processing',
+      'Ready for Deployment',
+      'Deployed',
+      'Contract Completed',
+      'Contract Terminated'
+    ];
+    return applicants.filter(a => !a.isStopped && a.status !== 'Processing Stopped' && !postScreeningStatuses.includes(a.status));
+  }, [applicants]);
+
+  // Live queue counts for Turnover Navigation Tabs
+  const screeningQueueCounts = useMemo(() => {
+    const myQueue = allActiveScreeningCandidates.filter(a => a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase()).length;
+    const unassigned = allActiveScreeningCandidates.filter(a => !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent').length;
+    return {
+      all: allActiveScreeningCandidates.length,
+      myQueue,
+      unassigned
+    };
+  }, [allActiveScreeningCandidates, currentUserName]);
+
   // ── Filter applicants active in the Screening module ───────────────────────
   const screeningPool = useMemo(() => {
-    return applicants.filter(a => {
-      if (a.isStopped || a.status === 'Processing Stopped') return false;
+    return allActiveScreeningCandidates.filter(a => {
+      // Turnover Queue Filtering
+      const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
+      const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
 
-      const postScreeningStatuses = [
-        'Medical Clearance',
-        'Medical Referral',
-        'Applicant Profiling',
-        'CV Encoding',
-        'CV Approval',
-        'Endorse to Employer',
-        'Under Employer Review',
-        'Waiting Selection',
-        'Endorse for Administrative Processing',
-        'Pre-Deployment Processing',
-        'Ready for Deployment',
-        'Deployed',
-        'Contract Completed',
-        'Contract Terminated'
-      ];
-      if (postScreeningStatuses.includes(a.status)) return false;
+      if (screeningQueueTab === 'MY_QUEUE' && !isAssignedToMe) return false;
+      if (screeningQueueTab === 'UNASSIGNED' && !isUnassigned) return false;
 
       return true;
     });
-  }, [applicants]);
+  }, [allActiveScreeningCandidates, screeningQueueTab, currentUserName]);
 
   // Helper: check if an applicant in pool has passed Phase 1
   const isApplicantPhase1Passed = (a: ApplicantRecord): boolean => {
@@ -1331,12 +1354,30 @@ export default function Screening({
       const applicantId = selectedApplicant.id;
       const numericId = parseInt(applicantId, 10);
 
+      // Save Clinic Referral to Supabase
+      try {
+        const matched = partnerClinicsList.find((c: any) => (c.clinicName || c.clinic_name) === selectedClinic);
+        const cId = matched ? (matched.clinicId || matched.clinic_id) : (partnerClinicsList[0]?.clinicId || partnerClinicsList[0]?.clinic_id || null);
+        await api.post('/clinic-referrals', {
+          applicantId: numericId,
+          clinicId: cId,
+          referralDate: new Date().toISOString().split('T')[0],
+          medicalStatus: 'PENDING',
+          remarks: `Pre-employment medical referral issued to ${selectedClinic} by ${currentUserName}.`
+        }).catch(console.error);
+      } catch (refErr) {
+        console.warn('Could not record clinic referral:', refErr);
+      }
+
       const updates: Partial<ApplicantRecord> = {
         status: 'Medical Clearance',
         phase: 2,
-        currentHandler: 'Maria Santos',
+        currentHandler: 'Unassigned Pool',
         currentDepartment: 'Admin',
-        phaseDescription: 'Screening completed. Applicant endorsed for Medical Clearance.',
+        medicalReferralClinic: selectedClinic,
+        medicalReferralDate: new Date().toISOString().split('T')[0],
+        medicalReferralGenerated: true,
+        phaseDescription: `Screening completed. Medical referral issued to ${selectedClinic}. Awaiting clinical clearance.`,
       };
 
       if (!isNaN(numericId)) {
@@ -1344,9 +1385,11 @@ export default function Screening({
           application_id: selectedApplicant.applicationId,
           application_status: 'Medical Clearance',
           current_phase: 2,
-          current_handler: 'Maria Santos',
+          current_handler: 'Unassigned Pool',
           current_department: 'Admin',
           phase_description: updates.phaseDescription,
+          statusChangeReason: `Screening completed. Medical referral issued to ${selectedClinic}`,
+          statusChangeSource: 'STAFF_ACTION'
         }).catch(console.error);
       }
 
@@ -1359,11 +1402,11 @@ export default function Screening({
         action: 'Screening Completed — Moved to Medical Clearance',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Endorsed for Medical Clearance.`,
+        details: `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Referral issued to ${selectedClinic}. Endorsed for Medical Clearance.`,
       });
 
       setShowUpdateStatusModal(false);
-      showToast(`✓ ${selectedApplicant.name} successfully moved to Medical Clearance.`);
+      showToast(`✓ ${selectedApplicant.name} moved to Medical Clearance (${selectedClinic}).`);
 
       // Return to Screening overview; applicant will no longer appear in any screening sub-phase
       setListView(true);
@@ -1397,6 +1440,8 @@ export default function Screening({
         application_status: 'Processing Stopped',
         current_phase: 0,
         phase_description: `Processing terminated at Screening by ${currentUserName}: ${stopReason}`,
+        statusChangeReason: `Processing Stopped: ${stopReason}`,
+        statusChangeSource: 'STAFF_ACTION'
       }).catch(console.error);
     }
 
@@ -1414,9 +1459,68 @@ export default function Screening({
     setListView(true);
   };
 
-  const openApplicant = (id: string) => {
+  const handleClaimApplicant = async (id: string) => {
+    const target = applicants.find(a => String(a.id) === id);
+    if (!target) return;
+    const numericId = parseInt(id, 10);
+    updateApplicant(id, {
+      currentHandler: currentUserName,
+      currentDepartment: 'Recruitment',
+      phaseDescription: `Screening evaluation claimed by ${currentUserName}`
+    });
+    if (!isNaN(numericId)) {
+      await api.put(`/applicants/${numericId}`, {
+        application_id: target.applicationId,
+        current_handler: currentUserName,
+        current_department: 'Recruitment',
+        phase_description: `Screening evaluation claimed by ${currentUserName}`
+      }).catch(console.error);
+    }
+    addActivityLog({
+      applicantId: id,
+      action: 'Turnover: Claimed at Screening',
+      performedBy: currentUserName,
+      department: 'Recruitment',
+      details: `${currentUserName} claimed evaluation of applicant ${target.name} from the unassigned screening queue pool.`
+    });
+    showToast(`✓ Applicant ${target.name} claimed into your queue.`);
+  };
+
+  const openApplicant = async (id: string) => {
     setSelectedApplicantId(id);
     setListView(false);
+
+    // Turnover: If applicant is unassigned in pool, auto-claim for this staff member
+    const target = applicants.find(a => String(a.id) === id);
+    const isUnassigned = !target?.currentHandler || target.currentHandler === 'Unassigned Pool' || target.currentHandler === 'System Agent';
+    if (isUnassigned && target) {
+      await handleClaimApplicant(id);
+    }
+  };
+
+  const handleReleaseApplicantFromScreening = async (id: string) => {
+    const target = applicants.find(a => String(a.id) === id);
+    const numericId = parseInt(id, 10);
+    updateApplicant(id, {
+      currentHandler: 'Unassigned Pool',
+      phaseDescription: `Returned to unassigned screening candidate pool by ${currentUserName}`
+    });
+    if (!isNaN(numericId)) {
+      await api.put(`/applicants/${numericId}`, {
+        application_id: target?.applicationId,
+        current_handler: 'Unassigned Pool',
+        phase_description: `Returned to unassigned screening candidate pool by ${currentUserName}`
+      }).catch(console.error);
+    }
+    addActivityLog({
+      applicantId: id,
+      action: 'Turnover: Released to Pool',
+      performedBy: currentUserName,
+      department: 'Recruitment',
+      details: `${currentUserName} returned applicant ${target?.name || id} to the unassigned screening candidate pool for other staff to evaluate.`
+    });
+    showToast(`Applicant returned to unassigned candidate pool.`);
+    setListView(true);
   };
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1468,6 +1572,67 @@ export default function Screening({
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
               3
             </div>
+          </div>
+        </div>
+
+        {/* ── Turnover Queue Filter Navigation (Light Theme, Consistent System Design) ── */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setScreeningQueueTab('ALL')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                screeningQueueTab === 'ALL'
+                  ? 'bg-slate-900 text-white shadow-xs border border-slate-900'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>All Screening Candidates</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                screeningQueueTab === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {screeningQueueCounts.all}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setScreeningQueueTab('MY_QUEUE')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                screeningQueueTab === 'MY_QUEUE'
+                  ? 'bg-sky-600 text-white shadow-xs border border-sky-600'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>My Assigned Queue</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                screeningQueueTab === 'MY_QUEUE' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {screeningQueueCounts.myQueue}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setScreeningQueueTab('UNASSIGNED')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                screeningQueueTab === 'UNASSIGNED'
+                  ? 'bg-amber-600 text-white shadow-xs border border-amber-600'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Unassigned Pool</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                screeningQueueTab === 'UNASSIGNED' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {screeningQueueCounts.unassigned}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Active Recruiter: <strong className="text-slate-800 font-bold">{currentUserName}</strong></span>
           </div>
         </div>
 
@@ -1824,9 +1989,30 @@ export default function Screening({
     );
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // VIEW: APPLICANT SCORECARD & 3-PHASE EVALUATION WORKFLOW
-  // ───────────────────────────────────────────────────────────────────────────
+  if (!selectedApplicant) {
+    return (
+      <div className="space-y-6 w-full animate-in fade-in duration-150">
+        <button
+          onClick={() => setListView(true)}
+          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#0EA5E9] transition-colors font-medium cursor-pointer"
+        >
+          <ArrowLeft size={16} /> Back to Screening Overview
+        </button>
+        <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm max-w-lg mx-auto">
+          <Microscope className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-lg font-bold text-slate-800">No Candidate Selected</h3>
+          <p className="text-xs text-slate-500 mt-1">Please select an applicant from the screening candidate pool to evaluate.</p>
+          <button
+            onClick={() => setListView(true)}
+            className="mt-4 px-4 py-2 bg-[#0EA5E9] text-white rounded-xl text-xs font-bold hover:bg-[#0284C7] transition-all cursor-pointer"
+          >
+            Go to Screening Candidate List
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 w-full animate-in fade-in duration-150">
       {/* Back button */}
@@ -1903,14 +2089,41 @@ export default function Screening({
               <p className="mt-0.5">{selectedApplicant?.currentDepartment || 'Recruitment'}</p>
               <p className="mt-0.5 italic">{selectedApplicant?.lastUpdated ? selectedApplicant.lastUpdated.slice(0, 10) : 'Active'}</p>
             </div>
-            {!selectedApplicant?.isStopped && (
-              <button
-                onClick={() => setShowStopModal(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
-              >
-                <OctagonX size={13} /> Stop Processing
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {selectedApplicant && (
+                (() => {
+                  const isUnassigned = !selectedApplicant.currentHandler || selectedApplicant.currentHandler === 'Unassigned Pool' || selectedApplicant.currentHandler === 'System Agent';
+                  if (isUnassigned) {
+                    return (
+                      <button
+                        onClick={() => handleClaimApplicant(selectedApplicant.id)}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#0EA5E9]/20 border border-[#0EA5E9]/40 text-sky-300 hover:bg-[#0EA5E9]/30 hover:text-white transition-all cursor-pointer font-semibold"
+                        title="Claim candidate from the unassigned pool into your active screening queue"
+                      >
+                        <UserPlus size={13} /> Claim Candidate
+                      </button>
+                    );
+                  }
+                  return (
+                    <button
+                      onClick={() => handleReleaseApplicantFromScreening(selectedApplicant.id)}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+                      title="Release candidate back to the unassigned queue pool so other recruiters can evaluate them"
+                    >
+                      <Undo2 size={13} /> Return to Pool ↩
+                    </button>
+                  );
+                })()
+              )}
+              {!selectedApplicant?.isStopped && (
+                <button
+                  onClick={() => setShowStopModal(true)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
+                >
+                  <OctagonX size={13} /> Stop Processing
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2763,13 +2976,23 @@ export default function Screening({
                 <select
                   value={selectedClinic}
                   onChange={e => setSelectedClinic(e.target.value)}
-                  className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-xl text-xs font-semibold bg-white focus:border-[#0EA5E9] outline-none"
+                  className="w-full border-2 border-slate-200 px-3 py-2.5 rounded-xl text-xs font-semibold bg-white focus:border-[#0EA5E9] outline-none cursor-pointer"
                 >
-                  {PARTNER_CLINICS.map(clinic => (
-                    <option key={clinic} value={clinic}>
-                      {clinic}
+                  {partnerClinicsList.length > 0 ? (
+                    partnerClinicsList.map((c: any) => {
+                      const clinicName = c.clinicName || c.clinic_name;
+                      const addr = c.address ? ` — ${c.address}` : '';
+                      return (
+                        <option key={c.clinicId || c.clinic_id || clinicName} value={clinicName}>
+                          {clinicName}{addr}
+                        </option>
+                      );
+                    })
+                  ) : (
+                    <option value="" disabled>
+                      Loading accredited partner clinics from database...
                     </option>
-                  ))}
+                  )}
                 </select>
               </div>
 

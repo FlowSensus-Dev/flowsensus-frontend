@@ -20,6 +20,7 @@ export interface ApplicantRecord {
   phase: number;
   status: string;
   currentHandler: string;
+  currentHandlerUserId?: number;
   currentDepartment: string;
   lastUpdated: string;
   createdAt?: string;
@@ -110,6 +111,49 @@ export interface ApplicantRecord {
   medicalReferralGenerated?: boolean;
   medicalReferralClinic?: string;
   medicalReferralDate?: string;
+  clinicReferralId?: number;
+}
+
+export interface Clinic {
+  clinicId?: number;
+  clinic_id?: number;
+  agencyId?: number;
+  agency_id?: number;
+  clinicName?: string;
+  clinic_name?: string;
+  address?: string;
+  contactNumber?: string;
+  contact_number?: string;
+  email?: string;
+  accreditationStatus?: string;
+  accreditation_status?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+export interface ClinicReferral {
+  referralId?: number;
+  referral_id?: number;
+  agencyId?: number;
+  agency_id?: number;
+  applicantId?: number;
+  applicant_id?: number;
+  clinicId?: number;
+  clinic_id?: number;
+  referralDate?: string;
+  referral_date?: string;
+  medicalStatus?: 'PENDING' | 'FIT_TO_WORK' | 'UNFIT_TO_WORK' | string;
+  medical_status?: 'PENDING' | 'FIT_TO_WORK' | 'UNFIT_TO_WORK' | string;
+  remarks?: string;
+  documentId?: number;
+  document_id?: number;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  clinic?: Clinic;
 }
 
 export interface WorkExperience {

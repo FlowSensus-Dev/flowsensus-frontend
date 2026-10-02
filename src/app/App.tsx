@@ -1161,7 +1161,28 @@ export default function App() {
         if (!isCurrent()) return;
         if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
           const liveMapped: ApplicantRecord[] = applicantsRes.data.map(mapApplicantFromApi);
-          setApplicants(liveMapped);
+          // Merge: preserve locally-set currentHandler if backend returns Unassigned Pool
+          // This handles the case where the handler is a superadmin / non-app_user account
+          // whose name can't be resolved from current_handler_user_id FK join.
+          setApplicants((prev) => {
+            if (!prev || prev.length === 0) return liveMapped;
+            const localMap: Record<string, ApplicantRecord> = {};
+            prev.forEach((a) => { localMap[a.id] = a; });
+            return liveMapped.map((live) => {
+              const local = localMap[live.id];
+              if (
+                local &&
+                local.currentHandler &&
+                local.currentHandler !== 'Unassigned Pool' &&
+                local.currentHandler !== 'System Agent' &&
+                (live.currentHandler === 'Unassigned Pool' || live.currentHandler === 'System Agent')
+              ) {
+                // Backend lost the handler name — keep the local value
+                return { ...live, currentHandler: local.currentHandler };
+              }
+              return live;
+            });
+          });
         }
       })
       .catch((err) => {

@@ -155,7 +155,8 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     selectedJobOrderId: item.job_order_id ? String(item.job_order_id) : (formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined),
     phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
     status: item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration',
-    currentHandler: item.current_handler || 'System Agent',
+    currentHandler: item.current_handler || item.currentHandler || 'Unassigned Pool',
+    currentHandlerUserId: item.current_handler_user_id || item.currentHandlerUserId || undefined,
     currentDepartment: item.current_department || 'Recruitment',
     lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
     createdAt: item.created_at || item.createdAt || item.application_created_at || item.last_updated || item.updated_at || '',
@@ -199,7 +200,7 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     testScores: (item.test_scores && typeof item.test_scores === 'object' && Object.keys(item.test_scores).length > 0)
       ? item.test_scores
       : undefined,
-    matchScore: item.match_score ?? item.matchScore ?? 90,
+    matchScore: item.match_score ?? item.matchScore ?? 0,
     photoDocumentId: item.photo_document_id || item.photoDocumentId || undefined,
     photoUrl: item.photo_url || item.photo || '',
     photoDataUrl: item.photo_url || item.photo || '',
