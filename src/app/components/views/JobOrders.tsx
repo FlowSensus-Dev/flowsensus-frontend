@@ -19,6 +19,7 @@ const STATUS_META: Record<JobOrder['status'], { label: string; color: string; ic
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
   code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
   salaryMin: 0, salaryMax: 0, salaryCurrency: 'USD', contractMonths: 24, requirements: [], minExperience: 0, certifications: [], detailedRequirements: [],
+  genderPreference: 'Any', minAge: 21, maxAge: 45,
   status: 'draft', datePosted: new Date().toISOString().slice(0, 10), deadline: '', notes: '',
 };
 
@@ -99,6 +100,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
                       : [])),
             minExperience: jo.min_experience_years || 1,
+            genderPreference: (jo.gender_preference || jo.genderPreference || 'Any') as 'Any' | 'Male' | 'Female',
+            minAge: jo.min_age ?? jo.minAge ?? 21,
+            maxAge: jo.max_age ?? jo.maxAge ?? 45,
             certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
             detailedRequirements: Array.isArray(jo.job_order_requirements)
               ? jo.job_order_requirements.map((r: any) => ({
@@ -110,7 +114,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
             datePosted: jo.date_posted || '',
             deadline: jo.application_deadline || jo.deadline || '',
-            notes: jo.notes || '',
+            notes: jo.clean_notes || jo.notes || '',
           }));
           setOrders(mapped);
         }
@@ -180,6 +184,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       salary_currency: editing.salaryCurrency,
       contract_months: editing.contractMonths,
       min_experience_years: editing.minExperience,
+      gender_preference: editing.genderPreference || 'Any',
+      min_age: editing.minAge ?? 21,
+      max_age: editing.maxAge ?? 45,
       status: editing.status.toUpperCase(),
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
       deadline: editing.deadline || undefined,
@@ -350,6 +357,20 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.color + '18', color: meta.color }}>
                         {meta.icon} {meta.label}
                       </span>
+                      {order.genderPreference && order.genderPreference !== 'Any' && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          order.genderPreference === 'Female'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`}>
+                          {order.genderPreference === 'Female' ? '♀ Female Only' : '♂ Male Only'}
+                        </span>
+                      )}
+                      {(order.minAge || order.maxAge) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                          Age: {order.minAge || 21}–{order.maxAge || 45} yrs
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 mt-1.5 text-xs text-slate-500 flex-wrap">
                       <span className="flex items-center gap-1"><Globe size={11} /> {order.country}</span>
@@ -384,6 +405,8 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                         <div className="space-y-1.5 text-slate-700">
                           <div><span className="text-slate-400 text-xs">Contract:</span> {order.contractMonths} months</div>
                           <div><span className="text-slate-400 text-xs">Min. Experience:</span> {order.minExperience} yr{order.minExperience !== 1 ? 's' : ''}</div>
+                          <div><span className="text-slate-400 text-xs">Gender:</span> {order.genderPreference === 'Female' ? 'Female Only' : order.genderPreference === 'Male' ? 'Male Only' : 'All Genders (Open)'}</div>
+                          <div><span className="text-slate-400 text-xs">Age Range:</span> {order.minAge || 21} to {order.maxAge || 45} yrs</div>
                           <div><span className="text-slate-400 text-xs">Posted:</span> {order.datePosted}</div>
                           <div><span className="text-slate-400 text-xs">Deadline:</span> {order.deadline}</div>
                         </div>
@@ -543,6 +566,44 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                   <select value={editing.status} onChange={e => setEditing(p => p ? { ...p, status: e.target.value as JobOrder['status'] } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white">
                     {(Object.keys(STATUS_META) as JobOrder['status'][]).map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Gender Requirement</label>
+                  <select 
+                    value={editing.genderPreference || 'Any'} 
+                    onChange={e => setEditing(p => p ? { ...p, genderPreference: e.target.value as 'Any' | 'Male' | 'Female' } : p)} 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white"
+                  >
+                    <option value="Any">All Genders (No Preference)</option>
+                    <option value="Female">Female Only</option>
+                    <option value="Male">Male Only</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Min Age</label>
+                    <input 
+                      type="number" 
+                      min={18} 
+                      max={65} 
+                      value={editing.minAge ?? 21} 
+                      onChange={e => setEditing(p => p ? { ...p, minAge: parseInt(e.target.value) || 18 } : p)} 
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" 
+                      placeholder="21"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Max Age</label>
+                    <input 
+                      type="number" 
+                      min={18} 
+                      max={65} 
+                      value={editing.maxAge ?? 45} 
+                      onChange={e => setEditing(p => p ? { ...p, maxAge: parseInt(e.target.value) || 45 } : p)} 
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" 
+                      placeholder="45"
+                    />
+                  </div>
                 </div>
               </div>
 

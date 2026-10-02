@@ -213,19 +213,19 @@ export default function DocumentOCR({
         performedBy: currentUserName,
         department: 'Admin',
         details: isVerified
-          ? `Passport uploaded and verified with Gemini Vision AI. Biometric fields match system record.`
-          : `Passport processed with Gemini Vision AI. ${res.data.discrepancies?.length || 1} discrepancies flagged for review.`,
+          ? `Passport uploaded and verified with automated document scanner. Biometric fields match system record.`
+          : `Passport processed with automated document scanner. ${res.data.discrepancies?.length || 1} discrepancies flagged for review.`,
       });
 
       if (isVerified) {
-        showToast('✓ OCR complete: Document verified against system records.');
+        showToast('✓ Scan complete: Document verified against system records.');
       } else {
-        showToast('⚠️ OCR complete: Validation discrepancies detected & flagged for review.');
+        showToast('⚠️ Scan complete: Validation discrepancies detected & flagged for review.');
       }
     } catch (err: any) {
       console.error('OCR verification error:', err);
       const msg =
-        err.response?.data?.detail || err.message || 'Failed to process document with Gemini OCR.';
+        err.response?.data?.detail || err.message || 'Failed to process document scan.';
       setErrorMsg(msg);
       showToast(`OCR error: ${msg}`);
     } finally {
@@ -324,7 +324,7 @@ export default function DocumentOCR({
             Document OCR & Biometric Cross-Validation
           </h2>
           <p className="text-sm text-slate-500 mt-1 font-medium">
-            AI-driven document inspection using Google Gemini Vision AI with POEA/DMW 3-2-1 compliance cross-checking
+            Automated document inspection and verification with POEA/DMW 3-2-1 compliance cross-checking
           </p>
         </div>
 
@@ -344,8 +344,8 @@ export default function DocumentOCR({
             />
             <span>
               {engineStatus?.available
-                ? 'Gemini Vision AI: Active'
-                : 'OCR Engine: Initializing'}
+                ? 'Document Scanner: Ready'
+                : 'Scanner: Initializing'}
             </span>
           </div>
         </div>
@@ -608,7 +608,7 @@ export default function DocumentOCR({
             <div className="bg-purple-50/50 border-2 border-dashed border-purple-300/80 rounded-2xl p-8 sm:p-12 text-center mb-6 hover:bg-purple-50/80 transition-colors">
               <Upload className="w-12 h-12 mx-auto text-purple-600 mb-3" />
               <h3 className="font-black text-slate-900 text-lg mb-1">
-                Upload Document for Gemini Vision AI Inspection
+                Upload Document for Automated Inspection
               </h3>
               <p className="text-xs text-slate-500 mb-5 max-w-md mx-auto">
                 Supported formats: Passport, Medical Certificate, or NBI Clearance (PNG, JPG, WebP, PDF up to 10 MB)
@@ -639,12 +639,12 @@ export default function DocumentOCR({
                   {isProcessing ? (
                     <>
                       <Loader2 size={14} className="animate-spin" />
-                      <span>Analyzing with Gemini AI...</span>
+                      <span>Scanning and verifying document...</span>
                     </>
                   ) : (
                     <>
                       <Sparkles size={14} />
-                      <span>Run Gemini OCR & Verify</span>
+                      <span>Scan & Verify Document</span>
                     </>
                   )}
                 </button>
@@ -676,7 +676,7 @@ export default function DocumentOCR({
             {/* Workflow Steps */}
             <div className="bg-slate-50 rounded-xl p-6 border border-slate-200">
               <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-3">
-                Gemini Vision AI Cross-Verification Protocol:
+                Automated Document Verification Protocol:
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs text-slate-600">
                 <div className="flex items-start gap-2.5">
@@ -741,7 +741,7 @@ export default function DocumentOCR({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Processed via Google Gemini Vision AI on{' '}
+                  Processed on{' '}
                   {new Date(ocrResult.processed_at).toLocaleString()}
                 </p>
               </div>
@@ -804,7 +804,7 @@ export default function DocumentOCR({
                 <div className="flex items-center justify-between mb-3 border-b border-purple-200 pb-2">
                   <span className="text-xs font-bold text-purple-800 uppercase tracking-wider flex items-center gap-1.5">
                     <Sparkles size={13} className="text-purple-600" />
-                    Extracted via Gemini Vision AI
+                    Extracted from Document Scan
                   </span>
                   <span className="bg-purple-100 text-purple-800 font-mono text-[10px] px-2 py-0.5 rounded uppercase font-bold">
                     {ocrResult.extracted_data.document_type || 'Passport'}
@@ -861,7 +861,7 @@ export default function DocumentOCR({
                       Validation Mismatch Detected ({ocrResult.discrepancies.length})
                     </p>
                     <p className="text-xs text-amber-800 mb-3">
-                      The document text extracted by Gemini does not exactly match the agency database records. Review required:
+                      The document text extracted from the scan does not match the candidate's records. Review required:
                     </p>
 
                     <div className="space-y-2">
@@ -999,7 +999,7 @@ export default function DocumentOCR({
                   className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1.5"
                 >
                   <FileText size={13} />
-                  <span>{showRawText ? 'Hide Raw OCR Text' : 'Show Raw Gemini OCR Extracted Text'}</span>
+                  <span>{showRawText ? 'Hide Raw Scanned Text' : 'Show Raw Scanned Text'}</span>
                 </button>
                 {showRawText && (
                   <pre className="mt-3 p-4 bg-slate-900 text-slate-200 text-[11px] font-mono rounded-xl overflow-x-auto whitespace-pre-wrap max-h-48">

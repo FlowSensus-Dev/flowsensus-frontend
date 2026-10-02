@@ -1399,18 +1399,44 @@ export default function ApplicantProfile({
 
             {/* Dynamic test cards */}
             {(() => {
-              const testItems: Array<{ label: string; val: number | string | undefined; pass: number; max: number; weight?: number; color: string; passed?: boolean }> = [];
+              const testItems: Array<{
+                label: string;
+                val: number | string | undefined;
+                pass: number;
+                max: number;
+                weight?: number;
+                color: string;
+                passed?: boolean;
+                scoringType: 'numeric' | 'pass_fail';
+                statusText?: string;
+              }> = [];
               const colors = ['#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#EF4444', '#0EA5E9', '#64748B'];
 
               if (applicant.testScores?.tests && Object.keys(applicant.testScores.tests).length > 0) {
-                Object.values(applicant.testScores.tests).forEach((t, i) => {
+                Object.values(applicant.testScores.tests).forEach((t: any, i) => {
+                  const rawStatus = String(t.statusText || '').toLowerCase();
+                  const isPF = t.scoringType === 'pass_fail' || rawStatus.includes('pass') || rawStatus.includes('fail') || t.type === 'medical' || String(t.name || '').toLowerCase().includes('medical');
+
+                  let passVal = t.passed;
+                  if (typeof passVal !== 'boolean') {
+                    if (isPF) {
+                      passVal = rawStatus.includes('pass') || rawStatus.includes('suit') || (typeof t.score === 'number' && t.score > 0);
+                    } else if (typeof t.score === 'number') {
+                      passVal = t.score >= (t.passingScore ?? 60);
+                    }
+                  } else if (!isPF && typeof t.score === 'number' && typeof t.passingScore === 'number') {
+                    passVal = t.score >= t.passingScore;
+                  }
+
                   testItems.push({
                     label: t.name,
                     val: t.score,
-                    pass: t.passingScore,
+                    pass: t.passingScore ?? 60,
                     max: t.maxScore || 100,
-                    weight: t.weight,
-                    passed: t.passed,
+                    weight: typeof t.weight === 'number' ? t.weight : (typeof t.weight_percentage === 'number' ? t.weight_percentage : undefined),
+                    passed: passVal,
+                    scoringType: isPF ? 'pass_fail' : 'numeric',
+                    statusText: t.statusText,
                     color: colors[i % colors.length],
                   });
                 });
@@ -1418,6 +1444,7 @@ export default function ApplicantProfile({
                 evaluationTemplates.forEach((t, i) => {
                   const lower = t.name.toLowerCase();
                   let val: any = undefined;
+                  const isPF = t.scoringType === 'pass_fail' || lower.includes('medical');
                   if (t.type === 'skills' || lower.includes('trade') || lower.includes('skill')) {
                     val = applicant.testScores?.tradeSkills;
                   } else if (t.type === 'language' || lower.includes('english') || lower.includes('language')) {
@@ -1427,46 +1454,68 @@ export default function ApplicantProfile({
                   } else if (applicant.testScores && (applicant.testScores as any)[t.id] !== undefined) {
                     val = (applicant.testScores as any)[t.id];
                   }
+
+                  let passVal: boolean | undefined = undefined;
+                  if (typeof val === 'number') {
+                    passVal = isPF ? val > 0 : val >= (t.passingScore ?? 60);
+                  }
+
                   testItems.push({
                     label: t.name,
                     val,
-                    pass: t.passingScore,
+                    pass: t.passingScore ?? 60,
                     max: t.maxScore || 100,
-                    weight: t.weight,
-                    passed: typeof val === 'number' ? val >= t.passingScore : undefined,
+                    weight: t.weight ?? (t as any).weight_percentage,
+                    passed: passVal,
+                    scoringType: isPF ? 'pass_fail' : 'numeric',
                     color: colors[i % colors.length],
                   });
                 });
               } else {
                 testItems.push(
-                  { label: 'English Proficiency', val: applicant.testScores?.englishProficiency, pass: 60, max: 100, color: '#0EA5E9' },
-                  { label: 'Trade / Skills Test', val: applicant.testScores?.tradeSkills, pass: 70, max: 100, color: '#F59E0B' },
-                  { label: 'IQ / Aptitude', val: applicant.testScores?.iqAptitude, pass: 50, max: 100, color: '#8B5CF6' }
+                  { label: 'English Proficiency', val: applicant.testScores?.englishProficiency, pass: 60, max: 100, color: '#0EA5E9', scoringType: 'numeric' },
+                  { label: 'Trade / Skills Test', val: applicant.testScores?.tradeSkills, pass: 70, max: 100, color: '#F59E0B', scoringType: 'numeric' },
+                  { label: 'IQ / Aptitude', val: applicant.testScores?.iqAptitude, pass: 50, max: 100, color: '#8B5CF6', scoringType: 'numeric' }
                 );
               }
 
               return testItems.map(s => {
+                const isPassFail = s.scoringType === 'pass_fail';
                 const hasScore = typeof s.val === 'number' && !isNaN(s.val);
-                const isPass = s.passed !== undefined ? s.passed : (hasScore && (s.val as number) >= s.pass);
-                const pct = hasScore ? Math.min(100, Math.max(0, ((s.val as number) / (s.max || 100)) * 100)) : 0;
+                
+                let isPass = false;
+                if (typeof s.passed === 'boolean') {
+                  isPass = s.passed;
+                } else if (isPassFail) {
+                  isPass = hasScore ? (s.val as number) > 0 : Boolean(s.statusText?.toLowerCase().includes('pass'));
+                } else if (hasScore) {
+                  isPass = (s.val as number) >= s.pass;
+                }
+
+                const pct = isPassFail
+                  ? (isPass ? 100 : (hasScore || s.passed !== undefined ? 0 : 0))
+                  : (hasScore ? Math.min(100, Math.max(0, ((s.val as number) / (s.max || 100)) * 100)) : 0);
+
+                const hasRecordedResult = hasScore || s.passed !== undefined || Boolean(s.statusText);
+
                 return (
                   <div key={s.label} className="flex items-center gap-4">
                     <div className="w-52 flex-shrink-0">
                       <p className="text-xs font-semibold text-slate-700 truncate" title={s.label}>{s.label}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className={`text-[11px] font-bold ${!hasScore ? 'text-slate-400' : isPass ? 'text-[#10B981]' : 'text-red-500'}`}>
-                          {!hasScore ? 'Pending' : isPass ? '✓ Pass' : '✗ Fail'}
+                        <span className={`text-[11px] font-bold ${!hasRecordedResult ? 'text-slate-400' : isPass ? 'text-[#10B981]' : 'text-red-500'}`}>
+                          {!hasRecordedResult ? 'Pending' : isPass ? '✓ Pass' : '✗ Fail'}
                         </span>
                         <span className="text-[10px] text-slate-400 font-medium">
-                          (≥{s.pass}%{s.weight ? ` • ${s.weight}% wt` : ''})
+                          {isPassFail ? `(Pass/Fail${s.weight ? ` • ${s.weight}% wt` : ''})` : `(≥${s.pass}%${s.weight ? ` • ${s.weight}% wt` : ''})`}
                         </span>
                       </div>
                     </div>
                     <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: isPass ? '#10B981' : (hasScore ? '#EF4444' : s.color) }} />
+                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: isPass ? '#10B981' : (hasRecordedResult ? '#EF4444' : s.color) }} />
                     </div>
-                    <span className="text-lg font-black w-20 text-right" style={{ color: hasScore ? (isPass ? '#10B981' : '#EF4444') : '#94A3B8' }}>
-                      {hasScore ? `${s.val}%` : '—'}
+                    <span className="text-base font-black w-24 text-right" style={{ color: hasRecordedResult ? (isPass ? '#10B981' : '#EF4444') : '#94A3B8' }}>
+                      {!hasRecordedResult ? '—' : isPassFail ? (isPass ? 'PASS' : 'FAIL') : `${s.val}%`}
                     </span>
                   </div>
                 );

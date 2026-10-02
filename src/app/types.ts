@@ -283,6 +283,9 @@ export interface JobOrder {
   certifications: string[]; // For backward compatibility
   detailedRequirements?: DetailedReq[];
   minExperience: number;
+  genderPreference?: 'Any' | 'Male' | 'Female';
+  minAge?: number;
+  maxAge?: number;
   status: 'open' | 'closed' | 'filled' | 'pending' | 'draft' | 'cancelled';
   datePosted: string;
   deadline: string;

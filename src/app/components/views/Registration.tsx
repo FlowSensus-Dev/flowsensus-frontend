@@ -1604,7 +1604,7 @@ export default function Registration({
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <p className="text-xs text-slate-500">
-                Select requirements from the standard Supabase catalog or type custom preferred requirements (documents, medicals, clearances, or certificates).
+                Select requirements from the standard agency catalog or type custom preferred requirements (documents, medicals, clearances, or certificates).
               </p>
               {selectedJobOrderId && (() => {
                 const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
