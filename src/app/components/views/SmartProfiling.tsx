@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Download,
   Building2,
+  ChevronDown,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
@@ -83,6 +84,94 @@ function findClusterForText(text: string, clustersMap?: Record<string, any>): { 
   return null;
 }
 
+// ── Applicant Profiling Stage Detection Helper ──────────────────────────────────
+// Checks if applicant is currently in the 'Applicant Profiling' stage (Phase 2)
+export function isApplicantInProfiling(applicant: ApplicantRecord): boolean {
+  if (!applicant) return false;
+  const s = String(
+    applicant.status ||
+    (applicant as any).applicant_status ||
+    (applicant as any).status_code ||
+    (applicant as any).application_status ||
+    ''
+  ).trim().toLowerCase();
+  return s === 'applicant profiling' || s === 'profiling' || applicant.phase === 2;
+}
+
+// ── Job Order Preference Mismatch Detection ────────────────────────────────────
+// Detects if candidate applied for a different job order or role than the currently selected job order
+export function getJobOrderMismatchInfo(applicant: ApplicantRecord, currentJobOrder: any): {
+  isMismatch: boolean;
+  chosenRole?: string;
+  chosenJobOrder?: string;
+  noticeText: string;
+} | null {
+  if (!currentJobOrder || !applicant) return null;
+
+  const currentJoRealId = String(currentJobOrder.realId ?? currentJobOrder.job_order_id ?? '').trim();
+  const currentJoCode = String(currentJobOrder.id ?? currentJobOrder.code ?? currentJobOrder.job_code ?? '').trim().toLowerCase();
+  const currentJoPos = String(currentJobOrder.position ?? currentJobOrder.position_title ?? '').trim().toLowerCase();
+
+  const appJoId = String((applicant as any).job_order_id || (applicant as any).jobOrderId || applicant.selectedJobOrderId || '').trim();
+  const appJoCode = String(applicant.jobOrder || '').trim();
+  const appRole = String(applicant.appliedPosition || applicant.appliedRole || applicant.role || '').trim();
+
+  const hasAppJoId = Boolean(appJoId && !['undefined', 'null', '0', ''].includes(appJoId));
+  const hasAppJoCode = Boolean(appJoCode && !['unassigned', 'undefined', 'null', ''].includes(appJoCode.toLowerCase()));
+
+  // 1. Direct match check: Did candidate directly pick this job order?
+  const matchesRealId = Boolean(hasAppJoId && currentJoRealId && appJoId === currentJoRealId);
+  const matchesJoCode = Boolean(
+    hasAppJoCode &&
+    currentJoCode &&
+    (appJoCode.toLowerCase() === currentJoCode ||
+     appJoCode.toLowerCase().replace(/[^a-z0-9]/g, '') === currentJoCode.replace(/[^a-z0-9]/g, ''))
+  );
+  const matchesJobPosition = Boolean(
+    hasAppJoCode &&
+    currentJoPos &&
+    (appJoCode.toLowerCase().includes(currentJoPos) || currentJoPos.includes(appJoCode.toLowerCase()))
+  );
+  const matchesRoleAndNotDifferentJo = Boolean(
+    !hasAppJoId &&
+    !hasAppJoCode &&
+    appRole &&
+    currentJoPos &&
+    (appRole.toLowerCase().includes(currentJoPos) || currentJoPos.includes(appRole.toLowerCase()))
+  );
+
+  // If candidate is specifically tied to this exact job order, there is no mismatch
+  if (matchesRealId || matchesJoCode || matchesJobPosition || matchesRoleAndNotDifferentJo) {
+    return null;
+  }
+
+  // 2. Candidate applied for a different job order, role, or entered the general pool
+  let chosenJoDisplay = '';
+  if (hasAppJoCode && appJoCode.toLowerCase() !== 'unassigned') {
+    chosenJoDisplay = appJoCode;
+  } else if (hasAppJoId) {
+    chosenJoDisplay = `Job Order #${appJoId}`;
+  }
+
+  let pickSummary = '';
+  if (chosenJoDisplay && appRole && !chosenJoDisplay.toLowerCase().includes(appRole.toLowerCase())) {
+    pickSummary = `${chosenJoDisplay} (${appRole})`;
+  } else if (chosenJoDisplay) {
+    pickSummary = chosenJoDisplay;
+  } else if (appRole) {
+    pickSummary = `"${appRole}"`;
+  } else {
+    pickSummary = 'General Talent Pool';
+  }
+
+  return {
+    isMismatch: true,
+    chosenRole: appRole || undefined,
+    chosenJobOrder: chosenJoDisplay || undefined,
+    noticeText: `Candidate applied for ${pickSummary}, which differs from this Job Order (${currentJobOrder.position || 'Current Order'}). Recommended based on compatible background credentials, but not the applicant's original selection.`,
+  };
+}
+
 interface SmartProfilingProps {
   showToast: (message: string) => void;
   applicants?: ApplicantRecord[];
@@ -98,6 +187,20 @@ interface SmartProfilingProps {
   evaluationTemplates?: any[];
 }
 
+export interface TakenExamRecord {
+  id: string;
+  name: string;
+  type?: string;
+  scoringType: 'numeric' | 'pass_fail';
+  score?: number;
+  passingScore: number;
+  maxScore: number;
+  passed: boolean;
+  statusText: string;
+  weight?: number;
+  isJobSpecific?: boolean;
+}
+
 export interface RankedCandidate {
   applicant: ApplicantRecord;
   rank: number;
@@ -105,6 +208,7 @@ export interface RankedCandidate {
   matchScore: number;
   assessmentScore: number;
   classification: 'Recommended' | 'For Further Review' | 'Not Recommended';
+  clearanceStatus: 'cleared' | 'pending_job_specific' | 'pending_general' | 'failed';
   totalExperienceYears: number;
   certificationsCount: number;
   techScore: number;
@@ -117,6 +221,8 @@ export interface RankedCandidate {
   interviewPass: boolean;
   allGatesPass: boolean;
   hasRecordedAssessments: boolean;
+  takenExams: TakenExamRecord[];
+  pendingJobSpecificTestNames: string[];
   activeTestResults: Array<{
     id: string;
     name: string;
@@ -267,10 +373,23 @@ export default function SmartProfiling({
     status?: string;
   } | null>(null);
   const [dynamicClusters, setDynamicClusters] = useState<Record<string, any>>({});
-  const [pipelineScope, setPipelineScope] = useState<'all' | 'profiling' | 'assigned'>('all');
+  const [pipelineScope, setPipelineScope] = useState<'profiling' | 'all' | 'assigned'>('profiling');
+  const [expandedExamApplicantIds, setExpandedExamApplicantIds] = useState<Set<string>>(new Set());
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
   const [activeJobCluster, setActiveJobCluster] = useState<OccupationalClusterData | null>(null);
   const [isSynthesizingCluster, setIsSynthesizingCluster] = useState<boolean>(false);
+
+  const toggleExamExpanded = (appId: string) => {
+    setExpandedExamApplicantIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(appId)) {
+        next.delete(appId);
+      } else {
+        next.add(appId);
+      }
+      return next;
+    });
+  };
 
   // Keyboard shortcut listener to close overlays on Escape
   useEffect(() => {
@@ -515,12 +634,14 @@ export default function SmartProfiling({
     };
   }, [activeJobEvaluationTemplates]);
 
-  // Filter pool: Configurable pipeline scope (All Active Candidates, Profiling Stage Only, Assigned to Job Order)
+
+
+  // Filter pool: Configurable pipeline scope (Profiling Stage Only [Default], All Active Pool, Assigned to Job Order)
   const candidatePool = useMemo(() => {
     return applicants.filter((a) => {
       if (a.isStopped || a.status === 'Processing Stopped') return false;
       if (pipelineScope === 'profiling') {
-        return a.status === 'Applicant Profiling';
+        return isApplicantInProfiling(a);
       }
       if (pipelineScope === 'assigned') {
         const assignedJoId = (a as any).job_order_id || (a as any).assignedJobOrderId;
@@ -566,153 +687,221 @@ export default function SmartProfiling({
     const targetClusterId = targetClusterInfo?.id;
     const targetClusterData = targetClusterInfo?.data;
 
+    // Cross-job-order requirements: Identify evaluation templates specifically required for this active Job Order
+    const joRealId = String(currentJobOrder.id).trim();
+    const joCode = String(currentJobOrder.code || '').trim().toLowerCase();
+    const joPosLower = jobPos.toLowerCase();
+
+    const currentJobOrderSpecificTemplates = activeJobEvaluationTemplates.filter((t: any) => {
+      const app = t.applicable_job_orders || t.applicableJobOrders;
+      if (!Array.isArray(app) || app.length === 0) return false;
+      return app.some((target: any) => {
+        const s = String(target).trim().toLowerCase();
+        return s === joRealId || s === `jo-${joRealId}` || s === joCode || joCode.includes(s) || s === joPosLower || joPosLower.includes(s);
+      });
+    });
+
     const evaluated: Omit<RankedCandidate, 'rank'>[] = eligibleCandidates.map((applicant) => {
       const rawScores = applicant.testScores || {};
-      const { skillsTpl, langTpl, iqTpl, eqTpl, otherTemplates } = dynamicGateDefinitions;
+      const { skillsTpl, langTpl, iqTpl, eqTpl } = dynamicGateDefinitions;
 
-      // Extract scores with support for nested/testId mappings or top-level properties
-      const techScore = Number(rawScores.tradeSkills ?? rawScores.tests?.[skillsTpl.id]?.score ?? 0);
-      const iqScore = Number(rawScores.iqAptitude ?? rawScores.tests?.[iqTpl.id]?.score ?? 0);
-      const interviewScore = Number(
-        rawScores.languageProficiency ??
-        rawScores.englishProficiency ??
-        (applicant as any).interview_score ??
-        (applicant as any).language_proficiency ??
-        rawScores.tests?.[langTpl.id]?.score ??
-        0
-      );
-      const eqRaw = rawScores.personalityEQ ?? rawScores.tests?.[eqTpl.id]?.score ?? (applicant.testScores ? 'Pending' : 'Unassessed');
-      const eqStatus = String(eqRaw);
+      // ── Gather all actual examinations recorded for this applicant ──────
+      const takenExamsList: TakenExamRecord[] = [];
+      const rawTests = rawScores.tests;
+
+      if (rawTests && typeof rawTests === 'object' && Object.keys(rawTests).length > 0) {
+        Object.entries(rawTests).forEach(([tKey, tData]: [string, any]) => {
+          if (!tData) return;
+          const testScore = typeof tData.score === 'number' ? tData.score : (typeof tData.rawScore === 'number' ? tData.rawScore : undefined);
+          const passScore = Number(tData.passingScore ?? tData.passing_score ?? 60);
+          const isPassFail = tData.scoringType === 'pass_fail';
+          const passed = Boolean(tData.passed ?? (typeof testScore === 'number' ? testScore >= passScore : true));
+          const statusText = tData.statusText || (isPassFail ? (passed ? 'PASSED' : 'FAILED') : (testScore !== undefined ? `${testScore}%` : 'Recorded'));
+
+          takenExamsList.push({
+            id: String(tData.id || tData.templateId || tKey),
+            name: tData.name || `Exam #${tKey}`,
+            type: tData.type,
+            scoringType: isPassFail ? 'pass_fail' : 'numeric',
+            score: testScore,
+            passingScore: passScore,
+            maxScore: Number(tData.maxScore ?? tData.max_score ?? 100),
+            passed,
+            statusText,
+            weight: typeof tData.weight === 'number' ? tData.weight : (typeof tData.weight_percentage === 'number' ? tData.weight_percentage : undefined),
+            isJobSpecific: Boolean(tData.isJobSpecific),
+          });
+        });
+      } else {
+        // Fallback for applicants with top-level test score fields
+        if (typeof rawScores.tradeSkills === 'number' && rawScores.tradeSkills > 0) {
+          const pass = skillsTpl.scoringType === 'pass_fail'
+            ? String(rawScores.tradeSkillsStatus || '').toLowerCase() === 'pass'
+            : rawScores.tradeSkills >= skillsTpl.passingScore;
+          takenExamsList.push({
+            id: skillsTpl.id,
+            name: skillsTpl.name,
+            type: 'skills',
+            scoringType: skillsTpl.scoringType,
+            score: rawScores.tradeSkills,
+            passingScore: skillsTpl.passingScore,
+            maxScore: 100,
+            passed: pass,
+            statusText: skillsTpl.scoringType === 'pass_fail' ? (pass ? 'PASSED' : 'FAILED') : `${rawScores.tradeSkills}%`,
+            weight: 30,
+          });
+        }
+        const langVal = typeof rawScores.languageProficiency === 'number' ? rawScores.languageProficiency : (typeof rawScores.englishProficiency === 'number' ? rawScores.englishProficiency : 0);
+        if (langVal > 0) {
+          const pass = langTpl.scoringType === 'pass_fail'
+            ? String(rawScores.languageStatus || '').toLowerCase() === 'pass'
+            : langVal >= langTpl.passingScore;
+          takenExamsList.push({
+            id: langTpl.id,
+            name: langTpl.name,
+            type: 'language',
+            scoringType: langTpl.scoringType,
+            score: langVal,
+            passingScore: langTpl.passingScore,
+            maxScore: 100,
+            passed: pass,
+            statusText: langTpl.scoringType === 'pass_fail' ? (pass ? 'PASSED' : 'FAILED') : `${langVal}%`,
+            weight: 20,
+          });
+        }
+        if (typeof rawScores.iqAptitude === 'number' && rawScores.iqAptitude > 0) {
+          const pass = iqTpl.scoringType === 'pass_fail'
+            ? String(rawScores.iqStatus || '').toLowerCase() === 'pass'
+            : rawScores.iqAptitude >= iqTpl.passingScore;
+          takenExamsList.push({
+            id: iqTpl.id,
+            name: iqTpl.name,
+            type: 'iq',
+            scoringType: iqTpl.scoringType,
+            score: rawScores.iqAptitude,
+            passingScore: iqTpl.passingScore,
+            maxScore: 100,
+            passed: pass,
+            statusText: iqTpl.scoringType === 'pass_fail' ? (pass ? 'PASSED' : 'FAILED') : `${rawScores.iqAptitude}%`,
+            weight: 20,
+          });
+        }
+        if (rawScores.personalityEQ && !['pending', 'unassessed', 'undefined', 'null'].includes(String(rawScores.personalityEQ).toLowerCase())) {
+          const eqStr = String(rawScores.personalityEQ);
+          const passed = ['suitable', 'pass', 'passed', 'clear', 'cleared', 'fit'].includes(eqStr.toLowerCase());
+          takenExamsList.push({
+            id: eqTpl.id,
+            name: eqTpl.name,
+            type: 'eq',
+            scoringType: 'pass_fail',
+            score: undefined,
+            passingScore: eqTpl.passingScore,
+            maxScore: 100,
+            passed,
+            statusText: eqStr,
+            weight: 30,
+          });
+        }
+      }
 
       // Check whether assessments are actually recorded
-      const hasAnyScore = (techScore > 0 || iqScore > 0 || interviewScore > 0 || (rawScores.overallScore !== undefined && Number(rawScores.overallScore) > 0));
-      const hasEqRecord = eqStatus && !['pending', 'unassessed', 'undefined', 'null'].includes(eqStatus.toLowerCase());
-      const hasRecordedAssessments = Boolean(hasAnyScore || hasEqRecord || (rawScores.tests && Object.keys(rawScores.tests).length > 0));
+      const hasRecordedAssessments = takenExamsList.length > 0;
+      const validNumericScores = takenExamsList
+        .filter((e) => typeof e.score === 'number' && e.score > 0)
+        .map((e) => e.score as number);
 
-      const validScores = [techScore, iqScore, interviewScore].filter((s) => s > 0);
-      const computedAvg = validScores.length > 0
-        ? Math.round((validScores.reduce((a, b) => a + b, 0) / validScores.length) * 10) / 10
+      const computedAvg = validNumericScores.length > 0
+        ? Math.round((validNumericScores.reduce((a, b) => a + b, 0) / validNumericScores.length) * 10) / 10
         : 0;
-      const assessmentScore = rawScores.overallScore !== undefined
+
+      const assessmentScore = (rawScores.overallScore !== undefined && Number(rawScores.overallScore) > 0)
         ? Number(rawScores.overallScore)
         : computedAvg;
 
-      // Dynamic Evaluation of each active gate
-      // 1. Technical Skills Test Gate
-      let techPass = false;
-      if (skillsTpl.scoringType === 'pass_fail') {
-        techPass = techScore >= 100 || String(rawScores.tradeSkillsStatus || '').toLowerCase() === 'pass';
-      } else {
-        techPass = techScore >= skillsTpl.passingScore;
-      }
-
-      // 2. Language / Interview Gate
-      let interviewPass = false;
-      if (langTpl.scoringType === 'pass_fail') {
-        interviewPass = interviewScore >= 100 || String(rawScores.languageStatus || '').toLowerCase() === 'pass';
-      } else {
-        interviewPass = interviewScore >= langTpl.passingScore;
-      }
-
-      // 3. IQ / Aptitude Gate
-      let iqPass = false;
-      if (iqTpl.scoringType === 'pass_fail') {
-        iqPass = iqScore >= 100 || String(rawScores.iqStatus || '').toLowerCase() === 'pass';
-      } else {
-        iqPass = iqScore >= iqTpl.passingScore;
-      }
-
-      // 4. Personality / EQ Gate
-      let eqPass = false;
-      const eqNum = Number(eqRaw);
-      if (!isNaN(eqNum) && eqNum > 0) {
-        eqPass = eqNum >= eqTpl.passingScore;
-      } else {
-        const lowerEq = eqStatus.trim().toLowerCase();
-        eqPass = ['suitable', 'pass', 'passed', 'clear', 'cleared', 'fit'].includes(lowerEq);
-      }
-
-      // 5. Active test results array for detailed inspection & modal
-      const activeTestResults: RankedCandidate['activeTestResults'] = [
-        {
-          id: skillsTpl.id,
-          name: skillsTpl.name,
-          type: 'skills',
-          scoringType: skillsTpl.scoringType,
-          score: techScore,
-          passingScore: skillsTpl.passingScore,
-          maxScore: 100,
-          passed: techPass,
-          statusText: skillsTpl.scoringType === 'pass_fail' ? (techPass ? 'PASSED' : 'FAILED') : `${techScore}% (Req ≥ ${skillsTpl.passingScore}%)`,
-          isJobSpecific: skillsTpl.isJobSpecific,
-        },
-        {
-          id: langTpl.id,
-          name: langTpl.name,
-          type: 'language',
-          scoringType: langTpl.scoringType,
-          score: interviewScore,
-          passingScore: langTpl.passingScore,
-          maxScore: 100,
-          passed: interviewPass,
-          statusText: langTpl.scoringType === 'pass_fail' ? (interviewPass ? 'PASSED' : 'FAILED') : `${interviewScore}% (Req ≥ ${langTpl.passingScore}%)`,
-          isJobSpecific: langTpl.isJobSpecific,
-        },
-        {
-          id: iqTpl.id,
-          name: iqTpl.name,
-          type: 'iq',
-          scoringType: iqTpl.scoringType,
-          score: iqScore,
-          passingScore: iqTpl.passingScore,
-          maxScore: 100,
-          passed: iqPass,
-          statusText: iqTpl.scoringType === 'pass_fail' ? (iqPass ? 'PASSED' : 'FAILED') : `${iqScore}% (Req ≥ ${iqTpl.passingScore}%)`,
-          isJobSpecific: iqTpl.isJobSpecific,
-        },
-        {
-          id: eqTpl.id,
-          name: eqTpl.name,
-          type: 'eq',
-          scoringType: eqTpl.scoringType,
-          score: !isNaN(eqNum) && eqNum > 0 ? eqNum : undefined,
-          passingScore: eqTpl.passingScore,
-          maxScore: 100,
-          passed: eqPass,
-          statusText: eqTpl.scoringType === 'pass_fail' ? (eqPass ? 'Suitable' : eqStatus) : `${eqRaw} (Req ≥ ${eqTpl.passingScore}%)`,
-          isJobSpecific: eqTpl.isJobSpecific,
-        },
-      ];
-
-      // Check any additional job-specific templates (e.g. medical or custom tests)
-      let otherGatesPass = true;
-      otherTemplates.forEach((ot: any) => {
-        const otId = String(ot.test_template_id || ot.id);
-        const otName = ot.name;
-        const otScoreType = (ot.scoring_type || ot.scoringType || 'numeric') as 'numeric' | 'pass_fail';
-        const otPassScore = Number(ot.passing_score ?? ot.passingScore ?? 60);
-        const recordedVal = rawScores.tests?.[otId]?.score ?? (rawScores as any)[otId];
-        const passedVal = rawScores.tests?.[otId]?.passed ?? (typeof recordedVal === 'number' ? recordedVal >= otPassScore : true);
-
-        activeTestResults.push({
-          id: otId,
-          name: otName,
-          type: ot.test_type || ot.type || 'custom',
-          scoringType: otScoreType,
-          score: typeof recordedVal === 'number' ? recordedVal : undefined,
-          passingScore: otPassScore,
-          maxScore: Number(ot.max_score ?? ot.maxScore ?? 100),
-          passed: Boolean(passedVal),
-          statusText: otScoreType === 'pass_fail' ? (passedVal ? 'PASSED' : 'FAILED') : `${recordedVal ?? 0}% (Req ≥ ${otPassScore}%)`,
-          isJobSpecific: true,
+      // ── Cross-Job-Order Job-Specific Clearance Evaluation ───────────────
+      // If the target job order requires specific employer tests (e.g. "Appendix test"),
+      // check if this applicant has taken them.
+      const pendingJobSpecificTestNames: string[] = [];
+      currentJobOrderSpecificTemplates.forEach((jst: any) => {
+        const jstId = String(jst.test_template_id || jst.id);
+        const jstName = (jst.name || 'Job-Specific Test').trim();
+        const candidateTookIt = takenExamsList.some((te) => {
+          return te.id === jstId || te.name.toLowerCase() === jstName.toLowerCase() || te.name.toLowerCase().includes(jstName.toLowerCase());
         });
-
-        if (!passedVal) otherGatesPass = false;
+        if (!candidateTookIt) {
+          pendingJobSpecificTestNames.push(jstName);
+        }
       });
 
-      const allGatesPass = applicant.testScores?.allPassed !== undefined
-        ? Boolean(applicant.testScores.allPassed) && eqPass && otherGatesPass
-        : (techPass && iqPass && interviewPass && eqPass && otherGatesPass);
+      // Check if candidate explicitly failed any exam they actually took
+      let hasFailedAnyTakenExam = false;
+      const failedExamDescriptions: string[] = [];
+      takenExamsList.forEach((te) => {
+        if (!te.passed) {
+          hasFailedAnyTakenExam = true;
+          failedExamDescriptions.push(`${te.name}: ${te.statusText}`);
+        }
+      });
+
+      // Clearance Status
+      let clearanceStatus: 'cleared' | 'pending_job_specific' | 'pending_general' | 'failed';
+      if (hasFailedAnyTakenExam) {
+        clearanceStatus = 'failed';
+      } else if (pendingJobSpecificTestNames.length > 0) {
+        clearanceStatus = 'pending_job_specific';
+      } else if (takenExamsList.length === 0) {
+        clearanceStatus = 'pending_general';
+      } else {
+        clearanceStatus = 'cleared';
+      }
+
+      const allGatesPass = clearanceStatus === 'cleared';
+
+      // Find standard category exam references for legacy / quick view
+      const techExam = takenExamsList.find((e) => e.type === 'skills' || e.name.toLowerCase().includes('skill') || e.name.toLowerCase().includes('trade'));
+      const langExam = takenExamsList.find((e) => e.type === 'language' || e.name.toLowerCase().includes('language') || e.name.toLowerCase().includes('english') || e.name.toLowerCase().includes('interview'));
+      const iqExam = takenExamsList.find((e) => e.type === 'iq' || e.name.toLowerCase().includes('iq') || e.name.toLowerCase().includes('aptitude') || e.name.toLowerCase().includes('cognitive'));
+      const eqExam = takenExamsList.find((e) => e.type === 'eq' || e.name.toLowerCase().includes('eq') || e.name.toLowerCase().includes('personality') || e.name.toLowerCase().includes('psychological'));
+
+      const techScore = techExam?.score ?? Number(rawScores.tradeSkills ?? 0);
+      const interviewScore = langExam?.score ?? Number(rawScores.languageProficiency ?? rawScores.englishProficiency ?? 0);
+      const iqScore = iqExam?.score ?? Number(rawScores.iqAptitude ?? 0);
+      const eqStatus = eqExam?.statusText ?? String(rawScores.personalityEQ ?? 'Pending');
+
+      const techPass = techExam ? techExam.passed : (techScore >= skillsTpl.passingScore);
+      const interviewPass = langExam ? langExam.passed : (interviewScore >= langTpl.passingScore);
+      const iqPass = iqExam ? iqExam.passed : (iqScore >= iqTpl.passingScore);
+      const eqPass = eqExam ? eqExam.passed : (['suitable', 'pass', 'passed', 'clear', 'cleared', 'fit'].includes(eqStatus.toLowerCase()));
+
+      // Active test results list (taken exams + any pending job-specific requirements)
+      const activeTestResults = takenExamsList.map((te) => ({
+        id: te.id,
+        name: te.name,
+        type: te.type || 'exam',
+        scoringType: te.scoringType,
+        score: te.score,
+        passingScore: te.passingScore,
+        maxScore: te.maxScore,
+        passed: te.passed,
+        statusText: te.statusText,
+        isJobSpecific: te.isJobSpecific,
+      }));
+
+      // Append pending job-specific requirements to active results for transparency
+      pendingJobSpecificTestNames.forEach((pName, pIdx) => {
+        activeTestResults.push({
+          id: `pending-job-${pIdx}`,
+          name: pName,
+          type: 'job_specific',
+          scoringType: 'numeric',
+          score: undefined,
+          passingScore: 60,
+          maxScore: 100,
+          passed: false,
+          statusText: 'Pending Test',
+          isJobSpecific: true,
+        });
+      });
 
       const strengths: string[] = [];
       const gaps: string[] = [];
@@ -1061,12 +1250,23 @@ export default function SmartProfiling({
 
       // Three-tier analytical classification per UC-03 Option 2 (80% / 60%)
       let classification: 'Recommended' | 'For Further Review' | 'Not Recommended';
-      if (!allGatesPass && hasRecordedAssessments) {
-        // Candidate failed one or more mandatory examination clearance gates
+      const failureReasons: string[] = [];
+
+      if (clearanceStatus === 'failed') {
+        // Candidate failed one or more recorded examination gates
         classification = 'Not Recommended';
-      } else if (!hasRecordedAssessments) {
-        // Candidate qualifications qualify for review, but examination assessments are pending
+        failedExamDescriptions.forEach((d) => failureReasons.push(`Failed assessment requirement: ${d}`));
+      } else if (clearanceStatus === 'pending_job_specific') {
+        // High Job-Fit credentials are preserved! Candidate is placed in 'For Further Review'
+        // pending administration of this employer's custom job-order test.
         classification = 'For Further Review';
+        failureReasons.push(
+          `Job-Order Specific Exam pending: Candidate must complete "${pendingJobSpecificTestNames.join(', ')}" mandated for ${jobPos} before final endorsement.`
+        );
+      } else if (clearanceStatus === 'pending_general') {
+        // Candidate qualifications qualify for review, but general examination assessments are pending
+        classification = 'For Further Review';
+        failureReasons.push('Assessment examination clearance pending (candidate has not yet completed evaluation testing)');
       } else if (readinessScore >= 80) {
         classification = 'Recommended';
       } else if (readinessScore >= 60) {
@@ -1075,22 +1275,7 @@ export default function SmartProfiling({
         classification = 'Not Recommended';
       }
 
-      // Diagnostic failure & advisory reasons
-      const failureReasons: string[] = [];
-      if (!hasRecordedAssessments) {
-        failureReasons.push('Assessment examination clearance pending (candidate has not yet completed required job order testing)');
-      } else {
-        activeTestResults.forEach((t) => {
-          if (!t.passed) {
-            if (t.scoringType === 'pass_fail') {
-              failureReasons.push(`${t.name}: Mandatory clearance requirement not met (${t.statusText})`);
-            } else {
-              failureReasons.push(`${t.name}: Score ${t.score ?? 0}% is below required passing threshold (${t.passingScore}%)`);
-            }
-          }
-        });
-      }
-      if (allGatesPass && readinessScore < 60) {
+      if (readinessScore < 60 && !failureReasons.some((r) => r.includes('Readiness score'))) {
         failureReasons.push(`Readiness score (${readinessScore}%) is below the 60% threshold for ${jobPos}`);
       }
 
@@ -1106,6 +1291,7 @@ export default function SmartProfiling({
         matchScore: readinessScore,
         assessmentScore,
         classification,
+        clearanceStatus,
         totalExperienceYears,
         certificationsCount: appCertsRaw.length,
         techScore,
@@ -1118,6 +1304,8 @@ export default function SmartProfiling({
         interviewPass,
         allGatesPass,
         hasRecordedAssessments,
+        takenExams: takenExamsList,
+        pendingJobSpecificTestNames,
         activeTestResults,
         compliancePassed,
         complianceReasons,
@@ -1172,6 +1360,12 @@ export default function SmartProfiling({
 
   // Handler: Endorse / Forward candidate to CV Encoding (executed from inside Review Details modal)
   const handleEndorseCandidate = async (candidate: RankedCandidate) => {
+    // Stage barrier: Endorsement is only allowed for candidates in the Profiling stage
+    if (!isApplicantInProfiling(candidate.applicant)) {
+      showToast(`⚠️ Endorsement Not Available: Candidate is in '${candidate.applicant.status || 'Active Pool'}' stage. Only applicants in 'Applicant Profiling' stage can be endorsed to CV Encoding.`);
+      return;
+    }
+
     // Hard barrier: Candidate cannot be endorsed if they have expired or invalid documents
     if (!candidate.compliancePassed || candidate.expiredDocs.length > 0) {
       const expiredNames = candidate.expiredDocs.map((d) => d.name).join(', ') || 'Statutory Clearance';
@@ -1375,6 +1569,28 @@ export default function SmartProfiling({
       }
 
       y += 24;
+
+      const pdfMismatch = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
+      if (pdfMismatch) {
+        checkPageBreak(14);
+        doc.setFillColor(254, 243, 199);
+        doc.setDrawColor(245, 158, 11);
+        doc.roundedRect(margin, y, contentWidth, 10, 1, 1, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(146, 64, 14);
+        doc.text('JOB ORDER PREFERENCE NOTICE:', margin + 3, y + 4);
+        doc.setFont('helvetica', 'normal');
+        doc.text(
+          doc.splitTextToSize(
+            `Applicant applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'different order'} (not this Job Order). Recommended via allied qualifications.`,
+            contentWidth - 65
+          ),
+          margin + 58,
+          y + 4
+        );
+        y += 13;
+      }
 
       // Section: 5-Category Granular Scoring Breakdown
       checkPageBreak(75);
@@ -1754,6 +1970,17 @@ export default function SmartProfiling({
                 <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
                   <button
                     type="button"
+                    onClick={() => setPipelineScope('profiling')}
+                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      pipelineScope === 'profiling'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Applicant Profiling Stage ({applicants.filter((a) => !a.isStopped && isApplicantInProfiling(a)).length})
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setPipelineScope('all')}
                     className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
                       pipelineScope === 'all'
@@ -1762,17 +1989,6 @@ export default function SmartProfiling({
                     }`}
                   >
                     All Active Pool ({applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPipelineScope('profiling')}
-                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      pipelineScope === 'profiling'
-                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Profiling Stage Only ({applicants.filter((a) => !a.isStopped && a.status === 'Applicant Profiling').length})
                   </button>
                   <button
                     type="button"
@@ -1886,7 +2102,24 @@ export default function SmartProfiling({
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
                     <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    No candidates found in the profiling pipeline for this job order.
+                    <p className="text-slate-800 font-bold text-sm mb-1">
+                      {pipelineScope === 'profiling'
+                        ? "No candidates currently in 'Applicant Profiling' status for this job order."
+                        : "No candidates found in the active pool for this job order."}
+                    </p>
+                    {pipelineScope === 'profiling' && applicants.length > 0 && (
+                      <div className="text-slate-500 text-xs mt-1.5 max-w-md mx-auto">
+                        <p>Found {applicants.length} active applicant(s) in other stages (e.g. Applicant Registration).</p>
+                        <button
+                          type="button"
+                          onClick={() => setPipelineScope('all')}
+                          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#20637A] hover:bg-[#184F62] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                        >
+                          <span>Switch to All Active Pool ({applicants.length})</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -1902,6 +2135,8 @@ export default function SmartProfiling({
                         .slice(0, 2)
                         .join('')
                     : 'AP';
+
+                  const mismatchInfo = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
 
                   return (
                     <tr
@@ -1942,10 +2177,32 @@ export default function SmartProfiling({
                                   <span>Expired Doc</span>
                                 </span>
                               )}
+                              {!isApplicantInProfiling(candidate.applicant) && (
+                                <span
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-300"
+                                  title={`Current Pipeline Stage: ${candidate.applicant.status || 'Active Pool'} (Not yet in Profiling stage)`}
+                                >
+                                  {candidate.applicant.status || 'Active Pool'}
+                                </span>
+                              )}
                             </div>
                             <p className="text-[11px] font-mono text-slate-500 tracking-tight">
                               {applicantCode}
                             </p>
+                            {mismatchInfo && (
+                              <div
+                                className="mt-1 flex items-start gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 border border-amber-200/90 text-[10px] text-amber-900 leading-tight"
+                                title="Notice: Candidate applied for a different job order or role upon registration. Recommended based on compatible background credentials, but not their original selection."
+                              >
+                                <AlertCircle className="w-3 h-3 text-amber-600 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold text-amber-800">Job Order Mismatch:</span>{' '}
+                                  <span>
+                                    Applied for <strong>{mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'Different Order'}</strong> (not this Job Order). Recommended via allied qualifications, but applicant did not pick this order.
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1998,64 +2255,152 @@ export default function SmartProfiling({
                           : `${candidate.certificationsCount} Certs`}
                       </td>
 
-                      {/* 7. Assessment Summary (Dynamic Technical, Language, IQ, EQ & Job-Specific) */}
+                      {/* 7. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
                       <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
-                        {!candidate.hasRecordedAssessments ? (
-                          <div className="space-y-1 min-w-[200px]">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <Clock className="w-3.5 h-3.5 text-amber-500" />
-                              <span>Assessments Pending</span>
-                            </span>
-                            <p className="text-[10px] text-slate-400">
-                              {candidate.activeTestResults?.length || 4} examination gates pending
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5 min-w-[230px]">
-                            {candidate.activeTestResults?.slice(0, 4).map((t) => (
-                              <div key={t.id} className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase w-18 flex-shrink-0 truncate" title={t.name}>
-                                  {t.type === 'skills' ? 'Technical' : t.type === 'language' ? 'Language' : t.type === 'iq' ? 'IQ' : t.type === 'eq' ? 'EQ' : t.name.slice(0, 9)}
-                                </span>
-                                {t.scoringType === 'pass_fail' ? (
-                                  <div className="flex-1 flex items-center justify-between">
-                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                      t.passed ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-red-700 bg-red-50 border-red-200'
-                                    }`}>
-                                      <span>{t.passed ? 'PASSED' : 'FAILED'}</span>
-                                      {t.passed ? <CheckCircle className="w-2.5 h-2.5 text-emerald-600 inline" /> : <AlertCircle className="w-2.5 h-2.5 text-red-500 inline" />}
+                        {(() => {
+                          const isExpanded = expandedExamApplicantIds.has(candidate.applicant.id);
+                          return (
+                            <div className="space-y-2 min-w-[240px]">
+                              {/* General Assessment Baseline / Overview Card */}
+                              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-slate-50/80 border border-slate-200">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Overall Exam Baseline
+                                  </span>
+                                  {candidate.hasRecordedAssessments ? (
+                                    <span className="text-xs font-black text-slate-900 font-mono">
+                                      {candidate.assessmentScore}% Avg
                                     </span>
-                                    <span className="text-[9px] text-slate-400 font-mono">Pass/Fail</span>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full transition-all duration-300 ${
-                                          t.passed
-                                            ? (t.type === 'skills' ? 'bg-[#20637A]' : t.type === 'language' ? 'bg-[#0EA5E9]' : 'bg-amber-500')
-                                            : 'bg-red-400'
-                                        }`}
-                                        style={{ width: `${Math.min(100, Math.max(0, t.score || 0))}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-[10px] font-mono font-bold text-slate-700 w-14 text-right">
-                                      {t.score}% <span className="text-[9px] font-normal text-slate-400">({t.passingScore})</span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                      Pending
                                     </span>
-                                  </>
-                                )}
+                                  )}
+                                </div>
+
+                                {/* Clearance Status Badge */}
+                                <div>
+                                  {candidate.clearanceStatus === 'cleared' && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                      <span>Fully Cleared ({candidate.takenExams.length} Passed)</span>
+                                    </span>
+                                  )}
+                                  {candidate.clearanceStatus === 'pending_job_specific' && (
+                                    <span
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"
+                                      title={`Pending mandated test: ${candidate.pendingJobSpecificTestNames.join(', ')}`}
+                                    >
+                                      <Clock className="w-3 h-3 text-amber-600" />
+                                      <span>Job Exam Pending: {candidate.pendingJobSpecificTestNames[0]}</span>
+                                    </span>
+                                  )}
+                                  {candidate.clearanceStatus === 'pending_general' && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                      <Clock className="w-3 h-3 text-slate-500" />
+                                      <span>Assessments Pending</span>
+                                    </span>
+                                  )}
+                                  {candidate.clearanceStatus === 'failed' && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                                      <AlertCircle className="w-3 h-3 text-red-600" />
+                                      <span>Clearance Failed</span>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Interactive Toggle Button to View All Taken Exams */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExamExpanded(candidate.applicant.id)}
+                                  className="w-full mt-0.5 flex items-center justify-between text-[10px] font-bold text-[#20637A] hover:text-[#184F62] bg-white hover:bg-sky-50/50 border border-sky-200/60 rounded px-2 py-1 transition-all cursor-pointer shadow-2xs"
+                                >
+                                  <span>
+                                    {isExpanded
+                                      ? 'Hide Taken Exams'
+                                      : `View All Taken Exams (${candidate.takenExams.length})`}
+                                  </span>
+                                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                </button>
                               </div>
-                            ))}
-                            {(candidate.activeTestResults?.length || 0) > 4 && (
-                              <p className="text-[9px] font-semibold text-blue-600 pt-0.5">
-                                +{(candidate.activeTestResults?.length || 0) - 4} job-specific clearance tests
-                              </p>
-                            )}
-                          </div>
-                        )}
+
+                              {/* Expanded Taken Exams List */}
+                              {isExpanded && (
+                                <div className="p-2.5 bg-white rounded-lg border border-teal-200/80 shadow-xs space-y-2 animate-in fade-in duration-150">
+                                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-600">
+                                      All Taken Examinations ({candidate.takenExams.length})
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 font-medium">Recorded Scores</span>
+                                  </div>
+
+                                  {candidate.takenExams.length === 0 ? (
+                                    <p className="text-[11px] text-slate-500 py-1 text-center italic">
+                                      No examination records found for this applicant yet.
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                      {candidate.takenExams.map((exam) => (
+                                        <div
+                                          key={exam.id}
+                                          className="p-1.5 rounded bg-slate-50 border border-slate-150 text-[10px] space-y-0.5"
+                                        >
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className="font-bold text-slate-800 truncate max-w-[140px]" title={exam.name}>
+                                              {exam.name}
+                                            </span>
+                                            <span
+                                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                exam.passed
+                                                  ? 'bg-emerald-100 text-emerald-800'
+                                                  : 'bg-red-100 text-red-800'
+                                              }`}
+                                            >
+                                              {exam.passed ? (
+                                                <CheckCircle className="w-2.5 h-2.5 text-emerald-700" />
+                                              ) : (
+                                                <AlertCircle className="w-2.5 h-2.5 text-red-600" />
+                                              )}
+                                              <span>{exam.scoringType === 'pass_fail' ? (exam.passed ? 'PASS' : 'FAIL') : `${exam.score ?? 0}%`}</span>
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center justify-between text-[9px] text-slate-400">
+                                            <span>
+                                              Baseline: {exam.scoringType === 'pass_fail' ? 'Pass/Fail' : `≥ ${exam.passingScore}%`}
+                                            </span>
+                                            {typeof exam.weight === 'number' && exam.weight > 0 && (
+                                              <span className="text-teal-700 font-medium">Weight: {exam.weight}%</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* Pending Job Specific Requirements Notice */}
+                                  {candidate.pendingJobSpecificTestNames.length > 0 && (
+                                    <div className="p-2 bg-amber-50/90 rounded border border-amber-200 text-[10px] text-amber-900 space-y-1">
+                                      <p className="font-bold flex items-center gap-1 text-amber-800">
+                                        <AlertCircle className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                        <span>Mandated for this Job Order:</span>
+                                      </p>
+                                      <ul className="list-disc list-inside space-y-0.5 text-[9px] text-amber-800">
+                                        {candidate.pendingJobSpecificTestNames.map((name, i) => (
+                                          <li key={i}>
+                                            <strong>{name}</strong> (Not yet taken by candidate)
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
 
-                      {/* 8. Row Actions: View Profile (Overlay) & Review Details (Modal) */}
+                      {/* 8. Row Actions: View Profile (Overlay), Review Details (Modal), & Endorse (Only for Profiling stage) */}
                       <td className="py-4 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -2075,6 +2420,23 @@ export default function SmartProfiling({
                             <FileText className="w-3.5 h-3.5 text-white/90" />
                             <span>Review Details</span>
                           </button>
+
+                          {/* Endorse Button: Strictly available ONLY for candidates in the 'Applicant Profiling' stage */}
+                          {isApplicantInProfiling(candidate.applicant) && candidate.classification !== 'Not Recommended' && (
+                            <button
+                              onClick={() => handleEndorseCandidate(candidate)}
+                              disabled={!candidate.compliancePassed || candidate.expiredDocs.length > 0}
+                              className="px-3.5 py-1.5 bg-[#10B981] hover:bg-[#059669] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={
+                                !candidate.compliancePassed || candidate.expiredDocs.length > 0
+                                  ? 'Endorsement blocked: Candidate has expired document(s)'
+                                  : 'Endorse candidate directly to CV Encoding'
+                              }
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Endorse</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2153,6 +2515,40 @@ export default function SmartProfiling({
 
             {/* Modal Body */}
             <div className="py-4 space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+              {/* Job Order Preference Mismatch Notice Banner */}
+              {(() => {
+                const modalMismatch = getJobOrderMismatchInfo(activeModalCandidate.applicant, currentJobOrder);
+                if (!modalMismatch) return null;
+                return (
+                  <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 shadow-2xs">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
+                        <span>Notice: Job Order Preference Mismatch (Candidate Picked Different Role)</span>
+                      </p>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        This applicant originally applied for <strong>{modalMismatch.chosenJobOrder || modalMismatch.chosenRole || 'a different job order/position'}</strong>, rather than <strong>{currentJobOrder?.position} (#{currentJobOrder?.id})</strong>. Even though our AI Smart Profiling engine calculated high background qualification readiness ({activeModalCandidate.readinessScore}%) based on allied trade competencies, note that this candidate did not pick this specific job order upon registration. Please verify their willingness to cross-endorse to this employer and position.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Active Pool Candidate Pre-Profiling Notice */}
+              {!isApplicantInProfiling(activeModalCandidate.applicant) && (
+                <div className="p-3.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 flex items-start gap-2.5 shadow-2xs">
+                  <Info className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-slate-900 text-xs">
+                      Active Pool Candidate — Pre-Profiling Stage ({activeModalCandidate.applicant.status || 'Active Pool'})
+                    </p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      This candidate is currently in the <strong>'{activeModalCandidate.applicant.status || 'Active Pool'}'</strong> pipeline. You can review their readiness evaluation, examination records, and document compliance; however, official endorsement to CV Encoding is restricted until the applicant advances to the <strong>Applicant Profiling</strong> stage.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Job-Order Readiness Score Card */}
               <div className="p-4 rounded-xl border bg-slate-50/70 border-slate-200">
                 <div className="flex items-center justify-between mb-2">
@@ -2490,6 +2886,28 @@ export default function SmartProfiling({
                     Configured via Supabase Evaluation Templates
                   </span>
                 </div>
+
+                {/* Job-Specific Pending Warning Banner */}
+                {activeModalCandidate.pendingJobSpecificTestNames.length > 0 && (
+                  <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+                    <p className="font-bold flex items-center gap-1.5 text-amber-800 mb-1">
+                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <span>Pending Job-Order Specific Examination:</span>
+                    </p>
+                    <p className="text-[11px] text-amber-700 mb-1">
+                      This job order mandates employer-specific testing that this candidate has not yet taken:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-[11px] font-semibold text-amber-800">
+                      {activeModalCandidate.pendingJobSpecificTestNames.map((name, i) => (
+                        <li key={i}>{name}</li>
+                      ))}
+                    </ul>
+                    <p className="text-[10px] text-amber-600 mt-1 italic">
+                      Candidate maintains high background job-fit readiness ({activeModalCandidate.readinessScore}%), but final deployment endorsement requires completing this test.
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {activeModalCandidate.activeTestResults?.map((t) => (
                     <div key={t.id} className="bg-white p-2.5 rounded-lg border border-slate-200">
@@ -2641,7 +3059,15 @@ export default function SmartProfiling({
                   Close
                 </button>
 
-                {activeModalCandidate.classification === 'Not Recommended' ? (
+                {!isApplicantInProfiling(activeModalCandidate.applicant) ? (
+                  <div
+                    className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 border border-slate-300 px-3.5 py-2 rounded-lg font-medium shadow-2xs"
+                    title={`Candidate current stage is '${activeModalCandidate.applicant.status || 'Active Pool'}'. The Endorse button is available only when the applicant is in the 'Applicant Profiling' stage.`}
+                  >
+                    <Info className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Endorsement Available Only in Profiling Stage ({activeModalCandidate.applicant.status || 'Active Pool'})</span>
+                  </div>
+                ) : activeModalCandidate.classification === 'Not Recommended' ? (
                   <div className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg font-semibold">
                     <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                     <span>Not Ready for CV Encoding</span>

@@ -255,6 +255,9 @@ export interface TestScores {
   tests?: Record<string, DynamicTestScore>; // Dynamic test scores from Evaluation & Workflow Setup
   overallScore?: number; // Weighted aggregate score (0-100)
   allPassed?: boolean; // True if all active tests meet their passing criteria
+  tradeSkillsStatus?: string;
+  languageStatus?: string;
+  iqStatus?: string;
 }
 
 export interface DetailedReq {
