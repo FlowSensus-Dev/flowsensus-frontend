@@ -21,113 +21,29 @@ import {
   ArrowLeft,
   Lock,
   ShieldAlert,
+  Download,
+  Building2,
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
 import { api } from '../../../lib/api';
 import ApplicantProfile from './ApplicantProfile';
 
-// ── Occupational Clusters for Allied Trade Credit ──────────────────────────────
-export const OCCUPATIONAL_CLUSTERS: Record<string, {
+// ── Occupational Trade Cluster Definition & Contract ──────────────────────────
+export interface OccupationalClusterData {
+  cluster_id?: string;
   name: string;
   roles: string[];
   certifications: string[];
   skills: string[];
-}> = {
-  healthcare: {
-    name: 'Healthcare & Patient Care',
-    roles: [
-      'nurse', 'staff nurse', 'registered nurse', 'rn', 'head nurse', 'icu nurse',
-      'caregiver', 'care worker', 'nursing aide', 'home health aide', 'patient care assistant',
-      'healthcare assistant', 'midwife', 'physical therapist', 'medical assistant', 'care'
-    ],
-    certifications: [
-      'prc nursing license', 'prc registered nurse', 'prc license', 'bls', 'acls', 'cpr',
-      'first aid', 'tesda nc ii - caregiving', 'caregiving nc ii', 'healthcare services nc ii',
-      'cna', 'certified nursing assistant'
-    ],
-    skills: [
-      'patient assessment', 'vital signs', 'medication administration', 'iv cannulation',
-      'wound care', 'caring', 'elderly care', 'childcare', 'patient hygiene', 'bedside care',
-      'emergency response', 'infection control', 'patient advocacy', 'first aid'
-    ]
-  },
-  metalwork_welding: {
-    name: 'Metal Fabrication & Industrial Welding',
-    roles: [
-      'industrial welder', 'welder', 'fabricator', 'pipe welder', 'senior welder',
-      'smaw welder', 'gmaw welder', 'fcaw welder', 'tig welder', 'mig welder',
-      'fitter', 'pipefitter', 'structural fabricator', 'metal fabricator', 'boilermaker'
-    ],
-    certifications: [
-      'tesda nc ii welding', 'tesda nc ii – smaw', 'tesda nc ii – gmaw', 'tesda nc i welding',
-      'tesda nc iii welding', 'cswip 3.1', 'aws d1.1', 'asme welding certification', 'pipe welding certification'
-    ],
-    skills: [
-      'smaw', 'gmaw', 'fcaw', 'tig', 'mig', 'welding', 'pipe welding', 'blueprint reading',
-      'wps reading', 'angle grinding', 'fitting', 'ndt awareness', 'metal cutting', 'flame cutting', 'flux cored'
-    ]
-  },
-  electrical_mep: {
-    name: 'Electrical & Mechanical Trades (MEP)',
-    roles: [
-      'electrician', 'building electrician', 'industrial electrician', 'electrical technician',
-      'lead electrician', 'lineman', 'wireman', 'maintenance electrician', 'plumber', 'pipe technician',
-      'hvac technician', 'refrigeration technician'
-    ],
-    certifications: [
-      'tesda nc ii – electrical', 'tesda nc ii – electrical installation & maintenance',
-      'tesda nc ii – building wiring', 'master electrician', 'registered master electrician',
-      'osha 10-hour', 'osha 30-hour'
-    ],
-    skills: [
-      'building wiring', 'panel board installation', 'conduit bending', 'electrical troubleshooting',
-      'circuit testing', 'preventive maintenance', 'blueprint reading', 'single-phase wiring', 'three-phase wiring'
-    ]
-  },
-  civil_construction: {
-    name: 'Civil Construction & Masonry',
-    roles: [
-      'mason', 'mason helper', 'construction worker', 'tile setter', 'plasterer',
-      'bricklayer', 'scaffolder', 'carpenter', 'formwork carpenter', 'painter', 'civil laborer'
-    ],
-    certifications: [
-      'tesda nc ii – masonry', 'tesda nc ii – tile setting', 'tesda nc ii – carpentry',
-      'tesda nc ii – scaffolding', 'basic osh', 'dole oshc'
-    ],
-    skills: [
-      'concrete block laying', 'plastering & rendering', 'tile setting', 'form work',
-      'basic scaffolding', 'concrete pouring', 'mortar mixing', 'surface preparation'
-    ]
-  },
-  domestic_hospitality: {
-    name: 'Domestic Care & Hospitality Services',
-    roles: [
-      'domestic helper', 'housekeeper', 'maid', 'cleaner', 'care worker',
-      'nanny', 'babysitter', 'cook', 'kitchen helper', 'laundry staff'
-    ],
-    certifications: [
-      'tesda nc ii – household services', 'household services nc ii', 'food safety', 'basic first aid'
-    ],
-    skills: [
-      'housekeeping', 'cooking', 'childcare', 'elderly care', 'laundry & ironing',
-      'meal preparation', 'cleaning & sanitation', 'household management'
-    ]
-  },
-  heavy_equipment_transport: {
-    name: 'Heavy Equipment & Transport Operations',
-    roles: [
-      'heavy equipment operator', 'backhoe operator', 'excavator operator', 'crane operator',
-      'forklift operator', 'truck driver', 'trailer driver', 'bus driver', 'delivery driver'
-    ],
-    certifications: [
-      'tesda nc ii – heavy equipment operation', 'professional driver license', 'restriction 1,2,3,8'
-    ],
-    skills: [
-      'heavy equipment maneuvering', 'pre-operational check', 'defensive driving',
-      'cargo securing', 'hydraulic system basic check', 'excavation work'
-    ]
-  }
-};
+  description?: string;
+  ai_powered?: boolean;
+  engine?: string;
+}
+
+// Dynamic cluster store fallback (all trade clusters are dynamically generated by Gemini AI / Supabase DB)
+export const OCCUPATIONAL_CLUSTERS: Record<string, OccupationalClusterData> = {};
+
 
 function normalizeTokens(text: string): Set<string> {
   if (!text || typeof text !== 'string') return new Set();
@@ -142,19 +58,26 @@ function normalizeTokens(text: string): Set<string> {
   return new Set(tokens);
 }
 
-function findClusterForText(text: string): { id: string; data: typeof OCCUPATIONAL_CLUSTERS[string] } | null {
+function findClusterForText(text: string, clustersMap?: Record<string, any>): { id: string; data: any } | null {
   if (!text) return null;
+  const activeClusters = (clustersMap && Object.keys(clustersMap).length > 0) ? clustersMap : OCCUPATIONAL_CLUSTERS;
   const textLower = text.toLowerCase();
   const tokens = normalizeTokens(text);
-  for (const [clusterId, clusterData] of Object.entries(OCCUPATIONAL_CLUSTERS)) {
-    for (const role of clusterData.roles) {
-      if (textLower.includes(role)) return { id: clusterId, data: clusterData };
+  for (const [clusterId, clusterData] of Object.entries(activeClusters)) {
+    if (textLower.includes(clusterId) || textLower.includes((clusterData.name || '').toLowerCase())) {
+      return { id: clusterId, data: clusterData };
+    }
+    for (const role of (clusterData.roles || [])) {
+      if (textLower.includes(role.toLowerCase())) return { id: clusterId, data: clusterData };
       const roleTokens = normalizeTokens(role);
       let match = false;
       for (const t of tokens) {
         if (roleTokens.has(t)) { match = true; break; }
       }
       if (match) return { id: clusterId, data: clusterData };
+    }
+    for (const sk of (clusterData.skills || [])) {
+      if (textLower.includes(sk.toLowerCase())) return { id: clusterId, data: clusterData };
     }
   }
   return null;
@@ -172,6 +95,7 @@ interface SmartProfilingProps {
   workflow?: WorkflowState;
   globalJobOrders?: any[];
   onNavigate?: (tab: string) => void;
+  evaluationTemplates?: any[];
 }
 
 export interface RankedCandidate {
@@ -192,6 +116,19 @@ export interface RankedCandidate {
   iqPass: boolean;
   interviewPass: boolean;
   allGatesPass: boolean;
+  hasRecordedAssessments: boolean;
+  activeTestResults: Array<{
+    id: string;
+    name: string;
+    type: string;
+    scoringType: 'numeric' | 'pass_fail';
+    score?: number;
+    passingScore: number;
+    maxScore: number;
+    passed: boolean;
+    statusText: string;
+    isJobSpecific?: boolean;
+  }>;
   compliancePassed: boolean;
   complianceReasons: string[];
   failureReasons: string[];
@@ -312,6 +249,7 @@ export default function SmartProfiling({
   workflow,
   globalJobOrders,
   onNavigate,
+  evaluationTemplates = [],
 }: SmartProfilingProps) {
   const [jobOrders, setJobOrders] = useState<any[]>([]);
   const [selectedJobOrderId, setSelectedJobOrderId] = useState<string>('');
@@ -320,6 +258,19 @@ export default function SmartProfiling({
   const [activeModalCandidate, setActiveModalCandidate] = useState<RankedCandidate | null>(null);
   const [overlayApplicant, setOverlayApplicant] = useState<ApplicantRecord | null>(null);
   const [expandedCategoryHelp, setExpandedCategoryHelp] = useState<string | null>(null);
+  const [agencyProfile, setAgencyProfile] = useState<{
+    agency_id?: number;
+    agency_name: string;
+    poea_license_no?: string;
+    workspace_code?: string;
+    logo_url?: string;
+    status?: string;
+  } | null>(null);
+  const [dynamicClusters, setDynamicClusters] = useState<Record<string, any>>({});
+  const [pipelineScope, setPipelineScope] = useState<'all' | 'profiling' | 'assigned'>('all');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
+  const [activeJobCluster, setActiveJobCluster] = useState<OccupationalClusterData | null>(null);
+  const [isSynthesizingCluster, setIsSynthesizingCluster] = useState<boolean>(false);
 
   // Keyboard shortcut listener to close overlays on Escape
   useEffect(() => {
@@ -379,18 +330,206 @@ export default function SmartProfiling({
     fetchLiveJobOrders();
   }, [globalJobOrders]);
 
+  // Fetch dynamic agency profile & trade clusters from Supabase database
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAgencyAndClusters = async () => {
+      try {
+        const [agencyRes, clustersRes] = await Promise.all([
+          api.get('/lookups/agency').catch((err) => {
+            console.warn('Failed to fetch agency lookup:', err);
+            return null;
+          }),
+          api.get('/lookups/profiling-clusters').catch((err) => {
+            console.warn('Failed to fetch profiling clusters lookup:', err);
+            return null;
+          }),
+        ]);
+        if (isMounted) {
+          if (agencyRes?.data) {
+            setAgencyProfile(agencyRes.data);
+          }
+          if (clustersRes?.data && Object.keys(clustersRes.data).length > 0) {
+            setDynamicClusters(clustersRes.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetching dynamic profiling lookups:', err);
+      }
+    };
+    fetchAgencyAndClusters();
+    return () => { isMounted = false; };
+  }, []);
+
   // Selected job order object
   const currentJobOrder = useMemo(() => {
     return jobOrders.find((j) => String(j.realId) === String(selectedJobOrderId)) || jobOrders[0] || null;
   }, [jobOrders, selectedJobOrderId]);
 
-  // Filter pool: Applicants actively in 'Applicant Profiling' pipeline stage per UC-03
+  // Fetch or synthesize the AI Trade Cluster for the active job order via Gemini Flash
+  useEffect(() => {
+    if (!currentJobOrder?.position) return;
+    let isMounted = true;
+    const fetchJobCluster = async () => {
+      setIsSynthesizingCluster(true);
+      try {
+        const res = await api.post('/lookups/ai-cluster', {
+          job_order_id: currentJobOrder.realId,
+          position: currentJobOrder.position,
+          requirements: currentJobOrder.requirements || [],
+          certifications: currentJobOrder.certifications || [],
+          country: currentJobOrder.country,
+        });
+        if (isMounted && res.data) {
+          setActiveJobCluster(res.data);
+          const cid = res.data.cluster_id || 'active_job_cluster';
+          setDynamicClusters((prev) => ({
+            ...prev,
+            [cid]: res.data,
+          }));
+        }
+      } catch (err) {
+        console.warn('Could not load AI cluster for job order:', err);
+      } finally {
+        if (isMounted) setIsSynthesizingCluster(false);
+      }
+    };
+    fetchJobCluster();
+    return () => { isMounted = false; };
+  }, [currentJobOrder?.position, currentJobOrder?.country]);
+
+  // ── Dynamic Evaluation Templates (Supabase Database + Job-Specific Filters) ──────────────
+  const [localTemplates, setLocalTemplates] = useState<any[]>(evaluationTemplates || []);
+
+  useEffect(() => {
+    if (evaluationTemplates && evaluationTemplates.length > 0) {
+      setLocalTemplates(evaluationTemplates);
+    } else {
+      let isMounted = true;
+      api.get('/evaluations/templates')
+        .then((res) => {
+          if (isMounted && res.data && Array.isArray(res.data)) {
+            setLocalTemplates(res.data);
+          }
+        })
+        .catch((err) => console.warn('Could not fetch evaluation templates in SmartProfiling:', err));
+      return () => { isMounted = false; };
+    }
+  }, [evaluationTemplates]);
+
+  // Active evaluation templates for the current job order (job-specific overrides agency baseline)
+  const activeJobEvaluationTemplates = useMemo(() => {
+    const active = (localTemplates || []).filter((t: any) => Boolean(t.is_active ?? t.isActive ?? true));
+    if (!currentJobOrder || active.length === 0) return active;
+
+    const realIdStr = String(currentJobOrder.realId || '');
+    const idStr = String(currentJobOrder.id || '').toLowerCase();
+    const posStr = String(currentJobOrder.position || '').toLowerCase();
+
+    const isMatch = (target: any) => {
+      const t = String(target).trim().toLowerCase();
+      if (!t) return false;
+      if (realIdStr && (t === realIdStr || t === `jo-${realIdStr}`)) return true;
+      if (idStr && (t === idStr || idStr.includes(t) || t.includes(idStr))) return true;
+      if (posStr && (t === posStr || posStr.includes(t) || t.includes(posStr))) return true;
+      return false;
+    };
+
+    // Separate job-specific templates from agency baseline templates
+    const jobSpecific = active.filter((t: any) => {
+      const app = t.applicable_job_orders || t.applicableJobOrders;
+      return Array.isArray(app) && app.length > 0 && app.some(isMatch);
+    });
+
+    const baseline = active.filter((t: any) => {
+      const app = t.applicable_job_orders || t.applicableJobOrders;
+      return !Array.isArray(app) || app.length === 0;
+    });
+
+    // If job has specific templates for a type, job-specific takes precedence
+    const jobSpecificTypes = new Set(jobSpecific.map((t: any) => (t.test_type || t.type || '').toLowerCase()));
+    const effectiveBaseline = baseline.filter((t: any) => {
+      const type = (t.test_type || t.type || '').toLowerCase();
+      return !jobSpecificTypes.has(type);
+    });
+
+    return [...jobSpecific, ...effectiveBaseline];
+  }, [localTemplates, currentJobOrder]);
+
+  // Extract dynamic gate definitions and thresholds for scoring & modal display
+  const dynamicGateDefinitions = useMemo(() => {
+    // Skills template
+    const skillsTpl = activeJobEvaluationTemplates.find(
+      (t) => (t.test_type || t.type) === 'skills' || (t.name || '').toLowerCase().includes('skill') || (t.name || '').toLowerCase().includes('trade')
+    );
+    // Language / Interview template
+    const langTpl = activeJobEvaluationTemplates.find(
+      (t) => (t.test_type || t.type) === 'language' || (t.test_type || t.type) === 'interview' || (t.name || '').toLowerCase().includes('english') || (t.name || '').toLowerCase().includes('language')
+    );
+    // IQ template
+    const iqTpl = activeJobEvaluationTemplates.find(
+      (t) => (t.test_type || t.type) === 'iq' || (t.name || '').toLowerCase().includes('iq') || (t.name || '').toLowerCase().includes('aptitude')
+    );
+    // EQ template
+    const eqTpl = activeJobEvaluationTemplates.find(
+      (t) => (t.test_type || t.type) === 'eq' || (t.name || '').toLowerCase().includes('psychological') || (t.name || '').toLowerCase().includes('eq') || (t.name || '').toLowerCase().includes('personality')
+    );
+
+    const skillsApp = skillsTpl?.applicable_job_orders || skillsTpl?.applicableJobOrders;
+    const langApp = langTpl?.applicable_job_orders || langTpl?.applicableJobOrders;
+    const iqApp = iqTpl?.applicable_job_orders || iqTpl?.applicableJobOrders;
+    const eqApp = eqTpl?.applicable_job_orders || eqTpl?.applicableJobOrders;
+
+    return {
+      skillsTpl: {
+        id: String(skillsTpl?.test_template_id || skillsTpl?.id || 'trade-skills'),
+        name: skillsTpl?.name || 'Trade & Technical Skills Assessment',
+        passingScore: Number(skillsTpl?.passing_score ?? skillsTpl?.passingScore ?? 70),
+        scoringType: (skillsTpl?.scoring_type || skillsTpl?.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+        isJobSpecific: Boolean(Array.isArray(skillsApp) && skillsApp.length > 0),
+      },
+      langTpl: {
+        id: String(langTpl?.test_template_id || langTpl?.id || 'language-aptitude'),
+        name: langTpl?.name || 'English & Language Aptitude',
+        passingScore: Number(langTpl?.passing_score ?? langTpl?.passingScore ?? 60),
+        scoringType: (langTpl?.scoring_type || langTpl?.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+        isJobSpecific: Boolean(Array.isArray(langApp) && langApp.length > 0),
+      },
+      iqTpl: {
+        id: String(iqTpl?.test_template_id || iqTpl?.id || 'iq-aptitude'),
+        name: iqTpl?.name || 'Cognitive & Aptitude Test (IQ)',
+        passingScore: Number(iqTpl?.passing_score ?? iqTpl?.passingScore ?? 50),
+        scoringType: (iqTpl?.scoring_type || iqTpl?.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+        isJobSpecific: Boolean(Array.isArray(iqApp) && iqApp.length > 0),
+      },
+      eqTpl: {
+        id: String(eqTpl?.test_template_id || eqTpl?.id || 'eq-interview'),
+        name: eqTpl?.name || 'Psychological & EQ Interview',
+        passingScore: Number(eqTpl?.passing_score ?? eqTpl?.passingScore ?? 75),
+        scoringType: (eqTpl?.scoring_type || eqTpl?.scoringType || 'pass_fail') as 'numeric' | 'pass_fail',
+        isJobSpecific: Boolean(Array.isArray(eqApp) && eqApp.length > 0),
+      },
+      otherTemplates: activeJobEvaluationTemplates.filter(
+        (t) => !([skillsTpl, langTpl, iqTpl, eqTpl].some((x) => x && (String(x.test_template_id || x.id) === String(t.test_template_id || t.id))))
+      ),
+    };
+  }, [activeJobEvaluationTemplates]);
+
+  // Filter pool: Configurable pipeline scope (All Active Candidates, Profiling Stage Only, Assigned to Job Order)
   const candidatePool = useMemo(() => {
     return applicants.filter((a) => {
-      if (a.isStopped) return false;
-      return a.status === 'Applicant Profiling';
+      if (a.isStopped || a.status === 'Processing Stopped') return false;
+      if (pipelineScope === 'profiling') {
+        return a.status === 'Applicant Profiling';
+      }
+      if (pipelineScope === 'assigned') {
+        const assignedJoId = (a as any).job_order_id || (a as any).assignedJobOrderId;
+        return String(assignedJoId) === String(selectedJobOrderId);
+      }
+      // 'all': Active applicants in the agency pool eligible for cross-order evaluation
+      return true;
     });
-  }, [applicants]);
+  }, [applicants, pipelineScope, selectedJobOrderId]);
 
   // A2 Precondition check: candidates with complete assessments vs incomplete
   const { eligibleCandidates, incompleteCandidates } = useMemo(() => {
@@ -405,11 +544,11 @@ export default function SmartProfiling({
           a.testScores?.tradeSkills !== undefined &&
           a.testScores?.iqAptitude !== undefined;
 
-      if (a.hasCompleteAssessments === false || !hasScores || !hasCompleteEvaluation) {
+      if (!hasScores || !hasCompleteEvaluation) {
         incomplete.push(a);
-      } else {
-        eligible.push(a);
       }
+      // Rank and evaluate all pool candidates so active candidates in the database appear
+      eligible.push(a);
     });
 
     return { eligibleCandidates: eligible, incompleteCandidates: incomplete };
@@ -423,42 +562,164 @@ export default function SmartProfiling({
     const jobCountry = (currentJobOrder.country || '').trim();
     const minYears = Number(currentJobOrder.minExperience || 1);
 
-    const targetClusterInfo = findClusterForText(jobPos);
+    const targetClusterInfo = findClusterForText(jobPos, dynamicClusters);
     const targetClusterId = targetClusterInfo?.id;
     const targetClusterData = targetClusterInfo?.data;
 
     const evaluated: Omit<RankedCandidate, 'rank'>[] = eligibleCandidates.map((applicant) => {
-      const techScore = Number(applicant.testScores?.tradeSkills ?? 0);
-      const iqScore = Number(applicant.testScores?.iqAptitude ?? 0);
+      const rawScores = applicant.testScores || {};
+      const { skillsTpl, langTpl, iqTpl, eqTpl, otherTemplates } = dynamicGateDefinitions;
+
+      // Extract scores with support for nested/testId mappings or top-level properties
+      const techScore = Number(rawScores.tradeSkills ?? rawScores.tests?.[skillsTpl.id]?.score ?? 0);
+      const iqScore = Number(rawScores.iqAptitude ?? rawScores.tests?.[iqTpl.id]?.score ?? 0);
       const interviewScore = Number(
-        applicant.testScores?.languageProficiency ??
-        applicant.testScores?.englishProficiency ??
+        rawScores.languageProficiency ??
+        rawScores.englishProficiency ??
         (applicant as any).interview_score ??
         (applicant as any).language_proficiency ??
+        rawScores.tests?.[langTpl.id]?.score ??
         0
       );
-      const eqStatus = String(applicant.testScores?.personalityEQ ?? 'Missing');
+      const eqRaw = rawScores.personalityEQ ?? rawScores.tests?.[eqTpl.id]?.score ?? (applicant.testScores ? 'Pending' : 'Unassessed');
+      const eqStatus = String(eqRaw);
+
+      // Check whether assessments are actually recorded
+      const hasAnyScore = (techScore > 0 || iqScore > 0 || interviewScore > 0 || (rawScores.overallScore !== undefined && Number(rawScores.overallScore) > 0));
+      const hasEqRecord = eqStatus && !['pending', 'unassessed', 'undefined', 'null'].includes(eqStatus.toLowerCase());
+      const hasRecordedAssessments = Boolean(hasAnyScore || hasEqRecord || (rawScores.tests && Object.keys(rawScores.tests).length > 0));
 
       const validScores = [techScore, iqScore, interviewScore].filter((s) => s > 0);
       const computedAvg = validScores.length > 0
         ? Math.round((validScores.reduce((a, b) => a + b, 0) / validScores.length) * 10) / 10
         : 0;
-      const assessmentScore = applicant.testScores?.overallScore !== undefined
-        ? Number(applicant.testScores.overallScore)
+      const assessmentScore = rawScores.overallScore !== undefined
+        ? Number(rawScores.overallScore)
         : computedAvg;
 
-      // Core Examination Clearance Gates
-      const eqPass = eqStatus.trim().toLowerCase() === 'suitable';
+      // Dynamic Evaluation of each active gate
+      // 1. Technical Skills Test Gate
+      let techPass = false;
+      if (skillsTpl.scoringType === 'pass_fail') {
+        techPass = techScore >= 100 || String(rawScores.tradeSkillsStatus || '').toLowerCase() === 'pass';
+      } else {
+        techPass = techScore >= skillsTpl.passingScore;
+      }
+
+      // 2. Language / Interview Gate
+      let interviewPass = false;
+      if (langTpl.scoringType === 'pass_fail') {
+        interviewPass = interviewScore >= 100 || String(rawScores.languageStatus || '').toLowerCase() === 'pass';
+      } else {
+        interviewPass = interviewScore >= langTpl.passingScore;
+      }
+
+      // 3. IQ / Aptitude Gate
+      let iqPass = false;
+      if (iqTpl.scoringType === 'pass_fail') {
+        iqPass = iqScore >= 100 || String(rawScores.iqStatus || '').toLowerCase() === 'pass';
+      } else {
+        iqPass = iqScore >= iqTpl.passingScore;
+      }
+
+      // 4. Personality / EQ Gate
+      let eqPass = false;
+      const eqNum = Number(eqRaw);
+      if (!isNaN(eqNum) && eqNum > 0) {
+        eqPass = eqNum >= eqTpl.passingScore;
+      } else {
+        const lowerEq = eqStatus.trim().toLowerCase();
+        eqPass = ['suitable', 'pass', 'passed', 'clear', 'cleared', 'fit'].includes(lowerEq);
+      }
+
+      // 5. Active test results array for detailed inspection & modal
+      const activeTestResults: RankedCandidate['activeTestResults'] = [
+        {
+          id: skillsTpl.id,
+          name: skillsTpl.name,
+          type: 'skills',
+          scoringType: skillsTpl.scoringType,
+          score: techScore,
+          passingScore: skillsTpl.passingScore,
+          maxScore: 100,
+          passed: techPass,
+          statusText: skillsTpl.scoringType === 'pass_fail' ? (techPass ? 'PASSED' : 'FAILED') : `${techScore}% (Req ≥ ${skillsTpl.passingScore}%)`,
+          isJobSpecific: skillsTpl.isJobSpecific,
+        },
+        {
+          id: langTpl.id,
+          name: langTpl.name,
+          type: 'language',
+          scoringType: langTpl.scoringType,
+          score: interviewScore,
+          passingScore: langTpl.passingScore,
+          maxScore: 100,
+          passed: interviewPass,
+          statusText: langTpl.scoringType === 'pass_fail' ? (interviewPass ? 'PASSED' : 'FAILED') : `${interviewScore}% (Req ≥ ${langTpl.passingScore}%)`,
+          isJobSpecific: langTpl.isJobSpecific,
+        },
+        {
+          id: iqTpl.id,
+          name: iqTpl.name,
+          type: 'iq',
+          scoringType: iqTpl.scoringType,
+          score: iqScore,
+          passingScore: iqTpl.passingScore,
+          maxScore: 100,
+          passed: iqPass,
+          statusText: iqTpl.scoringType === 'pass_fail' ? (iqPass ? 'PASSED' : 'FAILED') : `${iqScore}% (Req ≥ ${iqTpl.passingScore}%)`,
+          isJobSpecific: iqTpl.isJobSpecific,
+        },
+        {
+          id: eqTpl.id,
+          name: eqTpl.name,
+          type: 'eq',
+          scoringType: eqTpl.scoringType,
+          score: !isNaN(eqNum) && eqNum > 0 ? eqNum : undefined,
+          passingScore: eqTpl.passingScore,
+          maxScore: 100,
+          passed: eqPass,
+          statusText: eqTpl.scoringType === 'pass_fail' ? (eqPass ? 'Suitable' : eqStatus) : `${eqRaw} (Req ≥ ${eqTpl.passingScore}%)`,
+          isJobSpecific: eqTpl.isJobSpecific,
+        },
+      ];
+
+      // Check any additional job-specific templates (e.g. medical or custom tests)
+      let otherGatesPass = true;
+      otherTemplates.forEach((ot: any) => {
+        const otId = String(ot.test_template_id || ot.id);
+        const otName = ot.name;
+        const otScoreType = (ot.scoring_type || ot.scoringType || 'numeric') as 'numeric' | 'pass_fail';
+        const otPassScore = Number(ot.passing_score ?? ot.passingScore ?? 60);
+        const recordedVal = rawScores.tests?.[otId]?.score ?? (rawScores as any)[otId];
+        const passedVal = rawScores.tests?.[otId]?.passed ?? (typeof recordedVal === 'number' ? recordedVal >= otPassScore : true);
+
+        activeTestResults.push({
+          id: otId,
+          name: otName,
+          type: ot.test_type || ot.type || 'custom',
+          scoringType: otScoreType,
+          score: typeof recordedVal === 'number' ? recordedVal : undefined,
+          passingScore: otPassScore,
+          maxScore: Number(ot.max_score ?? ot.maxScore ?? 100),
+          passed: Boolean(passedVal),
+          statusText: otScoreType === 'pass_fail' ? (passedVal ? 'PASSED' : 'FAILED') : `${recordedVal ?? 0}% (Req ≥ ${otPassScore}%)`,
+          isJobSpecific: true,
+        });
+
+        if (!passedVal) otherGatesPass = false;
+      });
+
       const allGatesPass = applicant.testScores?.allPassed !== undefined
-        ? Boolean(applicant.testScores.allPassed) && (eqPass || !applicant.testScores.personalityEQ)
-        : (techScore >= 70 && iqScore >= 50 && interviewScore >= 60 && eqPass);
+        ? Boolean(applicant.testScores.allPassed) && eqPass && otherGatesPass
+        : (techPass && iqPass && interviewPass && eqPass && otherGatesPass);
 
       const strengths: string[] = [];
       const gaps: string[] = [];
 
       const appRole = (applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || '').trim();
       const history = applicant.employmentHistory || applicant.workExperience || [];
-      const appClusterInfo = findClusterForText(appRole);
+      const appClusterInfo = findClusterForText(appRole, dynamicClusters);
       const appClusterId = appClusterInfo?.id;
 
       // ── 1. Role / Position Match (Max: 30 pts) ──────────────────────────
@@ -497,7 +758,7 @@ export default function SmartProfiling({
       } else if (targetClusterId && appClusterId && targetClusterId === appClusterId) {
         roleScore = 20; // Related Trade Cluster credit
         strengths.push(`Allied trade background: '${appRole}' aligns with '${jobPos}' in the ${targetClusterData?.name} cluster (20/30 pts credit)`);
-      } else if (targetClusterId && historyPositions.some((hp) => findClusterForText(hp)?.id === targetClusterId)) {
+      } else if (targetClusterId && historyPositions.some((hp) => findClusterForText(hp, dynamicClusters)?.id === targetClusterId)) {
         roleScore = 16;
         strengths.push(`Candidate prior employment history aligns with the ${targetClusterData?.name} cluster (16/30 pts credit)`);
       } else {
@@ -641,8 +902,8 @@ export default function SmartProfiling({
       const appSkills: string[] = Array.isArray(applicant.skills) ? applicant.skills : [];
       const targetKeywords = new Set<string>();
       targetTokens.forEach((t) => targetKeywords.add(t));
-      if (targetClusterData) {
-        targetClusterData.roles.forEach((r) => normalizeTokens(r).forEach((t) => targetKeywords.add(t)));
+      if (targetClusterData && Array.isArray(targetClusterData.roles)) {
+        targetClusterData.roles.forEach((r: string) => normalizeTokens(r).forEach((t: string) => targetKeywords.add(t)));
       }
 
       const matchedSkills: string[] = [];
@@ -655,7 +916,11 @@ export default function SmartProfiling({
         }
         if (match) {
           matchedSkills.push(sk);
-        } else if (targetClusterData && targetClusterData.skills.some((cs) => cs.includes(skLower) || skLower.includes(cs))) {
+        } else if (
+          targetClusterData &&
+          Array.isArray(targetClusterData.skills) &&
+          targetClusterData.skills.some((cs: string) => cs.includes(skLower) || skLower.includes(cs))
+        ) {
           matchedSkills.push(sk);
         }
       });
@@ -796,27 +1061,34 @@ export default function SmartProfiling({
 
       // Three-tier analytical classification per UC-03 Option 2 (80% / 60%)
       let classification: 'Recommended' | 'For Further Review' | 'Not Recommended';
-      if (allGatesPass && readinessScore >= 80) {
+      if (!allGatesPass && hasRecordedAssessments) {
+        // Candidate failed one or more mandatory examination clearance gates
+        classification = 'Not Recommended';
+      } else if (!hasRecordedAssessments) {
+        // Candidate qualifications qualify for review, but examination assessments are pending
+        classification = 'For Further Review';
+      } else if (readinessScore >= 80) {
         classification = 'Recommended';
-      } else if (allGatesPass && readinessScore >= 60) {
+      } else if (readinessScore >= 60) {
         classification = 'For Further Review';
       } else {
         classification = 'Not Recommended';
       }
 
-      // Diagnostic failure reasons
+      // Diagnostic failure & advisory reasons
       const failureReasons: string[] = [];
-      if (!eqPass) {
-        failureReasons.push(`EQ Assessment is '${eqStatus}' (baseline requires 'Suitable')`);
-      }
-      if (!techPass) {
-        failureReasons.push(`Technical Skills test score: ${techScore}% (requires >= 70%)`);
-      }
-      if (!iqPass) {
-        failureReasons.push(`IQ / Aptitude test score: ${iqScore}% (requires >= 50%)`);
-      }
-      if (!interviewPass) {
-        failureReasons.push(`Interview / Language score: ${interviewScore}% (requires >= 60%)`);
+      if (!hasRecordedAssessments) {
+        failureReasons.push('Assessment examination clearance pending (candidate has not yet completed required job order testing)');
+      } else {
+        activeTestResults.forEach((t) => {
+          if (!t.passed) {
+            if (t.scoringType === 'pass_fail') {
+              failureReasons.push(`${t.name}: Mandatory clearance requirement not met (${t.statusText})`);
+            } else {
+              failureReasons.push(`${t.name}: Score ${t.score ?? 0}% is below required passing threshold (${t.passingScore}%)`);
+            }
+          }
+        });
       }
       if (allGatesPass && readinessScore < 60) {
         failureReasons.push(`Readiness score (${readinessScore}%) is below the 60% threshold for ${jobPos}`);
@@ -845,6 +1117,8 @@ export default function SmartProfiling({
         iqPass,
         interviewPass,
         allGatesPass,
+        hasRecordedAssessments,
+        activeTestResults,
         compliancePassed,
         complianceReasons,
         failureReasons,
@@ -883,7 +1157,7 @@ export default function SmartProfiling({
       ...cand,
       rank: index + 1,
     }));
-  }, [eligibleCandidates, currentJobOrder]);
+  }, [eligibleCandidates, currentJobOrder, dynamicClusters, dynamicGateDefinitions]);
 
   // KPI Header Counts
   const totalEvaluated = rankedCandidates.length;
@@ -936,6 +1210,444 @@ export default function SmartProfiling({
       setActiveModalCandidate(null);
     } catch (err) {
       showToast('Failed to endorse candidate. Please try again.');
+    }
+  };
+
+  // Handler: Generate and download official Candidate Profiling Evaluation Report as PDF
+  // CRITICAL CONSTRAINT: Uses the dynamic agency name and POEA license from Supabase with ZERO FlowSensus branding
+  const handleDownloadProfilingPDF = (candidate: RankedCandidate) => {
+    setIsGeneratingPdf(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const agencyName = (agencyProfile?.agency_name || 'LICENSED OVERSEAS RECRUITMENT AGENCY').toUpperCase();
+      const poeaLicense = agencyProfile?.poea_license_no
+        ? `POEA/DMW License: ${agencyProfile.poea_license_no}`
+        : 'POEA / DMW Accredited Overseas Placement Agency';
+      const applicant = candidate.applicant;
+      const appName = applicant.name || `${(applicant as any).first_name || ''} ${(applicant as any).last_name || ''}`.trim() || 'Candidate';
+      const appCode = applicant.applicantCode || (applicant.id ? `APP-${String(applicant.id).padStart(5, '0')}` : 'N/A');
+      const targetPos = currentJobOrder?.position || 'Target Position';
+      const targetJoId = currentJobOrder?.id || 'N/A';
+      const targetEmployer = currentJobOrder?.employer || 'Foreign Principal Partner';
+      const targetCountry = currentJobOrder?.country || 'International';
+
+      const pageWidth = 210;
+      const margin = 14;
+      const contentWidth = pageWidth - (margin * 2);
+      let y = 14;
+
+      const checkPageBreak = (neededHeight: number) => {
+        if (y + neededHeight > 275) {
+          doc.addPage();
+          y = 15;
+          renderHeaderBar(true);
+        }
+      };
+
+      const renderHeaderBar = (isContinuation = false) => {
+        // Top Banner with Agency Brand (NO FlowSensus)
+        doc.setFillColor(30, 58, 75); // Professional Navy/Teal #1E3A4B
+        doc.rect(margin, y, contentWidth, isContinuation ? 10 : 20, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        if (isContinuation) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.text(`${agencyName} — Candidate Profiling Evaluation (Continued)`, margin + 4, y + 6.5);
+          y += 14;
+        } else {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(13);
+          doc.text(agencyName, margin + 5, y + 8);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(203, 213, 225); // Slate 300
+          doc.text(poeaLicense, margin + 5, y + 13);
+          doc.text('Official Evaluation Document • Confidential', pageWidth - margin - 5, y + 13, { align: 'right' });
+          y += 24;
+        }
+      };
+
+      renderHeaderBar(false);
+
+      // Document Title
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('CANDIDATE PROFILING & JOB-FIT EVALUATION REPORT', margin, y);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      const evalDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+      doc.text(`Evaluation Date: ${evalDate} | Evaluated By: ${currentUserName || 'Evaluating Officer'}`, margin, y + 4.5);
+      y += 9;
+
+      // Section: Candidate & Target Job Order Summary Box
+      checkPageBreak(38);
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, y, contentWidth, 34, 2, 2, 'FD');
+
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CANDIDATE IDENTIFICATION', margin + 4, y + 5);
+      doc.text('TARGET FOREIGN JOB ORDER', margin + (contentWidth / 2) + 4, y + 5);
+
+      // Left Column: Candidate Info
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appName, margin + 4, y + 10);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Applicant Code: ${appCode}`, margin + 4, y + 14.5);
+      doc.text(`Applied Role: ${applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || 'General Applicant'}`, margin + 4, y + 19);
+      doc.text(`Verified Experience: ${candidate.totalExperienceYears} Year(s)${candidate.isFirstTimeApplicant ? ' (First-Time Track)' : ''}`, margin + 4, y + 23.5);
+      doc.text(`Certifications on File: ${candidate.certificationsCount} Credential(s)`, margin + 4, y + 28);
+
+      // Right Column: Target Job Order Info
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${targetPos} (${targetJoId})`, margin + (contentWidth / 2) + 4, y + 10);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Foreign Principal: ${targetEmployer}`, margin + (contentWidth / 2) + 4, y + 14.5);
+      doc.text(`Destination Country: ${targetCountry}`, margin + (contentWidth / 2) + 4, y + 19);
+      doc.text(`Required Experience: ${currentJobOrder?.minExperience || 1} Year(s)`, margin + (contentWidth / 2) + 4, y + 23.5);
+      doc.text(`Pipeline Status: ${applicant.status || 'Active'}`, margin + (contentWidth / 2) + 4, y + 28);
+
+      y += 38;
+
+      // Section: Overall Readiness & Classification Scorecard
+      checkPageBreak(24);
+      doc.setFillColor(241, 245, 249);
+      doc.roundedRect(margin, y, contentWidth, 20, 2, 2, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('READINESS SCORE', margin + 6, y + 5.5);
+      doc.text('ANALYTICAL CLASSIFICATION', margin + 55, y + 5.5);
+      doc.text('STATUTORY CLEARANCE (DMW/POEA)', margin + 115, y + 5.5);
+
+      // Readiness Score Value
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 75);
+      doc.text(`${candidate.readinessScore}%`, margin + 6, y + 14);
+
+      // Classification Badge
+      doc.setFontSize(10);
+      if (candidate.classification === 'Recommended') {
+        doc.setTextColor(16, 185, 129); // Emerald
+        doc.text('RECOMMENDED', margin + 55, y + 13.5);
+      } else if (candidate.classification === 'For Further Review') {
+        doc.setTextColor(217, 119, 6); // Amber
+        doc.text('FOR FURTHER REVIEW', margin + 55, y + 13.5);
+      } else {
+        doc.setTextColor(239, 68, 68); // Red
+        doc.text('NOT RECOMMENDED', margin + 55, y + 13.5);
+      }
+
+      // Compliance
+      doc.setFontSize(9);
+      if (candidate.compliancePassed) {
+        doc.setTextColor(16, 185, 129);
+        doc.text('PASSED (All Clear)', margin + 115, y + 13.5);
+      } else {
+        doc.setTextColor(239, 68, 68);
+        doc.text('ACTION REQUIRED', margin + 115, y + 13.5);
+      }
+
+      y += 24;
+
+      // Section: 5-Category Granular Scoring Breakdown
+      checkPageBreak(75);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('JOB-ORDER READINESS BREAKDOWN (5 CRITICAL PILLARS)', margin, y);
+      y += 5;
+
+      const categories = [
+        {
+          num: '1',
+          name: 'Role & Trade Match',
+          score: candidate.categoryScores.roleMatch,
+          max: 30,
+          expl: getCategoryCandidateExplanation('roleMatch', candidate, currentJobOrder),
+        },
+        {
+          num: '2',
+          name: 'Required Certifications',
+          score: candidate.categoryScores.certifications,
+          max: 25,
+          expl: getCategoryCandidateExplanation('certifications', candidate, currentJobOrder),
+        },
+        {
+          num: '3',
+          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Education Foundation' : 'Work Experience Duration',
+          score: candidate.categoryScores.experience,
+          max: 20,
+          expl: getCategoryCandidateExplanation('experience', candidate, currentJobOrder),
+        },
+        {
+          num: '4',
+          name: 'Trade Skills & Competencies',
+          score: candidate.categoryScores.skills,
+          max: 15,
+          expl: getCategoryCandidateExplanation('skills', candidate, currentJobOrder),
+        },
+        {
+          num: '5',
+          name: 'Overseas Deployment Readiness',
+          score: candidate.categoryScores.overseas,
+          max: 10,
+          expl: getCategoryCandidateExplanation('overseas', candidate, currentJobOrder),
+        },
+      ];
+
+      categories.forEach((cat) => {
+        const textLines = doc.splitTextToSize(cat.expl, contentWidth - 42);
+        const itemHeight = Math.max(12, 6 + (textLines.length * 3.5));
+        checkPageBreak(itemHeight + 2);
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(margin, y, contentWidth, itemHeight, 1, 1, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`${cat.num}. ${cat.name}`, margin + 3, y + 4.5);
+
+        // Score
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 58, 75);
+        doc.text(`${cat.score} / ${cat.max} pts`, pageWidth - margin - 3, y + 4.5, { align: 'right' });
+
+        // Explanation text
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(textLines, margin + 3, y + 8.5);
+
+        y += itemHeight + 2;
+      });
+
+      y += 2;
+
+      // Section: Examination & Assessment Gates
+      checkPageBreak(30);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('EXAMINATION & CLEARANCE GATES', margin, y);
+      y += 5;
+
+      const dynamicGates = (candidate.activeTestResults && candidate.activeTestResults.length > 0)
+        ? candidate.activeTestResults.map((t) => ({
+            label: t.name,
+            val: t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`,
+            req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req: >= ${t.passingScore}%`,
+          }))
+        : [
+            { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Req: >= ${dynamicGateDefinitions.skillsTpl.passingScore}%` },
+            { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Req: >= ${dynamicGateDefinitions.iqTpl.passingScore}%` },
+            { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Req: >= ${dynamicGateDefinitions.langTpl.passingScore}%` },
+            { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Req: >= ${dynamicGateDefinitions.eqTpl.passingScore}%` },
+          ];
+
+      const gateCols = Math.min(4, Math.max(1, dynamicGates.length));
+      const colW = contentWidth / gateCols;
+      const numRows = Math.ceil(dynamicGates.length / 4);
+      const boxHeight = numRows * 16;
+      checkPageBreak(boxHeight + 8);
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, y, contentWidth, boxHeight, 1.5, 1.5, 'FD');
+
+      dynamicGates.forEach((g, idx) => {
+        const row = Math.floor(idx / 4);
+        const col = idx % 4;
+        const xPos = margin + (col * colW) + 3;
+        const rowY = y + (row * 16);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        const truncatedLabel = g.label.length > 20 ? `${g.label.slice(0, 18)}...` : g.label;
+        doc.text(truncatedLabel, xPos, rowY + 4.5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(g.val, xPos, rowY + 9.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(g.req, xPos, rowY + 13.5);
+      });
+
+      y += boxHeight + 4;
+
+      // Section: Statutory Documents Audit
+      checkPageBreak(25);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('STATUTORY REGULATORY CLEARANCES (DMW / POEA)', margin, y);
+      y += 5;
+
+      const statDocs = [
+        { name: 'Passport Validity', status: candidate.passportStatus.status, valid: candidate.passportStatus.valid },
+        { name: 'NBI Clearance', status: candidate.nbiStatus.status, valid: candidate.nbiStatus.valid },
+        { name: 'Medical Clearance', status: candidate.medicalStatus.status, valid: candidate.medicalStatus.valid },
+      ];
+
+      statDocs.forEach((sd) => {
+        checkPageBreak(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`• ${sd.name}:`, margin + 2, y + 3.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(sd.valid ? 22 : 220, sd.valid ? 101 : 38, sd.valid ? 52 : 38);
+        doc.text(sd.status, margin + 45, y + 3.5);
+        y += 5;
+      });
+
+      // Section: Strengths & Identified Gaps
+      if (candidate.strengths.length > 0 || candidate.gaps.length > 0) {
+        y += 2;
+        checkPageBreak(30);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text('EVALUATION FINDINGS (STRENGTHS & GAPS)', margin, y);
+        y += 5;
+
+        if (candidate.strengths.length > 0) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(16, 185, 129);
+          doc.text('Candidate Strengths:', margin + 2, y + 3.5);
+          y += 5;
+
+          candidate.strengths.forEach((str) => {
+            const lines = doc.splitTextToSize(`✓ ${str}`, contentWidth - 8);
+            checkPageBreak(lines.length * 4 + 1);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(51, 65, 85);
+            doc.text(lines, margin + 4, y + 3);
+            y += (lines.length * 3.5) + 1.5;
+          });
+        }
+
+        if (candidate.gaps.length > 0) {
+          y += 2;
+          checkPageBreak(15);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(217, 119, 6);
+          doc.text('Identified Gaps & Action Items:', margin + 2, y + 3.5);
+          y += 5;
+
+          candidate.gaps.forEach((gap) => {
+            const lines = doc.splitTextToSize(`! ${gap}`, contentWidth - 8);
+            checkPageBreak(lines.length * 4 + 1);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(71, 85, 105);
+            doc.text(lines, margin + 4, y + 3);
+            y += (lines.length * 3.5) + 1.5;
+          });
+        }
+      }
+
+      // Official Certification & Signatures Box
+      y += 4;
+      checkPageBreak(28);
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(margin, y, contentWidth, 24, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        'I hereby certify that this candidate profiling report reflects verified credentials, skills assessments, and statutory compliance status pursuant to DMW and agency standards.',
+        margin + 4,
+        y + 4.5
+      );
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Evaluated & Certified By:', margin + 4, y + 12);
+      doc.text('Endorsing Licensed Agency:', margin + (contentWidth / 2) + 4, y + 12);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`${currentUserName || 'Recruitment Officer'}`, margin + 4, y + 17);
+      doc.text(`${agencyName} (${agencyProfile?.poea_license_no || 'POEA Registered'})`, margin + (contentWidth / 2) + 4, y + 17);
+
+      // Running page numbers & footer on every page
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(226, 232, 240);
+        doc.line(margin, 285, pageWidth - margin, 285);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          `Official Evaluation Document • Issued by ${agencyName} • Strictly Confidential`,
+          margin,
+          289
+        );
+        doc.text(
+          `Page ${i} of ${totalPages}`,
+          pageWidth - margin,
+          289,
+          { align: 'right' }
+        );
+      }
+
+      // Download file with clean name (strictly NO FlowSensus name)
+      const sanitizedCandidate = appName.replace(/[^a-zA-Z0-9]/g, '_');
+      const sanitizedAgency = agencyName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${sanitizedCandidate}_Profiling_Evaluation_${sanitizedAgency}.pdf`;
+
+      doc.save(filename);
+      showToast(`✓ Evaluation report downloaded: ${filename}`);
+    } catch (pdfErr) {
+      console.error('PDF generation error:', pdfErr);
+      showToast('Failed to generate PDF evaluation report. Please try again.');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -1000,12 +1712,23 @@ export default function SmartProfiling({
         <div className="p-5 md:p-6 border-b border-slate-200">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-black inline-flex items-center justify-center">
                   2
                 </span>
-                Step 2: Ranked Candidate Shortlist for {currentJobOrder?.position || 'Job Order'} #{currentJobOrder?.id || ''}
-              </h3>
+                <h3 className="text-sm font-black text-slate-900 tracking-tight">
+                  Step 2: Ranked Candidate Shortlist for {currentJobOrder?.position || 'Job Order'} #{currentJobOrder?.id || ''}
+                </h3>
+                {agencyProfile?.agency_name && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200/80">
+                    <Building2 className="w-3 h-3 text-teal-600" />
+                    <span>{agencyProfile.agency_name}</span>
+                    {agencyProfile.poea_license_no && (
+                      <span className="text-teal-600/80 font-normal">({agencyProfile.poea_license_no})</span>
+                    )}
+                  </span>
+                )}
+              </div>
 
               {/* KPI Header Bar */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600 mt-2">
@@ -1025,7 +1748,93 @@ export default function SmartProfiling({
                   Not Recommended: <strong className="font-extrabold">{notRecommendedCount}</strong>
                 </span>
               </div>
+
+              {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setPipelineScope('all')}
+                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      pipelineScope === 'all'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    All Active Pool ({applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPipelineScope('profiling')}
+                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      pipelineScope === 'profiling'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Profiling Stage Only ({applicants.filter((a) => !a.isStopped && a.status === 'Applicant Profiling').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPipelineScope('assigned')}
+                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      pipelineScope === 'assigned'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Assigned to Job Order
+                  </button>
+                </div>
+
+                {Object.keys(dynamicClusters).length > 0 && (
+                  <span className="text-[11px] text-slate-600 font-medium bg-slate-50 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    <span>{Object.keys(dynamicClusters).length} DB Trade Clusters Connected</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Gemini AI Trade Cluster Active Tag & Informative Description */}
+              {isSynthesizingCluster ? (
+                <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center gap-2 text-xs text-teal-800">
+                  <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+                  <span>Synthesizing dynamic AI trade cluster for {currentJobOrder?.position || 'Job Order'}...</span>
+                </div>
+              ) : activeJobCluster ? (
+                <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#20637A] text-white shadow-2xs">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>Gemini AI Trade Cluster</span>
+                      </span>
+                      <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
+                        {activeJobCluster.name}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold text-teal-800 bg-white/80 px-2 py-0.5 rounded-md border border-teal-200">
+                      ⚡ Smart Labor Taxonomy Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                    {activeJobCluster.description}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
+                    <span className="font-bold text-slate-700">Allied Trades Recognized:</span>
+                    {(activeJobCluster.roles || []).slice(0, 6).map((r: string, idx: number) => (
+                      <span key={idx} className="bg-white/90 px-2 py-0.5 rounded text-slate-700 border border-slate-200/80 font-medium">
+                        {r}
+                      </span>
+                    ))}
+                    {(activeJobCluster.roles || []).length > 6 && (
+                      <span className="text-slate-400 font-semibold">+{(activeJobCluster.roles || []).length - 6} more</span>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
+
 
             {/* Info Tooltip (A2 diagnostic transparency) */}
             <div className="relative self-start lg:self-center">
@@ -1189,81 +1998,61 @@ export default function SmartProfiling({
                           : `${candidate.certificationsCount} Certs`}
                       </td>
 
-                      {/* 7. Assessment Summary (Technical, Language, IQ, and EQ) */}
+                      {/* 7. Assessment Summary (Dynamic Technical, Language, IQ, EQ & Job-Specific) */}
                       <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="space-y-1.5 min-w-[230px]">
-                          {/* Technical Bar */}
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase w-16 flex-shrink-0">
-                              Technical
+                        {!candidate.hasRecordedAssessments ? (
+                          <div className="space-y-1 min-w-[200px]">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Clock className="w-3.5 h-3.5 text-amber-500" />
+                              <span>Assessments Pending</span>
                             </span>
-                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  candidate.techPass ? 'bg-[#20637A]' : 'bg-red-400'
-                                }`}
-                                style={{ width: `${Math.min(100, Math.max(0, candidate.techScore))}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-mono font-bold text-slate-700 w-8 text-right">
-                              {candidate.techScore}%
-                            </span>
+                            <p className="text-[10px] text-slate-400">
+                              {candidate.activeTestResults?.length || 4} examination gates pending
+                            </p>
                           </div>
-
-                          {/* Language Proficiency Bar */}
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase w-16 flex-shrink-0">
-                              Language
-                            </span>
-                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  candidate.interviewPass ? 'bg-[#0EA5E9]' : 'bg-red-400'
-                                }`}
-                                style={{ width: `${Math.min(100, Math.max(0, candidate.interviewScore))}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-mono font-bold text-slate-700 w-8 text-right">
-                              {candidate.interviewScore}%
-                            </span>
-                          </div>
-
-                          {/* IQ Bar */}
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase w-16 flex-shrink-0">
-                              IQ
-                            </span>
-                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  candidate.iqPass ? 'bg-amber-500' : 'bg-red-400'
-                                }`}
-                                style={{ width: `${Math.min(100, Math.max(0, candidate.iqScore))}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-mono font-bold text-slate-700 w-8 text-right">
-                              {candidate.iqScore}%
-                            </span>
-                          </div>
-
-                          {/* EQ Status */}
-                          <div className="flex items-center gap-2 pt-0.5">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase w-16 flex-shrink-0">
-                              EQ
-                            </span>
-                            {candidate.eqPass ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                <span>Suitable</span>
-                                <CheckCircle className="w-3 h-3 text-emerald-600 inline" />
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                <span>{candidate.eqStatus}</span>
-                                <Clock className="w-3 h-3 text-amber-500 inline" />
-                              </span>
+                        ) : (
+                          <div className="space-y-1.5 min-w-[230px]">
+                            {candidate.activeTestResults?.slice(0, 4).map((t) => (
+                              <div key={t.id} className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase w-18 flex-shrink-0 truncate" title={t.name}>
+                                  {t.type === 'skills' ? 'Technical' : t.type === 'language' ? 'Language' : t.type === 'iq' ? 'IQ' : t.type === 'eq' ? 'EQ' : t.name.slice(0, 9)}
+                                </span>
+                                {t.scoringType === 'pass_fail' ? (
+                                  <div className="flex-1 flex items-center justify-between">
+                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                      t.passed ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-red-700 bg-red-50 border-red-200'
+                                    }`}>
+                                      <span>{t.passed ? 'PASSED' : 'FAILED'}</span>
+                                      {t.passed ? <CheckCircle className="w-2.5 h-2.5 text-emerald-600 inline" /> : <AlertCircle className="w-2.5 h-2.5 text-red-500 inline" />}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 font-mono">Pass/Fail</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all duration-300 ${
+                                          t.passed
+                                            ? (t.type === 'skills' ? 'bg-[#20637A]' : t.type === 'language' ? 'bg-[#0EA5E9]' : 'bg-amber-500')
+                                            : 'bg-red-400'
+                                        }`}
+                                        style={{ width: `${Math.min(100, Math.max(0, t.score || 0))}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-[10px] font-mono font-bold text-slate-700 w-14 text-right">
+                                      {t.score}% <span className="text-[9px] font-normal text-slate-400">({t.passingScore})</span>
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                            {(candidate.activeTestResults?.length || 0) > 4 && (
+                              <p className="text-[9px] font-semibold text-blue-600 pt-0.5">
+                                +{(candidate.activeTestResults?.length || 0) - 4} job-specific clearance tests
+                              </p>
                             )}
                           </div>
-                        </div>
+                        )}
                       </td>
 
                       {/* 8. Row Actions: View Profile (Overlay) & Review Details (Modal) */}
@@ -1342,12 +2131,24 @@ export default function SmartProfiling({
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setActiveModalCandidate(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadProfilingPDF(activeModalCandidate)}
+                  disabled={isGeneratingPdf}
+                  className="px-3 py-1.5 bg-[#20637A] hover:bg-[#184F62] text-white font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  title="Download official candidate profiling evaluation report (PDF)"
+                >
+                  {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  <span>Export PDF</span>
+                </button>
+                <button
+                  onClick={() => setActiveModalCandidate(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Body */}
@@ -1371,9 +2172,11 @@ export default function SmartProfiling({
                     {activeModalCandidate.classification}
                   </span>
                   <span className="text-xs text-slate-500">
-                    {activeModalCandidate.classification === 'Recommended' && 'Exceeds 80% readiness threshold and passed all examination checks.'}
-                    {activeModalCandidate.classification === 'For Further Review' && 'Meets 60%-79% readiness threshold for recruiter review.'}
-                    {activeModalCandidate.classification === 'Not Recommended' && 'Below 60% threshold or failed core assessment gate.'}
+                    {!activeModalCandidate.hasRecordedAssessments && 'Candidate background qualifies, but examination assessments are pending.'}
+                    {activeModalCandidate.hasRecordedAssessments && !activeModalCandidate.allGatesPass && 'Exam clearance blocked: candidate failed one or more mandatory examination gates.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && 'Exceeds 80% readiness threshold and passed all examination checks.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && 'Meets 60%-79% readiness threshold for recruiter review.'}
+                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && 'Below 60% readiness threshold for this position.'}
                   </span>
                 </div>
 
@@ -1677,28 +2480,39 @@ export default function SmartProfiling({
                 )}
               </div>
 
-              {/* Core Examination Clearance */}
+              {/* Dynamic Examination Clearance Gates */}
               <div className="p-4 rounded-xl border bg-slate-50/70 border-slate-200">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-2">
-                  Examination Assessment Gates
-                </span>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Examination Assessment Gates ({activeModalCandidate.activeTestResults?.length || 0} Dynamic Gates)
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Configured via Supabase Evaluation Templates
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                    <p className="text-slate-500 font-medium">Trade Skills (Req &gt;= 70%)</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{activeModalCandidate.techScore}%</p>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                    <p className="text-slate-500 font-medium">IQ / Aptitude (Req &gt;= 50%)</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{activeModalCandidate.iqScore}%</p>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                    <p className="text-slate-500 font-medium">Interview / Language (Req &gt;= 60%)</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{activeModalCandidate.interviewScore}%</p>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                    <p className="text-slate-500 font-medium">Personality / EQ Gate</p>
-                    <p className="font-bold text-emerald-600 mt-0.5">{activeModalCandidate.eqStatus} ✓</p>
-                  </div>
+                  {activeModalCandidate.activeTestResults?.map((t) => (
+                    <div key={t.id} className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <p className="text-slate-500 font-medium truncate max-w-[140px]" title={t.name}>{t.name}</p>
+                        {t.isJobSpecific && (
+                          <span className="text-[9px] bg-blue-50 text-blue-700 border border-blue-200 px-1 rounded font-bold">
+                            Job-Specific
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="font-bold text-slate-900 text-sm">
+                          {t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`}
+                        </p>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          t.passed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+                        }`}>
+                          {t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req ≥ ${t.passingScore}%`}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1791,20 +2605,33 @@ export default function SmartProfiling({
               </div>
             </div>
 
-            {/* Modal Actions: Open Full Profile, Close, and Endorse to CV Encoding */}
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  const applicant = activeModalCandidate.applicant;
-                  setActiveModalCandidate(null);
-                  handleOpenProfileOverlay(applicant);
-                }}
-                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                title="View full candidate profile in overlay"
-              >
-                <Eye className="w-3.5 h-3.5 text-slate-600" />
-                <span>Open Full Profile</span>
-              </button>
+            {/* Modal Actions: Open Full Profile, Download PDF, Close, and Endorse to CV Encoding */}
+            <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const applicant = activeModalCandidate.applicant;
+                    setActiveModalCandidate(null);
+                    handleOpenProfileOverlay(applicant);
+                  }}
+                  className="px-3.5 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="View full candidate profile in overlay"
+                >
+                  <Eye className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Open Full Profile</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDownloadProfilingPDF(activeModalCandidate)}
+                  disabled={isGeneratingPdf}
+                  className="px-3.5 py-2 border border-[#20637A] text-[#20637A] hover:bg-teal-50/50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                  title="Download official candidate profiling evaluation report (PDF)"
+                >
+                  {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  <span>Download Evaluation Report (PDF)</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button

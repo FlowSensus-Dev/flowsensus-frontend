@@ -385,6 +385,7 @@ export default function AppShell({
             workflow={workflow}
             globalJobOrders={globalJobOrders}
             onNavigate={(view: string) => setCurrentView(view as any)}
+            evaluationTemplates={evaluationTemplates}
           />
         );
 
