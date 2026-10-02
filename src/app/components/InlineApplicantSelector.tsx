@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { UserCircle, Search, ChevronDown, Check, Sparkles, X, User } from 'lucide-react';
+import { UserCircle, Search, ChevronDown, Check, X, User, UserPlus, Users } from 'lucide-react';
 import { ApplicantRecord } from '../types';
 
 interface InlineApplicantSelectorProps {
@@ -7,6 +7,7 @@ interface InlineApplicantSelectorProps {
   selectedApplicantId: string;
   onSelectApplicant: (applicantId: string) => void;
   allowNew?: boolean;
+  defaultOpen?: boolean;
 }
 
 export default function InlineApplicantSelector({
@@ -14,8 +15,9 @@ export default function InlineApplicantSelector({
   selectedApplicantId,
   onSelectApplicant,
   allowNew = true,
+  defaultOpen = false,
 }: InlineApplicantSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +25,13 @@ export default function InlineApplicantSelector({
   const selectedApplicant = applicants.find(
     (a) => String(a.id) === String(selectedApplicantId)
   );
+
+  // Auto-open if defaultOpen prop changes to true
+  useEffect(() => {
+    if (defaultOpen) {
+      setIsOpen(true);
+    }
+  }, [defaultOpen]);
 
   // Auto-focus search input when opening
   useEffect(() => {
@@ -97,14 +106,16 @@ export default function InlineApplicantSelector({
   };
 
   return (
-    <div className="bg-gradient-to-r from-[#0EA5E9]/10 to-blue-50 border-2 border-[#0EA5E9]/30 rounded-lg p-4 relative z-40">
-      <div className="flex items-center gap-4">
-        <UserCircle className="w-5 h-5 text-[#0EA5E9] flex-shrink-0" />
-        
+    <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs relative z-40">
+      <div className="flex items-center gap-3.5">
+        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
+          <Users className="w-5 h-5 text-slate-700" />
+        </div>
+
         {/* Combobox container */}
         <div className="flex-1 min-w-0" ref={containerRef}>
-          <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
-            Select Applicant
+          <label className="text-[11px] font-extrabold text-slate-500 block mb-1 uppercase tracking-wider">
+            Select Applicant / Candidate Profile
           </label>
 
           <div className="relative">
@@ -112,19 +123,21 @@ export default function InlineApplicantSelector({
             <button
               type="button"
               onClick={() => setIsOpen((prev) => !prev)}
-              className={`w-full border-2 bg-white px-3.5 py-2.5 rounded-lg text-sm text-left font-bold transition-all shadow-sm flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 cursor-pointer ${
+              className={`w-full border bg-white px-3.5 py-2.5 rounded-lg text-sm text-left transition-all shadow-2xs flex items-center justify-between gap-3 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 cursor-pointer ${
                 isOpen
                   ? 'border-[#0EA5E9] ring-2 ring-[#0EA5E9]/20'
-                  : 'border-[#0EA5E9]/30 hover:border-[#0EA5E9]'
+                  : 'border-slate-300 hover:border-slate-400'
               }`}
               aria-haspopup="listbox"
               aria-expanded={isOpen}
             >
               <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
                 {selectedApplicantId === 'new' ? (
-                  <span className="text-emerald-700 font-bold flex items-center gap-1.5 truncate">
-                    <Sparkles className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>✨ + Register New Candidate (Blank Form)</span>
+                  <span className="text-emerald-700 font-bold flex items-center gap-2 truncate">
+                    <span className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                      <UserPlus className="w-3.5 h-3.5" />
+                    </span>
+                    <span>+ Register New Candidate (Blank Form)</span>
                   </span>
                 ) : selectedApplicant ? (
                   <div className="flex items-center gap-2 flex-wrap min-w-0 truncate">
@@ -150,8 +163,12 @@ export default function InlineApplicantSelector({
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 text-slate-400 flex-shrink-0">
-                <Search className="w-3.5 h-3.5 text-slate-400" />
+              {/* Improved Search Trigger Affordance */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors">
+                  <Search className="w-3 h-3 text-slate-500" />
+                  <span>Search</span>
+                </span>
                 <ChevronDown
                   className={`w-4 h-4 transition-transform duration-200 text-slate-500 ${
                     isOpen ? 'rotate-180 text-[#0EA5E9]' : ''
@@ -164,7 +181,7 @@ export default function InlineApplicantSelector({
             {isOpen && (
               <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
                 {/* Search Bar Input */}
-                <div className="p-3 bg-slate-50 border-b border-slate-200">
+                <div className="p-3 bg-slate-50/90 border-b border-slate-200">
                   <div className="relative flex items-center">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                     <input
@@ -172,7 +189,7 @@ export default function InlineApplicantSelector({
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search applicant by name or code (e.g., 00007, Juan)..."
+                      placeholder="Search applicant by name, code (e.g., 00007, Juan), or role..."
                       className="w-full pl-9 pr-8 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/20 font-medium text-slate-800 placeholder:text-slate-400"
                     />
                     {searchQuery && (
@@ -197,18 +214,20 @@ export default function InlineApplicantSelector({
                       onClick={() => handleSelect('new')}
                       className={`w-full text-left px-3.5 py-2.5 rounded-lg flex items-center justify-between transition-colors cursor-pointer mb-1 ${
                         selectedApplicantId === 'new'
-                          ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200 shadow-sm'
-                          : 'hover:bg-emerald-50/60 text-emerald-700 font-semibold'
+                          ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200 shadow-xs'
+                          : 'hover:bg-slate-50 text-slate-700'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <Sparkles className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                          <UserPlus className="w-4 h-4" />
+                        </div>
                         <div>
-                          <span className="text-sm font-bold text-emerald-800">
-                            ✨ + Register New Candidate
+                          <span className="text-sm font-bold text-emerald-900 block">
+                            + Register New Candidate
                           </span>
-                          <span className="text-xs text-emerald-600 block">
-                            Blank intake profile ready for new encoding
+                          <span className="text-xs text-slate-500 block">
+                            Blank intake profile ready for new candidate encoding
                           </span>
                         </div>
                       </div>
@@ -253,7 +272,7 @@ export default function InlineApplicantSelector({
                           onClick={() => handleSelect(applicant.id)}
                           className={`w-full text-left px-3.5 py-2.5 rounded-lg transition-colors flex items-center justify-between gap-3 group cursor-pointer ${
                             isSelected
-                              ? 'bg-sky-50 text-sky-900 font-bold border border-sky-200 shadow-sm'
+                              ? 'bg-sky-50 text-sky-900 font-bold border border-sky-200 shadow-xs'
                               : 'hover:bg-slate-50 text-slate-700'
                           }`}
                         >
@@ -261,7 +280,7 @@ export default function InlineApplicantSelector({
                             <div
                               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                                 isSelected
-                                  ? 'bg-sky-600 text-white'
+                                  ? 'bg-[#0EA5E9] text-white'
                                   : 'bg-slate-100 text-slate-600 group-hover:bg-sky-100 group-hover:text-sky-700'
                               }`}
                             >
@@ -305,11 +324,22 @@ export default function InlineApplicantSelector({
         </div>
 
         {/* Current Status display on the right */}
-        <div className="text-right flex-shrink-0">
-          <p className="text-xs text-[#64748B] font-medium">Current Status</p>
-          <p className={`text-sm font-bold ${selectedApplicantId === 'new' ? 'text-emerald-600' : 'text-[#0F172A]'}`}>
-            {selectedApplicantId === 'new' ? '✨ New Intake' : (selectedApplicant?.status || 'Active')}
-          </p>
+        <div className="text-right flex-shrink-0 pl-2">
+          <p className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Current Status</p>
+          <div className="flex items-center justify-end gap-1.5 mt-0.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                selectedApplicantId === 'new' ? 'bg-emerald-500' : 'bg-sky-500'
+              }`}
+            />
+            <p
+              className={`text-sm font-bold ${
+                selectedApplicantId === 'new' ? 'text-emerald-700' : 'text-slate-800'
+              }`}
+            >
+              {selectedApplicantId === 'new' ? 'New Intake' : (selectedApplicant?.status || 'Active')}
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
   Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
   Save, User, FileCheck, Upload, Briefcase, Loader2,
   GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown,
-  Sparkles, HeartHandshake, Share2, Globe, Users, Check, ExternalLink
+  HeartHandshake, Share2, Globe, Users, Check, ExternalLink, Search,
+  RotateCcw
 } from 'lucide-react';
 import {
   ActivityLog, ApplicantRecord,
@@ -13,6 +14,7 @@ import {
   TrainingRecord, LanguageRecord, EmploymentRecord, EmploymentFlag, EmploymentFlagType
 } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
+import SearchableJobOrderSelector from '../SearchableJobOrderSelector';
 import { api } from '../../../lib/api';
 
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
@@ -204,6 +206,9 @@ export default function Registration({
   const [openJobOrders, setOpenJobOrders] = useState<any[]>([]);
   const [isLoadingJobOrders, setIsLoadingJobOrders] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+  const [showRevertConfirmModal, setShowRevertConfirmModal] = useState(false);
 
   // ── Lookups and Catalogs (Datalist auto-complete with free typing) ────────
   const [availableIdTypes, setAvailableIdTypes] = useState<string[]>(ID_TYPES);
@@ -261,13 +266,16 @@ export default function Registration({
             code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             jobOrderId: jo.job_order_id,
             position: jo.position_title || jo.position || 'General Position',
-            country: jo.client_employer?.country?.country_name || jo.country || 'International',
+            country: (typeof jo.country === 'string' ? jo.country : jo.country?.country_name) || jo.country_name || jo.client_employer?.country?.country_name || jo.employer?.country?.country_name || 'International',
             employerName: jo.client_employer?.company_name || jo.employer_name || 'Partner Principal',
             employerId: jo.employer_id || jo.client_employer?.employer_id,
             countryId: jo.country_id || jo.client_employer?.country_id,
             available: Math.max(0, (jo.total_slots || jo.slots || 1) - (jo.filled_slots || 0)),
             requirements: Array.isArray(jo.requirements) ? jo.requirements : (Array.isArray(jo.job_order_requirement) ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean) : []),
-            detailedRequirements: Array.isArray(jo.detailedRequirements) ? jo.detailedRequirements : (Array.isArray(jo.job_order_requirements) ? jo.job_order_requirements : [])
+            detailedRequirements: Array.isArray(jo.detailedRequirements) ? jo.detailedRequirements : (Array.isArray(jo.job_order_requirements) ? jo.job_order_requirements : []),
+            genderPreference: jo.gender_preference || jo.genderPreference,
+            minAge: jo.min_age ?? jo.minAge,
+            maxAge: jo.max_age ?? jo.maxAge,
           }));
           setOpenJobOrders(liveOrders);
         }
@@ -461,6 +469,9 @@ export default function Registration({
   const [employment, setEmployment] = useState<EmploymentRecord[]>([]);
   const [flags, setFlags] = useState<EmploymentFlag[]>([]);
   const [flagsAnalyzed, setFlagsAnalyzed] = useState(false);
+  const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
+  const [selectedQuickReason, setSelectedQuickReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
 
   // ── Clear form helper ─────────────────────────────────────────────────────
   const resetBlankForm = () => {
@@ -480,7 +491,70 @@ export default function Registration({
     setFlags([]);
     setFlagsAnalyzed(false);
     setPhoto('');
+    setResolvingFlagId(null);
+    setSelectedQuickReason('');
+    setCustomReason('');
   };
+
+  const populateApplicantData = useCallback((app: ApplicantRecord) => {
+    setPersonal({
+      firstName: app.firstName || '',
+      middleName: app.middleName || '',
+      lastName: app.lastName || '',
+      email: app.email || '',
+      contact: app.contact || '',
+      dateOfBirth: app.dateOfBirth || '',
+      age: String(app.age || ''),
+      sex: app.sex || 'Male',
+      religion: app.religion || 'Roman Catholic',
+      civilStatus: app.civilStatus || 'Single',
+      weight: app.weightKg ? String(app.weightKg) : '',
+      height: app.heightCm ? String(app.heightCm) : '',
+      presentAddress: app.presentAddress || '',
+      provincialAddress: app.provincialAddress || '',
+      role: app.role || '',
+      placeOfBirth: app.placeOfBirth || '',
+      noOfChildren: String(app.noOfChildren ?? 0),
+      indigenousCommunity: app.indigenousCommunity || '',
+      emergencyContactName: app.emergencyContactName || '',
+      emergencyContactRelationship: app.emergencyContactRelationship || 'Spouse',
+      emergencyContactNumber: app.emergencyContactNumber || '',
+      facebookUrl: app.facebookUrl || '',
+      whatsappNumber: app.whatsappNumber || '',
+      linkedinUrl: app.linkedinUrl || '',
+    });
+    setSelectedApplicantTypes(app.applicantTypes || []);
+    const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
+    setSelectedJobOrderId(initialJo);
+    if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
+    else setIds([]);
+    if (app.requirements && app.requirements.length > 0) setApplicantRequirements(app.requirements);
+    else setApplicantRequirements([]);
+    if (app.education && app.education.length > 0) setEducation(app.education);
+    else setEducation([]);
+    if (app.skills && Array.isArray(app.skills) && app.skills.length > 0) setSkills([...app.skills]);
+    else setSkills([]);
+    setSkillInput('');
+    if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
+    else setCerts([]);
+    if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
+    else setTrainings([]);
+    if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
+    else setLanguages([]);
+    if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
+    else setEmployment([]);
+    if (app.employmentFlags && app.employmentFlags.length > 0) {
+      setFlags(app.employmentFlags);
+      setFlagsAnalyzed(true);
+    } else {
+      setFlags([]);
+      setFlagsAnalyzed(false);
+    }
+    setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
+    setResolvingFlagId(null);
+    setSelectedQuickReason('');
+    setCustomReason('');
+  }, []);
 
   // ── Sync with prop when parent changes applicant selection ───────────────
   useEffect(() => {
@@ -501,66 +575,10 @@ export default function Registration({
     }
     const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
     if (app) {
-      setPersonal({
-        firstName: app.firstName || '',
-        middleName: app.middleName || '',
-        lastName: app.lastName || '',
-        email: app.email || '',
-        contact: app.contact || '',
-        dateOfBirth: app.dateOfBirth || '',
-        age: String(app.age || ''),
-        sex: app.sex || 'Male',
-        religion: app.religion || 'Roman Catholic',
-        civilStatus: app.civilStatus || 'Single',
-        weight: app.weightKg ? String(app.weightKg) : '',
-        height: app.heightCm ? String(app.heightCm) : '',
-        presentAddress: app.presentAddress || '',
-        provincialAddress: app.provincialAddress || '',
-        role: app.role || '',
-        placeOfBirth: app.placeOfBirth || '',
-        noOfChildren: String(app.noOfChildren ?? 0),
-        indigenousCommunity: app.indigenousCommunity || '',
-        emergencyContactName: app.emergencyContactName || '',
-        emergencyContactRelationship: app.emergencyContactRelationship || 'Spouse',
-        emergencyContactNumber: app.emergencyContactNumber || '',
-        facebookUrl: app.facebookUrl || '',
-        whatsappNumber: app.whatsappNumber || '',
-        linkedinUrl: app.linkedinUrl || '',
-      });
-      setSelectedApplicantTypes(app.applicantTypes || []);
-      const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
-      setSelectedJobOrderId(initialJo);
-      if (app.identifications && app.identifications.length > 0) setIds(app.identifications);
-      else setIds([]);
-      if (app.requirements && app.requirements.length > 0) setApplicantRequirements(app.requirements);
-      else setApplicantRequirements([]);
-      if (app.education && app.education.length > 0) setEducation(app.education);
-      else setEducation([]);
-      if (app.skills && Array.isArray(app.skills) && app.skills.length > 0) setSkills([...app.skills]);
-      else setSkills([]);
-      setSkillInput('');
-      if (app.certificateRecords && app.certificateRecords.length > 0) setCerts(app.certificateRecords);
-      else setCerts([]);
-      if (app.trainings && app.trainings.length > 0) setTrainings(app.trainings);
-      else setTrainings([]);
-      if (app.languageRecords && app.languageRecords.length > 0) setLanguages(app.languageRecords);
-      else setLanguages([]);
-      if (app.employmentHistory && app.employmentHistory.length > 0) setEmployment(app.employmentHistory);
-      else setEmployment([]);
-      if (app.employmentFlags && app.employmentFlags.length > 0) {
-        setFlags(app.employmentFlags);
-        setFlagsAnalyzed(true);
-      } else {
-        setFlags([]);
-        setFlagsAnalyzed(false);
-      }
-      setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
+      populateApplicantData(app);
       initializedForApplicantId.current = selectedApplicantId;
     }
-  }, [selectedApplicantId, applicants]);
-  const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
-  const [selectedQuickReason, setSelectedQuickReason] = useState('');
-  const [customReason, setCustomReason] = useState('');
+  }, [selectedApplicantId, applicants, populateApplicantData]);
 
   const QUICK_REASONS = [
     "Applicant provided satisfactory verbal explanation",
@@ -711,62 +729,15 @@ export default function Registration({
   // ── Cancel / Discard Changes ──────────────────────────────────────────────
   const handleCancel = () => {
     if (selectedApplicantId === 'new') {
-      resetBlankForm();
-      showToast('Intake form cleared.');
+      if (isFormFilled) {
+        setShowClearConfirmModal(true);
+      } else {
+        showToast('Form is already empty.');
+      }
     } else {
       const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
       if (hasUnsavedChanges && app) {
-        setPersonal({
-          firstName: app.firstName || '',
-          middleName: app.middleName || '',
-          lastName: app.lastName || '',
-          email: app.email || '',
-          contact: app.contact || '',
-          dateOfBirth: app.dateOfBirth || '',
-          age: String(app.age || ''),
-          sex: app.sex || 'Male',
-          religion: app.religion || 'Roman Catholic',
-          civilStatus: app.civilStatus || 'Single',
-          weight: app.weightKg ? String(app.weightKg) : '',
-          height: app.heightCm ? String(app.heightCm) : '',
-          presentAddress: app.presentAddress || '',
-          provincialAddress: app.provincialAddress || '',
-          role: app.role || '',
-          placeOfBirth: app.placeOfBirth || '',
-          noOfChildren: String(app.noOfChildren ?? 0),
-          emergencyContactName: app.emergencyContactName || '',
-          emergencyContactRelationship: app.emergencyContactRelationship || 'Spouse',
-          emergencyContactNumber: app.emergencyContactNumber || '',
-          facebookUrl: app.facebookUrl || '',
-          whatsappNumber: app.whatsappNumber || '',
-          linkedinUrl: app.linkedinUrl || '',
-          indigenousCommunity: app.indigenousCommunity || '',
-        });
-        setSelectedApplicantTypes(app.applicantTypes || []);
-        const initialJo = app.selectedJobOrderId || (app.jobOrder && app.jobOrder !== 'Unassigned' ? app.jobOrder : '');
-        setSelectedJobOrderId(initialJo);
-        setIds(app.identifications && app.identifications.length > 0 ? [...app.identifications] : []);
-        setApplicantRequirements(app.requirements && app.requirements.length > 0 ? [...app.requirements] : []);
-        setReqInput('');
-        setEducation(app.education && app.education.length > 0 ? [...app.education] : []);
-        setSkills(app.skills && Array.isArray(app.skills) && app.skills.length > 0 ? [...app.skills] : []);
-        setSkillInput('');
-        setCerts(app.certificateRecords && app.certificateRecords.length > 0 ? [...app.certificateRecords] : []);
-        setTrainings(app.trainings && app.trainings.length > 0 ? [...app.trainings] : []);
-        setLanguages(app.languageRecords && app.languageRecords.length > 0 ? [...app.languageRecords] : []);
-        setEmployment(app.employmentHistory && app.employmentHistory.length > 0 ? [...app.employmentHistory] : []);
-        if (app.employmentFlags && app.employmentFlags.length > 0) {
-          setFlags([...app.employmentFlags]);
-          setFlagsAnalyzed(true);
-        } else {
-          setFlags([]);
-          setFlagsAnalyzed(false);
-        }
-        setPhoto(app.photo || app.photoDataUrl || '');
-        setResolvingFlagId(null);
-        setSelectedQuickReason('');
-        setCustomReason('');
-        showToast(`Unsaved changes discarded for ${app.applicantCode || app.name}. Original profile restored.`);
+        setShowRevertConfirmModal(true);
       } else {
         setSelectedApplicantId('new');
         resetBlankForm();
@@ -1069,6 +1040,31 @@ export default function Registration({
     { id: 'employment', label: 'Work Experience' },
   ];
 
+  const STEP_TABS = [
+    { step: 1, label: '[1] PERSONAL INFO', targetSectionId: 'personal' },
+    { step: 2, label: '[2] IDENTIFICATIONS', targetSectionId: 'identifications' },
+    { step: 3, label: '[3] REQUIREMENTS', targetSectionId: 'requirements' },
+    { step: 4, label: '[4] EDUCATION', targetSectionId: 'education' },
+    { step: 5, label: '[5] CORE SKILLS', targetSectionId: 'skills' },
+    { step: 6, label: '[6] CERTIFICATES', targetSectionId: 'certificates' },
+    { step: 7, label: '[7] WORK EXPERIENCE', targetSectionId: 'employment' },
+  ];
+
+  const currentStepNumber = useMemo(() => {
+    switch (activeSection) {
+      case 'personal': return 1;
+      case 'identifications': return 2;
+      case 'requirements': return 3;
+      case 'education': return 4;
+      case 'skills': return 5;
+      case 'certificates':
+      case 'trainings': return 6;
+      case 'languages':
+      case 'employment': return 7;
+      default: return 1;
+    }
+  }, [activeSection]);
+
   const ratingBar = (val: number, onChange: (n: number) => void) => (
     <div className="flex items-center gap-2">
       <input type="range" min={1} max={10} value={val} onChange={e => onChange(Number(e.target.value))} className="flex-1 h-1.5 accent-[#0EA5E9]" />
@@ -1108,217 +1104,244 @@ export default function Registration({
   return (
     <div className="space-y-4 w-full pb-20">
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
             Candidate Registration
-          </h2>
-          <p className="text-sm text-[#64748B] mt-1">
-            Complete Phase 1 intake profile, demographics, and initial documentation.
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Complete Phase 1 Intake profile, demographics, and initial documentation.
           </p>
         </div>
-        {hasBlockingFlags && (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-semibold">
-            <ShieldAlert size={16} /> {activeFlagCount} unresolved flag{activeFlagCount > 1 ? 's' : ''} — cannot save
-          </div>
-        )}
-      </div>
 
-      {/* Mode Banner */}
-      <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${selectedApplicantId === 'new'
-        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-        : 'bg-sky-50 border-sky-200 text-sky-900'
-        }`}>
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${selectedApplicantId === 'new'
-            ? 'bg-emerald-600 text-white'
-            : 'bg-[#0EA5E9] text-white'
-            }`}>
-            {selectedApplicantId === 'new' ? <UserPlus size={20} /> : <User size={20} />}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${selectedApplicantId === 'new'
-                ? 'bg-emerald-200 text-emerald-800'
-                : 'bg-sky-200 text-sky-800'
-                }`}>
-                {selectedApplicantId === 'new' ? '✨ New Candidate Intake Mode' : `✏️ Editing Applicant ${currentApplicant?.applicantCode || `#${selectedApplicantId}`}`}
+        {/* Action Buttons matching reference positioning */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedApplicantId('new');
+              resetBlankForm();
+              setIsSearchOpen(false);
+              showToast('Switched to blank form: Registering a new candidate.');
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+          >
+            <Plus size={15} />
+            <span className="uppercase tracking-wider">NEW APPLICANT</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen(prev => !prev)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all shadow-xs border cursor-pointer ${
+              isSearchOpen || selectedApplicantId !== 'new'
+                ? 'bg-sky-50 border-[#0EA5E9] text-[#0284C7]'
+                : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700'
+            }`}
+          >
+            <Search size={14} className={isSearchOpen || selectedApplicantId !== 'new' ? 'text-[#0284C7]' : 'text-slate-500'} />
+            <span className="uppercase tracking-wider">
+              {isSearchOpen ? 'CLOSE SEARCH' : 'SEARCH EXISTING APPLICANT'}
+            </span>
+            {applicants.length > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                isSearchOpen ? 'bg-sky-200 text-sky-900' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {applicants.length}
               </span>
-              {selectedApplicantId === 'new' ? (
-                <span className="text-xs text-emerald-700 font-semibold">Clean intake form · Ready for encoding</span>
-              ) : (
-                <span className="text-xs text-sky-700 font-semibold">Active candidate profile</span>
-              )}
-            </div>
-            <p className="text-sm font-medium text-slate-800 mt-1">
-              {selectedApplicantId === 'new'
-                ? 'Enter candidate details below. Clicking "Register New Applicant" provisions the candidate profile with Phase 1 Initial Screening.'
-                : `Updating candidate profile for ${personal.firstName || ''} ${personal.lastName || ''} (${personal.role || 'Applicant'}).`}
-            </p>
-          </div>
-        </div>
+            )}
+          </button>
 
-        <div className="flex items-center gap-2">
-          {selectedApplicantId !== 'new' ? (
+          {/* If registering a new applicant: CLEAR FORM is available with confirmation popup */}
+          {selectedApplicantId === 'new' ? (
             <button
+              type="button"
               onClick={() => {
-                setSelectedApplicantId('new');
-                resetBlankForm();
-                showToast('Switched to blank form: Registering a new candidate.');
+                if (!isFormFilled) {
+                  showToast('Form is already empty.');
+                  return;
+                }
+                setShowClearConfirmModal(true);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+              disabled={!isFormFilled}
+              title={isFormFilled ? 'Clear current form input' : 'Form is already empty'}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 border border-slate-300 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-700 disabled:hover:border-slate-300 disabled:cursor-not-allowed rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
             >
-              <UserPlus size={14} /> + Register New Candidate
+              <Trash2 size={14} className="text-slate-500" />
+              <span className="uppercase tracking-wider">CLEAR FORM</span>
             </button>
           ) : (
-            <button
-              onClick={() => {
-                resetBlankForm();
-                showToast('Form cleared.');
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition-colors shadow-sm"
-            >
-              <Trash2 size={13} className="text-emerald-600" /> Clear Form
-            </button>
+            /* When an existing applicant is selected: Clear form is NOT applicable. Shows UPDATE MODE indicator & Revert button */
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg text-xs font-bold shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="uppercase tracking-wider font-extrabold">UPDATE MODE</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (hasUnsavedChanges) {
+                    setShowRevertConfirmModal(true);
+                  } else {
+                    showToast('No unsaved changes to revert.');
+                  }
+                }}
+                disabled={!hasUnsavedChanges}
+                title={hasUnsavedChanges ? 'Revert to saved applicant data' : 'No unsaved edits to revert'}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              >
+                <RotateCcw size={13} className="text-slate-500" />
+                <span className="uppercase tracking-wider">REVERT</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {applicants.length > 0 && (
-        <InlineApplicantSelector
-          applicants={applicants}
-          selectedApplicantId={selectedApplicantId}
-          onSelectApplicant={setSelectedApplicantId}
-        />
+      {hasBlockingFlags && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-semibold">
+          <ShieldAlert size={16} /> {activeFlagCount} unresolved flag{activeFlagCount > 1 ? 's' : ''} in employment history — cannot save
+        </div>
       )}
 
-      {/* Job Order Selector */}
-      <div className={`bg-white rounded-xl border p-4 transition-all ${!selectedJobOrderId ? 'border-amber-300 ring-1 ring-amber-200/60 shadow-sm' : 'border-slate-200'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-            <Briefcase size={13} className="text-[#0EA5E9]" /> Prospecting Job Order <span className="text-red-500 font-bold">*</span>
-          </label>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${selectedJobOrderId ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-            {selectedJobOrderId ? '✓ Selected' : 'Required *'}
-          </span>
-        </div>
-        <select
-          value={selectedJobOrderId}
-          onChange={e => {
-            setSelectedJobOrderId(e.target.value);
-            const jo = openJobOrders.find(j => j.id === e.target.value);
-            if (jo) setPersonal(p => ({ ...p, role: jo.position }));
-          }}
-          className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white transition-colors ${
-            !selectedJobOrderId ? 'border-amber-300 text-slate-600 bg-amber-50/20' : 'border-slate-200 text-slate-800'
-          }`}
-        >
-          <option value="">{isLoadingJobOrders ? 'Loading job orders...' : '-- Select job order applicant is applying for (Required) --'}</option>
-          {openJobOrders.map(jo => (
-            <option key={jo.id} value={jo.id}>
-              {jo.code} · {jo.position} · {jo.country} ({jo.employerName}) · {jo.available} slot{jo.available !== 1 ? 's' : ''} open
-            </option>
-          ))}
-        </select>
-        {selectedJobOrderId ? (() => {
-          const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
-          return jo ? (
-            <p className="text-xs text-[#0EA5E9] mt-1.5 flex items-center gap-1">
-              <CheckCircle2 size={11} /> Role field auto-filled to "{jo.position}" — change in Personal Info if needed
-            </p>
-          ) : null;
-        })() : (
-          <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1 font-medium">
-            <AlertCircle size={12} /> A job order must be selected to register or save this applicant.
-          </p>
-        )}
-      </div>
-
-      {/* ── Sticky Quick-Jump Navigation Bar ───────────────────────────────── */}
-      <div className="sticky top-0 z-30 bg-[#F1F5F9]/95 backdrop-blur-md py-2 -mt-1">
-        <div className="flex items-center justify-between gap-3 flex-wrap bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 hidden sm:inline flex-shrink-0">
-              Sections:
+      {/* Search / Select Existing Applicant (toggleable or when editing existing) */}
+      {(isSearchOpen || selectedApplicantId !== 'new') && applicants.length > 0 && (
+        <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-800 flex items-center gap-2">
+              <Users size={14} className="text-[#0EA5E9]" /> Search Candidate Database
+              <span className="bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                {applicants.length} registered
+              </span>
             </span>
-            {sections.map(s => {
-              const isFilled = sectionStatus[s.id as keyof typeof sectionStatus];
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => scrollToSection(s.id)}
-                  className={`flex-1 min-w-fit px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${activeSection === s.id
-                    ? 'bg-[#0F172A] text-white shadow-sm'
-                    : 'text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100'
-                    } ${s.id === 'employment' && hasBlockingFlags ? 'text-red-600' : ''}`}
-                >
-                  <span>{s.label}</span>
-                  {s.id === 'personal' ? (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : isFilled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                      }`}>
-                      {isFilled ? '✓ Required' : 'Required *'}
-                    </span>
-                  ) : isFilled ? (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeSection === s.id ? 'bg-emerald-500/25 text-emerald-300' : 'bg-emerald-50 text-emerald-600'}`}>
-                      ✓
-                    </span>
-                  ) : null}
-                  {s.id === 'employment' && activeFlagCount > 0 && (
-                    <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
-                      {activeFlagCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Right: Progress & Quick Navigation */}
-          <div className="flex items-center gap-2.5 flex-shrink-0 pr-1">
-            {/* Candidate / Intake Mode Pill */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium">
-              {selectedApplicantId === 'new' ? (
-                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> New Intake
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-slate-700">
-                  <span className="font-mono text-sky-700 font-bold">{currentApplicant?.applicantCode || `#${selectedApplicantId}`}</span>
-                  {currentApplicant?.name && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="truncate max-w-[110px] font-semibold">{currentApplicant.name}</span>
-                    </>
-                  )}
+            <div className="flex items-center gap-3">
+              {selectedApplicantId !== 'new' && (
+                <span className="text-slate-600 font-semibold text-[11px]">
+                  Editing: <strong className="text-slate-900">{currentApplicant?.name}</strong> ({currentApplicant?.applicantCode || `#${selectedApplicantId}`})
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setIsSearchOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-md transition-colors cursor-pointer"
+                title="Close search panel"
+              >
+                <X size={15} />
+              </button>
             </div>
-
-            {/* Progress Bar & Counter */}
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200" title="Overall form sections filled">
-              <div className="w-14 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
-                {completedCount}/7 Done
-              </span>
-            </div>
-
-            {/* Quick Jump to Bottom Actions */}
-            <button
-              type="button"
-              onClick={scrollToBottom}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
-              title="Jump to Save & Actions at bottom"
-            >
-              <span>Bottom</span>
-              <ArrowDown size={12} />
-            </button>
           </div>
+          <InlineApplicantSelector
+            applicants={applicants}
+            selectedApplicantId={selectedApplicantId}
+            onSelectApplicant={(id) => {
+              setSelectedApplicantId(id);
+              setIsSearchOpen(false);
+            }}
+            defaultOpen={isSearchOpen}
+          />
+        </div>
+      )}
+
+      {/* ── Stepper Card Container (Reference Layout) ──────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
+        {/* Header row: NEW INTAKE • New Intake (left) | PROGRESS: STEP X OF 7 (right) */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <User size={18} className="text-slate-500" />
+            <span className="font-extrabold text-sm tracking-wider uppercase text-slate-900">
+              {selectedApplicantId === 'new' ? 'NEW INTAKE' : 'APPLICANT INTAKE'}
+            </span>
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 ${
+              selectedApplicantId === 'new'
+                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                : 'bg-amber-100 text-amber-800 border border-amber-200'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${selectedApplicantId === 'new' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              {selectedApplicantId === 'new' ? 'New Registration' : `Update Mode • ${currentApplicant?.applicantCode || 'Existing'}`}
+            </span>
+          </div>
+          <div className="text-xs font-black uppercase tracking-wider text-slate-700 font-mono">
+            PROGRESS: STEP {currentStepNumber} OF 7
+          </div>
+        </div>
+
+        {/* 7-Step Tabs with Progress Track Lines Above Each */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-1">
+          {STEP_TABS.map((tab) => {
+            const isActive = currentStepNumber === tab.step;
+            const isCompleted = tab.step < currentStepNumber;
+            return (
+              <div key={tab.step} className="flex flex-col gap-2">
+                {/* Progress bar track above the button */}
+                <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      isActive || isCompleted ? 'bg-[#0EA5E9] w-full' : 'w-0'
+                    }`}
+                  />
+                </div>
+                {/* Tab Button */}
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(tab.targetSectionId)}
+                  className={`w-full py-2.5 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-black tracking-wider uppercase transition-all flex items-center justify-center text-center cursor-pointer ${
+                    isActive
+                      ? 'bg-[#0F172A] text-white shadow-sm'
+                      : 'text-slate-700 hover:text-[#0EA5E9] hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer row: Page X of 7 (left) | Page X of 7 (right) */}
+        <div className="flex items-center justify-between text-xs text-slate-500 font-medium pt-1">
+          <span>Page {currentStepNumber} of 7</span>
+          <span>Page {currentStepNumber} of 7</span>
+        </div>
+      </div>
+
+      {/* ── Application Assignment Card (Reference Layout) ───────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-visible shadow-xs">
+        <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Briefcase size={16} className="text-[#0EA5E9]" />
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+              <span>APPLICATION ASSIGNMENT</span>
+              <span className="text-red-500 font-bold text-xs normal-case">(Required *)</span>
+            </h3>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+            Step 1 of 7
+          </span>
+        </div>
+        <div className="p-5">
+          <SearchableJobOrderSelector
+            jobOrders={openJobOrders}
+            selectedJobOrderId={selectedJobOrderId}
+            onSelectJobOrder={(id, jo) => {
+              setSelectedJobOrderId(id);
+              if (jo) {
+                setPersonal(p => ({ ...p, role: jo.position }));
+              }
+            }}
+            isLoading={isLoadingJobOrders}
+          />
+          {selectedJobOrderId ? (() => {
+            const jo = openJobOrders.find(j => j.id === selectedJobOrderId || j.code === selectedJobOrderId);
+            return jo ? (
+              <p className="text-xs text-[#0EA5E9] mt-2 flex items-center gap-1 font-medium">
+                <CheckCircle2 size={13} /> Role field auto-filled to &quot;{jo.position}&quot; — change in Personal Info if needed
+              </p>
+            ) : null;
+          })() : (
+            <p className="text-xs text-amber-600 mt-2 flex items-center gap-1 font-medium">
+              <AlertCircle size={13} /> A job order must be selected to register or save this applicant.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1815,7 +1838,7 @@ export default function Registration({
       <div id="section-skills" className="scroll-mt-28">
         <Section
           title="Core Skills & Competencies"
-          icon={<Sparkles size={16} />}
+          icon={<Award size={16} />}
           badge={<span className="text-xs text-slate-400 font-medium">{skills.length} recorded</span>}
         >
           <div className="space-y-4">
@@ -2285,6 +2308,95 @@ export default function Registration({
           </button>
         </div>
       </div>
+
+      {/* ── Clear Form Confirmation Modal (New Intake) ───────────────────────── */}
+      {showClearConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={22} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  Clear Registration Form?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to clear your current input? All entered details for this new applicant will be completely reset. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirmModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetBlankForm();
+                  setShowClearConfirmModal(false);
+                  showToast('Registration form cleared.');
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer"
+              >
+                <Trash2 size={13} />
+                <span>Yes, Clear Form</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Revert Changes Confirmation Modal (Update Mode) ─────────────────── */}
+      {showRevertConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+                <RotateCcw size={22} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  Discard Unsaved Changes?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to discard your edits? All fields will be reloaded to match the saved profile of <strong className="text-slate-800">{currentApplicant?.name}</strong> ({currentApplicant?.applicantCode || `#${selectedApplicantId}`}).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRevertConfirmModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
+                  if (app) {
+                    populateApplicantData(app);
+                    showToast(`Unsaved changes discarded for ${app.name}. Original profile restored.`);
+                  }
+                  setShowRevertConfirmModal(false);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer"
+              >
+                <RotateCcw size={13} />
+                <span>Discard & Revert</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
 import { jsPDF } from 'jspdf';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
 import { api } from '../../../lib/api';
+import SearchableJobOrderSelector from '../SearchableJobOrderSelector';
 import ApplicantProfile from './ApplicantProfile';
 import {
   OccupationalClusterData,
@@ -131,19 +132,27 @@ export default function SmartProfiling({
             const filled = Number(jo.filled_slots ?? 0);
             const vacancies = Math.max(0, total - filled);
             const code = jo.job_code || jo.job_order_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : 'JO-0000');
+            const empName = jo.employer_name || jo.client_employer?.company_name || 'Partner Principal';
             return {
               realId: jo.job_order_id,
-              id: code,
+              jobOrderId: jo.job_order_id,
+              id: String(jo.job_order_id || code),
+              code: code,
               position: jo.position || jo.position_title || 'General Position',
               country: jo.country || jo.client_employer?.country?.country_name || 'International',
-              employer: jo.employer_name || jo.client_employer?.company_name || 'Partner Principal',
+              employer: empName,
+              employerName: empName,
               employerId: jo.employer_id,
               totalSlots: total,
               filledSlots: filled,
               vacancies,
+              available: vacancies,
               minExperience: Number(jo.min_experience_years ?? 1),
               certifications: Array.isArray(jo.certifications) ? jo.certifications : (jo.required_certifications || []),
               requirements: Array.isArray(jo.requirements) ? jo.requirements : (jo.required_skills || []),
+              genderPreference: jo.gender_preference || jo.genderPreference,
+              minAge: jo.min_age ?? jo.minAge,
+              maxAge: jo.max_age ?? jo.maxAge,
             };
           });
           setJobOrders(liveOrders);
@@ -195,7 +204,17 @@ export default function SmartProfiling({
 
   // Selected job order object
   const currentJobOrder = useMemo(() => {
-    return jobOrders.find((j) => String(j.realId) === String(selectedJobOrderId)) || jobOrders[0] || null;
+    if (!selectedJobOrderId) return jobOrders[0] || null;
+    const strTarget = String(selectedJobOrderId).trim();
+    return (
+      jobOrders.find(
+        (j) =>
+          String(j.realId || '').trim() === strTarget ||
+          String(j.id || '').trim() === strTarget ||
+          String(j.code || '').trim() === strTarget ||
+          (j.jobOrderId && String(j.jobOrderId).trim() === strTarget)
+      ) || jobOrders[0] || null
+    );
   }, [jobOrders, selectedJobOrderId]);
 
   // Fetch or synthesize the AI Trade Cluster for the active job order via Gemini Flash
@@ -1680,7 +1699,7 @@ export default function SmartProfiling({
       </div>
 
       {/* Step 1: Select Active Foreign Job Order to Fill */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 md:p-6 transition-all">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 md:p-6 transition-all overflow-visible">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-2">
           <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-black inline-flex items-center justify-center">
             1
@@ -1688,29 +1707,14 @@ export default function SmartProfiling({
           Step 1: Select Active Foreign Job Order to Fill
         </h3>
 
-        <div className="relative">
-          <select
-            value={selectedJobOrderId}
-            onChange={(e) => setSelectedJobOrderId(e.target.value)}
-            disabled={isLoadingJobs}
-            className="w-full border-2 border-slate-200 hover:border-slate-300 focus:border-[#20637A] bg-white px-4 py-2.5 rounded-lg text-sm font-semibold text-slate-900 outline-none transition-all shadow-sm disabled:opacity-50 cursor-pointer appearance-none pr-10"
-          >
-            {isLoadingJobs ? (
-              <option value="">Loading job orders...</option>
-            ) : jobOrders.length === 0 ? (
-              <option value="">No active foreign job orders found</option>
-            ) : (
-              jobOrders.map((jo) => (
-                <option key={jo.realId} value={jo.realId}>
-                  {jo.position} - {jo.country} - #{jo.id} (Available Vacancies: {jo.vacancies})
-                </option>
-              ))
-            )}
-          </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
-            <ChevronRight className="w-4 h-4 rotate-90" />
-          </div>
-        </div>
+        <SearchableJobOrderSelector
+          jobOrders={jobOrders}
+          selectedJobOrderId={selectedJobOrderId}
+          onSelectJobOrder={(id, jo) => {
+            setSelectedJobOrderId(String(jo?.realId || jo?.id || id));
+          }}
+          isLoading={isLoadingJobs}
+        />
       </div>
 
       {/* Step 2: Ranked Candidate Shortlist */}

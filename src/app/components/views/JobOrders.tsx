@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Globe, Briefcase,
   Users, Calendar, DollarSign, FileText, ChevronDown, ChevronRight,
@@ -43,16 +43,16 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [catalogRequirements, setCatalogRequirements] = useState<any[]>([]);
+  const [catalogCountries, setCatalogCountries] = useState<string[]>([]);
   const [reqIsMandatory, setReqIsMandatory] = useState(true);
   const [certIsMandatory, setCertIsMandatory] = useState(true);
 
-  // ── Fetch Live Data on Mount ──────────────────────────────────────────────
-  useEffect(() => {
-    const fetchLiveJobOrders = async () => {
+  // ── Fetch Live Data on Mount & Refresh ────────────────────────────────────
+  const fetchLiveJobOrders = useCallback(async () => {
       try {
         setIsLoading(true);
         const [ordersRes, empRes] = await Promise.allSettled([
-          globalJobOrders ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
+          api.get('/job-orders'),
           globalEmployers ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
         ]);
 
@@ -60,7 +60,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
           const liveEmps: EmployerProfile[] = empRes.value.data.map((e: any) => ({
             id: String(e.employer_id),
             companyName: e.company_name,
-            country: e.country?.country_name || 'International',
+            country: e.country?.country_name || (typeof e.country === 'string' ? e.country : '') || 'International',
             industry: e.industry || 'General',
             contactPerson: e.contact_person || '',
             contactEmail: e.contact_email || '',
@@ -83,9 +83,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             id: String(jo.job_order_id),
             code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
             position: jo.position_title || jo.position || '',
-            country: jo.client_employer?.country?.country_name || jo.country || 'International',
+            country: (typeof jo.country === 'string' ? jo.country : jo.country?.country_name) || jo.country_name || jo.client_employer?.country?.country_name || jo.employer?.country?.country_name || 'International',
             employerId: String(jo.employer_id),
-            employerName: jo.client_employer?.company_name || jo.employer_name || '',
+            employerName: jo.client_employer?.company_name || jo.employer?.company_name || jo.employer_name || '',
             slots: jo.slots_requested || jo.total_slots || 1,
             filledSlots: jo.slots_filled || jo.filled_slots || 0,
             salaryMin: Number(jo.salary_min) || 0,
@@ -124,12 +124,25 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         setIsLoading(false);
       }
       try {
-        const reqRes = await api.get('/requirements');
-        if (reqRes.data) setCatalogRequirements(reqRes.data);
+        const [reqRes, countryRes] = await Promise.allSettled([
+          api.get('/requirements'),
+          api.get('/lookups/countries'),
+        ]);
+        if (reqRes.status === 'fulfilled' && reqRes.value.data) {
+          setCatalogRequirements(reqRes.value.data);
+        }
+        if (countryRes.status === 'fulfilled' && Array.isArray(countryRes.value.data)) {
+          const names = countryRes.value.data.map((c: any) => c.country_name).filter(Boolean);
+          setCatalogCountries(names);
+        }
       } catch (err) {}
-    };
+    },
+    [globalEmployers]
+  );
+
+  useEffect(() => {
     fetchLiveJobOrders();
-  }, [globalJobOrders, globalEmployers]);
+  }, [fetchLiveJobOrders]);
 
   const filtered = orders.filter(o => {
     const q = search.toLowerCase();
@@ -168,15 +181,18 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
 
     setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
+    const finalCountry = (editing.country || '').trim() || (empObj ? empObj.country : 'International');
     const updatedEditing: JobOrder = {
       ...editing,
       employerName: empObj ? empObj.companyName : editing.employerName,
-      country: empObj ? empObj.country : editing.country,
+      country: finalCountry,
     };
 
     const payload = {
       employer_id: parseInt(editing.employerId, 10) || 1,
       position: editing.position,
+      country: finalCountry,
+      country_name: finalCountry,
       job_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
       total_slots: editing.slots,
       salary_min: editing.salaryMin,
@@ -211,6 +227,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       }
       showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
       setEditing(null);
+      fetchLiveJobOrders();
     } catch (err: any) {
       console.warn('Backend save error:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Unknown error occurred';
@@ -231,6 +248,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     try {
       await api.delete(`/job-orders/${id}`);
       showToast(`"${o?.code} ${o?.position}" deleted from database`);
+      fetchLiveJobOrders();
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
       showToast(`"${o?.code} ${o?.position}" removed`);
@@ -261,7 +279,12 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
 
   const onEmployerChange = (empId: string) => {
     const emp = employers.find(e => e.id === empId);
-    setEditing(p => p ? { ...p, employerId: empId, employerName: emp?.companyName || '', country: emp?.country || p.country } : p);
+    setEditing(p => p ? { 
+      ...p, 
+      employerId: empId, 
+      employerName: emp?.companyName || '', 
+      country: (p.country && p.country !== 'International' ? p.country : emp?.country) || 'International' 
+    } : p);
   };
 
   const stats = {
@@ -525,7 +548,18 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Country</label>
-                  <input value={editing.country} onChange={e => setEditing(p => p ? { ...p, country: e.target.value } : p)} placeholder="e.g. UAE" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <input 
+                    list="country-catalog" 
+                    value={editing.country} 
+                    onChange={e => setEditing(p => p ? { ...p, country: e.target.value } : p)} 
+                    placeholder="e.g. Japan, UAE, Saudi Arabia" 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] bg-white" 
+                  />
+                  <datalist id="country-catalog">
+                    {catalogCountries.map(c => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Total Slots</label>
