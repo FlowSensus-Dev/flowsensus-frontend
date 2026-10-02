@@ -129,12 +129,36 @@ export default function Screening({
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
   const [listView, setListView] = useState(true);
 
+  const normalizeEvaluationTemplate = (t: any): EvaluationTest => {
+    const rawScoring = t.scoringType || t.scoring_type;
+    const isPF = rawScoring === 'pass_fail' || rawScoring === 'pass/fail' ||
+      (t.scoringGuide && t.scoringGuide.toLowerCase().includes('pass/fail')) ||
+      (t.scoring_guide && t.scoring_guide.toLowerCase().includes('pass/fail'));
+    return {
+      id: String(t.test_template_id || t.id),
+      name: t.name,
+      type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+      description: t.description || '',
+      maxScore: Number(t.max_score ?? t.maxScore ?? 100),
+      passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
+      weight: Number(t.weight_percentage ?? t.weight ?? 10),
+      scoringGuide: t.scoring_guide || t.scoringGuide || '',
+      isActive: Boolean(t.is_active ?? t.isActive ?? true),
+      scoringType: (isPF ? 'pass_fail' : 'numeric') as 'numeric' | 'pass_fail',
+      applicableJobOrders: Array.isArray(t.applicable_job_orders)
+        ? t.applicable_job_orders
+        : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+    };
+  };
+
   // Dynamic evaluation templates state (fetched from Supabase or passed as props)
-  const [templates, setTemplates] = useState<EvaluationTest[]>(evaluationTemplates);
+  const [templates, setTemplates] = useState<EvaluationTest[]>(() =>
+    (evaluationTemplates || []).map(normalizeEvaluationTemplate)
+  );
 
   useEffect(() => {
     if (evaluationTemplates && evaluationTemplates.length > 0) {
-      setTemplates(evaluationTemplates);
+      setTemplates(evaluationTemplates.map(normalizeEvaluationTemplate));
     }
   }, [evaluationTemplates]);
 
@@ -143,22 +167,7 @@ export default function Screening({
       api.get('/evaluations/templates')
         .then(res => {
           if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-            const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
-              id: String(t.test_template_id || t.id),
-              name: t.name,
-              type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
-              description: t.description || '',
-              maxScore: Number(t.max_score ?? t.maxScore ?? 100),
-              passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
-              weight: Number(t.weight_percentage ?? t.weight ?? 10),
-              scoringGuide: t.scoring_guide || t.scoringGuide || '',
-              isActive: Boolean(t.is_active ?? t.isActive ?? true),
-              scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
-              applicableJobOrders: Array.isArray(t.applicable_job_orders)
-                ? t.applicable_job_orders
-                : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
-            }));
-            setTemplates(liveTests);
+            setTemplates(res.data.map(normalizeEvaluationTemplate));
           }
         })
         .catch(err => console.warn('Could not fetch evaluation templates in Screening:', err));
@@ -170,7 +179,18 @@ export default function Screening({
   const initializedForApplicantId = useRef<string | null>(null);
 
   const activeEvaluationTests: EvaluationTest[] = useMemo(() => {
-    const active = templates.filter(t => t.isActive);
+    const active = templates.filter(t => t.isActive).map(t => {
+      const stored = selectedApplicant?.testScores?.tests?.[t.id] || selectedApplicant?.testScores?.tests?.[t.name];
+      const isPF = t.scoringType === 'pass_fail' ||
+        (t as any).scoring_type === 'pass_fail' ||
+        stored?.scoringType === 'pass_fail' ||
+        (stored as any)?.scoring_type === 'pass_fail' ||
+        t.scoringGuide?.toLowerCase().includes('pass/fail');
+      return {
+        ...t,
+        scoringType: (isPF ? 'pass_fail' : (t.scoringType || 'numeric')) as 'numeric' | 'pass_fail'
+      };
+    });
     const applicable = active.filter(t => isTestApplicableToApplicant(t, selectedApplicant, globalJobOrders));
     if (applicable.length > 0) return applicable;
     return active;
@@ -193,10 +213,7 @@ export default function Screening({
       .then(res => {
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
           setPartnerClinicsList(res.data);
-          const names = res.data.map((c: any) => c.clinicName || c.clinic_name);
-          if (names.length > 0) {
-            setSelectedClinic(prev => prev && names.includes(prev) ? prev : names[0]);
-          }
+          // Do not auto-select a clinic; status update defaults to 'Pending' unless explicitly chosen
         }
       })
       .catch(err => console.warn('Could not load clinics in Screening:', err));
@@ -1037,6 +1054,10 @@ export default function Screening({
       showToast('Cannot generate Medical Referral until all test scores and interview are passed.');
       return;
     }
+    if (!selectedClinic && partnerClinicsList.length > 0) {
+      const names = partnerClinicsList.map((c: any) => c.clinicName || c.clinic_name);
+      setSelectedClinic(names[0] || '');
+    }
     setShowReferralModal(true);
   };
 
@@ -1344,6 +1365,8 @@ export default function Screening({
       showToast('Cannot update status: candidate must pass all evaluation tests and the suitability interview.');
       return;
     }
+    // Default to empty (Pending) so no random clinic is auto-assigned
+    setSelectedClinic('');
     setShowUpdateStatusModal(true);
   };
 
@@ -1353,31 +1376,45 @@ export default function Screening({
     try {
       const applicantId = selectedApplicant.id;
       const numericId = parseInt(applicantId, 10);
+      const hasClinic = Boolean(selectedClinic && selectedClinic.trim() && selectedClinic !== 'PENDING' && selectedClinic !== 'Pending Clinic Assignment');
 
-      // Save Clinic Referral to Supabase
-      try {
-        const matched = partnerClinicsList.find((c: any) => (c.clinicName || c.clinic_name) === selectedClinic);
-        const cId = matched ? (matched.clinicId || matched.clinic_id) : (partnerClinicsList[0]?.clinicId || partnerClinicsList[0]?.clinic_id || null);
-        await api.post('/clinic-referrals', {
-          applicantId: numericId,
-          clinicId: cId,
-          referralDate: new Date().toISOString().split('T')[0],
-          medicalStatus: 'PENDING',
-          remarks: `Pre-employment medical referral issued to ${selectedClinic} by ${currentUserName}.`
-        }).catch(console.error);
-      } catch (refErr) {
-        console.warn('Could not record clinic referral:', refErr);
+      // Only save Clinic Referral if a clinic was explicitly chosen
+      if (hasClinic) {
+        try {
+          const matched = partnerClinicsList.find((c: any) => (c.clinicName || c.clinic_name) === selectedClinic);
+          const cId = matched ? (matched.clinicId || matched.clinic_id) : null;
+          if (cId) {
+            await api.post('/clinic-referrals', {
+              applicantId: numericId,
+              clinicId: cId,
+              referralDate: new Date().toISOString().split('T')[0],
+              medicalStatus: 'PENDING',
+              remarks: `Pre-employment medical referral issued to ${selectedClinic} by ${currentUserName}.`
+            }).catch(console.error);
+          }
+        } catch (refErr) {
+          console.warn('Could not record clinic referral:', refErr);
+        }
+      } else {
+        // Ensure any previous or test clinic referral is removed so clinic reliably stays Pending
+        if (!isNaN(numericId)) {
+          await api.delete(`/clinic-referrals/${numericId}`).catch(() => {});
+        }
       }
+
+      const phaseDescription = hasClinic
+        ? `Screening completed. Medical referral issued to ${selectedClinic}. Awaiting clinical clearance.`
+        : 'Screening completed. Advanced to Medical Clearance. Clinic assignment pending.';
 
       const updates: Partial<ApplicantRecord> = {
         status: 'Medical Clearance',
         phase: 2,
         currentHandler: 'Unassigned Pool',
         currentDepartment: 'Admin',
-        medicalReferralClinic: selectedClinic,
-        medicalReferralDate: new Date().toISOString().split('T')[0],
-        medicalReferralGenerated: true,
-        phaseDescription: `Screening completed. Medical referral issued to ${selectedClinic}. Awaiting clinical clearance.`,
+        medicalReferralClinic: hasClinic ? selectedClinic : 'Pending Clinic Assignment',
+        medicalReferralDate: hasClinic ? new Date().toISOString().split('T')[0] : undefined,
+        medicalReferralGenerated: hasClinic,
+        phaseDescription,
       };
 
       if (!isNaN(numericId)) {
@@ -1388,9 +1425,15 @@ export default function Screening({
           current_handler: 'Unassigned Pool',
           current_department: 'Admin',
           phase_description: updates.phaseDescription,
-          statusChangeReason: `Screening completed. Medical referral issued to ${selectedClinic}`,
+          test_scores: {
+            ...(selectedApplicant.testScores || {}),
+            personalityEQ: 'Suitable'
+          },
+          statusChangeReason: hasClinic
+            ? `Screening completed. Medical referral issued to ${selectedClinic}`
+            : 'Screening completed. Advanced to Medical Clearance (Clinic Pending)',
           statusChangeSource: 'STAFF_ACTION'
-        }).catch(console.error);
+        });
       }
 
       // Update local state and workflow state
@@ -1402,11 +1445,16 @@ export default function Screening({
         action: 'Screening Completed — Moved to Medical Clearance',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Referral issued to ${selectedClinic}. Endorsed for Medical Clearance.`,
+        details: hasClinic
+          ? `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Referral issued to ${selectedClinic}. Endorsed for Medical Clearance.`
+          : `Applicant ${selectedApplicant.name} completed all screening phases with verified scores. Endorsed for Medical Clearance with clinic assignment pending.`,
       });
 
       setShowUpdateStatusModal(false);
-      showToast(`✓ ${selectedApplicant.name} moved to Medical Clearance (${selectedClinic}).`);
+      showToast(hasClinic
+        ? `✓ ${selectedApplicant.name} moved to Medical Clearance (${selectedClinic}).`
+        : `✓ ${selectedApplicant.name} moved to Medical Clearance (Clinic Pending).`
+      );
 
       // Return to Screening overview; applicant will no longer appear in any screening sub-phase
       setListView(true);
@@ -3059,7 +3107,7 @@ export default function Screening({
               </p>
             </div>
 
-            <div className="my-5 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
+            <div className="my-5 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-3">
               <div className="flex justify-between">
                 <span className="text-slate-400">Candidate:</span>
                 <span className="font-bold text-slate-800">{selectedApplicant?.name}</span>
@@ -3068,7 +3116,32 @@ export default function Screening({
                 <span className="text-slate-400">Next Step:</span>
                 <span className="font-bold text-emerald-700">Medical Clearance</span>
               </div>
-              <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
+
+              <div className="pt-2 border-t border-slate-200">
+                <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wide text-[10px]">
+                  Accredited Medical Clinic (Optional)
+                </label>
+                <select
+                  value={selectedClinic}
+                  onChange={e => setSelectedClinic(e.target.value)}
+                  className="w-full border-2 border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white focus:border-[#0EA5E9] outline-none cursor-pointer"
+                >
+                  <option value="">-- Pending (Assign later in Fit-to-Work) --</option>
+                  {partnerClinicsList.map((c: any) => {
+                    const clinicName = c.clinicName || c.clinic_name;
+                    return (
+                      <option key={c.clinicId || c.clinic_id || clinicName} value={clinicName}>
+                        {clinicName}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Default: <strong>Pending</strong>. You can leave this unassigned so the Fit-to-Work team can assign a clinic.
+                </p>
+              </div>
+
+              <div className="pt-1 text-[11px] text-slate-500">
                 The applicant will be moved out of Screening and will proceed to the Medical Clearance phase.
               </div>
             </div>

@@ -185,6 +185,10 @@ export default function AppShell({
           weight: Number(t.weight_percentage ?? t.weight ?? 10),
           scoringGuide: t.scoring_guide || t.scoringGuide || '',
           isActive: Boolean(t.is_active ?? t.isActive ?? true),
+          scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+          applicableJobOrders: Array.isArray(t.applicable_job_orders)
+            ? t.applicable_job_orders
+            : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
         }));
         setEvaluationTemplates(liveTests);
       }
@@ -412,6 +416,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            onNavigate={(view: string) => setCurrentView(view as any)}
           />
         );
       case 'endorsement':

@@ -1,6 +1,12 @@
-import { useState } from 'react';
-import { CheckSquare, Building2, Lock, Download, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  CheckSquare, XCircle, Clock, FileText, ChevronDown, ChevronUp,
+  Search, Filter, Loader2, AlertCircle, Eye, ThumbsUp, ThumbsDown,
+  Send, RefreshCw, User, Briefcase, Building2
+} from 'lucide-react';
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
+import { Skeleton, SkeletonText, SkeletonBadge } from '../ui/skeleton';
+import { api } from '../../../lib/api';
 
 interface ManagerHubProps {
   workflow: WorkflowState;
@@ -13,6 +19,249 @@ interface ManagerHubProps {
   selectedApplicantId?: string;
 }
 
+interface CvRecord {
+  cv_id: number;
+  applicant_id: number;
+  agency_id: number;
+  job_order_id: number | null;
+  status_code: 'DRAFT' | 'PENDING_APPROVAL' | 'REJECTED' | 'APPROVED';
+  custom_fields: Record<string, any> | null;
+  rejection_reason: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  DRAFT: { label: 'Draft', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
+  PENDING_APPROVAL: { label: 'Pending Approval', color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+  REJECTED: { label: 'Rejected', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
+  APPROVED: { label: 'Approved', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0' },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const m = STATUS_META[status] || STATUS_META.DRAFT;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border"
+      style={{ color: m.color, background: m.bg, borderColor: m.border }}
+    >
+      {status === 'DRAFT' && <FileText className="w-3 h-3" />}
+      {status === 'PENDING_APPROVAL' && <Clock className="w-3 h-3" />}
+      {status === 'REJECTED' && <XCircle className="w-3 h-3" />}
+      {status === 'APPROVED' && <CheckSquare className="w-3 h-3" />}
+      {m.label}
+    </span>
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <div className="flex items-center gap-4 p-4 bg-white border border-slate-200 rounded-xl">
+      <div className="w-10 h-10 bg-slate-200 rounded-full animate-pulse flex-shrink-0" />
+      <div className="flex-1 space-y-2">
+        <SkeletonText className="w-48 h-4" />
+        <SkeletonText className="w-32 h-3" />
+      </div>
+      <SkeletonBadge />
+    </div>
+  );
+}
+
+interface CvDetailGateProps {
+  cvRecord: CvRecord;
+  applicant: ApplicantRecord | undefined;
+  onApprove: (cvId: number) => void;
+  onReject: (cvId: number, reason: string) => void;
+  onEndorse: (cvId: number) => void;
+  isActing: boolean;
+  onClose: () => void;
+}
+
+function CvDetailGate({
+  cvRecord, applicant, onApprove, onReject, onEndorse, isActing, onClose
+}: CvDetailGateProps) {
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [showRejectForm, setShowRejectForm] = useState(false);
+
+  const canApproveOrReject = cvRecord.status_code === 'PENDING_APPROVAL';
+  const canEndorse = cvRecord.status_code === 'APPROVED';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="font-black text-[#0F172A] text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-[#0EA5E9]" />
+              CV Review — {applicant?.name || `Applicant #${cvRecord.applicant_id}`}
+            </h3>
+            <p className="text-sm text-[#64748B] mt-0.5">
+              {applicant?.role || applicant?.appliedRole || 'Unknown Role'} · CV #{cvRecord.cv_id}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={cvRecord.status_code} />
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-5">
+          {/* Applicant snapshot */}
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+            <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-3">Applicant Snapshot</p>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+              {[
+                ['Name', applicant?.name || '—'],
+                ['Position', applicant?.role || applicant?.appliedRole || '—'],
+                ['Phase', applicant?.phase != null ? `Phase ${applicant.phase}` : '—'],
+                ['Status', applicant?.status || '—'],
+                ['Email', applicant?.email || '—'],
+                ['Contact', applicant?.contact || '—'],
+              ].map(([l, v]) => (
+                <div key={l}>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
+                  <p className="font-medium text-[#0F172A]">{v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Professional summary from custom_fields */}
+          {cvRecord.custom_fields?.summary_override && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide mb-1">Professional Summary</p>
+              <p className="text-sm text-[#0F172A] italic">{cvRecord.custom_fields.summary_override}</p>
+            </div>
+          )}
+
+          {/* Custom fields table */}
+          {cvRecord.custom_fields && Object.keys(cvRecord.custom_fields).filter(k => k !== 'summary_override').length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-2">Custom / Additional Fields</p>
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {Object.entries(cvRecord.custom_fields)
+                      .filter(([k]) => k !== 'summary_override')
+                      .map(([k, v]) => (
+                        <tr key={k} className="border-b border-slate-100 last:border-0">
+                          <td className="px-4 py-2 font-semibold text-[#475569] bg-slate-50 w-2/5">{k}</td>
+                          <td className="px-4 py-2 text-[#0F172A]">{String(v)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Rejection reason display */}
+          {cvRecord.status_code === 'REJECTED' && cvRecord.rejection_reason && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">Rejection Reason</p>
+              <p className="text-sm text-red-700">{cvRecord.rejection_reason}</p>
+            </div>
+          )}
+
+          {/* Approval stamp */}
+          {cvRecord.status_code === 'APPROVED' && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+              <CheckSquare className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-emerald-700">Approved by {cvRecord.approved_by || 'Manager'}</p>
+                {cvRecord.approved_at && (
+                  <p className="text-xs text-emerald-600">
+                    {new Date(cvRecord.approved_at).toLocaleString('en-PH')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Reject form */}
+          {showRejectForm && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-bold text-red-700">Provide rejection reason:</p>
+              <textarea
+                rows={3}
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value)}
+                placeholder="Describe what needs to be corrected..."
+                className="w-full border-2 border-red-200 px-3 py-2 rounded-lg text-sm focus:border-red-400 outline-none resize-none"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowRejectForm(false)}
+                  className="px-4 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { if (rejectionReason.trim()) onReject(cvRecord.cv_id, rejectionReason.trim()); }}
+                  disabled={!rejectionReason.trim() || isActing}
+                  className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-40 flex items-center gap-1.5 transition-colors"
+                >
+                  {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div className="flex items-center justify-end gap-2 p-5 border-t border-slate-200 bg-slate-50 flex-wrap">
+          {canApproveOrReject && !showRejectForm && (
+            <>
+              <button
+                onClick={() => setShowRejectForm(true)}
+                className="px-4 py-2.5 text-sm font-bold text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 flex items-center gap-1.5 transition-colors"
+              >
+                <ThumbsDown className="w-4 h-4" />
+                Reject
+              </button>
+              <button
+                onClick={() => onApprove(cvRecord.cv_id)}
+                disabled={isActing}
+                className="px-5 py-2.5 text-sm font-bold bg-[#10B981] text-white rounded-lg hover:bg-[#059669] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-emerald-100 transition-colors"
+              >
+                {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
+                Approve CV
+              </button>
+            </>
+          )}
+          {canEndorse && (
+            <button
+              onClick={() => onEndorse(cvRecord.cv_id)}
+              disabled={isActing}
+              className="px-5 py-2.5 text-sm font-bold bg-[#0EA5E9] text-white rounded-lg hover:bg-[#0284C7] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-sky-100 transition-colors"
+            >
+              {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Endorse to Tracker
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 text-sm font-bold text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ManagerHub({
   workflow,
   updateWorkflow,
@@ -21,289 +270,349 @@ export default function ManagerHub({
   currentUserName,
   addActivityLog,
   updateApplicant,
-  selectedApplicantId = '1',
 }: ManagerHubProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const handleExportToPDF = () => {
-    // Generate PDF content
-    const selectedApplicant = applicants.find(a => a.id === selectedApplicantId);
+  const [cvRecords, setCvRecords] = useState<CvRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedCv, setSelectedCv] = useState<CvRecord | null>(null);
+  const [isActing, setIsActing] = useState(false);
 
-    if (!selectedApplicant) {
-      showToast('❌ No applicant selected');
-      return;
+  const loadCvRecords = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.get('/cv');
+      setCvRecords(res.data || []);
+    } catch {
+      setCvRecords([]);
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
 
-    // Create a simple text representation for PDF export
-    const pdfContent = `
-EMPLOYER APPROVAL REPORT
-========================
+  useEffect(() => {
+    loadCvRecords();
+  }, [loadCvRecords]);
 
-Applicant Information:
-- Name: ${selectedApplicant.name}
-- Applicant Code: ${selectedApplicant.applicantCode || selectedApplicant.id}
-- Position: ${selectedApplicant.role}
-- Job Order: ${selectedApplicant.jobOrder || 'N/A'}
+  // ─── Approve ──────────────────────────────────────────────────────────────────
+  const handleApprove = async (cvId: number) => {
+    setIsActing(true);
+    try {
+      const res = await api.patch(`/cv/${cvId}`, { statusCode: 'APPROVED' });
+      const updated: CvRecord = res.data;
+      setCvRecords(prev => prev.map(r => r.cv_id === cvId ? updated : r));
+      if (selectedCv?.cv_id === cvId) setSelectedCv(updated);
 
-Current Status:
-- Phase: ${selectedApplicant.phase}
-- Status: ${selectedApplicant.status}
-- Handler: ${selectedApplicant.currentHandler}
-- Department: ${selectedApplicant.currentDepartment}
+      // Update workflow flag
+      updateWorkflow({ cvApproved: true });
 
-Test Scores:
-- English Proficiency: ${selectedApplicant.testScores?.englishProficiency || 'N/A'}%
-- Trade/Skills: ${selectedApplicant.testScores?.tradeSkills || 'N/A'}%
-- IQ/Aptitude: ${selectedApplicant.testScores?.iqAptitude || 'N/A'}%
-- Personality/EQ: ${selectedApplicant.testScores?.personalityEQ || 'N/A'}
+      const app = applicants.find(a => String(a.id) === String(updated.applicant_id));
+      if (app) {
+        updateApplicant(String(app.id), {
+          status: 'CV Approved - Sending to Employer',
+          currentHandler: currentUserName,
+          currentDepartment: 'Management',
+          phaseDescription: 'CV approved by management, ready for employer endorsement.',
+        });
 
-Workflow Status:
-- Medical Cleared: ${workflow.medicalCleared ? 'Yes' : 'No'}
-- CV Approved: ${workflow.cvApproved ? 'Yes' : 'No'}
-- Employer Accepted: ${workflow.employerAccepted ? 'Yes' : 'No'}
-
-Generated by: ${currentUserName}
-Date: ${new Date().toLocaleString()}
-    `;
-
-    // Create blob and download
-    const blob = new Blob([pdfContent], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `employer-approval-${selectedApplicant.applicantCode || selectedApplicant.id}-${new Date().toISOString().split('T')[0]}.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-
-    addActivityLog({
-      applicantId: selectedApplicantId,
-      action: 'Employer Approval Report Exported',
-      performedBy: currentUserName,
-      department: 'Management',
-      details: `Exported employer approval report for ${selectedApplicant.name} (${selectedApplicant.applicantCode || selectedApplicant.id})`,
-    });
-
-    showToast('✓ Employer approval report exported successfully');
-  };
-
-  const handleApproveAndAccept = () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    const applicantId = selectedApplicantId;
-
-    // Step 1: Approve CV
-    updateWorkflow({ cvApproved: true });
-    updateApplicant(applicantId, {
-      status: 'CV Approved - Sending to Employer',
-      currentHandler: currentUserName,
-      currentDepartment: 'Management',
-      phaseDescription: 'CV approved by management, being sent to foreign employer',
-    });
-
-    addActivityLog({
-      applicantId,
-      action: 'CV Approved by Management',
-      performedBy: currentUserName,
-      department: 'Management',
-      details: 'Manager reviewed and approved CV quality. Ready for external employer endorsement.',
-    });
-
-    // Step 2: Record Employer Acceptance
-    setTimeout(() => {
-      updateWorkflow({ employerAccepted: true });
-      updateApplicant(applicantId, {
-        phase: 5,
-        status: 'Final Deployment Processing',
-        currentHandler: 'Maria Santos',
-        currentDepartment: 'Admin',
-        phaseDescription: 'Employer confirmed selection. Admin & Accounting modules unlocked for final processing.',
-      });
+        const numId = parseInt(String(app.id), 10);
+        if (!isNaN(numId)) {
+          api.put(`/applicants/${numId}`, {
+            application_id: app.applicationId,
+            application_status: 'CV Approved - Sending to Employer',
+            current_phase: 3,
+            current_handler: currentUserName,
+            current_department: 'Management',
+            phase_description: 'CV approved by management, ready for employer endorsement.',
+            statusChangeReason: 'Manager approved CV',
+            statusChangeSource: 'MANAGER_HUB',
+            updated_at: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
 
       addActivityLog({
-        applicantId,
-        action: 'Employer Acceptance Recorded',
+        applicantId: String(updated.applicant_id),
+        action: 'CV Approved by Manager',
         performedBy: currentUserName,
         department: 'Management',
-        details:
-          'Foreign employer (Saudi - Al-Futtaim Engineering) confirmed hiring decision. MASTER KEY ACTIVATED: Phase 5 modules (Document OCR, Expense Tracking) now unlocked for Admin and Accounting.',
+        details: `CV #${cvId} approved. Proceed to endorse via Endorsement Tracker.`,
       });
 
-      setIsProcessing(false);
-      showToast(
-        '✓ CV Approved & Employer Acceptance Recorded! Admin & Accounting modules unlocked (Master Key Activated).'
-      );
-    }, 1500);
+      showToast('✓ CV approved! You may now endorse it to the Tracker.');
+    } catch (err: any) {
+      showToast(`❌ Approval failed: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setIsActing(false);
+    }
   };
 
-  const cvLocked = !workflow.medicalCleared;
-  const bothActionsComplete = workflow.cvApproved && workflow.employerAccepted;
-  const currentApplicant = applicants.find((a) => a.id === selectedApplicantId) || applicants[0];
+  // ─── Reject ───────────────────────────────────────────────────────────────────
+  const handleReject = async (cvId: number, reason: string) => {
+    setIsActing(true);
+    try {
+      const res = await api.patch(`/cv/${cvId}`, {
+        statusCode: 'REJECTED',
+        rejectionReason: reason,
+      });
+      const updated: CvRecord = res.data;
+      setCvRecords(prev => prev.map(r => r.cv_id === cvId ? updated : r));
+      if (selectedCv?.cv_id === cvId) setSelectedCv(updated);
 
+      const app = applicants.find(a => String(a.id) === String(updated.applicant_id));
+      if (app) {
+        updateApplicant(String(app.id), {
+          status: 'CV Encoding',
+          phaseDescription: 'CV rejected by management — requires revision.',
+        });
+
+        const numId = parseInt(String(app.id), 10);
+        if (!isNaN(numId)) {
+          api.put(`/applicants/${numId}`, {
+            application_id: app.applicationId,
+            application_status: 'CV Encoding',
+            current_phase: 3,
+            current_handler: 'Recruitment',
+            current_department: 'Recruitment',
+            phase_description: `CV rejected by management: ${reason}`,
+            statusChangeReason: `Manager rejected CV: ${reason}`,
+            statusChangeSource: 'MANAGER_HUB',
+            updated_at: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
+
+      addActivityLog({
+        applicantId: String(updated.applicant_id),
+        action: 'CV Rejected by Manager',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `CV #${cvId} rejected. Reason: ${reason}`,
+      });
+
+      showToast('CV rejected — applicant must revise and resubmit.');
+    } catch (err: any) {
+      showToast(`❌ Rejection failed: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  // ─── Endorse to Tracker ───────────────────────────────────────────────────────
+  const handleEndorse = async (cvId: number) => {
+    const cvRec = cvRecords.find(r => r.cv_id === cvId);
+    if (!cvRec) return;
+
+    setIsActing(true);
+    try {
+      await api.post('/cv-submissions', {
+        cvId,
+        applicantId: cvRec.applicant_id,
+        jobOrderId: cvRec.job_order_id,
+        boardStageCode: 'MANAGER_APPROVED',
+      });
+
+      // Master Key: unlock employer accepted
+      updateWorkflow({ employerAccepted: true });
+
+      const app = applicants.find(a => String(a.id) === String(cvRec.applicant_id));
+      if (app) {
+        updateApplicant(String(app.id), {
+          phase: 4,
+          status: 'Under Employer Review',
+          currentHandler: 'Recruitment',
+          currentDepartment: 'Recruitment',
+          phaseDescription: 'CV endorsed to Employer Tracker. Awaiting employer selection.',
+        });
+
+        const numId = parseInt(String(app.id), 10);
+        if (!isNaN(numId)) {
+          api.put(`/applicants/${numId}`, {
+            application_id: app.applicationId,
+            application_status: 'Under Employer Review',
+            current_phase: 4,
+            current_handler: 'Recruitment',
+            current_department: 'Recruitment',
+            phase_description: 'CV endorsed to Employer Tracker. Awaiting employer selection.',
+            statusChangeReason: 'CV endorsed to Employer Tracker',
+            statusChangeSource: 'MANAGER_HUB',
+            updated_at: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
+
+      addActivityLog({
+        applicantId: String(cvRec.applicant_id),
+        action: 'CV Endorsed to Tracker (Master Key)',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `CV #${cvId} pushed to Endorsement Tracker (MANAGER_APPROVED stage). Phase 4 unlocked.`,
+      });
+
+      showToast('✓ CV endorsed to Employer Tracker! Phase 4 now active. (Master Key Activated)');
+      setSelectedCv(null);
+      await loadCvRecords();
+    } catch (err: any) {
+      showToast(`❌ Endorsement failed: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  // ─── Filtered list ────────────────────────────────────────────────────────────
+  const filtered = cvRecords.filter(cv => {
+    const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
+    const q = searchQuery.toLowerCase();
+    const matchSearch = !q
+      || (app?.name || '').toLowerCase().includes(q)
+      || (app?.role || '').toLowerCase().includes(q)
+      || String(cv.cv_id).includes(q);
+    const matchStatus = statusFilter === 'all' || cv.status_code === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  const counts = {
+    all: cvRecords.length,
+    DRAFT: cvRecords.filter(r => r.status_code === 'DRAFT').length,
+    PENDING_APPROVAL: cvRecords.filter(r => r.status_code === 'PENDING_APPROVAL').length,
+    APPROVED: cvRecords.filter(r => r.status_code === 'APPROVED').length,
+    REJECTED: cvRecords.filter(r => r.status_code === 'REJECTED').length,
+  };
+
+  const selectedCvApplicant = selectedCv
+    ? applicants.find(a => String(a.id) === String(selectedCv.applicant_id))
+    : undefined;
+
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 w-full">
-      <div className="mb-6 flex items-end justify-between">
+      {/* Header */}
+      <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold tracking-tight">
-            <CheckSquare className="w-8 h-8 inline-block mr-2 text-[#10B981]" />
-            Manager CV & Employer Approval Hub
+          <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A] flex items-center gap-2">
+            <CheckSquare className="w-8 h-8 text-[#10B981]" />
+            CV & Employer Hub
           </h2>
           <p className="text-sm text-[#64748B] mt-1 font-medium">
-            Quality control gateway and employer acceptance tracker (Master Key)
+            Review, approve, or reject CVs — then endorse approved CVs to the Employer Tracker (Master Key).
           </p>
         </div>
         <button
-          onClick={handleExportToPDF}
-          className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg shadow-lg shadow-[#0EA5E9]/20 flex items-center gap-2"
+          onClick={loadCvRecords}
+          className="p-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
+          title="Refresh"
         >
-          <Download className="w-4 h-4" />
-          Export to PDF
+          <RefreshCw className="w-4 h-4" />
         </button>
       </div>
 
-      {/* CV Review Section */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8 relative">
-        {cvLocked && (
-          <div className="absolute inset-0 bg-[#F1F5F9]/85 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-lg">
-            <Lock className="w-8 h-8 text-slate-400 mb-3" />
-            <h3 className="font-bold text-[#0F172A]">Waiting for Medical Clearance</h3>
-            <p className="text-sm mt-1 text-[#64748B]">Recruitment must complete medical validation first</p>
-          </div>
-        )}
+      {/* Status filter tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          ['all', 'All', counts.all],
+          ['PENDING_APPROVAL', 'Pending Review', counts.PENDING_APPROVAL],
+          ['APPROVED', 'Approved', counts.APPROVED],
+          ['REJECTED', 'Rejected', counts.REJECTED],
+          ['DRAFT', 'Draft', counts.DRAFT],
+        ] as const).map(([val, label, count]) => (
+          <button
+            key={val}
+            onClick={() => setStatusFilter(val)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${statusFilter === val
+              ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-sm'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+          >
+            {label}
+            {(count as number) > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-white/20">
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
-        <div className="flex items-center justify-between mb-6 border-b-2 border-slate-100 pb-4">
-          <div>
-            <h3 className="font-black text-[#0F172A] text-lg flex items-center gap-2">
-              <Building2 className="w-6 h-6 text-[#0EA5E9]" />
-              Locked CV - Quality Control
-            </h3>
-            <p className="text-xs text-[#64748B] mt-1">CV was locked by Recruitment after submission</p>
-          </div>
-          {workflow.cvApproved && (
-            <span className="px-3 py-1 bg-[#10B981]/10 text-[#10B981] text-xs font-bold uppercase tracking-wider rounded-full border border-[#10B981]/30">
-              ✓ Approved
-            </span>
-          )}
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search by applicant name, role, or CV ID..."
+          className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm focus:border-[#0EA5E9] outline-none transition-colors"
+        />
+      </div>
 
-        <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 mb-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Applicant</p>
-              <p className="font-bold text-[#0F172A]">{currentApplicant?.name || 'Juan Dela Cruz'}</p>
-              <p className="text-sm text-[#64748B]">{currentApplicant?.applicantCode || (currentApplicant ? `Applicant #${currentApplicant.id}` : 'Applicant #1')} | {currentApplicant?.role || 'Industrial Welder'}</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-[#64748B] uppercase mb-2">Target Employer</p>
-              <p className="font-bold text-[#0F172A]">Al-Futtaim Engineering</p>
-              <p className="text-sm text-[#64748B]">{currentApplicant?.jobOrder || 'Saudi Arabia | JO-2026-0042'}</p>
-            </div>
-          </div>
-          <div className="mt-4 pt-4 border-t border-slate-300">
-            <p className="text-xs font-bold text-[#64748B] uppercase mb-2">CV Summary (Read-Only)</p>
-            <p className="text-sm text-[#0F172A]">
-              Experienced industrial welder with 5+ years in structural fabrication. TESDA NCII certified with
-              expertise in SMAW, GMAW, and FCAW processes. Strong safety record and blueprint reading skills.
+      {/* List */}
+      <div className="space-y-2">
+        {isLoading ? (
+          [1, 2, 3, 4].map(i => <SkeletonRow key={i} />)
+        ) : filtered.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
+            <FileText className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+            <p className="font-bold text-slate-400">
+              {cvRecords.length === 0 ? 'No CV records yet — staff must submit CVs from the CV Encoding module.' : 'No records match your filter.'}
             </p>
           </div>
-        </div>
+        ) : (
+          filtered.map(cv => {
+            const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
+            return (
+              <div
+                key={cv.cv_id}
+                className="flex items-center gap-4 p-4 bg-white border border-slate-200 rounded-xl hover:border-[#0EA5E9]/40 hover:shadow-sm cursor-pointer transition-all group"
+                onClick={() => setSelectedCv(cv)}
+              >
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0EA5E9] to-[#6366f1] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                  {(app?.name || '?')[0].toUpperCase()}
+                </div>
 
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-[#0F172A] truncate">
+                    {app?.name || `Applicant #${cv.applicant_id}`}
+                  </p>
+                  <p className="text-xs text-[#64748B] truncate">
+                    {app?.role || app?.appliedRole || 'Unknown Role'}
+                    {app?.jobOrder ? ` · ${app.jobOrder}` : ''}
+                    {' · '}CV #{cv.cv_id}
+                  </p>
+                </div>
 
-        {bothActionsComplete && (
-          <div className="bg-[#10B981]/10 border border-[#10B981]/30 rounded-lg p-6 mb-6">
-            <p className="text-sm text-[#10B981] font-bold mb-2">✓ Actions Complete</p>
-            <p className="text-sm text-[#64748B]">
-              CV has been approved and employer acceptance recorded. Phase 5 modules are now unlocked for Admin and
-              Accounting departments.
-            </p>
-          </div>
+                {/* Submitted on */}
+                <div className="hidden sm:block text-right flex-shrink-0">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Submitted</p>
+                  <p className="text-xs text-slate-600 font-medium">
+                    {new Date(cv.updated_at).toLocaleDateString('en-PH')}
+                  </p>
+                </div>
+
+                {/* Status */}
+                <StatusBadge status={cv.status_code} />
+
+                {/* Arrow */}
+                <Eye className="w-4 h-4 text-slate-300 group-hover:text-[#0EA5E9] transition-colors flex-shrink-0" />
+              </div>
+            );
+          })
         )}
       </div>
 
-      {/* Action Button */}
-      {!bothActionsComplete && (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-black text-[#0F172A] text-lg mb-2">Master Key Action</h3>
-              <p className="text-sm text-[#64748B]">
-                This action serves as the <span className="font-bold text-[#EF4444]">Master Key</span> that unlocks
-                final deployment processing
-              </p>
-            </div>
-            <button
-              onClick={handleApproveAndAccept}
-              disabled={cvLocked || isProcessing}
-              className="px-8 py-4 bg-[#10B981] text-white text-sm font-bold hover:bg-[#059669] shadow-lg rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Activating Master Key...
-                </>
-              ) : (
-                <>
-                  <CheckSquare className="w-5 h-5" />
-                  Approve CV & Record Employer Acceptance
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+      {/* Detail gate modal */}
+      {selectedCv && (
+        <CvDetailGate
+          cvRecord={selectedCv}
+          applicant={selectedCvApplicant}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onEndorse={handleEndorse}
+          isActing={isActing}
+          onClose={() => setSelectedCv(null)}
+        />
       )}
-
-      {/* Status Panel */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8">
-        <h3 className="font-black text-[#0F172A] text-lg mb-4">Workflow Status</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <span className="text-sm font-bold text-[#64748B]">Medical Clearance</span>
-            <span
-              className={`px-3 py-1 text-xs font-bold rounded-full ${
-                workflow.medicalCleared
-                  ? 'bg-[#10B981]/10 text-[#10B981]'
-                  : 'bg-slate-200 text-slate-500'
-              }`}
-            >
-              {workflow.medicalCleared ? '✓ Cleared' : 'Pending'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <span className="text-sm font-bold text-[#64748B]">CV Approved</span>
-            <span
-              className={`px-3 py-1 text-xs font-bold rounded-full ${
-                workflow.cvApproved
-                  ? 'bg-[#10B981]/10 text-[#10B981]'
-                  : 'bg-slate-200 text-slate-500'
-              }`}
-            >
-              {workflow.cvApproved ? '✓ Approved' : 'Pending'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <span className="text-sm font-bold text-[#64748B]">Employer Acceptance</span>
-            <span
-              className={`px-3 py-1 text-xs font-bold rounded-full ${
-                workflow.employerAccepted
-                  ? 'bg-[#10B981]/10 text-[#10B981]'
-                  : 'bg-slate-200 text-slate-500'
-              }`}
-            >
-              {workflow.employerAccepted ? '✓ Accepted' : 'Pending'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <span className="text-sm font-bold text-[#64748B]">Phase 5 Modules</span>
-            <span
-              className={`px-3 py-1 text-xs font-bold rounded-full ${
-                workflow.employerAccepted
-                  ? 'bg-[#10B981]/10 text-[#10B981]'
-                  : 'bg-red-100 text-red-600'
-              }`}
-            >
-              {workflow.employerAccepted ? '🔓 Unlocked' : '🔒 Locked'}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
