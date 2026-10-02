@@ -16,6 +16,7 @@ import {
 import InlineApplicantSelector from '../InlineApplicantSelector';
 import SearchableJobOrderSelector from '../SearchableJobOrderSelector';
 import { api } from '../../../lib/api';
+import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 
 // ─── Flag Engine ──────────────────────────────────────────────────────────────
 
@@ -200,6 +201,10 @@ export default function Registration({
   const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
   const [activeSection, setActiveSection] = useState<string>('personal');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Enrichment Loading State ──────────────────────────────────────────────
+  const [isLoadingEnriched, setIsLoadingEnriched] = useState(false);
+  const [isEnrichedLoaded, setIsEnrichedLoaded] = useState(initialId === 'new');
 
   // ── Job Order State ───────────────────────────────────────────────────────
   const [selectedJobOrderId, setSelectedJobOrderId] = useState('');
@@ -570,15 +575,48 @@ export default function Registration({
 
     if (selectedApplicantId === 'new') {
       resetBlankForm();
+      setIsLoadingEnriched(false);
+      setIsEnrichedLoaded(true);
       initializedForApplicantId.current = 'new';
       return;
     }
+
+    // Immediately pre-populate basic demographic info if available in list
     const app = applicants.find(a => String(a.id) === String(selectedApplicantId));
     if (app) {
       populateApplicantData(app);
-      initializedForApplicantId.current = selectedApplicantId;
     }
-  }, [selectedApplicantId, applicants, populateApplicantData]);
+
+    // Directly fetch enriched applicant profile via GET /applicants/{id}
+    setIsLoadingEnriched(true);
+    setIsEnrichedLoaded(false);
+
+    let isMounted = true;
+    api.get(`/applicants/${selectedApplicantId}`)
+      .then(res => {
+        if (!isMounted) return;
+        if (res.data) {
+          const enriched = mapApplicantFromApi(res.data);
+          populateApplicantData(enriched);
+          updateApplicant?.(selectedApplicantId, enriched);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to fetch full applicant details:', err);
+        showToast('Warning: Could not fetch complete child records for this applicant.');
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingEnriched(false);
+          setIsEnrichedLoaded(true);
+          initializedForApplicantId.current = selectedApplicantId;
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedApplicantId, applicants, populateApplicantData, updateApplicant, showToast]);
 
   const QUICK_REASONS = [
     "Applicant provided satisfactory verbal explanation",
@@ -748,6 +786,11 @@ export default function Registration({
 
   // ── Save Profile (Create New or Update Existing) ──────────────────────────
   const handleSave = async () => {
+    if (selectedApplicantId !== 'new' && (!isEnrichedLoaded || isLoadingEnriched)) {
+      showToast('Please wait for applicant details to finish loading before saving.');
+      return;
+    }
+
     if (!selectedJobOrderId || !selectedJobOrderId.trim()) {
       showToast('Please select a Job Order before saving.');
       return;
@@ -944,6 +987,18 @@ export default function Registration({
             employment_flags: flags,
             photo_url: photo ? photo : null,
           };
+
+          if (isEnrichedLoaded) {
+            updatePayload.clear_skills = skills.length === 0;
+            updatePayload.clear_certifications = certs.length === 0;
+            updatePayload.clear_identifications = ids.length === 0;
+            updatePayload.clear_requirements = applicantRequirements.length === 0;
+            updatePayload.clear_education = education.length === 0;
+            updatePayload.clear_trainings = trainings.length === 0;
+            updatePayload.clear_languages = languages.length === 0;
+            updatePayload.clear_employment = employment.length === 0;
+            updatePayload.clear_flags = flags.length === 0;
+          }
 
           if (currentApp?.applicationId) {
             updatePayload.application_id = currentApp.applicationId;
@@ -1197,6 +1252,21 @@ export default function Registration({
           )}
         </div>
       </div>
+
+      {isLoadingEnriched && (
+        <div className="bg-sky-50 border border-sky-200 text-sky-800 px-4 py-3.5 rounded-xl flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-[#0EA5E9] flex-shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-sky-900">Loading Full Enriched Profile...</p>
+              <p className="text-xs text-sky-700">Retrieving employment history, verified skills, education, languages, identifications, and certifications.</p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono font-semibold bg-white/80 px-2.5 py-1 rounded border border-sky-200 text-sky-700">
+            Form locked until loaded
+          </span>
+        </div>
+      )}
 
       {hasBlockingFlags && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-semibold">
@@ -2283,15 +2353,37 @@ export default function Registration({
           )}
           <button
             onClick={handleSave}
-            disabled={hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !selectedJobOrderId || !personal.firstName.trim() || !personal.lastName.trim()}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${hasBlockingFlags || (employment.length > 0 && !flagsAnalyzed) || isSubmitting || !selectedJobOrderId || !personal.firstName.trim() || !personal.lastName.trim()
-              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-              : selectedApplicantId === 'new'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
-                : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
-              }`}
+            disabled={
+              isLoadingEnriched ||
+              (selectedApplicantId !== 'new' && !isEnrichedLoaded) ||
+              hasBlockingFlags ||
+              (employment.length > 0 && !flagsAnalyzed) ||
+              isSubmitting ||
+              !selectedJobOrderId ||
+              !personal.firstName.trim() ||
+              !personal.lastName.trim()
+            }
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+              isLoadingEnriched ||
+              (selectedApplicantId !== 'new' && !isEnrichedLoaded) ||
+              hasBlockingFlags ||
+              (employment.length > 0 && !flagsAnalyzed) ||
+              isSubmitting ||
+              !selectedJobOrderId ||
+              !personal.firstName.trim() ||
+              !personal.lastName.trim()
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                : selectedApplicantId === 'new'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
+                  : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white shadow-md shadow-[#0EA5E9]/20'
+            }`}
           >
-            {isSubmitting ? (
+            {isLoadingEnriched ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-[#0EA5E9]" />
+                Loading Applicant Details...
+              </>
+            ) : isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 {selectedApplicantId === 'new' ? 'Registering Candidate...' : 'Saving Changes...'}

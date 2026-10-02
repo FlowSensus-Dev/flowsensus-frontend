@@ -9,6 +9,7 @@ import {
   HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ interface ApplicantProfileProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ApplicantProfile({
-  applicant,
+  applicant: applicantProp,
   activityLogs = [],
   expenses = [],
   updateApplicant,
@@ -108,6 +109,32 @@ export default function ApplicantProfile({
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichedData, setEnrichedData] = useState<ApplicantRecord | null>(null);
+
+  useEffect(() => {
+    if (!applicantProp?.id) return;
+    setEnrichedData(null);
+    setIsEnriching(true);
+    api.get(`/applicants/${applicantProp.id}`)
+      .then(res => {
+        if (res.data) {
+          const mapped = mapApplicantFromApi(res.data);
+          setEnrichedData(mapped);
+          updateApplicant?.(applicantProp.id, mapped);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to fetch full applicant details:', err);
+      })
+      .finally(() => {
+        setIsEnriching(false);
+      });
+  }, [applicantProp?.id]);
+
+  const applicant = enrichedData
+    ? { ...applicantProp, ...enrichedData }
+    : applicantProp;
 
   useEffect(() => {
     api.get('/evaluations/templates')
@@ -529,10 +556,15 @@ export default function ApplicantProfile({
               )}
             </div>
             <p className="text-[#0EA5E9] text-sm mt-0.5 font-medium">{applicant.role}</p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
               <span className="flex items-center gap-1"><IdCard size={11} /> {applicant.applicantCode || applicant.id}</span>
               {applicant.email && <span className="flex items-center gap-1"><Mail size={11} /> {applicant.email}</span>}
               {applicant.contact && <span className="flex items-center gap-1"><Phone size={11} /> {applicant.contact}</span>}
+              {isEnriching && (
+                <span className="flex items-center gap-1 text-[11px] text-sky-400 bg-sky-950/70 border border-sky-800/80 px-2 py-0.5 rounded-full animate-pulse ml-1">
+                  <Loader2 size={10} className="animate-spin" /> Syncing full profile...
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-2 mt-3">
               {/* Phase Badge */}
@@ -833,7 +865,13 @@ export default function ApplicantProfile({
           </div>
         )}
 
-        {(applicant.employmentHistory || []).length === 0 ? (
+        {isEnriching && (!applicant.employmentHistory || applicant.employmentHistory.length === 0) ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 animate-pulse">
+            <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+            <div className="h-16 bg-slate-100 rounded-lg"></div>
+            <div className="h-16 bg-slate-100 rounded-lg"></div>
+          </div>
+        ) : (applicant.employmentHistory || []).length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No employment history recorded</div>
         ) : (
           <div className="space-y-3">
@@ -1180,9 +1218,19 @@ export default function ApplicantProfile({
           </div>
         )}
 
-        {(applicant.skills || []).length === 0 && (applicant.certificateRecords || []).length === 0 && (applicant.certifications || []).length === 0 && (applicant.trainings || []).length === 0 && (
+        {isEnriching && (!applicant.skills || applicant.skills.length === 0) && (!applicant.certificateRecords || applicant.certificateRecords.length === 0) && (!applicant.certifications || applicant.certifications.length === 0) && (!applicant.trainings || applicant.trainings.length === 0) ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 animate-pulse">
+            <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+            <div className="flex gap-2">
+              <div className="h-8 bg-slate-100 rounded-lg w-24"></div>
+              <div className="h-8 bg-slate-100 rounded-lg w-28"></div>
+              <div className="h-8 bg-slate-100 rounded-lg w-20"></div>
+            </div>
+            <div className="h-20 bg-slate-100 rounded-lg"></div>
+          </div>
+        ) : (applicant.skills || []).length === 0 && (applicant.certificateRecords || []).length === 0 && (applicant.certifications || []).length === 0 && (applicant.trainings || []).length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No skills or certificates recorded</div>
-        )}
+        ) : null}
       </div>
 
       {/* ── Languages ─────────────────────────────────────────────────────────── */}
@@ -1208,6 +1256,15 @@ export default function ApplicantProfile({
                   };
                 })
               : [];
+          if (isEnriching && langs.length === 0) {
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 animate-pulse">
+                <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+                <div className="h-10 bg-slate-100 rounded-lg"></div>
+                <div className="h-10 bg-slate-100 rounded-lg"></div>
+              </div>
+            );
+          }
           if (langs.length === 0) {
             return <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No language records</div>;
           }
@@ -1241,7 +1298,12 @@ export default function ApplicantProfile({
           <GraduationCap size={16} className="text-[#0EA5E9]" />
           <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Educational Background</h3>
         </div>
-        {(applicant.education || []).length === 0 ? (
+        {isEnriching && (!applicant.education || applicant.education.length === 0) ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 animate-pulse">
+            <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+            <div className="h-14 bg-slate-100 rounded-lg"></div>
+          </div>
+        ) : (applicant.education || []).length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No education records</div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -1274,7 +1336,13 @@ export default function ApplicantProfile({
         {/* Government Identifications */}
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Government Identifications ({applicant.identifications?.length || 0})</p>
-          {(applicant.identifications || []).length === 0 ? (
+          {isEnriching && (!applicant.identifications || applicant.identifications.length === 0) ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 animate-pulse">
+              <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+              <div className="h-12 bg-slate-100 rounded-lg"></div>
+              <div className="h-12 bg-slate-100 rounded-lg"></div>
+            </div>
+          ) : (applicant.identifications || []).length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 py-6 text-center text-slate-400 text-sm">No identification records</div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
