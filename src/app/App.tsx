@@ -1539,6 +1539,15 @@ export default function App() {
     setActivityLogs((prev) => [{ ...log, id: tempId, timestamp }, ...prev]);
 
     try {
+      // Ensure the Supabase session token is warm in the api.js cache before
+      // posting. If addActivityLog fires right after login, onAuthStateChange
+      // may not have run yet so cachedSessionToken is still null → 401.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        // No active session — local log already stored above; skip backend write.
+        return;
+      }
+
       await api.post('/audit-logs', {
         action: log.action,
         details: log.details,
@@ -1547,10 +1556,15 @@ export default function App() {
         performed_by: log.performedBy,
         user_id: 1,
       });
-    } catch (err) {
-      console.warn('Could not persist audit log to backend:', err);
+    } catch (err: any) {
+      // 401 means no valid session at call-time — already handled above.
+      // Any other error is a genuine backend issue worth logging.
+      if (err?.response?.status !== 401) {
+        console.warn('Could not persist audit log to backend:', err);
+      }
     }
   };
+
 
   const handleLogin = (
     role: UserRole,

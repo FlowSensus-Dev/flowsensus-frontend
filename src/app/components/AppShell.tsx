@@ -132,6 +132,23 @@ export default function AppShell({
   });
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('flowsensus_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('flowsensus_sidebar_collapsed', String(next));
+      } catch { }
+      return next;
+    });
+  };
 
   // Persist selectedApplicantId to localStorage whenever it changes
   useEffect(() => {
@@ -601,13 +618,15 @@ export default function AppShell({
         isSuperAdmin={isSuperAdmin}
         onSuperAdminDashboard={onSuperAdminDashboard}
         workflowPermissions={workflowPermissions}
+        collapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
       />
 
       {/* Main Content Area */}
       <div className="flex-1 h-full flex flex-col overflow-hidden relative">
         {/* Top Bar */}
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex items-center justify-between z-10 flex-shrink-0">
-          <div className="flex items-center gap-4 flex-1"></div>
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-6 sm:px-8 py-3.5 flex items-center justify-between z-10 flex-shrink-0">
+          <div className="flex items-center gap-3 flex-1" />
           <div className="flex items-center gap-6 ml-4">
             {isSuperAdmin && onSuperAdminDashboard && (
               <button

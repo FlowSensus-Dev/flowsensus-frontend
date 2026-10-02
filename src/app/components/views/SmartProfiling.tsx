@@ -392,8 +392,8 @@ export default function SmartProfiling({
       const hasCompleteEvaluation = a.testScores?.allPassed !== undefined
         ? true
         : Boolean(a.testScores?.personalityEQ) &&
-          a.testScores?.tradeSkills !== undefined &&
-          a.testScores?.iqAptitude !== undefined;
+        a.testScores?.tradeSkills !== undefined &&
+        a.testScores?.iqAptitude !== undefined;
 
       if (!hasScores || !hasCompleteEvaluation) {
         incomplete.push(a);
@@ -407,29 +407,29 @@ export default function SmartProfiling({
 
   // 2. Evaluate and Rank Candidates using Dynamic Job-Fit / Readiness Scoring Engine
   const rankedCandidates: RankedCandidate[] = useMemo(() => {
-    if (!currentJobOrder || eligibleCandidates.length === 0) return [];
+    if (eligibleCandidates.length === 0) return [];
 
-    const jobPos = (currentJobOrder.position || '').trim();
-    const jobCountry = (currentJobOrder.country || '').trim();
-    const minYears = Number(currentJobOrder.minExperience || 1);
+    const jobPos = (currentJobOrder?.position || '').trim();
+    const jobCountry = (currentJobOrder?.country || '').trim();
+    const minYears = Number(currentJobOrder?.minExperience || 1);
 
-    const targetClusterInfo = findClusterForText(jobPos, dynamicClusters);
+    const targetClusterInfo = jobPos ? findClusterForText(jobPos, dynamicClusters) : null;
     const targetClusterId = targetClusterInfo?.id;
     const targetClusterData = targetClusterInfo?.data;
 
     // Cross-job-order requirements: Identify evaluation templates specifically required for this active Job Order
-    const joRealId = String(currentJobOrder.id).trim();
-    const joCode = String(currentJobOrder.code || '').trim().toLowerCase();
+    const joRealId = String(currentJobOrder?.id || '').trim();
+    const joCode = String(currentJobOrder?.code || '').trim().toLowerCase();
     const joPosLower = jobPos.toLowerCase();
 
-    const currentJobOrderSpecificTemplates = activeJobEvaluationTemplates.filter((t: any) => {
+    const currentJobOrderSpecificTemplates = currentJobOrder ? activeJobEvaluationTemplates.filter((t: any) => {
       const app = t.applicable_job_orders || t.applicableJobOrders;
       if (!Array.isArray(app) || app.length === 0) return false;
       return app.some((target: any) => {
         const s = String(target).trim().toLowerCase();
         return s === joRealId || s === `jo-${joRealId}` || s === joCode || joCode.includes(s) || s === joPosLower || joPosLower.includes(s);
       });
-    });
+    }) : [];
 
     const evaluated: Omit<RankedCandidate, 'rank'>[] = eligibleCandidates.map((applicant) => {
       const rawScores = applicant.testScores || {};
@@ -714,7 +714,7 @@ export default function SmartProfiling({
       }
 
       // ── 2. Required Certifications (Max: 25 pts) ────────────────────────
-      const jobCertsRaw: string[] = Array.isArray(currentJobOrder.certifications) ? currentJobOrder.certifications : [];
+      const jobCertsRaw: string[] = Array.isArray(currentJobOrder?.certifications) ? currentJobOrder.certifications : [];
       const appCertsRaw: string[] = Array.isArray(applicant.certifications)
         ? applicant.certifications.map((c: any) => (typeof c === 'string' ? c : c.name || c.title || ''))
         : (applicant.certificateRecords || []).map((c: any) => c.title || '');
@@ -1487,16 +1487,16 @@ export default function SmartProfiling({
 
       const dynamicGates = (candidate.activeTestResults && candidate.activeTestResults.length > 0)
         ? candidate.activeTestResults.map((t) => ({
-            label: t.name,
-            val: t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`,
-            req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req: >= ${t.passingScore}%`,
-          }))
+          label: t.name,
+          val: t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`,
+          req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req: >= ${t.passingScore}%`,
+        }))
         : [
-            { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Req: >= ${dynamicGateDefinitions.skillsTpl.passingScore}%` },
-            { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Req: >= ${dynamicGateDefinitions.iqTpl.passingScore}%` },
-            { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Req: >= ${dynamicGateDefinitions.langTpl.passingScore}%` },
-            { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Req: >= ${dynamicGateDefinitions.eqTpl.passingScore}%` },
-          ];
+          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Req: >= ${dynamicGateDefinitions.skillsTpl.passingScore}%` },
+          { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Req: >= ${dynamicGateDefinitions.iqTpl.passingScore}%` },
+          { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Req: >= ${dynamicGateDefinitions.langTpl.passingScore}%` },
+          { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Req: >= ${dynamicGateDefinitions.eqTpl.passingScore}%` },
+        ];
 
       const gateCols = Math.min(4, Math.max(1, dynamicGates.length));
       const colW = contentWidth / gateCols;
@@ -1718,181 +1718,177 @@ export default function SmartProfiling({
       {/* Step 2: Ranked Candidate Shortlist */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all">
         {/* Section Header with KPI Summary & Info Tooltip */}
-        <div className="p-5 md:p-6 border-b border-slate-200">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-black inline-flex items-center justify-center">
-                  2
+        <div className="p-5 md:p-6 border-b border-slate-200 space-y-3">
+          {/* Title Row + Audit Info */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-black inline-flex items-center justify-center">
+                2
+              </span>
+              <h3 className="text-sm font-black text-slate-900 tracking-tight">
+                {currentJobOrder
+                  ? <>Step 2: Ranked Candidate Shortlist for {currentJobOrder.position} #{currentJobOrder.id}</>
+                  : <span className="text-slate-400 font-semibold">Step 2: Select a job order above to view ranked candidates</span>
+                }
+              </h3>
+              {agencyProfile?.agency_name && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200/80">
+                  <Building2 className="w-3 h-3 text-teal-600" />
+                  <span>{agencyProfile.agency_name}</span>
+                  {agencyProfile.poea_license_no && (
+                    <span className="text-teal-600/80 font-normal">({agencyProfile.poea_license_no})</span>
+                  )}
                 </span>
-                <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                  {currentJobOrder
-                    ? <>Step 2: Ranked Candidate Shortlist for {currentJobOrder.position} #{currentJobOrder.id}</>
-                    : <span className="text-slate-400 font-semibold">Step 2: Select a job order above to view ranked candidates</span>
-                  }
-                </h3>
-                {agencyProfile?.agency_name && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-800 border border-teal-200/80">
-                    <Building2 className="w-3 h-3 text-teal-600" />
-                    <span>{agencyProfile.agency_name}</span>
-                    {agencyProfile.poea_license_no && (
-                      <span className="text-teal-600/80 font-normal">({agencyProfile.poea_license_no})</span>
-                    )}
-                  </span>
-                )}
-              </div>
+              )}
+            </div>
 
-              {/* KPI Header Bar */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600 mt-2">
-                <span>
-                  Total Applicants Evaluated: <strong className="text-slate-900 font-extrabold">{totalEvaluated}</strong>
-                </span>
-                <span className="text-slate-300 font-light">|</span>
-                <span className="text-emerald-700">
-                  Recommended: <strong className="font-extrabold">{recommendedCount}</strong>
-                </span>
-                <span className="text-slate-300 font-light">|</span>
-                <span className="text-amber-700">
-                  For Further Review: <strong className="font-extrabold">{reviewCount}</strong>
-                </span>
-                <span className="text-slate-300 font-light">|</span>
-                <span className="text-red-700">
-                  Not Recommended: <strong className="font-extrabold">{notRecommendedCount}</strong>
-                </span>
+            {/* Audit Info button positioned neatly on the right */}
+            <div className="relative flex-shrink-0">
+              <button
+                type="button"
+                onMouseEnter={() => setShowTooltip(true)}
+                onMouseLeave={() => setShowTooltip(false)}
+                onClick={() => setShowTooltip(!showTooltip)}
+                className="text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs"
+                title="Assessment calculation details"
+              >
+                <Info className="w-3.5 h-3.5 text-slate-600" />
+                <span className="text-xs text-slate-700 font-bold">Audit Info</span>
+              </button>
 
-                {/* Audit Info — lives inline in the KPI row, proportional inside the card */}
-                <div className="relative ml-auto">
-                  <button
-                    type="button"
-                    onMouseEnter={() => setShowTooltip(true)}
-                    onMouseLeave={() => setShowTooltip(false)}
-                    onClick={() => setShowTooltip(!showTooltip)}
-                    className="text-slate-400 hover:text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 text-xs font-medium cursor-pointer border border-transparent hover:border-slate-200"
-                    title="Assessment calculation details"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                    <span className="text-[11px] text-slate-500 font-semibold">Audit Info</span>
-                  </button>
-
-                  {showTooltip && (
-                    <div className="absolute right-0 top-8 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
-                      <p className="font-semibold text-slate-100 leading-snug">
-                        *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
-                      </p>
-                      {incompleteCandidates.length > 0 && (
-                        <p className="text-amber-400 mt-1.5 text-[11px]">
-                          {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
-                        </p>
-                      )}
-                    </div>
+              {showTooltip && (
+                <div className="absolute right-0 top-9 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+                  <p className="font-semibold text-slate-100 leading-snug">
+                    *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
+                  </p>
+                  {incompleteCandidates.length > 0 && (
+                    <p className="text-amber-400 mt-1.5 text-[11px]">
+                      {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
+                    </p>
                   )}
                 </div>
-              </div>
-
-              {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
-              <div className="flex flex-wrap items-center gap-2 mt-3">
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setPipelineScope('profiling')}
-                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      pipelineScope === 'profiling'
-                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Applicant Profiling Stage ({applicants.filter((a) => !a.isStopped && isApplicantInProfiling(a)).length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPipelineScope('all')}
-                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      pipelineScope === 'all'
-                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    All Active Pool ({applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPipelineScope('assigned')}
-                    className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      pipelineScope === 'assigned'
-                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Assigned to Job Order
-                  </button>
-                </div>
-
-                {Object.keys(dynamicClusters).length > 0 && (
-                  <span className="text-[11px] text-slate-600 font-medium bg-slate-50 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-amber-500" />
-                    <span>{Object.keys(dynamicClusters).length} Recognized Trade Families</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Allied Trade Recognition Active Tag & Informative Description */}
-              {isSynthesizingCluster ? (
-                <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-1">
-                    <Skeleton className="h-5 w-28 rounded-full bg-teal-200/60" />
-                    <Skeleton className="h-4 w-44 bg-teal-200/40" />
-                  </div>
-                  <Skeleton className="h-5 w-36 rounded-md bg-teal-200/60 flex-shrink-0" />
-                </div>
-              ) : activeJobCluster ? (
-                <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#20637A] text-white shadow-2xs">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                        <span>Allied Trade Group</span>
-                      </span>
-                      <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
-                        {activeJobCluster.name}
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-semibold text-teal-800 bg-white/80 px-2 py-0.5 rounded-md border border-teal-200">
-                      ⚡ Cross-Trade Recognition Active
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                    {activeJobCluster.description}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
-                    <span className="font-bold text-slate-700">Related Positions Accepted:</span>
-                    {(activeJobCluster.roles || []).slice(0, 6).map((r: string, idx: number) => (
-                      <span key={idx} className="bg-white/90 px-2 py-0.5 rounded text-slate-700 border border-slate-200/80 font-medium">
-                        {r}
-                      </span>
-                    ))}
-                    {(activeJobCluster.roles || []).length > 6 && (
-                      <span className="text-slate-400 font-semibold">+{(activeJobCluster.roles || []).length - 6} more</span>
-                    )}
-                  </div>
-                </div>
-              ) : null}
+              )}
             </div>
           </div>
+
+          {/* KPI Header Bar & Scope Filters Row */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
+            {/* KPI Stats */}
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+              <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                Total Evaluated: <strong className="text-slate-900 font-extrabold">{totalEvaluated}</strong>
+              </span>
+              <span className="bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
+                Recommended: <strong className="font-extrabold">{recommendedCount}</strong>
+              </span>
+              <span className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-lg border border-amber-200 shadow-2xs">
+                For Review: <strong className="font-extrabold">{reviewCount}</strong>
+              </span>
+              <span className="bg-red-50 text-red-800 px-2.5 py-1 rounded-lg border border-red-200 shadow-2xs">
+                Not Recommended: <strong className="font-extrabold">{notRecommendedCount}</strong>
+              </span>
+            </div>
+
+            {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setPipelineScope('profiling')}
+                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'profiling'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                  Applicant Profiling Stage ({applicants.filter((a) => !a.isStopped && isApplicantInProfiling(a)).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPipelineScope('all')}
+                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'all'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                  All Active Pool ({applicants.filter((a) => !a.isStopped && a.status !== 'Processing Stopped').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPipelineScope('assigned')}
+                  className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${pipelineScope === 'assigned'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                  Assigned to Job Order
+                </button>
+              </div>
+
+              {Object.keys(dynamicClusters).length > 0 && (
+                <span className="text-[11px] text-slate-600 font-medium bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>{Object.keys(dynamicClusters).length} Recognized Trade Families</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Allied Trade Recognition Active Tag & Informative Description */}
+          {isSynthesizingCluster ? (
+            <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <Skeleton className="h-5 w-28 rounded-full bg-teal-200/60" />
+                <Skeleton className="h-4 w-44 bg-teal-200/40" />
+              </div>
+              <Skeleton className="h-5 w-36 rounded-md bg-teal-200/60 flex-shrink-0" />
+            </div>
+          ) : activeJobCluster ? (
+            <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#20637A] text-white shadow-2xs">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Allied Trade Group</span>
+                  </span>
+                  <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
+                    {activeJobCluster.name}
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold text-teal-800 bg-white/80 px-2 py-0.5 rounded-md border border-teal-200">
+                  ⚡ Cross-Trade Recognition Active
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                {activeJobCluster.description}
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
+                <span className="font-bold text-slate-700">Related Positions Accepted:</span>
+                {(activeJobCluster.roles || []).slice(0, 6).map((r: string, idx: number) => (
+                  <span key={idx} className="bg-white/90 px-2 py-0.5 rounded text-slate-700 border border-slate-200/80 font-medium">
+                    {r}
+                  </span>
+                ))}
+                {(activeJobCluster.roles || []).length > 6 && (
+                  <span className="text-slate-400 font-semibold">+{(activeJobCluster.roles || []).length - 6} more</span>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Ranked Candidate Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full border-collapse min-w-[1100px] table-fixed">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-4 text-center w-14">Rank</th>
-                <th className="py-3 px-4 min-w-[200px]">Applicant & ID</th>
-                <th className="py-3 px-4 text-center min-w-[130px]">Readiness Score (%)</th>
-                <th className="py-3 px-4 text-center min-w-[140px]">Classification</th>
-                <th className="py-3 px-4 text-center min-w-[120px]">Total Experience</th>
-                <th className="py-3 px-4 text-center min-w-[120px]">Key Certifications</th>
-                <th className="py-3 px-4 min-w-[240px]">Assessment Summary</th>
-                <th className="py-3 px-4 text-right min-w-[220px]">Actions</th>
+              <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                <th className="py-3.5 px-3 text-center align-middle w-[5%] min-w-[50px]">Rank</th>
+                <th className="py-3.5 px-4 text-left align-middle w-[25%] min-w-[220px]">Applicant & ID</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[100px]">Readiness Score (%)</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[12%] min-w-[120px]">Classification</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[95px]">Total Experience</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[95px]">Key Certifications</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[14%] min-w-[140px]">Assessment Summary</th>
+                <th className="py-3.5 px-3 text-center align-middle w-[14%] min-w-[140px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -1928,10 +1924,10 @@ export default function SmartProfiling({
 
                   const initials = candidate.applicant.name
                     ? candidate.applicant.name
-                        .split(' ')
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join('')
+                      .split(' ')
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join('')
                     : 'AP';
 
                   const mismatchInfo = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
@@ -1943,12 +1939,12 @@ export default function SmartProfiling({
                       className="hover:bg-slate-50/70 transition-colors group cursor-pointer"
                     >
                       {/* 1. Rank */}
-                      <td className="py-4 px-4 text-center font-black text-slate-900 text-sm">
+                      <td className="py-4 px-3 text-center align-middle font-black text-slate-900 text-sm">
                         #{candidate.rank}
                       </td>
 
                       {/* 2. Applicant & ID */}
-                      <td className="py-4 px-4">
+                      <td className="py-4 px-4 align-middle">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-slate-200 border border-slate-300 overflow-hidden flex items-center justify-center flex-shrink-0 text-slate-700 font-bold text-xs shadow-inner">
                             {candidate.applicant.photoDataUrl || candidate.applicant.photo ? (
@@ -2032,7 +2028,7 @@ export default function SmartProfiling({
                       </td>
 
                       {/* 3. Readiness Score (%) */}
-                      <td className="py-4 px-4 text-center">
+                      <td className="py-4 px-3 text-center align-middle">
                         <div className="inline-flex flex-col items-center">
                           <span className="font-black text-base text-slate-900 font-mono">
                             {candidate.readinessScore}%
@@ -2041,7 +2037,7 @@ export default function SmartProfiling({
                       </td>
 
                       {/* 4. Classification Badge (Option 2: 80% / 60%) */}
-                      <td className="py-4 px-4 text-center">
+                      <td className="py-4 px-3 text-center align-middle">
                         {candidate.classification === 'Recommended' && (
                           <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#10B981] text-white shadow-sm">
                             Recommended
@@ -2060,7 +2056,7 @@ export default function SmartProfiling({
                       </td>
 
                       {/* 5. Total Experience */}
-                      <td className="py-4 px-4 text-center font-semibold text-slate-700">
+                      <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
                         {candidate.isFirstTimeApplicant ? (
                           <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                             First-Time
@@ -2071,20 +2067,20 @@ export default function SmartProfiling({
                       </td>
 
                       {/* 6. Key Certifications */}
-                      <td className="py-4 px-4 text-center font-semibold text-slate-700">
+                      <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
                         {candidate.certificationsCount === 0
                           ? 'None'
                           : candidate.certificationsCount === 1
-                          ? '1 Cert'
-                          : `${candidate.certificationsCount} Certs`}
+                            ? '1 Cert'
+                            : `${candidate.certificationsCount} Certs`}
                       </td>
 
                       {/* 7. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
-                      <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-4 px-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                         {(() => {
                           const isExpanded = expandedExamApplicantIds.has(candidate.applicant.id);
                           return (
-                            <div className="space-y-2 min-w-[240px]">
+                            <div className="space-y-1.5 max-w-[240px] mx-auto text-left">
                               {/* General Assessment Baseline / Overview Card */}
                               <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-slate-50/80 border border-slate-200">
                                 <div className="flex items-center justify-between gap-2">
@@ -2174,11 +2170,10 @@ export default function SmartProfiling({
                                               {exam.name}
                                             </span>
                                             <span
-                                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                exam.passed
-                                                  ? 'bg-emerald-100 text-emerald-800'
-                                                  : 'bg-red-100 text-red-800'
-                                              }`}
+                                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${exam.passed
+                                                ? 'bg-emerald-100 text-emerald-800'
+                                                : 'bg-red-100 text-red-800'
+                                                }`}
                                             >
                                               {exam.passed ? (
                                                 <CheckCircle className="w-2.5 h-2.5 text-emerald-700" />
@@ -2225,24 +2220,24 @@ export default function SmartProfiling({
                       </td>
 
                       {/* 8. Row Actions: View Profile (Overlay), Review Details (Modal), & Endorse (Only for Profiling stage) */}
-                      <td className="py-4 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="py-4 px-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col items-center justify-center gap-1.5 w-full">
                           <button
                             onClick={() => handleOpenProfileOverlay(candidate.applicant)}
-                            className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                            className="w-[124px] py-1.5 px-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
                             title="Open candidate profile in full overlay"
                           >
-                            <Eye className="w-3.5 h-3.5 text-slate-500" />
-                            <span>View Profile</span>
+                            <Eye className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                            <span className="whitespace-nowrap">View Profile</span>
                           </button>
 
                           <button
                             onClick={() => setActiveModalCandidate(candidate)}
-                            className="px-3.5 py-1.5 bg-[#20637A] hover:bg-[#184F62] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center gap-1"
+                            className="w-[124px] py-1.5 px-2 bg-[#20637A] hover:bg-[#184F62] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
                             title="Inspect readiness breakdown and review for CV encoding"
                           >
-                            <FileText className="w-3.5 h-3.5 text-white/90" />
-                            <span>Review Details</span>
+                            <FileText className="w-3.5 h-3.5 text-white/90 flex-shrink-0" />
+                            <span className="whitespace-nowrap">Review Details</span>
                           </button>
 
                           {/* Endorse Button: Strictly available ONLY for candidates in the 'Applicant Profiling' stage */}
@@ -2250,15 +2245,15 @@ export default function SmartProfiling({
                             <button
                               onClick={() => handleEndorseCandidate(candidate)}
                               disabled={!candidate.compliancePassed || candidate.expiredDocs.length > 0}
-                              className="px-3.5 py-1.5 bg-[#10B981] hover:bg-[#059669] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="w-[124px] py-1.5 px-2 bg-[#10B981] hover:bg-[#059669] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                               title={
                                 !candidate.compliancePassed || candidate.expiredDocs.length > 0
                                   ? 'Endorsement blocked: Candidate has expired document(s)'
                                   : 'Endorse candidate directly to CV Encoding'
                               }
                             >
-                              <Send className="w-3.5 h-3.5" />
-                              <span>Endorse</span>
+                              <Send className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span className="whitespace-nowrap">Endorse</span>
                             </button>
                           )}
                         </div>
@@ -2288,11 +2283,11 @@ export default function SmartProfiling({
 
       {/* Review Details & Readiness Breakdown Modal */}
       {activeModalCandidate && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150"
           onClick={() => setActiveModalCandidate(null)}
         >
-          <div 
+          <div
             className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 overflow-hidden animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
@@ -2421,13 +2416,12 @@ export default function SmartProfiling({
                 </div>
                 <div className="flex items-center gap-2 mb-3">
                   <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      activeModalCandidate.classification === 'Recommended'
-                        ? 'bg-[#10B981] text-white'
-                        : activeModalCandidate.classification === 'For Further Review'
+                    className={`px-3 py-1 rounded-full text-xs font-bold ${activeModalCandidate.classification === 'Recommended'
+                      ? 'bg-[#10B981] text-white'
+                      : activeModalCandidate.classification === 'For Further Review'
                         ? 'bg-[#F59E0B] text-slate-950'
                         : 'bg-[#EF4444] text-white'
-                    }`}
+                      }`}
                   >
                     {activeModalCandidate.classification}
                   </span>
@@ -2454,11 +2448,10 @@ export default function SmartProfiling({
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'roleMatch' ? null : 'roleMatch')}
-                          className={`p-1 rounded-full transition-colors cursor-pointer ${
-                            expandedCategoryHelp === 'roleMatch'
-                              ? 'bg-[#20637A] text-white shadow-2xs'
-                              : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
-                          }`}
+                          className={`p-1 rounded-full transition-colors cursor-pointer ${expandedCategoryHelp === 'roleMatch'
+                            ? 'bg-[#20637A] text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
+                            }`}
                           title="Click to view scoring criteria and how this candidate arrived at this score"
                         >
                           <Info className="w-3.5 h-3.5" />
@@ -2507,11 +2500,10 @@ export default function SmartProfiling({
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'certifications' ? null : 'certifications')}
-                          className={`p-1 rounded-full transition-colors cursor-pointer ${
-                            expandedCategoryHelp === 'certifications'
-                              ? 'bg-[#20637A] text-white shadow-2xs'
-                              : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
-                          }`}
+                          className={`p-1 rounded-full transition-colors cursor-pointer ${expandedCategoryHelp === 'certifications'
+                            ? 'bg-[#20637A] text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
+                            }`}
                           title="Click to view scoring criteria and how this candidate arrived at this score"
                         >
                           <Info className="w-3.5 h-3.5" />
@@ -2561,11 +2553,10 @@ export default function SmartProfiling({
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'experience' ? null : 'experience')}
-                          className={`p-1 rounded-full transition-colors cursor-pointer ${
-                            expandedCategoryHelp === 'experience'
-                              ? 'bg-[#20637A] text-white shadow-2xs'
-                              : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
-                          }`}
+                          className={`p-1 rounded-full transition-colors cursor-pointer ${expandedCategoryHelp === 'experience'
+                            ? 'bg-[#20637A] text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
+                            }`}
                           title="Click to view scoring criteria and how this candidate arrived at this score"
                         >
                           <Info className="w-3.5 h-3.5" />
@@ -2613,11 +2604,10 @@ export default function SmartProfiling({
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'skills' ? null : 'skills')}
-                          className={`p-1 rounded-full transition-colors cursor-pointer ${
-                            expandedCategoryHelp === 'skills'
-                              ? 'bg-[#20637A] text-white shadow-2xs'
-                              : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
-                          }`}
+                          className={`p-1 rounded-full transition-colors cursor-pointer ${expandedCategoryHelp === 'skills'
+                            ? 'bg-[#20637A] text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
+                            }`}
                           title="Click to view scoring criteria and how this candidate arrived at this score"
                         >
                           <Info className="w-3.5 h-3.5" />
@@ -2664,11 +2654,10 @@ export default function SmartProfiling({
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'overseas' ? null : 'overseas')}
-                          className={`p-1 rounded-full transition-colors cursor-pointer ${
-                            expandedCategoryHelp === 'overseas'
-                              ? 'bg-[#20637A] text-white shadow-2xs'
-                              : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
-                          }`}
+                          className={`p-1 rounded-full transition-colors cursor-pointer ${expandedCategoryHelp === 'overseas'
+                            ? 'bg-[#20637A] text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-[#20637A] hover:bg-slate-100'
+                            }`}
                           title="Click to view scoring criteria and how this candidate arrived at this score"
                         >
                           <Info className="w-3.5 h-3.5" />
@@ -2796,20 +2785,18 @@ export default function SmartProfiling({
                     return (
                       <div
                         key={t.id}
-                        className={`p-2.5 rounded-lg border transition-all ${
-                          isPending
-                            ? 'bg-amber-50/60 border-amber-200'
-                            : 'bg-white border-slate-200'
-                        }`}
+                        className={`p-2.5 rounded-lg border transition-all ${isPending
+                          ? 'bg-amber-50/60 border-amber-200'
+                          : 'bg-white border-slate-200'
+                          }`}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <p className="text-slate-700 font-medium truncate max-w-[140px]" title={t.name}>{t.name}</p>
                           {t.isJobSpecific && (
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                              isPending
-                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${isPending
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
                               Job-Specific
                             </span>
                           )}
@@ -2830,9 +2817,8 @@ export default function SmartProfiling({
                               <p className="font-bold text-slate-900 text-sm">
                                 {t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`}
                               </p>
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                t.passed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
-                              }`}>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.passed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
                                 {t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req ≥ ${t.passingScore}%`}
                               </span>
                             </>
@@ -2854,11 +2840,10 @@ export default function SmartProfiling({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Statutory Compliance Layer (DMW/POEA)</span>
                   <span
-                    className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${
-                      activeModalCandidate.compliancePassed
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    }`}
+                    className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${activeModalCandidate.compliancePassed
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}
                   >
                     {activeModalCandidate.compliancePassed ? 'Statutory Documents Clear' : 'Action Required: Expired Document'}
                   </span>
@@ -2876,9 +2861,8 @@ export default function SmartProfiling({
                       <span className="font-semibold text-slate-800">Medical Fitness (Fit-to-Work)</span>
                     </div>
                     <span
-                      className={`text-[11px] font-mono font-bold ${
-                        activeModalCandidate.medicalStatus.valid ? 'text-emerald-700' : 'text-red-600'
-                      }`}
+                      className={`text-[11px] font-mono font-bold ${activeModalCandidate.medicalStatus.valid ? 'text-emerald-700' : 'text-red-600'
+                        }`}
                     >
                       {activeModalCandidate.medicalStatus.status}
                     </span>
@@ -2895,9 +2879,8 @@ export default function SmartProfiling({
                       <span className="font-semibold text-slate-800">Passport Validity (&gt;= 60 days)</span>
                     </div>
                     <span
-                      className={`text-[11px] font-mono font-bold ${
-                        activeModalCandidate.passportStatus.valid ? 'text-emerald-700' : 'text-red-600'
-                      }`}
+                      className={`text-[11px] font-mono font-bold ${activeModalCandidate.passportStatus.valid ? 'text-emerald-700' : 'text-red-600'
+                        }`}
                     >
                       {activeModalCandidate.passportStatus.status}
                     </span>
@@ -2914,9 +2897,8 @@ export default function SmartProfiling({
                       <span className="font-semibold text-slate-800">NBI Clearance Validity (&gt;= 30 days)</span>
                     </div>
                     <span
-                      className={`text-[11px] font-mono font-bold ${
-                        activeModalCandidate.nbiStatus.valid ? 'text-emerald-700' : 'text-red-600'
-                      }`}
+                      className={`text-[11px] font-mono font-bold ${activeModalCandidate.nbiStatus.valid ? 'text-emerald-700' : 'text-red-600'
+                        }`}
                     >
                       {activeModalCandidate.nbiStatus.status}
                     </span>
@@ -3014,11 +2996,11 @@ export default function SmartProfiling({
 
       {/* Candidate Profile Overlay Modal */}
       {overlayApplicant && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-200"
           onClick={() => setOverlayApplicant(null)}
         >
-          <div 
+          <div
             className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
