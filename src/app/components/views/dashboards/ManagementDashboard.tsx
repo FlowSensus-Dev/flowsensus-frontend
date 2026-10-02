@@ -1,4 +1,5 @@
 import { AlertTriangle, Clock, FileCheck, TrendingUp, BarChart3, Eye, CheckCircle } from 'lucide-react';
+import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../../ui/skeleton';
 import { ApplicantRecord, ActivityLog } from '../../../types';
 import { ViewType } from '../../AppShell';
 
@@ -7,6 +8,7 @@ interface ManagementDashboardProps {
   activityLogs: ActivityLog[];
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
+  isLoading?: boolean;
 }
 
 export default function ManagementDashboard({
@@ -14,6 +16,7 @@ export default function ManagementDashboard({
   activityLogs,
   onViewApplicant,
   onNavigate,
+  isLoading = false,
 }: ManagementDashboardProps) {
   // SLA Breach Detection (applicants stuck in same phase for >7 days - mock logic)
   const slaBreaches = applicants.filter((a) => a.phase < 5).slice(0, 2);
@@ -98,22 +101,38 @@ export default function ManagementDashboard({
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#0EA5E9] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Total Active Pipeline</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{totalActive}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{totalActive}</p>
+          )}
           <p className="text-xs text-[#64748B] mt-1">Applicants in system</p>
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#10B981] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Deployment Ready</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{deploymentReady}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{deploymentReady}</p>
+          )}
           <p className="text-xs text-[#64748B] mt-1">Phase 5 applicants</p>
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#8B5CF6] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Avg. Pipeline Phase</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{avgPhase}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{avgPhase}</p>
+          )}
           <p className="text-xs text-[#64748B] mt-1">Pipeline velocity</p>
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Conversion Rate</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{conversionRate}%</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{conversionRate}%</p>
+          )}
           <p className="text-xs text-[#64748B] mt-1">Intake → Deployment</p>
         </div>
       </div>

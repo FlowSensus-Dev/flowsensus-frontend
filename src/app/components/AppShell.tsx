@@ -30,7 +30,6 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
-import { Skeleton, SkeletonAvatar, SkeletonBadge } from './ui/skeleton';
 
 export type ViewType =
   | 'dashboard'
@@ -239,49 +238,7 @@ export default function AppShell({
   };
 
   const renderView = () => {
-    if (applicantsLoaded === false) {
-      return (
-        <div className="space-y-6 p-6">
-          {/* KPI metric cards row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-3 w-24" />
-                  <Skeleton className="h-8 w-8 rounded-lg" />
-                </div>
-                <Skeleton className="h-8 w-16" />
-                <Skeleton className="h-2.5 w-20 bg-slate-100" />
-              </div>
-            ))}
-          </div>
-          {/* Main records table / list */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-8 w-28 rounded-lg" />
-            </div>
-            <div className="divide-y divide-slate-100">
-              {[...Array(7)].map((_, i) => (
-                <div key={i} className="px-6 py-4 flex items-center gap-4">
-                  <SkeletonAvatar />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3.5 w-48" />
-                    <Skeleton className="h-2.5 w-32 bg-slate-100" />
-                  </div>
-                  <SkeletonBadge />
-                  <SkeletonBadge className="w-16" />
-                  <Skeleton className="h-8 w-8 rounded-lg" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId)) || applicants[0];
-
+    const isApplicantsLoading = applicantsLoaded === false;
 
     switch (currentView) {
       case 'dashboard':
@@ -294,7 +251,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Management Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
                 </div>
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -303,7 +260,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Recruitment Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
                 </div>
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -312,7 +269,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Admin & Visa Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} />
+                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
                 </div>
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -321,7 +278,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} />
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} />
                 </div>
               </div>
             </div>
@@ -337,6 +294,7 @@ export default function AppShell({
                 activityLogs={activityLogs}
                 onViewApplicant={handleViewApplicant}
                 onNavigate={handleNavigate}
+                isLoading={isApplicantsLoading}
               />
             );
           case 'Admin':
@@ -345,6 +303,7 @@ export default function AppShell({
                 applicants={applicants}
                 onViewApplicant={handleViewApplicant}
                 onNavigate={handleNavigate}
+                isLoading={isApplicantsLoading}
               />
             );
           case 'Accounting':
@@ -354,6 +313,7 @@ export default function AppShell({
                 expenses={expenses}
                 onNavigate={handleNavigate}
                 onAddExpense={addExpense}
+                isLoading={isApplicantsLoading}
               />
             );
           case 'Management':
@@ -363,6 +323,7 @@ export default function AppShell({
                 activityLogs={activityLogs}
                 onViewApplicant={handleViewApplicant}
                 onNavigate={handleNavigate}
+                isLoading={isApplicantsLoading}
               />
             );
           default:
@@ -372,6 +333,7 @@ export default function AppShell({
                 activityLogs={activityLogs}
                 currentUserRole={currentUserRole}
                 onViewApplicant={handleViewApplicant}
+                isLoading={isApplicantsLoading}
               />
             );
         }
@@ -379,6 +341,7 @@ export default function AppShell({
         return (
           <ApplicantList
             applicants={applicants}
+            isLoading={isApplicantsLoading}
             onViewApplicant={handleViewApplicant}
             currentUserName={currentUserName}
             onNavigate={handleNavigate}

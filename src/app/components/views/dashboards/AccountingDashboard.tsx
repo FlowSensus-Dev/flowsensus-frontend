@@ -20,6 +20,7 @@ interface AccountingDashboardProps {
   expenses?: ExpenseRecord[];
   onNavigate: (view: ViewType) => void;
   onAddExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  isLoading?: boolean;
 }
 
 export default function AccountingDashboard({
@@ -27,6 +28,7 @@ export default function AccountingDashboard({
   expenses = [],
   onNavigate,
   onAddExpense,
+  isLoading = false,
 }: AccountingDashboardProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter'>('month');
   const [quickExpense, setQuickExpense] = useState({

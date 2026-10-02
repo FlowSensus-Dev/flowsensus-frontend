@@ -1,4 +1,5 @@
 import { Eye, Clock, AlertTriangle } from 'lucide-react';
+import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ApplicantRecord, ActivityLog, UserRole } from '../../types';
 
 interface DashboardProps {
@@ -6,9 +7,10 @@ interface DashboardProps {
   activityLogs?: ActivityLog[];
   currentUserRole: UserRole;
   onViewApplicant: (applicantId: string) => void;
+  isLoading?: boolean;
 }
 
-export default function Dashboard({ applicants = [], activityLogs = [], currentUserRole, onViewApplicant }: DashboardProps) {
+export default function Dashboard({ applicants = [], activityLogs = [], currentUserRole, onViewApplicant, isLoading = false }: DashboardProps) {
   const activeCount = applicants.length;
   const acceptedCount = applicants.filter((a) => a.phase >= 4).length;
   const pendingMedicalCount = applicants.filter((a) => a.phase === 2).length;
@@ -48,22 +50,38 @@ export default function Dashboard({ applicants = [], activityLogs = [], currentU
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#0EA5E9] shadow-sm relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#0EA5E9]/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Active Pipeline</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{activeCount}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{activeCount}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#10B981] shadow-sm relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#10B981]/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Accepted</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{acceptedCount}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{acceptedCount}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#F59E0B]/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Pending Medical</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{pendingMedicalCount}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{pendingMedicalCount}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#EF4444] shadow-sm relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#EF4444]/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Expiry Alerts</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{expiryAlerts}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{expiryAlerts}</p>
+          )}
         </div>
       </div>
 
@@ -73,7 +91,26 @@ export default function Dashboard({ applicants = [], activityLogs = [], currentU
           <h3 className="font-black text-[#0F172A] text-sm uppercase tracking-wider">Recent Activity</h3>
         </div>
         <div className="divide-y divide-slate-100">
-          {applicants.slice(0, 5).map((applicant) => (
+          {isLoading ? (
+            [...Array(5)].map((_, i) => (
+              <div key={i} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <SkeletonAvatar className="w-10 h-10" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-2.5 w-24 bg-slate-100" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <SkeletonBadge className="w-20" />
+                  <Skeleton className="h-8 w-16 rounded-lg" />
+                </div>
+              </div>
+            ))
+          ) : applicants.slice(0, 5).length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No recent applicant activity.</div>
+          ) : (
+            applicants.slice(0, 5).map((applicant) => (
             <div
               key={applicant.id}
               className="px-6 py-4 hover:bg-slate-50 transition-colors flex items-center justify-between"
@@ -122,7 +159,7 @@ export default function Dashboard({ applicants = [], activityLogs = [], currentU
                 View
               </button>
             </div>
-          ))}
+          )))}
         </div>
       </div>
 

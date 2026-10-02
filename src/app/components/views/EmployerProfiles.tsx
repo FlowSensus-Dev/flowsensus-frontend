@@ -37,8 +37,31 @@ interface Props {
   globalEmployers?: any[];
 }
 
+const mapEmployerFromApi = (e: any): EmployerProfile => ({
+  id: String(e.employer_id),
+  companyName: e.company_name,
+  country: e.country?.country_name || 'International',
+  industry: e.industry || 'General',
+  contactPerson: e.contact_person || '',
+  contactEmail: e.contact_email || '',
+  contactPhone: e.contact_phone || '',
+  address: e.address || '',
+  accreditationNo: e.accreditation_no || '',
+  accreditationExpiry: e.accreditation_expiry || '',
+  status: (e.registration_status === 'REGISTERED' ? 'active' : e.registration_status === 'REJECTED' ? 'blacklisted' : (e.registration_status || 'active').toLowerCase()) as any,
+  rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
+  totalDeployed: e.total_deployed || 0,
+  activeJobOrders: e.active_job_orders || 0,
+  remarks: Array.isArray(e.remarks) ? e.remarks : [],
+  createdAt: e.created_at || '',
+});
+
 export default function EmployerProfiles({ showToast, currentUserName, globalEmployers }: Props) {
-  const [employers, setEmployers] = useState<EmployerProfile[]>([]);
+  const [employers, setEmployers] = useState<EmployerProfile[]>(() => {
+    return (globalEmployers && Array.isArray(globalEmployers) && globalEmployers.length > 0)
+      ? globalEmployers.map(mapEmployerFromApi)
+      : [];
+  });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployerProfile['status']>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -47,33 +70,26 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
   const [addingRemark, setAddingRemark] = useState<{ employerId: string; content: string; category: EmployerRemark['category'] } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingRemark, setIsSavingRemark] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(!globalEmployers || globalEmployers.length === 0);
+
+  // Synchronize when globalEmployers updates from background fetch
+  useEffect(() => {
+    if (globalEmployers && Array.isArray(globalEmployers) && globalEmployers.length > 0) {
+      setEmployers(globalEmployers.map(mapEmployerFromApi));
+      setIsLoading(false);
+    }
+  }, [globalEmployers]);
 
   // ── Fetch Live Employers on Mount ─────────────────────────────────────────
   useEffect(() => {
     const fetchEmployers = async () => {
       try {
-        setIsLoading(true);
-        const res = globalEmployers ? { data: globalEmployers } : await api.get('/employers');
+        if (!globalEmployers || globalEmployers.length === 0) {
+          setIsLoading(true);
+        }
+        const res = (globalEmployers && globalEmployers.length > 0) ? { data: globalEmployers } : await api.get('/employers');
         if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveEmps: EmployerProfile[] = res.data.map((e: any) => ({
-            id: String(e.employer_id),
-            companyName: e.company_name,
-            country: e.country?.country_name || 'International',
-            industry: e.industry || 'General',
-            contactPerson: e.contact_person || '',
-            contactEmail: e.contact_email || '',
-            contactPhone: e.contact_phone || '',
-            address: e.address || '',
-            accreditationNo: e.accreditation_no || '',
-            accreditationExpiry: e.accreditation_expiry || '',
-            status: (e.registration_status === 'REGISTERED' ? 'active' : e.registration_status === 'REJECTED' ? 'blacklisted' : (e.registration_status || 'active').toLowerCase()) as any,
-            rating: typeof e.star_rating === 'number' ? e.star_rating : 5,
-            totalDeployed: e.total_deployed || 0,
-            activeJobOrders: e.active_job_orders || 0,
-            remarks: Array.isArray(e.remarks) ? e.remarks : [],
-            createdAt: e.created_at || '',
-          }));
+          const liveEmps: EmployerProfile[] = res.data.map(mapEmployerFromApi);
           setEmployers(liveEmps);
         }
       } catch (err) {

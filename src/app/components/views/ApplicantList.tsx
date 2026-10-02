@@ -4,6 +4,7 @@ import {
   ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX,
   ArrowUpDown
 } from 'lucide-react';
+import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ApplicantRecord, ActivityLog, ExpenseRecord } from '../../types';
 import { ViewType } from '../AppShell';
 import ApplicantProfile from './ApplicantProfile';
@@ -18,6 +19,7 @@ export type SortOption =
 
 interface ApplicantListProps {
   applicants?: ApplicantRecord[];
+  isLoading?: boolean;
   onViewApplicant: (applicantId: string) => void;
   currentUserName: string;
   onNavigate?: (view: ViewType) => void;
@@ -43,6 +45,7 @@ const PHASE_META: Record<number, { title: string; desc: string; color: string; b
 
 export default function ApplicantList({
   applicants = [],
+  isLoading = false,
   onViewApplicant,
   currentUserName,
   onNavigate,
@@ -328,7 +331,28 @@ export default function ApplicantList({
       </div>
 
       <div className="text-[13px] font-bold text-slate-700 mt-4 border-b border-slate-200 pb-3">
-        Total Applicants: <span className="text-[#0EA5E9] font-medium">{applicants.length}</span> <span className="mx-1 text-slate-300">|</span> Active Process: <span className="text-orange-500 font-medium">{applicants.filter(a => a.status !== 'Processing Stopped').length}</span> <span className="mx-1 text-slate-300">|</span> Completed Placements: <span className="text-emerald-500 font-medium">{applicants.filter(a => a.phase === 6).length}</span>
+        Total Applicants:{' '}
+        {isLoading ? (
+          <Skeleton className="inline-block h-3.5 w-6 align-middle" />
+        ) : (
+          <span className="text-[#0EA5E9] font-medium">{applicants.length}</span>
+        )}{' '}
+        <span className="mx-1 text-slate-300">|</span> Active Process:{' '}
+        {isLoading ? (
+          <Skeleton className="inline-block h-3.5 w-6 align-middle" />
+        ) : (
+          <span className="text-orange-500 font-medium">
+            {applicants.filter(a => a.status !== 'Processing Stopped').length}
+          </span>
+        )}{' '}
+        <span className="mx-1 text-slate-300">|</span> Completed Placements:{' '}
+        {isLoading ? (
+          <Skeleton className="inline-block h-3.5 w-6 align-middle" />
+        ) : (
+          <span className="text-emerald-500 font-medium">
+            {applicants.filter(a => a.phase === 6).length}
+          </span>
+        )}
       </div>
 
       {/* Navigation */}
@@ -340,7 +364,12 @@ export default function ApplicantList({
             className={`h-11 px-4 text-[12px] font-bold transition-all flex items-center justify-center rounded-l-md whitespace-nowrap flex-shrink-0 ${phaseFilter === 'all' ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
               } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,0_50%)]`}
           >
-            All <span className="font-normal opacity-80 ml-1">({applicants.length})</span>
+            All{' '}
+            {isLoading ? (
+              <span className="font-normal opacity-80 ml-1">(-)</span>
+            ) : (
+              <span className="font-normal opacity-80 ml-1">({applicants.length})</span>
+            )}
           </button>
 
           {phaseCounts.map((p, idx) => {
@@ -356,7 +385,12 @@ export default function ApplicantList({
                 className={`h-11 pl-7 pr-4 -ml-3 flex-1 min-w-fit text-[12px] font-bold transition-all flex items-center justify-center whitespace-nowrap ${isSelected ? 'text-white' : 'text-slate-700 hover:bg-[#cbd5e1]'
                   } [clip-path:polygon(0_0,calc(100%-14px)_0,100%_50%,calc(100%-14px)_100%,0_100%,14px_50%)]`}
               >
-                Ph.{p.phase} {meta.title} <span className="ml-1 opacity-80 font-normal">({p.count})</span>
+                Ph.{p.phase} {meta.title}{' '}
+                {isLoading ? (
+                  <span className="ml-1 opacity-80 font-normal">(-)</span>
+                ) : (
+                  <span className="ml-1 opacity-80 font-normal">({p.count})</span>
+                )}
               </button>
             );
           })}
@@ -382,7 +416,26 @@ export default function ApplicantList({
       </div>
 
       {/* Cards grid */}
-      {sorted.length === 0 ? (
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+              <div className="flex items-start gap-4">
+                <SkeletonAvatar className="w-14 h-14" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24 bg-slate-100" />
+                  <Skeleton className="h-3 w-16 bg-slate-100" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <SkeletonBadge className="w-24" />
+                <SkeletonBadge className="w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 py-20 text-center">
           <User size={32} className="text-slate-200 mx-auto mb-3" />
           <p className="text-slate-400 font-medium text-sm">No applicants found</p>

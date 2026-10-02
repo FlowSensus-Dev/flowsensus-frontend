@@ -46,72 +46,88 @@ const DEFAULT_ROLES_CATALOG: AvailableRole[] = [
   { id: 'Management', label: 'Management', desc: 'Analytics & Hub', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200', activeColor: 'border-amber-400 bg-amber-50 text-amber-900' },
 ];
 
+const mapStaffFromApi = (u: any): StaffAccount => {
+  const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
+    ? u.role_names
+    : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
+  const primaryRole = rawRoles[0] || 'Recruitment';
+  return {
+    id: String(u.user_id),
+    name: u.full_name || 'Staff Member',
+    email: u.email,
+    department: u.department_name || u.department || 'Unassigned',
+    role: primaryRole,
+    roles: rawRoles,
+    status: u.status === 'Inactive' ? 'Inactive' : 'Active',
+    createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+  };
+};
+
 export default function UserManagement({ currentUserName, addActivityLog, globalStaff, globalRoles }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
   const [editRoles, setEditRoles] = useState<UserRole[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!globalStaff || globalStaff.length === 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>(DEFAULT_ROLES_CATALOG);
-  const [staff, setStaff] = useState<StaffAccount[]>([]);
+  const [staff, setStaff] = useState<StaffAccount[]>(() => {
+    return (globalStaff && Array.isArray(globalStaff) && globalStaff.length > 0)
+      ? globalStaff.map(mapStaffFromApi)
+      : [];
+  });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Synchronize when globalStaff updates from background fetch
+  useEffect(() => {
+    if (globalStaff && Array.isArray(globalStaff) && globalStaff.length > 0) {
+      setStaff(globalStaff.map(mapStaffFromApi));
+      setLoading(false);
+    }
+  }, [globalStaff]);
 
   // ── Fetch Live Staff & Available Roles from Backend on Mount ─────────────
   const fetchStaffAndRoles = async () => {
     try {
-      setLoading(true);
+      if (!globalStaff || globalStaff.length === 0) {
+        setLoading(true);
+      }
       setErrorMsg(null);
 
-        // 1. Fetch available roles directly from the Supabase role table via backend
-        try {
-          const rolesRes = globalRoles ? { data: globalRoles } : await api.get('/users/roles');
-          if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
-            const mappedRoles: AvailableRole[] = rolesRes.data.map((r: any) => {
-              const sysRole = (r.system_role || r.role_name) as UserRole;
-              const style = ROLE_STYLE_MAP[sysRole] || {
-                badgeColor: 'bg-slate-50 text-slate-700 border-slate-200',
-                activeColor: 'border-slate-400 bg-slate-50 text-slate-900',
-              };
-              return {
-                id: sysRole,
-                label: r.role_name || sysRole,
-                desc: r.description || `${sysRole} permissions`,
-                badgeColor: style.badgeColor,
-                activeColor: style.activeColor,
-              };
-            });
-            setAvailableRoles(mappedRoles);
-          }
-        } catch (roleErr) {
-          console.warn('Could not fetch roles from backend, using default catalog:', roleErr);
-        }
-
-        // 2. Fetch live users
-        const res = globalStaff ? { data: globalStaff } : await api.get('/users');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveStaff: StaffAccount[] = res.data.map((u: any) => {
-            const rawRoles: UserRole[] = (u.role_names && Array.isArray(u.role_names) && u.role_names.length > 0)
-              ? u.role_names
-              : (u.role_name ? u.role_name.split(',').map((r: string) => r.trim() as UserRole) : ['Recruitment']);
-            const primaryRole = rawRoles[0] || 'Recruitment';
+      // 1. Fetch available roles directly from the Supabase role table via backend
+      try {
+        const rolesRes = (globalRoles && globalRoles.length > 0) ? { data: globalRoles } : await api.get('/users/roles');
+        if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
+          const mappedRoles: AvailableRole[] = rolesRes.data.map((r: any) => {
+            const sysRole = (r.system_role || r.role_name) as UserRole;
+            const style = ROLE_STYLE_MAP[sysRole] || {
+              badgeColor: 'bg-slate-50 text-slate-700 border-slate-200',
+              activeColor: 'border-slate-400 bg-slate-50 text-slate-900',
+            };
             return {
-              id: String(u.user_id),
-              name: u.full_name || 'Staff Member',
-              email: u.email,
-              department: u.department_name || u.department || 'Unassigned',
-              role: primaryRole,
-              roles: rawRoles,
-              status: u.status === 'Inactive' ? 'Inactive' : 'Active',
-              createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+              id: sysRole,
+              label: r.role_name || sysRole,
+              desc: r.description || `${sysRole} permissions`,
+              badgeColor: style.badgeColor,
+              activeColor: style.activeColor,
             };
           });
-          setStaff(liveStaff);
+          setAvailableRoles(mappedRoles);
         }
+      } catch (roleErr) {
+        console.warn('Could not fetch roles from backend, using default catalog:', roleErr);
+      }
+
+      // 2. Fetch live users
+      const res = (globalStaff && globalStaff.length > 0) ? { data: globalStaff } : await api.get('/users');
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const liveStaff: StaffAccount[] = res.data.map(mapStaffFromApi);
+        setStaff(liveStaff);
+      }
     } catch (err: any) {
       console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
       setErrorMsg(err?.response?.data?.detail || err.message || 'Failed to fetch staff accounts. Please try logging in again.');

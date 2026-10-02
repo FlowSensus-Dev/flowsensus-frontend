@@ -32,8 +32,50 @@ interface Props {
   globalEmployers?: any[];
 }
 
+const mapJobOrderFromApi = (jo: any): JobOrder => ({
+  id: String(jo.job_order_id),
+  code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
+  position: jo.position_title || jo.position || '',
+  country: (typeof jo.country === 'string' ? jo.country : jo.country?.country_name) || jo.country_name || jo.client_employer?.country?.country_name || jo.employer?.country?.country_name || 'International',
+  employerId: String(jo.employer_id),
+  employerName: jo.client_employer?.company_name || jo.employer?.company_name || jo.employer_name || '',
+  slots: jo.slots_requested || jo.total_slots || 1,
+  filledSlots: jo.slots_filled || jo.filled_slots || 0,
+  salaryMin: Number(jo.salary_min) || 0,
+  salaryMax: Number(jo.salary_max) || 0,
+  salaryCurrency: jo.salary_currency || 'USD',
+  contractMonths: Number(jo.contract_months) || 24,
+  requirements: Array.isArray(jo.requirements) && jo.requirements.length > 0
+    ? jo.requirements
+    : (Array.isArray(jo.required_skills) && jo.required_skills.length > 0
+        ? jo.required_skills
+        : (Array.isArray(jo.job_order_requirement)
+            ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+            : [])),
+  minExperience: jo.min_experience_years || 1,
+  genderPreference: (jo.gender_preference || jo.genderPreference || 'Any') as 'Any' | 'Male' | 'Female',
+  minAge: jo.min_age ?? jo.minAge ?? 21,
+  maxAge: jo.max_age ?? jo.maxAge ?? 45,
+  certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
+  detailedRequirements: Array.isArray(jo.job_order_requirements)
+    ? jo.job_order_requirements.map((r: any) => ({
+        name: r.requirement?.requirement_name || r.requirement_name,
+        category: r.category || r.requirement?.category || 'DOCUMENT',
+        isMandatory: r.is_mandatory ?? true
+      }))
+    : [],
+  status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
+  datePosted: jo.date_posted || '',
+  deadline: jo.application_deadline || jo.deadline || '',
+  notes: jo.clean_notes || jo.notes || '',
+});
+
 export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers }: Props) {
-  const [orders, setOrders] = useState<JobOrder[]>([]);
+  const [orders, setOrders] = useState<JobOrder[]>(() => {
+    return (globalJobOrders && Array.isArray(globalJobOrders) && globalJobOrders.length > 0)
+      ? globalJobOrders.map(mapJobOrderFromApi)
+      : [];
+  });
   const [employers, setEmployers] = useState<EmployerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | JobOrder['status']>('all');
@@ -43,19 +85,29 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   const [reqInput, setReqInput] = useState('');
   const [certInput, setCertInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(!globalJobOrders || globalJobOrders.length === 0);
   const [catalogRequirements, setCatalogRequirements] = useState<any[]>([]);
   const [catalogCountries, setCatalogCountries] = useState<string[]>([]);
   const [reqIsMandatory, setReqIsMandatory] = useState(true);
   const [certIsMandatory, setCertIsMandatory] = useState(true);
 
+  // Synchronize when globalJobOrders updates from background fetch
+  useEffect(() => {
+    if (globalJobOrders && Array.isArray(globalJobOrders) && globalJobOrders.length > 0) {
+      setOrders(globalJobOrders.map(mapJobOrderFromApi));
+      setIsLoading(false);
+    }
+  }, [globalJobOrders]);
+
   // ── Fetch Live Data on Mount & Refresh ────────────────────────────────────
   const fetchLiveJobOrders = useCallback(async () => {
       try {
-        setIsLoading(true);
+        if (!globalJobOrders || globalJobOrders.length === 0) {
+          setIsLoading(true);
+        }
         const [ordersRes, empRes] = await Promise.allSettled([
-          api.get('/job-orders'),
-          globalEmployers ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
+          globalJobOrders && globalJobOrders.length > 0 ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
+          globalEmployers && globalEmployers.length > 0 ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
         ]);
 
         if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
@@ -81,43 +133,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         }
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
-          const mapped: JobOrder[] = ordersRes.value.data.map((jo: any) => ({
-            id: String(jo.job_order_id),
-            code: jo.job_order_code || jo.job_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : `JO-${jo.job_order_id}`),
-            position: jo.position_title || jo.position || '',
-            country: (typeof jo.country === 'string' ? jo.country : jo.country?.country_name) || jo.country_name || jo.client_employer?.country?.country_name || jo.employer?.country?.country_name || 'International',
-            employerId: String(jo.employer_id),
-            employerName: jo.client_employer?.company_name || jo.employer?.company_name || jo.employer_name || '',
-            slots: jo.slots_requested || jo.total_slots || 1,
-            filledSlots: jo.slots_filled || jo.filled_slots || 0,
-            salaryMin: Number(jo.salary_min) || 0,
-            salaryMax: Number(jo.salary_max) || 0,
-            salaryCurrency: jo.salary_currency || 'USD',
-            contractMonths: Number(jo.contract_months) || 24,
-            requirements: Array.isArray(jo.requirements) && jo.requirements.length > 0
-              ? jo.requirements
-              : (Array.isArray(jo.required_skills) && jo.required_skills.length > 0
-                  ? jo.required_skills
-                  : (Array.isArray(jo.job_order_requirement)
-                      ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
-                      : [])),
-            minExperience: jo.min_experience_years || 1,
-            genderPreference: (jo.gender_preference || jo.genderPreference || 'Any') as 'Any' | 'Male' | 'Female',
-            minAge: jo.min_age ?? jo.minAge ?? 21,
-            maxAge: jo.max_age ?? jo.maxAge ?? 45,
-            certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
-            detailedRequirements: Array.isArray(jo.job_order_requirements)
-              ? jo.job_order_requirements.map((r: any) => ({
-                  name: r.requirement?.requirement_name || r.requirement_name,
-                  category: r.category || r.requirement?.category || 'DOCUMENT',
-                  isMandatory: r.is_mandatory ?? true
-                }))
-              : [],
-            status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
-            datePosted: jo.date_posted || '',
-            deadline: jo.application_deadline || jo.deadline || '',
-            notes: jo.clean_notes || jo.notes || '',
-          }));
+          const mapped: JobOrder[] = ordersRes.value.data.map(mapJobOrderFromApi);
           setOrders(mapped);
         }
       } catch (err) {
@@ -139,7 +155,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         }
       } catch (err) {}
     },
-    [globalEmployers]
+    [globalJobOrders, globalEmployers]
   );
 
   useEffect(() => {

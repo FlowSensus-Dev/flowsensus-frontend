@@ -1,4 +1,5 @@
 import { Clock, UserPlus, FileCheck, AlertTriangle, CheckCircle, Eye } from 'lucide-react';
+import { Skeleton } from '../../ui/skeleton';
 import { ApplicantRecord, ActivityLog } from '../../../types';
 import { ViewType } from '../../AppShell';
 
@@ -7,6 +8,7 @@ interface RecruitmentDashboardProps {
   activityLogs: ActivityLog[];
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
+  isLoading?: boolean;
 }
 
 export default function RecruitmentDashboard({
@@ -14,6 +16,7 @@ export default function RecruitmentDashboard({
   activityLogs,
   onViewApplicant,
   onNavigate,
+  isLoading = false,
 }: RecruitmentDashboardProps) {
   // Action Queues
   const pendingMedicalValidations = applicants.filter((a) => a.phase === 2 && a.status.includes('Medical'));
@@ -47,19 +50,35 @@ export default function RecruitmentDashboard({
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#0EA5E9] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Total Active</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{applicants.length}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{applicants.length}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#10B981] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Ready for CV</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{readyForCV.length}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{readyForCV.length}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Waiting Employer</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{waitingEmployer.length}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{waitingEmployer.length}</p>
+          )}
         </div>
         <div className="bg-white p-6 rounded-lg border-l-4 border-l-[#8B5CF6] shadow-sm">
           <p className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Pending Medical</p>
-          <p className="text-4xl font-black text-[#0F172A] mt-2">{pendingMedicalValidations.length}</p>
+          {isLoading ? (
+            <Skeleton className="h-9 w-16 mt-2" />
+          ) : (
+            <p className="text-4xl font-black text-[#0F172A] mt-2">{pendingMedicalValidations.length}</p>
+          )}
         </div>
       </div>
 

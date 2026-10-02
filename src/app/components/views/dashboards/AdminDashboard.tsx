@@ -6,9 +6,10 @@ interface AdminDashboardProps {
   applicants: ApplicantRecord[];
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
+  isLoading?: boolean;
 }
 
-export default function AdminDashboard({ applicants, onViewApplicant, onNavigate }: AdminDashboardProps) {
+export default function AdminDashboard({ applicants, onViewApplicant, onNavigate, isLoading = false }: AdminDashboardProps) {
   // Action Queues
   const expiredDocs = 2; // Mock data for demo
   const expiringIn30 = applicants.filter((a) => a.phase >= 3).length; // Mock

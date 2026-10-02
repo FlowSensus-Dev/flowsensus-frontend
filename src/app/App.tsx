@@ -1140,6 +1140,11 @@ export default function App() {
       setApplicantsLoaded(false);
       setActivityLogs([]);
       setExpenses([]);
+      setGlobalJobOrders(null);
+      setGlobalEmployers(null);
+      setGlobalStaff(null);
+      setGlobalRoles(null);
+      setGlobalPipelineForecast(null);
     }
   };
 
@@ -1150,27 +1155,25 @@ export default function App() {
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
 
-    // Fetch ONLY critical resources first to unblock UI
-    try {
-      const applicantsRes = await api.get('/applicants');
-      if (!isCurrent()) return;
+    // 1. Fetch applicants in parallel (non-blocking)
+    api.get('/applicants')
+      .then((applicantsRes) => {
+        if (!isCurrent()) return;
+        if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
+          const liveMapped: ApplicantRecord[] = applicantsRes.data.map(mapApplicantFromApi);
+          setApplicants(liveMapped);
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend applicants fetch error:', err);
+      })
+      .finally(() => {
+        if (isCurrent()) {
+          setApplicantsLoaded(true);
+        }
+      });
 
-      // 1. Process applicants
-      if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
-        const liveMapped: ApplicantRecord[] = applicantsRes.data.map(mapApplicantFromApi);
-        setApplicants(liveMapped);
-      }
-    } catch (err) {
-      console.warn('Backend applicants fetch error:', err);
-    } finally {
-      if (isCurrent()) {
-        setApplicantsLoaded(true);
-      }
-    }
-
-    if (!isCurrent()) return;
-
-    // Deferred fetching for non-critical resources
+    // 2. Fetch all other module resources in parallel concurrently
     Promise.allSettled([
       api.get('/audit-logs'),
       api.get('/financial/records'),
@@ -1182,52 +1185,52 @@ export default function App() {
     ]).then(([logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes]) => {
       if (!isCurrent()) return;
 
-      // 2. Process logs
+      // Process logs
       if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
-      const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
-        audit_log_id: l.audit_log_id,
-        applicant_id: l.applicant_id,
-        performed_by: l.performed_by,
-        created_at: l.created_at,
-        id: `LOG-${l.audit_log_id}`,
-        applicantId: l.applicant_id ? String(l.applicant_id) : '',
-        action: l.action,
-        performedBy: l.performed_by || 'System User',
-        department: l.department,
-        details: l.details,
-        timestamp: l.created_at || new Date().toISOString(),
-      }));
-      setActivityLogs(liveLogs);
-    } else if (logsRes.status === 'rejected') {
-      console.warn('Backend audit logs unavailable:', logsRes.reason);
-    }
+        const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
+          audit_log_id: l.audit_log_id,
+          applicant_id: l.applicant_id,
+          performed_by: l.performed_by,
+          created_at: l.created_at,
+          id: `LOG-${l.audit_log_id}`,
+          applicantId: l.applicant_id ? String(l.applicant_id) : '',
+          action: l.action,
+          performedBy: l.performed_by || 'System User',
+          department: l.department,
+          details: l.details,
+          timestamp: l.created_at || new Date().toISOString(),
+        }));
+        setActivityLogs(liveLogs);
+      } else if (logsRes.status === 'rejected') {
+        console.warn('Backend audit logs unavailable:', logsRes.reason);
+      }
 
-    if (!isCurrent()) return;
+      if (!isCurrent()) return;
 
-    // 3. Process expenses
-    if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
-      const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
-        id: `EXP-${r.financial_record_id}`,
-        applicantId: String(r.applicant_id),
-        category: r.category || 'processing',
-        type: r.payment_type || 'Processing Fee',
-        amount: r.amount || 0,
-        description: r.description || r.payment_type || '',
-        date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-        recordedBy: r.recorded_by_name || 'Mark Tan',
-        paymentMethod: 'Bank Transfer',
-        paidBy: 'Agency',
-        notes: r.description || '',
-        timestamp: r.created_at || new Date().toISOString(),
-      }));
-      setExpenses(liveExpenses);
-    } else if (expRes.status === 'rejected') {
-      console.warn('Backend financial records unavailable:', expRes.reason);
-    }
-    
-    if (!isCurrent()) return;
+      // Process expenses
+      if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
+        const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
+          id: `EXP-${r.financial_record_id}`,
+          applicantId: String(r.applicant_id),
+          category: r.category || 'processing',
+          type: r.payment_type || 'Processing Fee',
+          amount: r.amount || 0,
+          description: r.description || r.payment_type || '',
+          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          recordedBy: r.recorded_by_name || 'Mark Tan',
+          paymentMethod: 'Bank Transfer',
+          paidBy: 'Agency',
+          notes: r.description || '',
+          timestamp: r.created_at || new Date().toISOString(),
+        }));
+        setExpenses(liveExpenses);
+      } else if (expRes.status === 'rejected') {
+        console.warn('Backend financial records unavailable:', expRes.reason);
+      }
+      
+      if (!isCurrent()) return;
 
-      // 4. Populate global shared context to prevent duplicate fetches in child views
+      // Populate global shared context to prevent duplicate fetches in child views
       if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
       if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
       if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
