@@ -146,8 +146,9 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     applicationId,
     applicantCode: formattedApplicantCode,
     name: fullName,
-    firstName: item.first_name || '',
-    middleName: item.middle_name || '',
+    firstName: item.first_name || item.firstName || '',
+    middleName: item.middle_name || item.middleName || '',
+    lastName: item.last_name || item.lastName || '',
     role: item.applied_position || item.applied_role || item.position || item.appliedRole || 'Applicant',
     appliedPosition: item.applied_position || item.position || item.applied_role || '',
     appliedRole: item.applied_position || item.applied_role || item.position || '',
@@ -164,15 +165,25 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     presentAddress: item.present_address || '',
     provincialAddress: item.provincial_address || '',
     email: item.email || '',
-    contact: item.contact_number || '',
-    dateOfBirth: item.birth_date || '',
+    contact: item.contact_number || item.contact || '',
+    dateOfBirth: item.birth_date || item.dateOfBirth || '',
     age: item.age || (item.birth_date ? Math.floor((Date.now() - new Date(item.birth_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : 28),
-    sex: (item.gender === 'Female' || item.sex === 'Female') ? 'Female' : 'Male',
-    civilStatus: item.civil_status || 'Single',
-    citizenship: item.nationality || 'Filipino',
+    sex: (() => {
+      const s = String(item.gender || item.sex || '').trim().toLowerCase();
+      return (s === 'female' || s === 'f') ? 'Female' : 'Male';
+    })(),
+    civilStatus: (() => {
+      const cs = String(item.civil_status || item.civilStatus || '').trim().toLowerCase();
+      if (cs === 'married') return 'Married';
+      if (cs === 'widowed') return 'Widowed';
+      if (cs === 'separated') return 'Separated';
+      if (cs === 'divorced') return 'Divorced';
+      return 'Single';
+    })(),
+    citizenship: item.nationality || item.citizenship || 'Filipino',
     religion: item.religion || 'Roman Catholic',
-    heightCm: item.height_cm || item.heightCm || undefined,
-    weightKg: item.weight_kg || item.weightKg || undefined,
+    heightCm: item.height_cm !== undefined && item.height_cm !== null ? Number(item.height_cm) : (item.heightCm !== undefined && item.heightCm !== null ? Number(item.heightCm) : (item.height ? parseFloat(item.height) : undefined)),
+    weightKg: item.weight_kg !== undefined && item.weight_kg !== null ? Number(item.weight_kg) : (item.weightKg !== undefined && item.weightKg !== null ? Number(item.weightKg) : (item.weight ? parseFloat(item.weight) : undefined)),
     noOfChildren: item.no_of_children !== undefined ? item.no_of_children : (item.noOfChildren || 0),
     placeOfBirth: item.place_of_birth || item.placeOfBirth || '',
     applicantTypes: Array.isArray(item.applicant_types) ? item.applicant_types : (item.applicantTypes || (item.is_indigenous ? ['INDIGENOUS_PEOPLES'] : [])),

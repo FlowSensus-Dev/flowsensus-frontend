@@ -208,6 +208,11 @@ export default function Screening({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showReviewScoreModal, setShowReviewScoreModal] = useState(false);
 
+  const [agencyProfile, setAgencyProfile] = useState<{
+    agency_name?: string;
+    poea_license_no?: string;
+  } | null>(null);
+
   useEffect(() => {
     api.get<any[]>('/clinics')
       .then(res => {
@@ -217,6 +222,12 @@ export default function Screening({
         }
       })
       .catch(err => console.warn('Could not load clinics in Screening:', err));
+
+    api.get('/lookups/agency')
+      .then(res => {
+        if (res.data) setAgencyProfile(res.data);
+      })
+      .catch(err => console.warn('Could not load agency profile in Screening:', err));
   }, []);
 
   // Dynamic scores state: Score Obtained (raw), Total Score (items), and Pass/Fail verdict
@@ -1074,6 +1085,28 @@ export default function Screening({
       });
       const refNo = `SCR-${new Date().getFullYear()}-${String(selectedApplicant.applicantCode || applicantId).padStart(5, '0')}`;
 
+      // Clean ASCII text helper to prevent font glitches and eliminate Flowsensus branding
+      const cleanPdfText = (str: string | null | undefined): string => {
+        if (!str) return '';
+        return String(str)
+          .replace(/→/g, ': ')
+          .replace(/←/g, '<-')
+          .replace(/[✓✔]/g, '')
+          .replace(/[•●▪]/g, '-')
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/[\u2013\u2014]/g, '-')
+          .replace(/[\u00A0]/g, ' ')
+          .replace(/flowsensus\s*/gi, '')
+          .replace(/[^\x20-\x7E\r\n\t]/g, '');
+      };
+
+      const agencyName = cleanPdfText(agencyProfile?.agency_name || 'LICENSED OVERSEAS RECRUITMENT AGENCY').toUpperCase();
+      const poeaLicense = agencyProfile?.poea_license_no
+        ? `POEA/DMW License: ${cleanPdfText(agencyProfile.poea_license_no)}`
+        : 'POEA / DMW Accredited Placement Agency';
+      const evaluatorName = cleanPdfText(currentUserName || 'Evaluating Officer').replace(/flowsensus\s*/gi, '').trim() || 'Superadmin';
+
       // Initialize formal A4 portrait document (210mm x 297mm)
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -1091,7 +1124,7 @@ export default function Screening({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
-      doc.text('FLOWSENSUS UNIVERSAL RECRUITMENT OPERATIONS', margin, y);
+      doc.text(agencyName, margin, y);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
@@ -1162,7 +1195,7 @@ export default function Screening({
 
       y += 5.5;
       const colW = [10, 65, 30, 25, 25, 25]; // sum = 180
-      const tableHeaders = ['#', 'EVALUATION ASSESSMENT', 'CATEGORY', 'PASSING THRESHOLD', 'SCORE', 'VERDICT'];
+      const tableHeaders = ['#', 'EVALUATION ASSESSMENT', 'CATEGORY', 'PASS MARK', 'SCORE', 'VERDICT'];
       doc.setFillColor(248, 250, 252);
       doc.rect(margin, y, contentWidth, 5, 'F');
       doc.setDrawColor(203, 213, 225);
@@ -1225,6 +1258,7 @@ export default function Screening({
         doc.text(benchmark, rx + 2, y + 4.2); rx += colW[3];
         doc.text(scoreDisplay, rx + 2, y + 4.2); rx += colW[4];
         doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
         doc.text(verdictDisplay, rx + 2, y + 4.2);
         y += rowH;
       });
@@ -1273,7 +1307,7 @@ export default function Screening({
         ? 'SUITABLE — Recommended for Overseas Placement'
         : (personalityEQVerdict === 'Not Suitable' ? 'NOT SUITABLE (Provisional)' : 'PENDING ASSESSMENT');
       doc.text(verdictText, margin + 3, y + 6);
-      doc.text(`${currentUserName} (Screening Operations)`, margin + 93, y + 6);
+      doc.text(`${evaluatorName} (Screening Operations)`, margin + 93, y + 6);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
@@ -1303,31 +1337,31 @@ export default function Screening({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('CANDIDATE ACKNOWLEDGMENT & CONFORME:', margin + 4, y + 4);
-      doc.line(margin + 4, y + 16, margin + 84, y + 16);
+      doc.text('CANDIDATE ACKNOWLEDGMENT & CONFORME:', margin + 45, y + 4.5, { align: 'center' });
+      doc.line(margin + 8, y + 16, margin + 82, y + 16);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text(String(selectedApplicant.name), margin + 4, y + 19.5);
+      doc.text(String(selectedApplicant.name), margin + 45, y + 19.5, { align: 'center' });
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('Candidate Signature over Printed Name / Date', margin + 4, y + 23);
+      doc.text('Candidate Signature over Printed Name / Date', margin + 45, y + 23, { align: 'center' });
 
-      // Right signature (Officer)
+      // Right signature (Agency / Officer)
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('AUTHORIZED SCREENING OFFICER ENDORSEMENT:', margin + 94, y + 4);
-      doc.line(margin + 94, y + 16, margin + 176, y + 16);
+      doc.text('AUTHORIZED EVALUATING OFFICER / ENDORSING AGENCY:', margin + 135, y + 4.5, { align: 'center' });
+      doc.line(margin + 98, y + 16, margin + 172, y + 16);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text(`${currentUserName} (Screening Operations)`, margin + 94, y + 19.5);
+      doc.text(`${agencyName} / ${evaluatorName}`, margin + 135, y + 19.5, { align: 'center' });
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('Verified Evaluator Signature & Seal / Date', margin + 94, y + 23);
+      doc.text('Staff Evaluator Signature over Printed Name', margin + 135, y + 23, { align: 'center' });
 
       // ── Footer (Plain, Formal Standard) ──
       doc.setDrawColor(203, 213, 225);
@@ -1336,10 +1370,12 @@ export default function Screening({
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
       doc.setTextColor(148, 163, 184);
-      doc.text('CONFIDENTIAL • FLOWSENSUS OPERATIONS SYSTEM • OFFICIAL SCREENING RECORD • A4 STANDARD • PAGE 1 OF 1', 105, 288.5, { align: 'center' });
+      doc.text(`CONFIDENTIAL • ${agencyName} • OFFICIAL SCREENING RECORD • A4 STANDARD • PAGE 1 OF 1`, 105, 288.5, { align: 'center' });
 
       // Save and trigger browser download
-      const cleanFileName = `Flowsensus_Screening_Summary_${(selectedApplicant.name || 'Candidate').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+      const cleanAgencyFileName = agencyName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanCandidateFileName = (selectedApplicant.name || 'Candidate').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanFileName = `${cleanCandidateFileName}_Screening_Summary_${cleanAgencyFileName}.pdf`;
       doc.save(cleanFileName);
 
       setGeneratedReferralIds(prev => new Set([...prev, applicantId]));

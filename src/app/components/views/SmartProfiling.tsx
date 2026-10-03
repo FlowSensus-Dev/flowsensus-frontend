@@ -1355,6 +1355,17 @@ export default function SmartProfiling({
   // - Primary content font size 11 (matching CV body standard)
   // - Text alignment and dynamic line heights to prevent collision/overlap
   // - Dynamic agency name and POEA license with ZERO FlowSensus branding
+  // Handler: Generate and download official Candidate Profiling Evaluation Report as PDF
+  // Structured and designed in exact accordance with the Screening summary evaluation PDF:
+  // - Formal 15mm margins (A4 portrait 210x297mm)
+  // - Clean agency header with double horizontal dividing rules and Ref No / Date
+  // - Structured tabular section headers (slate-100 fill, slate-300 borders)
+  // - Formally partitioned metadata grid (I. Candidate Identification & Job Order Allocation)
+  // - Structured tabular 5-Pillar breakdown with alternating row backgrounds and aggregate summary bar
+  // - Two-compartment Examination Gates and Statutory Regulatory Audit
+  // - Strengths and Gap remediation findings box
+  // - Dual-compartment Official Endorsement & Conforme signatures
+  // - Clean centered running footers
   const handleDownloadProfilingPDF = (candidate: RankedCandidate) => {
     setIsGeneratingPdf(true);
     try {
@@ -1396,189 +1407,200 @@ export default function SmartProfiling({
       const rawEvaluator = currentUserName || 'Evaluating Officer';
       const evaluatorName = cleanPdfText(rawEvaluator).replace(/flowsensus\s*/gi, '').trim() || 'Superadmin';
 
-      const pageWidth = 210;
-      const margin = 12.7; // Exactly 0.5 inch
-      const contentWidth = pageWidth - (margin * 2); // 184.6 mm
-      let y = margin;
-
-      const checkPageBreak = (neededHeight: number) => {
-        if (y + neededHeight > 278) {
-          doc.addPage();
-          y = margin;
-          renderHeaderBar(true);
-        }
-      };
-
-      const renderHeaderBar = (isContinuation = false) => {
-        // Top Banner with Agency Brand (STRICTLY NO Flowsensus)
-        doc.setFillColor(30, 58, 75); // Professional Navy/Teal #1E3A4B
-        doc.rect(margin, y, contentWidth, isContinuation ? 12 : 22, 'F');
-
-        doc.setTextColor(255, 255, 255);
-        if (isContinuation) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.text(`${agencyName} - Candidate Profiling Evaluation (Continued)`, margin + 4, y + 8);
-          y += 17;
-        } else {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(14);
-          doc.text(agencyName, margin + 5, y + 9);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9.5);
-          doc.setTextColor(203, 213, 225); // Slate 300
-          doc.text(poeaLicense, margin + 5, y + 16);
-          doc.text('Official Evaluation Document * Confidential', pageWidth - margin - 5, y + 16, { align: 'right' });
-          y += 27;
-        }
-      };
-
-      renderHeaderBar(false);
-
-      // Document Title
-      doc.setTextColor(15, 23, 42); // Slate 900
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('CANDIDATE PROFILING & JOB-FIT EVALUATION REPORT', margin, y);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11); // Primary font size 11
-      doc.setTextColor(100, 116, 139);
-      const evalDate = new Date().toLocaleDateString('en-US', {
+      const refDate = new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
       });
-      doc.text(`Evaluation Date: ${evalDate} | Evaluator: ${evaluatorName}`, margin, y + 5.5);
-      y += 11;
+      const cleanCodeDigits = appCode.replace(/[^a-zA-Z0-9]/g, '');
+      const refNo = `PRF-${new Date().getFullYear()}-${cleanCodeDigits.slice(-5) || '00001'}`;
 
-      // Section: Candidate & Target Job Order Summary Box
-      checkPageBreak(52);
-      const boxHeight = 48;
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, 'FD');
+      const pageWidth = 210;
+      const margin = 15; // Formal standard 15mm (identical to Screening.tsx)
+      const contentWidth = pageWidth - (margin * 2); // 180mm
+      let y = 16;
 
-      const col1X = margin + 4;
-      const col2X = margin + (contentWidth / 2) + 3;
-      const colWidth = (contentWidth / 2) - 6;
+      const checkPageBreak = (neededHeight: number) => {
+        if (y + neededHeight > 275) {
+          doc.addPage();
+          y = 16;
+          // Clean Continuation Header matching Screening style
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(15, 23, 42);
+          doc.text(`${agencyName} - CANDIDATE PROFILING & JOB-FIT REPORT (CONTINUED)`, margin, y);
 
-      // Section Subheaders
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text('CANDIDATE IDENTIFICATION', col1X, y + 6);
-      doc.text('TARGET FOREIGN JOB ORDER', col2X, y + 6);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`APPLICANT: ${appName} (${appCode}) | REF: ${refNo}`, 195, y, { align: 'right' });
 
-      // Candidate Name & Target Job Order Title
+          y += 3;
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.3);
+          doc.line(margin, y, 195, y);
+          y += 6;
+        }
+      };
+
+      // ── Header (Formal, Plain, Official Recruitment Agency Standard - Matching Screening.tsx) ──
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
-      const candidateNameTruncated = doc.splitTextToSize(appName, colWidth);
-      doc.text(candidateNameTruncated[0] || appName, col1X, y + 12.5);
+      doc.text(agencyName, margin, y);
 
-      const jobPosTitle = doc.splitTextToSize(`${targetPos} (${targetJoId})`, colWidth);
-      doc.text(jobPosTitle[0] || targetPos, col2X, y + 12.5);
-
-      // Body text fields (Font size 11, line spacing 5.8mm)
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
+      doc.setFontSize(8.5);
       doc.setTextColor(71, 85, 105);
-
-      // Column 1
-      doc.text(`Applicant Code: ${appCode}`, col1X, y + 18.5);
-      const appliedRoleText = cleanPdfText(`Applied Role: ${applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || 'General Applicant'}`);
-      const roleLines = doc.splitTextToSize(appliedRoleText, colWidth);
-      doc.text(roleLines[0], col1X, y + 24.3);
-      doc.text(`Verified Experience: ${candidate.totalExperienceYears} Year(s)${candidate.isFirstTimeApplicant ? ' (First-Time)' : ''}`, col1X, y + 30.1);
-      doc.text(`Certifications on File: ${candidate.certificationsCount} Credential(s)`, col1X, y + 35.9);
-      doc.text(`Current Pipeline: ${cleanPdfText(applicant.status || 'Applicant Profiling')}`, col1X, y + 41.7);
-
-      // Column 2
-      const employerText = cleanPdfText(`Foreign Principal: ${targetEmployer}`);
-      const empLines = doc.splitTextToSize(employerText, colWidth);
-      doc.text(empLines[0], col2X, y + 18.5);
-      doc.text(`Destination Country: ${targetCountry}`, col2X, y + 24.3);
-      doc.text(`Required Experience: ${currentJobOrder?.minExperience || 1} Year(s)`, col2X, y + 30.1);
-      doc.text(`Open Vacancies: ${currentJobOrder?.vacancies ?? 'Available'} Slot(s)`, col2X, y + 35.9);
-      doc.text('Target Job Status: Open & Active', col2X, y + 41.7);
-
-      y += boxHeight + 4;
-
-      // Section: Overall Readiness & Classification Scorecard
-      checkPageBreak(28);
-      doc.setFillColor(241, 245, 249);
-      doc.roundedRect(margin, y, contentWidth, 22, 2, 2, 'F');
+      doc.text('OFFICIAL CANDIDATE PROFILING & JOB-FIT EVALUATION REPORT', margin, y + 4.5);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`REF NO: ${refNo}`, 195, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(`DATE: ${refDate}`, 195, y + 4.5, { align: 'right' });
+
+      y += 8;
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, 195, y);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y + 0.8, 195, y + 0.8);
+
+      y += 4.5;
+
+      // ── Section I: Candidate Identification & Target Job Order Allocation ──
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. CANDIDATE IDENTIFICATION & TARGET JOB ORDER ALLOCATION', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const gridH = 26; // 4 rows x 6.5mm = 26mm
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, gridH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + gridH); // Center divider
+
+      // 3 horizontal dividers
+      doc.line(margin, y + 6.5, 195, y + 6.5);
+      doc.line(margin, y + 13, 195, y + 13);
+      doc.line(margin, y + 19.5, 195, y + 19.5);
+
+      // Row 1
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('READINESS SCORE', margin + 6, y + 6);
-      doc.text('ANALYTICAL CLASSIFICATION', margin + 62, y + 6);
-      doc.text('STATUTORY CLEARANCE (DMW/POEA)', margin + 120, y + 6);
+      doc.text('FULL CANDIDATE NAME:', margin + 3, y + 2.6);
+      doc.text('TARGET FOREIGN JOB ORDER:', margin + 93, y + 2.6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appName, margin + 3, y + 5.5);
+      doc.text(`${targetPos} (${targetJoId})`, margin + 93, y + 5.5);
 
-      // Readiness Score Value
-      doc.setFontSize(16);
-      doc.setTextColor(30, 58, 75);
-      doc.text(`${candidate.readinessScore}%`, margin + 6, y + 16);
+      // Row 2
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('APPLICANT CODE:', margin + 3, y + 9.1);
+      doc.text('FOREIGN PRINCIPAL / EMPLOYER:', margin + 93, y + 9.1);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appCode, margin + 3, y + 12);
+      doc.text(targetEmployer, margin + 93, y + 12);
 
-      // Classification Badge
-      doc.setFontSize(11);
-      if (candidate.classification === 'Recommended') {
-        doc.setTextColor(16, 185, 129); // Emerald
-        doc.text('RECOMMENDED', margin + 62, y + 15.5);
-      } else if (candidate.classification === 'For Further Review') {
-        doc.setTextColor(217, 119, 6); // Amber
-        doc.text('FOR FURTHER REVIEW', margin + 62, y + 15.5);
-      } else {
-        doc.setTextColor(239, 68, 68); // Red
-        doc.text('NOT RECOMMENDED', margin + 62, y + 15.5);
-      }
+      // Row 3
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('APPLIED TRADE ROLE:', margin + 3, y + 15.6);
+      doc.text('DESTINATION COUNTRY & VACANCIES:', margin + 93, y + 15.6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      const appliedRoleStr = cleanPdfText(applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || 'General Candidate');
+      doc.text(appliedRoleStr, margin + 3, y + 18.5);
+      doc.text(`${targetCountry} (${currentJobOrder?.vacancies ?? 'Open'} Open Slots)`, margin + 93, y + 18.5);
 
-      // Compliance
-      doc.setFontSize(11);
-      if (candidate.compliancePassed) {
-        doc.setTextColor(16, 185, 129);
-        doc.text('PASSED (All Clear)', margin + 120, y + 15.5);
-      } else {
-        doc.setTextColor(239, 68, 68);
-        doc.text('ACTION REQUIRED', margin + 120, y + 15.5);
-      }
+      // Row 4
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('VERIFIED EXPERIENCE & CERTS:', margin + 3, y + 22.1);
+      doc.text('TARGET EXPERIENCE REQUIRED:', margin + 93, y + 22.1);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${candidate.totalExperienceYears} Year(s) | ${candidate.certificationsCount} Credential(s)${candidate.isFirstTimeApplicant ? ' (First-Time)' : ''}`, margin + 3, y + 25);
+      doc.text(`${currentJobOrder?.minExperience || 1} Year(s) Minimum Requirement`, margin + 93, y + 25);
 
-      y += 26;
+      y += gridH + 4.5;
 
+      // ── Optional Preference Notice ──
       const pdfMismatch = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
       if (pdfMismatch) {
-        const mismatchMsg = cleanPdfText(`Applicant originally applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'a different job order'}. Evaluated against this position via allied trade qualifications.`);
-        doc.setFontSize(11);
-        const wrappedMismatch = doc.splitTextToSize(mismatchMsg, contentWidth - 8);
-        const noticeHeight = Math.max(14, 8 + (wrappedMismatch.length * 5.2));
-        checkPageBreak(noticeHeight + 4);
+        const mismatchMsg = cleanPdfText(`Applicant originally applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'a different job order'}. Evaluated against this position via allied trade cluster qualifications.`);
+        const wrappedNotice = doc.splitTextToSize(mismatchMsg, contentWidth - 48);
+        const noticeH = Math.max(8, 4 + (wrappedNotice.length * 3.6));
+        checkPageBreak(noticeH + 4);
 
-        doc.setFillColor(254, 243, 199);
-        doc.setDrawColor(245, 158, 11);
-        doc.roundedRect(margin, y, contentWidth, noticeHeight, 1.5, 1.5, 'FD');
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(margin, y, contentWidth, noticeH, 'FD');
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(146, 64, 14);
-        doc.text('JOB ORDER PREFERENCE NOTICE:', margin + 4, y + 5.5);
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.text('JOB ORDER PREFERENCE NOTICE:', margin + 3, y + 3.2);
 
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(180, 83, 9);
-        doc.text(wrappedMismatch, margin + 4, y + 11.5, { lineHeightFactor: 1.2 });
-        y += noticeHeight + 4;
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(wrappedNotice, margin + 46, y + 3.2, { lineHeightFactor: 1.15 });
+
+        y += noticeH + 4;
       }
 
-      // Section: 5-Category Granular Scoring Breakdown
-      checkPageBreak(30);
+      // ── Section II: Phase 1 Standardized Competency & 5-Pillar Job-Fit Evaluation ──
+      checkPageBreak(45);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text('JOB-ORDER READINESS BREAKDOWN (5 CRITICAL PILLARS)', margin, y);
-      y += 6;
+      doc.text('II. JOB-ORDER READINESS BREAKDOWN (5 CRITICAL PILLARS)', margin + 3, y + 3.8);
+
+      y += 5.5;
+
+      // Table Headers matching Screening.tsx layout - optimized 5-column layout without Rating (sum = 180mm)
+      const colW = [8, 48, 94, 15, 15];
+      const tableHeaders = ['#', 'CRITICAL READINESS PILLAR', 'CRITERIA & VERIFICATION FINDINGS', 'WEIGHT', 'SCORE'];
+
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentWidth, 5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+
+      let curX = margin;
+      doc.text(tableHeaders[0], curX + 2, y + 3.5); curX += colW[0];
+      doc.text(tableHeaders[1], curX + 2, y + 3.5); curX += colW[1];
+      doc.text(tableHeaders[2], curX + 2, y + 3.5); curX += colW[2];
+      doc.text(tableHeaders[3], curX + 2, y + 3.5); curX += colW[3];
+      doc.text(tableHeaders[4], curX + 2, y + 3.5);
+
+      y += 5;
 
       const categories = [
         {
@@ -1587,6 +1609,7 @@ export default function SmartProfiling({
           score: candidate.categoryScores.roleMatch,
           max: 30,
           expl: getCategoryCandidateExplanation('roleMatch', candidate, currentJobOrder),
+          passed: candidate.categoryScores.roleMatch >= 16,
         },
         {
           num: '2',
@@ -1594,13 +1617,15 @@ export default function SmartProfiling({
           score: candidate.categoryScores.certifications,
           max: 25,
           expl: getCategoryCandidateExplanation('certifications', candidate, currentJobOrder),
+          passed: candidate.categoryScores.certifications > 0 || (!currentJobOrder?.certifications || currentJobOrder.certifications.length === 0),
         },
         {
           num: '3',
-          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Education Foundation' : 'Work Experience Duration',
+          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Foundation' : 'Work Experience Duration',
           score: candidate.categoryScores.experience,
           max: 20,
           expl: getCategoryCandidateExplanation('experience', candidate, currentJobOrder),
+          passed: candidate.categoryScores.experience >= 15,
         },
         {
           num: '4',
@@ -1608,6 +1633,7 @@ export default function SmartProfiling({
           score: candidate.categoryScores.skills,
           max: 15,
           expl: getCategoryCandidateExplanation('skills', candidate, currentJobOrder),
+          passed: candidate.categoryScores.skills > 0,
         },
         {
           num: '5',
@@ -1615,113 +1641,106 @@ export default function SmartProfiling({
           score: candidate.categoryScores.overseas,
           max: 10,
           expl: getCategoryCandidateExplanation('overseas', candidate, currentJobOrder),
+          passed: candidate.categoryScores.overseas >= 3,
         },
       ];
 
-      categories.forEach((cat) => {
-        doc.setFontSize(11);
+      categories.forEach((cat, idx) => {
         const cleanedExpl = cleanPdfText(cat.expl);
-        // Leave 5mm padding on left and right inside the card
-        const usableWidth = contentWidth - 10;
-        const textLines = doc.splitTextToSize(cleanedExpl, usableWidth);
-        const lineHeight = 5.0; // mm per line
-        const textBlockHeight = textLines.length * lineHeight;
-        const itemHeight = Math.max(19, 10 + textBlockHeight + 3);
-        checkPageBreak(itemHeight + 3);
+        const textLines = doc.splitTextToSize(cleanedExpl, colW[2] - 4);
+        const rowH = Math.max(7.5, 3.8 + (textLines.length * 3.5));
+        checkPageBreak(rowH);
 
-        doc.setFillColor(255, 255, 255);
+        if (idx % 2 === 1) {
+          doc.setFillColor(249, 250, 251);
+          doc.rect(margin, y, contentWidth, rowH, 'F');
+        }
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(margin, y, contentWidth, itemHeight, 1.5, 1.5, 'FD');
+        doc.rect(margin, y, contentWidth, rowH, 'S');
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(30, 41, 59);
-        doc.text(`${cat.num}. ${cat.name}`, margin + 4, y + 6);
-
-        // Score
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(30, 58, 75);
-        doc.text(`${cat.score} / ${cat.max} pts`, pageWidth - margin - 4, y + 6, { align: 'right' });
-
-        // Explanation text in font size 11
+        let rx = margin;
+        // Col 0: #
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(71, 85, 105);
-        doc.text(textLines, margin + 4, y + 11.5, { lineHeightFactor: 1.25 });
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text(cat.num, rx + 2, y + 4.2);
+        rx += colW[0];
 
-        y += itemHeight + 3;
+        // Col 1: Pillar Name
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(cat.name, rx + 2, y + 4.2);
+        rx += colW[1];
+
+        // Col 2: Findings & Explanation (Multi-line)
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        doc.text(textLines, rx + 2, y + 3.8, { lineHeightFactor: 1.15 });
+        rx += colW[2];
+
+        // Col 3: Weight
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`${cat.max} pts`, rx + 2, y + 4.2);
+        rx += colW[3];
+
+        // Col 4: Score
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${cat.score} pts`, rx + 2, y + 4.2);
+
+        y += rowH;
       });
 
+      // Aggregate Summary Row matching Screening.tsx (Non-overlapping layout)
       y += 2;
-
-      // Section: Examination & Assessment Gates (Clean 2-Column Grid Layout)
-      // If remaining height on page 1 is not enough for the full gate cards block (or y > 180), move cleanly to Page 2
-      if (y > 180) {
-        checkPageBreak(120);
-      } else {
-        checkPageBreak(40);
-      }
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 7, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 7, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(7.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('EXAMINATION & CLEARANCE GATES', margin, y);
-      y += 6;
+
+      const classText = candidate.classification === 'Recommended'
+        ? 'RECOMMENDED'
+        : (candidate.classification === 'For Further Review' ? 'FOR FURTHER REVIEW' : 'NOT RECOMMENDED');
+      doc.text(`JOB-FIT READINESS SCORE: ${candidate.readinessScore}% (${classText})`, margin + 4, y + 4.8);
+
+      const statutorySummaryText = candidate.compliancePassed ? 'STATUTORY: PASSED (ALL CLEAR)' : 'STATUTORY: ACTION REQUIRED';
+      doc.text(statutorySummaryText, 195 - 4, y + 4.8, { align: 'right' });
+      y += 11;
+
+      // ── Section III: Examination Clearance Gates & Statutory Clearances ──
+      checkPageBreak(38);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('III. EXAMINATION ASSESSMENT GATES & STATUTORY REGULATORY AUDIT', margin + 3, y + 3.8);
+
+      y += 5.5;
 
       const dynamicGates = (candidate.activeTestResults && candidate.activeTestResults.length > 0)
         ? candidate.activeTestResults.map((t) => ({
           label: cleanPdfText(t.name),
           val: t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`,
-          req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req: >= ${t.passingScore}%`,
+          req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Min. ${t.passingScore}%`,
+          passed: t.passed,
         }))
         : [
-          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Req: >= ${dynamicGateDefinitions.skillsTpl.passingScore}%` },
-          { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Req: >= ${dynamicGateDefinitions.iqTpl.passingScore}%` },
-          { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Req: >= ${dynamicGateDefinitions.langTpl.passingScore}%` },
-          { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Req: >= ${dynamicGateDefinitions.eqTpl.passingScore}%` },
+          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Min. ${dynamicGateDefinitions.skillsTpl.passingScore}%`, passed: candidate.techScore >= dynamicGateDefinitions.skillsTpl.passingScore },
+          { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Min. ${dynamicGateDefinitions.iqTpl.passingScore}%`, passed: candidate.iqScore >= dynamicGateDefinitions.iqTpl.passingScore },
+          { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Min. ${dynamicGateDefinitions.langTpl.passingScore}%`, passed: candidate.interviewScore >= dynamicGateDefinitions.langTpl.passingScore },
+          { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Min. ${dynamicGateDefinitions.eqTpl.passingScore}%`, passed: candidate.eqStatus === 'Suitable' },
         ];
-
-      const gateColW = (contentWidth - 4) / 2; // ~90.3 mm per card
-      const gateCardHeight = 22;
-      const gateRows = Math.ceil(dynamicGates.length / 2);
-      checkPageBreak((gateRows * (gateCardHeight + 3)) + 4);
-
-      dynamicGates.forEach((g, idx) => {
-        const col = idx % 2;
-        const row = Math.floor(idx / 2);
-        const xPos = margin + (col * (gateColW + 4));
-        const rowY = y + (row * (gateCardHeight + 3));
-
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(xPos, rowY, gateColW, gateCardHeight, 1.5, 1.5, 'FD');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(71, 85, 105);
-        const truncatedLabel = g.label.length > 28 ? `${g.label.slice(0, 26)}...` : g.label;
-        doc.text(truncatedLabel, xPos + 4, rowY + 6);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(13);
-        doc.setTextColor(15, 23, 42);
-        doc.text(g.val, xPos + 4, rowY + 13);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.setTextColor(100, 116, 139);
-        doc.text(g.req, xPos + 4, rowY + 18.5);
-      });
-
-      y += (gateRows * (gateCardHeight + 3)) + 4;
-
-      // Section: Statutory Documents Audit
-      checkPageBreak(28);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text('STATUTORY REGULATORY CLEARANCES (DMW / POEA)', margin, y);
-      y += 6;
 
       const statDocs = [
         { name: 'Passport Validity', status: candidate.passportStatus.status, valid: candidate.passportStatus.valid },
@@ -1729,118 +1748,206 @@ export default function SmartProfiling({
         { name: 'Medical Clearance', status: candidate.medicalStatus.status, valid: candidate.medicalStatus.valid },
       ];
 
-      statDocs.forEach((sd) => {
-        checkPageBreak(8);
-        const cleanName = cleanPdfText(sd.name);
-        const cleanStatus = cleanPdfText(sd.status);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
+      // Side-by-Side 2 Compartment Layout (90mm left, 90mm right)
+      const auditBoxH = Math.max(26, 4 + (Math.max(dynamicGates.length, statDocs.length + 1) * 4.8));
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, auditBoxH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + auditBoxH);
+
+      // Left Column: Examination Gates (Un-truncated gate names, right-aligned scores)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('EXAMINATION ASSESSMENT GATES (5 DYNAMIC GATES):', margin + 3, y + 3.2);
+
+      let gateY = y + 7.2;
+      dynamicGates.forEach((g) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
         doc.setTextColor(51, 65, 85);
-        doc.text(`- ${cleanName}:`, margin + 3, y + 4.5);
+        const truncGate = g.label.length > 36 ? `${g.label.slice(0, 34)}...` : g.label;
+        doc.text(`- ${truncGate}:`, margin + 3, gateY);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
+        doc.text(g.val, margin + 62, gateY, { align: 'right' });
 
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(sd.valid ? 22 : 220, sd.valid ? 101 : 38, sd.valid ? 52 : 38);
-        doc.text(cleanStatus, margin + 50, y + 4.5);
-        y += 6.5;
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`(${g.req})`, margin + 87, gateY, { align: 'right' });
+        gateY += 4.5;
       });
 
-      // Section: Strengths & Identified Gaps
-      if (candidate.strengths.length > 0 || candidate.gaps.length > 0) {
-        y += 3;
-        checkPageBreak(30);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(12);
-        doc.setTextColor(15, 23, 42);
-        doc.text('EVALUATION FINDINGS (STRENGTHS & GAPS)', margin, y);
-        y += 6;
+      // Right Column: Statutory Regulatory Clearances (Monochrome, right-aligned to prevent border overflow)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('STATUTORY REGULATORY CLEARANCES (DMW / POEA):', margin + 93, y + 3.2);
 
+      let docY = y + 7.2;
+      statDocs.forEach((sd) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`- ${cleanPdfText(sd.name)}:`, margin + 93, docY);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42); // Pure Black!
+        const cleanStat = cleanPdfText(sd.status)
+          .replace(/\s*-\s*\d+\s*days?\s*left/i, '')
+          .replace(/\s*-\s*\d+\s*days?\s*remaining/i, '');
+        const truncStat = cleanStat.length > 32 ? `${cleanStat.slice(0, 30)}...` : cleanStat;
+        doc.text(truncStat, 195 - 4, docY, { align: 'right' });
+        docY += 5.2;
+      });
+
+      // Overall Statutory Status line in right compartment (Right-aligned, never cross border)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('COMPLIANCE CLEARANCE:', margin + 93, docY + 1.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42); // Pure Black!
+      const compStatus = candidate.compliancePassed
+        ? 'VERIFIED CLEAR (Ready for Processing)'
+        : 'DOCUMENTS RENEWAL REQUIRED';
+      doc.text(compStatus, 195 - 4, docY + 1.5, { align: 'right' });
+
+      y += auditBoxH + 4.5;
+
+      // ── Section IV: Evaluation Findings (Strengths & Identified Gaps - Monochrome) ──
+      if (candidate.strengths.length > 0 || candidate.gaps.length > 0) {
+        checkPageBreak(30);
+        doc.setFillColor(241, 245, 249);
+        doc.rect(margin, y, contentWidth, 5.5, 'F');
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(margin, y, contentWidth, 5.5, 'S');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        doc.text('IV. EVALUATION FINDINGS & TRADE GAP ANALYSIS', margin + 3, y + 3.8);
+
+        y += 5.5;
+
+        // Calculate height for findings box
+        let totalFindingsLines = 0;
+        candidate.strengths.forEach((s) => {
+          totalFindingsLines += doc.splitTextToSize(`- ${cleanPdfText(s)}`, contentWidth - 8).length;
+        });
+        candidate.gaps.forEach((g) => {
+          totalFindingsLines += doc.splitTextToSize(`! ${cleanPdfText(g)}`, contentWidth - 8).length;
+        });
+
+        const findingsBoxH = Math.max(22, 6 + (totalFindingsLines * 3.8) + (candidate.strengths.length > 0 && candidate.gaps.length > 0 ? 5 : 0));
+        checkPageBreak(findingsBoxH);
+
+        doc.setFillColor(255, 255, 255);
+        doc.rect(margin, y, contentWidth, findingsBoxH, 'S');
+
+        let fy = y + 4;
         if (candidate.strengths.length > 0) {
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(16, 185, 129);
-          doc.text('Candidate Strengths:', margin + 3, y + 4.5);
-          y += 6.5;
+          doc.setFontSize(7);
+          doc.setTextColor(15, 23, 42); // Pure Black!
+          doc.text('CANDIDATE STRENGTHS & ASSETS:', margin + 3, fy);
+          fy += 3.8;
 
           candidate.strengths.forEach((str) => {
-            doc.setFontSize(11);
             const cleanStr = cleanPdfText(str);
             const lines = doc.splitTextToSize(`- ${cleanStr}`, contentWidth - 8);
-            checkPageBreak(lines.length * 5.2 + 2);
             doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
             doc.setTextColor(51, 65, 85);
-            doc.text(lines, margin + 4, y + 4.5, { lineHeightFactor: 1.2 });
-            y += (lines.length * 5.2) + 2;
+            doc.text(lines, margin + 4, fy, { lineHeightFactor: 1.15 });
+            fy += (lines.length * 3.6);
           });
         }
 
         if (candidate.gaps.length > 0) {
-          y += 2;
-          checkPageBreak(20);
+          if (candidate.strengths.length > 0) fy += 1.5;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(217, 119, 6);
-          doc.text('Identified Gaps & Action Items:', margin + 3, y + 4.5);
-          y += 6.5;
+          doc.setFontSize(7);
+          doc.setTextColor(15, 23, 42); // Pure Black!
+          doc.text('IDENTIFIED DEFICIENCIES & ACTION ITEMS:', margin + 3, fy);
+          fy += 3.8;
 
           candidate.gaps.forEach((gap) => {
-            doc.setFontSize(11);
             const cleanGap = cleanPdfText(gap);
             const lines = doc.splitTextToSize(`! ${cleanGap}`, contentWidth - 8);
-            checkPageBreak(lines.length * 5.2 + 2);
             doc.setFont('helvetica', 'normal');
-            doc.setTextColor(71, 85, 105);
-            doc.text(lines, margin + 4, y + 4.5, { lineHeightFactor: 1.2 });
-            y += (lines.length * 5.2) + 2;
+            doc.setFontSize(7);
+            doc.setTextColor(51, 65, 85);
+            doc.text(lines, margin + 4, fy, { lineHeightFactor: 1.15 });
+            fy += (lines.length * 3.6);
           });
         }
+
+        y += findingsBoxH + 4.5;
       }
 
-      // Official Certification & Signatures Box
-      y += 4;
-      checkPageBreak(32);
-      doc.setFillColor(248, 250, 252);
+      // ── Section V: Official Endorsement & Conforme (Agency / Evaluator Signature) ──
+      checkPageBreak(34);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
       doc.setDrawColor(203, 213, 225);
-      doc.roundedRect(margin, y, contentWidth, 28, 1.5, 1.5, 'FD');
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      const certStatement = 'I hereby certify that this candidate profiling report reflects verified credentials, skills assessments, and statutory compliance status pursuant to DMW and agency standards.';
-      const certLines = doc.splitTextToSize(certStatement, contentWidth - 8);
-      doc.text(certLines, margin + 4, y + 5.5);
-
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
+      doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text('Evaluated & Certified By:', margin + 4, y + 16);
-      doc.text('Endorsing Licensed Agency:', margin + (contentWidth / 2) + 4, y + 16);
+      doc.text('V. OFFICIAL ENDORSEMENT & CONFORME', margin + 3, y + 3.8);
 
+      y += 5.5;
+      const sigH = 26;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, sigH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + sigH);
+
+      // Left signature (Candidate Conforme)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CANDIDATE ACKNOWLEDGMENT & CONFORME:', margin + 45, y + 4.5, { align: 'center' });
+      doc.line(margin + 8, y + 16, margin + 82, y + 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appName, margin + 45, y + 19.5, { align: 'center' });
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      doc.setTextColor(51, 65, 85);
-      doc.text(evaluatorName, margin + 4, y + 22.5);
-      doc.text(`${agencyName} (${cleanPdfText(agencyProfile?.poea_license_no) || 'POEA Registered'})`, margin + (contentWidth / 2) + 4, y + 22.5);
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Candidate Signature over Printed Name / Date', margin + 45, y + 23, { align: 'center' });
 
-      // Running page numbers & footer on every page
+      // Right signature (Authorized Evaluating Officer / Agency: Agency Name / Evaluator)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AUTHORIZED EVALUATING OFFICER / ENDORSING AGENCY:', margin + 135, y + 4.5, { align: 'center' });
+      doc.line(margin + 98, y + 16, margin + 172, y + 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${agencyName} / ${evaluatorName}`, margin + 135, y + 19.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Staff Evaluator Signature over Printed Name', margin + 135, y + 23, { align: 'center' });
+
+      // ── Running Footers matching Screening.tsx ──
       const totalPages = doc.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setDrawColor(226, 232, 240);
-        doc.line(margin, 285, pageWidth - margin, 285);
-
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        doc.line(margin, 285, 195, 285);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
+        doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
         doc.text(
-          `Official Evaluation Document - Issued by ${agencyName} - Strictly Confidential`,
-          margin,
-          289
-        );
-        doc.text(
-          `Page ${i} of ${totalPages}`,
-          pageWidth - margin,
-          289,
-          { align: 'right' }
+          `CONFIDENTIAL • ${agencyName} • OFFICIAL PROFILING & JOB-FIT REPORT • A4 STANDARD • PAGE ${i} OF ${totalPages}`,
+          105,
+          288.5,
+          { align: 'center' }
         );
       }
 

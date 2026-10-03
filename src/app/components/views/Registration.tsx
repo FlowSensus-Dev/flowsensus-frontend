@@ -502,19 +502,32 @@ export default function Registration({
   };
 
   const populateApplicantData = useCallback((app: ApplicantRecord) => {
+    // Normalize civilStatus to Title Case regardless of what DB returns (e.g. 'MARRIED' -> 'Married')
+    const rawCivil = String(app.civilStatus || '').trim().toLowerCase();
+    const normalizedCivilStatus: string =
+      rawCivil === 'married' ? 'Married' :
+      rawCivil === 'widowed' ? 'Widowed' :
+      rawCivil === 'separated' ? 'Separated' :
+      rawCivil === 'divorced' ? 'Divorced' :
+      'Single';
+
+    // Normalize sex to Title Case (e.g. 'FEMALE' -> 'Female')
+    const rawSex = String(app.sex || '').trim().toLowerCase();
+    const normalizedSex: 'Male' | 'Female' = (rawSex === 'female' || rawSex === 'f') ? 'Female' : 'Male';
+
     setPersonal({
-      firstName: app.firstName || '',
-      middleName: app.middleName || '',
-      lastName: app.lastName || '',
+      firstName: app.firstName || (app as any).first_name || '',
+      middleName: app.middleName || (app as any).middle_name || '',
+      lastName: app.lastName || (app as any).last_name || '',
       email: app.email || '',
       contact: app.contact || '',
       dateOfBirth: app.dateOfBirth || '',
       age: String(app.age || ''),
-      sex: app.sex || 'Male',
+      sex: normalizedSex,
       religion: app.religion || 'Roman Catholic',
-      civilStatus: app.civilStatus || 'Single',
-      weight: app.weightKg ? String(app.weightKg) : '',
-      height: app.heightCm ? String(app.heightCm) : '',
+      civilStatus: normalizedCivilStatus,
+      weight: app.weightKg ? String(app.weightKg) : ((app as any).weight_kg ? String((app as any).weight_kg) : ''),
+      height: app.heightCm ? String(app.heightCm) : ((app as any).height_cm ? String((app as any).height_cm) : ''),
       presentAddress: app.presentAddress || '',
       provincialAddress: app.provincialAddress || '',
       role: app.role || '',
@@ -979,9 +992,13 @@ export default function Registration({
             email: personal.email?.trim() || null,
             contact_number: personal.contact?.trim() || null,
             birth_date: personal.dateOfBirth || null,
+            age: personal.age ? parseInt(personal.age, 10) : null,
             gender: personal.sex || null,
             sex: personal.sex || null,
             civil_status: personal.civilStatus || null,
+            religion: personal.religion?.trim() || 'Roman Catholic',
+            height_cm: personal.height ? parseFloat(personal.height) : null,
+            weight_kg: personal.weight ? parseFloat(personal.weight) : null,
             present_address: personal.presentAddress?.trim() || null,
             provincial_address: personal.provincialAddress?.trim() || null,
             applied_role: personal.role?.trim() || (selectedJob ? selectedJob.position : null),
@@ -1539,7 +1556,8 @@ export default function Registration({
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Gender</label>
               <select className={inp} value={personal.sex} onChange={e => setP('sex', e.target.value)}>
-                <option>Male</option><option>Female</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
               </select>
             </div>
 
@@ -1550,7 +1568,11 @@ export default function Registration({
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Civil Status</label>
               <select className={inp} value={personal.civilStatus} onChange={e => setP('civilStatus', e.target.value)}>
-                <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option>
+                <option value="Single">Single</option>
+                <option value="Married">Married</option>
+                <option value="Widowed">Widowed</option>
+                <option value="Separated">Separated</option>
+                <option value="Divorced">Divorced</option>
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
