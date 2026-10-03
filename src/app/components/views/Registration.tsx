@@ -24,6 +24,12 @@ const RED_FLAG_KEYWORDS = ['terminated', 'awol', 'dispute', 'dismissed', 'fired'
 const SENIOR_KEYWORDS = ['manager', 'supervisor', 'director', 'head', 'chief', 'lead', 'senior', 'officer', 'superintendent'];
 const JUNIOR_KEYWORDS = ['junior', 'assistant', 'helper', 'trainee', 'intern', 'rank and file', 'laborer', 'aide'];
 
+function isValidDate(d: string): boolean {
+  if (!d) return false;
+  const time = new Date(d).getTime();
+  return !isNaN(time);
+}
+
 function monthsBetween(a: string, b: string): number {
   const da = new Date(a), db = new Date(b);
   return (db.getFullYear() - da.getFullYear()) * 12 + (db.getMonth() - da.getMonth());
@@ -31,7 +37,7 @@ function monthsBetween(a: string, b: string): number {
 
 function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
   const flags: EmploymentFlag[] = [];
-  const completed = records.filter(r => !r.isPresent && r.dateStarted && r.dateEnded)
+  const completed = records.filter(r => !r.isPresent && isValidDate(r.dateStarted) && isValidDate(r.dateEnded))
     .sort((a, b) => new Date(a.dateStarted).getTime() - new Date(b.dateStarted).getTime());
 
   // Short Stint (<6 months)
@@ -40,7 +46,7 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
     if (months >= 0 && months < 6) {
       flags.push({
         id: `stint-${r.id}`, type: 'short_stint', severity: 'warning',
-        description: `Short tenure of ${months} month${months !== 1 ? 's' : ''} at "${r.company}" as ${r.position}. Short stints may signal instability or issues.`,
+        description: `Short tenure of ${months} month${months !== 1 ? 's' : ''} at "${r.company || 'Employer'}" as ${r.position || 'N/A'}. Short stints may signal instability or issues.`,
         relatedJobIds: [r.id], dismissed: false,
       });
     }
@@ -51,8 +57,8 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
     const gap = monthsBetween(completed[i].dateEnded, completed[i + 1].dateStarted);
     if (gap > 3) {
       flags.push({
-        id: `gap-${i}`, type: 'gap', severity: 'warning',
-        description: `${gap}-month employment gap between "${completed[i].company}" and "${completed[i + 1].company}". Applicant should explain this period.`,
+        id: `gap-${completed[i].id}-${completed[i + 1].id}`, type: 'gap', severity: 'warning',
+        description: `${gap}-month employment gap between "${completed[i].company || 'Employer'}" and "${completed[i + 1].company || 'Employer'}". Applicant should explain this period.`,
         relatedJobIds: [completed[i].id, completed[i + 1].id], dismissed: false,
       });
     }
@@ -63,8 +69,8 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
     for (let j = i + 1; j < completed.length; j++) {
       if (new Date(completed[j].dateStarted) < new Date(completed[i].dateEnded)) {
         flags.push({
-          id: `overlap-${i}-${j}`, type: 'overlap', severity: 'warning',
-          description: `Employment overlap: "${completed[j].company}" started (${completed[j].dateStarted}) before "${completed[i].company}" ended (${completed[i].dateEnded}). May indicate moonlighting or a data entry error.`,
+          id: `overlap-${completed[i].id}-${completed[j].id}`, type: 'overlap', severity: 'warning',
+          description: `Employment overlap: "${completed[j].company || 'Employer'}" started (${completed[j].dateStarted}) before "${completed[i].company || 'Employer'}" ended (${completed[i].dateEnded}). May indicate moonlighting or a data entry error.`,
           relatedJobIds: [completed[i].id, completed[j].id], dismissed: false,
         });
       }
@@ -79,7 +85,7 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
     if (hit) {
       flags.push({
         id: `resign-${r.id}`, type: 'red_flag_resignation', severity: 'critical',
-        description: `Reason for leaving "${r.company}" contains high-risk keyword: "${hit.toUpperCase()}". This must be clarified before proceeding to evaluation.`,
+        description: `Reason for leaving "${r.company || 'Employer'}" contains high-risk keyword: "${hit.toUpperCase()}". This must be clarified before proceeding to evaluation.`,
         relatedJobIds: [r.id], dismissed: false,
       });
     }
@@ -87,14 +93,14 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
 
   // Demotion Rule
   for (let i = 0; i < completed.length - 1; i++) {
-    const cur = completed[i].position.toLowerCase();
-    const nxt = completed[i + 1].position.toLowerCase();
+    const cur = (completed[i].position || '').toLowerCase();
+    const nxt = (completed[i + 1].position || '').toLowerCase();
     const curSenior = SENIOR_KEYWORDS.some(k => cur.includes(k));
     const nxtJunior = JUNIOR_KEYWORDS.some(k => nxt.includes(k));
     if (curSenior && nxtJunior) {
       flags.push({
-        id: `demotion-${i}`, type: 'demotion', severity: 'warning',
-        description: `Possible demotion from "${completed[i].position}" (${completed[i].company}) to "${completed[i + 1].position}" (${completed[i + 1].company}). Verify circumstances.`,
+        id: `demotion-${completed[i].id}-${completed[i + 1].id}`, type: 'demotion', severity: 'warning',
+        description: `Possible demotion from "${completed[i].position}" (${completed[i].company || 'Employer'}) to "${completed[i + 1].position}" (${completed[i + 1].company || 'Employer'}). Verify circumstances.`,
         relatedJobIds: [completed[i].id, completed[i + 1].id], dismissed: false,
       });
     }
@@ -494,7 +500,7 @@ export default function Registration({
     setLanguages([]);
     setEmployment([]);
     setFlags([]);
-    setFlagsAnalyzed(false);
+    setFlagsAnalyzed(true);
     setPhoto('');
     setResolvingFlagId(null);
     setSelectedQuickReason('');
@@ -566,7 +572,7 @@ export default function Registration({
       setFlagsAnalyzed(true);
     } else {
       setFlags([]);
-      setFlagsAnalyzed(false);
+      setFlagsAnalyzed(true);
     }
     setPhoto(app.photo || app.photoDataUrl || (app as any).photo_url || (app as any).photoUrl || '');
     setResolvingFlagId(null);
@@ -668,16 +674,91 @@ export default function Registration({
   const addEmp = () => setEmployment(p => [...p, { id: `eh-${Date.now()}`, company: '', position: '', dateStarted: '', dateEnded: '', country: 'Philippines', isPresent: false, reasonForLeaving: '' }]);
   const setEmp = (id: string, k: keyof EmploymentRecord, v: string | boolean) => {
     setEmployment(p => p.map(x => x.id === id ? { ...x, [k]: v, ...(k === 'isPresent' && v ? { dateEnded: '' } : {}) } : x));
-    setFlagsAnalyzed(false);
   };
-  const removeEmp = (id: string) => { setEmployment(p => p.filter(x => x.id !== id)); setFlagsAnalyzed(false); };
+  const removeEmp = (id: string) => { setEmployment(p => p.filter(x => x.id !== id)); };
+
+  // ── Auto-Flag Engine (runs reactively on employment changes) ────────────────
+  useEffect(() => {
+    if (employment.length === 0) {
+      setFlags([]);
+      setFlagsAnalyzed(true);
+      return;
+    }
+
+    const detected = analyzeEmployment(employment);
+
+    setFlags(prevFlags => {
+      // Preserve standalone flags loaded from profile/DB not tied to job IDs
+      const standalone = prevFlags.filter(oldF => !oldF.relatedJobIds || oldF.relatedJobIds.length === 0);
+
+      const mapped = detected.map(newF => {
+        // Find existing matching flag to preserve dismissal / validation state
+        const existing = prevFlags.find(oldF =>
+          oldF.id === newF.id ||
+          (oldF.type === newF.type &&
+            oldF.relatedJobIds &&
+            newF.relatedJobIds &&
+            oldF.relatedJobIds.length === newF.relatedJobIds.length &&
+            oldF.relatedJobIds.every(id => newF.relatedJobIds.includes(id)))
+        );
+        if (existing && (existing.dismissed || (existing as any).validated)) {
+          return {
+            ...newF,
+            dismissed: existing.dismissed,
+            dismissedBy: existing.dismissedBy,
+            dismissalReason: existing.dismissalReason,
+            dismissedAt: existing.dismissedAt,
+            validated: (existing as any).validated,
+            validatedBy: (existing as any).validatedBy,
+            validationReason: (existing as any).validationReason,
+            validatedAt: (existing as any).validatedAt,
+          };
+        }
+        return newF;
+      });
+
+      return [...mapped, ...standalone];
+    });
+    setFlagsAnalyzed(true);
+  }, [employment]);
 
   const runFlagEngine = () => {
-    const newFlags = analyzeEmployment(employment);
-    setFlags(newFlags);
+    if (employment.length === 0) {
+      showToast('No employment records to evaluate.');
+      return;
+    }
+    const detected = analyzeEmployment(employment);
+    setFlags(prevFlags => {
+      const standalone = prevFlags.filter(oldF => !oldF.relatedJobIds || oldF.relatedJobIds.length === 0);
+      const mapped = detected.map(newF => {
+        const existing = prevFlags.find(oldF =>
+          oldF.id === newF.id ||
+          (oldF.type === newF.type &&
+            oldF.relatedJobIds &&
+            newF.relatedJobIds &&
+            oldF.relatedJobIds.length === newF.relatedJobIds.length &&
+            oldF.relatedJobIds.every(id => newF.relatedJobIds.includes(id)))
+        );
+        if (existing && (existing.dismissed || (existing as any).validated)) {
+          return {
+            ...newF,
+            dismissed: existing.dismissed,
+            dismissedBy: existing.dismissedBy,
+            dismissalReason: existing.dismissalReason,
+            dismissedAt: existing.dismissedAt,
+            validated: (existing as any).validated,
+            validatedBy: (existing as any).validatedBy,
+            validationReason: (existing as any).validationReason,
+            validatedAt: (existing as any).validatedAt,
+          };
+        }
+        return newF;
+      });
+      return [...mapped, ...standalone];
+    });
     setFlagsAnalyzed(true);
-    if (newFlags.length === 0) showToast('Employment history verified — no flags raised.');
-    else showToast(`${newFlags.length} concern${newFlags.length > 1 ? 's' : ''} flagged in employment history. Review before proceeding.`);
+    if (detected.length === 0) showToast('Employment history verified — no flags raised.');
+    else showToast(`${detected.length} concern${detected.length > 1 ? 's' : ''} detected in employment history.`);
   };
 
   const resolveFlag = (flagId: string) => {
@@ -2244,21 +2325,45 @@ export default function Registration({
               </tbody>
             </table>
           </div>
-          <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
             <button onClick={addEmp} className="flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
               <Plus size={15} /> Add Employment
             </button>
-            <button
-              onClick={runFlagEngine}
-              className="ml-auto flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              <Flag size={15} /> Run Employment Flag Check
-            </button>
+            <div className="flex items-center gap-2 ml-auto">
+              {employment.length > 0 && (
+                activeFlagCount > 0 ? (
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
+                    <ShieldAlert size={14} className="text-amber-500" />
+                    Auto-Check: {activeFlagCount} Active Flag{activeFlagCount > 1 ? 's' : ''}
+                  </span>
+                ) : flags.length > 0 ? (
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                    <CheckCircle2 size={14} className="text-emerald-500" />
+                    All {flags.length} Flag{flags.length > 1 ? 's' : ''} Resolved
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                    <CheckCircle2 size={14} className="text-emerald-500" />
+                    Auto-Check: Clean
+                  </span>
+                )
+              )}
+              {employment.length > 0 && (
+                <button
+                  type="button"
+                  onClick={runFlagEngine}
+                  title="Re-run flag evaluation"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors border border-slate-200 cursor-pointer"
+                >
+                  <RotateCcw size={13} /> Re-scan
+                </button>
+              )}
+            </div>
           </div>
         </Section>
 
         {/* Flags Panel */}
-        {flagsAnalyzed && (
+        {employment.length > 0 && (
           <div className={`rounded-xl border overflow-hidden ${flags.length === 0 ? 'border-emerald-200' : 'border-amber-200'}`}>
             <div className={`px-5 py-3 flex items-center justify-between ${flags.length === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
               <div className="flex items-center gap-2">
@@ -2371,10 +2476,10 @@ export default function Registration({
           </div>
         )}
 
-        {!flagsAnalyzed && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-blue-700">
-            <AlertCircle size={16} className="flex-shrink-0" />
-            <span>Click <strong>"Run Employment Flag Check"</strong> after entering all employment history. The system will automatically evaluate gaps, short stints, resignation keywords, overlapping dates, and possible demotions.</span>
+        {employment.length === 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-center gap-2.5 text-xs text-slate-500">
+            <AlertCircle size={14} className="flex-shrink-0 text-slate-400" />
+            <span>Employment records are automatically evaluated in real time for career gaps, short stints, overlaps, and high-risk resignation keywords.</span>
           </div>
         )}
       </div>
@@ -2385,10 +2490,6 @@ export default function Registration({
           {hasBlockingFlags ? (
             <span className="text-red-500 font-semibold flex items-center gap-1.5">
               <ShieldAlert size={14} /> Resolve all {activeFlagCount} flag{activeFlagCount > 1 ? 's' : ''} in Work Experience before saving
-            </span>
-          ) : employment.length > 0 && !flagsAnalyzed ? (
-            <span className="flex items-center gap-1.5 text-amber-600 font-medium">
-              <AlertCircle size={14} /> Run Employment Flag Check in Work Experience section before saving
             </span>
           ) : !selectedJobOrderId ? (
             <span className="text-amber-600 font-medium flex items-center gap-1.5">
@@ -2422,7 +2523,6 @@ export default function Registration({
               isLoadingEnriched ||
               (selectedApplicantId !== 'new' && !isEnrichedLoaded) ||
               hasBlockingFlags ||
-              (employment.length > 0 && !flagsAnalyzed) ||
               isSubmitting ||
               !selectedJobOrderId ||
               !personal.firstName.trim() ||
@@ -2432,7 +2532,6 @@ export default function Registration({
               isLoadingEnriched ||
               (selectedApplicantId !== 'new' && !isEnrichedLoaded) ||
               hasBlockingFlags ||
-              (employment.length > 0 && !flagsAnalyzed) ||
               isSubmitting ||
               !selectedJobOrderId ||
               !personal.firstName.trim() ||
