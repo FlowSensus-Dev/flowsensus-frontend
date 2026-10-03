@@ -500,6 +500,8 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             globalStaff={globalStaff}
             globalRoles={globalRoles}
+            applicants={applicants}
+            updateApplicant={updateApplicant}
           />
         );
       case 'profile':

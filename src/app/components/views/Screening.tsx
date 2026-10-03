@@ -43,6 +43,7 @@ import {
   User,
   UserPlus,
   Users,
+  Lock,
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord, EvaluationTest, DynamicTestScore, TestScores } from '../../types';
 
@@ -425,7 +426,8 @@ export default function Screening({
     return {
       all: allActiveScreeningCandidates.length,
       myQueue,
-      unassigned
+      unassigned,
+      pool: allActiveScreeningCandidates.length
     };
   }, [allActiveScreeningCandidates, currentUserName]);
 
@@ -434,11 +436,13 @@ export default function Screening({
     return allActiveScreeningCandidates.filter(a => {
       // Turnover Queue Filtering
       const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-      const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
 
+      // In MY_QUEUE tab, only show candidates assigned to current user
       if (screeningQueueTab === 'MY_QUEUE' && !isAssignedToMe) return false;
-      if (screeningQueueTab === 'UNASSIGNED' && !isUnassigned) return false;
 
+      // In ALL and UNASSIGNED (Active Pool), keep all candidates in the pool,
+      // so claimed candidates do NOT disappear, but are displayed with their handler
+      // and locked/unclickable for other staff!
       return true;
     });
   }, [allActiveScreeningCandidates, screeningQueueTab, currentUserName]);
@@ -1571,13 +1575,23 @@ export default function Screening({
   };
 
   const openApplicant = async (id: string) => {
+    const target = applicants.find(a => String(a.id) === id);
+    if (!target) return;
+
+    const isAssignedToMe = target.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
+    const isUnassigned = !target.currentHandler || target.currentHandler === 'Unassigned Pool' || target.currentHandler === 'System Agent';
+
+    // Disallow opening if claimed and currently handled by another staff member
+    if (!isAssignedToMe && !isUnassigned) {
+      showToast(`Cannot access: Candidate is currently claimed and handled by ${target.currentHandler}.`);
+      return;
+    }
+
     setSelectedApplicantId(id);
     setListView(false);
 
     // Turnover: If applicant is unassigned in pool, auto-claim for this staff member
-    const target = applicants.find(a => String(a.id) === id);
-    const isUnassigned = !target?.currentHandler || target.currentHandler === 'Unassigned Pool' || target.currentHandler === 'System Agent';
-    if (isUnassigned && target) {
+    if (isUnassigned) {
       await handleClaimApplicant(id);
     }
   };
@@ -1705,11 +1719,11 @@ export default function Screening({
               }`}
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>Unassigned Pool</span>
+              <span>Active Candidate Pool</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
                 screeningQueueTab === 'UNASSIGNED' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
               }`}>
-                {screeningQueueCounts.unassigned}
+                {screeningQueueCounts.pool}
               </span>
             </button>
           </div>
@@ -1778,18 +1792,27 @@ export default function Screening({
               {filteredPhase1.map(a => {
                 const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
                 const isProvisional = a.status === 'Provisional';
+                const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isHandledByOther = !isUnassigned && !isAssignedToMe;
+                const canOpen = !isHandledByOther && activeFlags.length === 0;
 
                 return (
                   <button
                     key={a.id}
-                    onClick={() => openApplicant(a.id)}
-                    disabled={activeFlags.length > 0}
-                    className={`w-full text-left bg-white rounded-xl border px-5 py-4 flex items-center gap-4 transition-all cursor-pointer ${activeFlags.length > 0
-                        ? 'border-amber-200 opacity-60 cursor-not-allowed'
-                        : isProvisional
-                          ? 'border-amber-300 hover:border-amber-500 bg-amber-50/20 hover:shadow-sm'
-                          : 'border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm'
-                      }`}
+                    onClick={() => canOpen && openApplicant(a.id)}
+                    disabled={!canOpen}
+                    className={`w-full text-left rounded-xl border px-5 py-4 flex items-center gap-4 transition-all ${
+                      isHandledByOther
+                        ? 'bg-slate-50/70 border-slate-200 opacity-80 cursor-not-allowed'
+                        : activeFlags.length > 0
+                          ? 'bg-white border-amber-200 opacity-60 cursor-not-allowed'
+                          : isAssignedToMe
+                            ? 'bg-sky-50/20 border-sky-300 hover:border-sky-500 hover:shadow-sm cursor-pointer'
+                            : isProvisional
+                              ? 'bg-amber-50/20 border-amber-300 hover:border-amber-500 hover:shadow-sm cursor-pointer'
+                              : 'bg-white border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm cursor-pointer'
+                    }`}
                   >
                     {a.photoDataUrl || a.photo ? (
                       <img
@@ -1809,6 +1832,25 @@ export default function Screening({
                         <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
                           {a.applicantCode || a.id}
                         </span>
+
+                        {/* Handler Badge */}
+                        {isUnassigned ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                            <UserPlus className="w-3 h-3 text-amber-600" />
+                            Unassigned Pool
+                          </span>
+                        ) : isAssignedToMe ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
+                            <User className="w-3 h-3 text-sky-600" />
+                            {a.currentHandler}
+                            <span className="text-[10px] text-sky-600 font-bold">(You)</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-slate-100 text-slate-600 border-slate-200">
+                            <User className="w-3 h-3 text-slate-400" />
+                            Handled by {a.currentHandler}
+                          </span>
+                        )}
 
                         {isProvisional && (
                           <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
@@ -1850,7 +1892,23 @@ export default function Screening({
                       <span className="text-xs text-slate-400 flex items-center gap-1">
                         <Clock size={11} /> {a.lastUpdated ? a.lastUpdated.slice(0, 10) : 'Recent'}
                       </span>
-                      {activeFlags.length === 0 && <ChevronRight size={16} className="text-slate-400" />}
+                      {isHandledByOther ? (
+                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                          <Lock size={12} className="text-slate-400" /> Handled by {a.currentHandler}
+                        </span>
+                      ) : activeFlags.length > 0 ? (
+                        <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                          <Flag size={11} /> Flagged
+                        </span>
+                      ) : isAssignedToMe ? (
+                        <span className="text-xs text-sky-700 font-bold flex items-center gap-1">
+                          Open <ChevronRight size={14} />
+                        </span>
+                      ) : (
+                        <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold flex items-center gap-1">
+                          <UserPlus size={12} /> Claim & Evaluate →
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -1916,11 +1974,25 @@ export default function Screening({
             <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
               {filteredPhase2.map(a => {
                 const isProvisional = a.status === 'Provisional';
+                const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isHandledByOther = !isUnassigned && !isAssignedToMe;
+                const canOpen = !isHandledByOther;
+
                 return (
                   <button
                     key={a.id}
-                    onClick={() => openApplicant(a.id)}
-                    className="w-full text-left bg-white rounded-xl border border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all cursor-pointer"
+                    onClick={() => canOpen && openApplicant(a.id)}
+                    disabled={!canOpen}
+                    className={`w-full text-left rounded-xl border px-5 py-4 flex items-center gap-4 transition-all ${
+                      isHandledByOther
+                        ? 'bg-slate-50/70 border-slate-200 opacity-80 cursor-not-allowed'
+                        : isAssignedToMe
+                          ? 'bg-sky-50/20 border-sky-300 hover:border-sky-500 hover:shadow-sm cursor-pointer'
+                          : isProvisional
+                            ? 'bg-amber-50/20 border-amber-300 hover:border-amber-500 hover:shadow-sm cursor-pointer'
+                            : 'bg-white border-slate-200 hover:border-[#0EA5E9]/60 hover:shadow-sm cursor-pointer'
+                    }`}
                   >
                     {a.photoDataUrl || a.photo ? (
                       <img
@@ -1940,6 +2012,26 @@ export default function Screening({
                         <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
                           {a.applicantCode || a.id}
                         </span>
+
+                        {/* Handler Badge */}
+                        {isUnassigned ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                            <UserPlus className="w-3 h-3 text-amber-600" />
+                            Unassigned Pool
+                          </span>
+                        ) : isAssignedToMe ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
+                            <User className="w-3 h-3 text-sky-600" />
+                            {a.currentHandler}
+                            <span className="text-[10px] text-sky-600 font-bold">(You)</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-slate-100 text-slate-600 border-slate-200">
+                            <User className="w-3 h-3 text-slate-400" />
+                            Handled by {a.currentHandler}
+                          </span>
+                        )}
+
                         <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-200">
                           ✓ Tests Passed
                         </span>
@@ -1958,7 +2050,19 @@ export default function Screening({
                       <span className="text-xs font-bold text-[#0EA5E9] bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-100">
                         {a.testScores?.personalityEQ === 'Not Suitable' ? 'Provisional — Awaiting Decision' : 'Ready for EQ Interview'}
                       </span>
-                      <ChevronRight size={16} className="text-slate-400" />
+                      {isHandledByOther ? (
+                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                          <Lock size={12} className="text-slate-400" /> Handled by {a.currentHandler}
+                        </span>
+                      ) : isAssignedToMe ? (
+                        <span className="text-xs text-sky-700 font-bold flex items-center gap-1">
+                          Open <ChevronRight size={14} />
+                        </span>
+                      ) : (
+                        <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold flex items-center gap-1">
+                          <UserPlus size={12} /> Claim & Interview →
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -2024,11 +2128,23 @@ export default function Screening({
             <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
               {filteredPhase3.map(a => {
                 const referralDone = a.medicalReferralGenerated || generatedReferralIds.has(a.id);
+                const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isHandledByOther = !isUnassigned && !isAssignedToMe;
+                const canOpen = !isHandledByOther;
+
                 return (
                   <button
                     key={a.id}
-                    onClick={() => openApplicant(a.id)}
-                    className="w-full text-left bg-gradient-to-r from-emerald-50/40 to-white rounded-xl border border-emerald-200 hover:border-emerald-400 hover:shadow-sm px-5 py-4 flex items-center gap-4 transition-all cursor-pointer"
+                    onClick={() => canOpen && openApplicant(a.id)}
+                    disabled={!canOpen}
+                    className={`w-full text-left rounded-xl border px-5 py-4 flex items-center gap-4 transition-all ${
+                      isHandledByOther
+                        ? 'bg-slate-50/70 border-slate-200 opacity-80 cursor-not-allowed'
+                        : isAssignedToMe
+                          ? 'bg-gradient-to-r from-emerald-50/60 to-white border-emerald-300 hover:border-emerald-500 hover:shadow-sm cursor-pointer'
+                          : 'bg-gradient-to-r from-emerald-50/40 to-white border-emerald-200 hover:border-emerald-400 hover:shadow-sm cursor-pointer'
+                    }`}
                   >
                     {a.photoDataUrl || a.photo ? (
                       <img
@@ -2048,6 +2164,26 @@ export default function Screening({
                         <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
                           {a.applicantCode || a.id}
                         </span>
+
+                        {/* Handler Badge */}
+                        {isUnassigned ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                            <UserPlus className="w-3 h-3 text-amber-600" />
+                            Unassigned Pool
+                          </span>
+                        ) : isAssignedToMe ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
+                            <User className="w-3 h-3 text-sky-600" />
+                            {a.currentHandler}
+                            <span className="text-[10px] text-sky-600 font-bold">(You)</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-slate-100 text-slate-600 border-slate-200">
+                            <User className="w-3 h-3 text-slate-400" />
+                            Handled by {a.currentHandler}
+                          </span>
+                        )}
+
                         <span className="text-xs text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
                           <CheckCircle2 size={11} /> 100% Passed
                         </span>
@@ -2058,10 +2194,25 @@ export default function Screening({
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                        Review & Finalize Score →
-                      </span>
-                      <ChevronRight size={16} className="text-slate-400" />
+                      {isHandledByOther ? (
+                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                          <Lock size={12} className="text-slate-400" /> Handled by {a.currentHandler}
+                        </span>
+                      ) : isAssignedToMe ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                            Review & Finalize Score →
+                          </span>
+                          <ChevronRight size={16} className="text-slate-400" />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+                            <UserPlus size={12} /> Claim & Finalize →
+                          </span>
+                          <ChevronRight size={16} className="text-slate-400" />
+                        </div>
+                      )}
                     </div>
                   </button>
                 );
@@ -2176,6 +2327,7 @@ export default function Screening({
             <div className="flex items-center gap-2">
               {selectedApplicant && (
                 (() => {
+                  const isAssignedToMe = selectedApplicant.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
                   const isUnassigned = !selectedApplicant.currentHandler || selectedApplicant.currentHandler === 'Unassigned Pool' || selectedApplicant.currentHandler === 'System Agent';
                   if (isUnassigned) {
                     return (
@@ -2188,14 +2340,21 @@ export default function Screening({
                       </button>
                     );
                   }
+                  if (isAssignedToMe) {
+                    return (
+                      <button
+                        onClick={() => handleReleaseApplicantFromScreening(selectedApplicant.id)}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+                        title="Release candidate back to the unassigned queue pool so other recruiters can evaluate them"
+                      >
+                        <Undo2 size={13} /> Return to Pool ↩
+                      </button>
+                    );
+                  }
                   return (
-                    <button
-                      onClick={() => handleReleaseApplicantFromScreening(selectedApplicant.id)}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
-                      title="Release candidate back to the unassigned queue pool so other recruiters can evaluate them"
-                    >
-                      <Undo2 size={13} /> Return to Pool ↩
-                    </button>
+                    <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-slate-400 font-medium">
+                      <Lock size={12} className="text-slate-400" /> Handled by {selectedApplicant.currentHandler}
+                    </span>
                   );
                 })()
               )}
