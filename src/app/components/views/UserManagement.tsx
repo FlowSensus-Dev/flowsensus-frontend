@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, Mail, Eye, EyeOff, Sparkles, Loader2, RefreshCw, Clock } from 'lucide-react';
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
-import { ActivityLog, UserRole } from '../../types';
+import { ActivityLog, UserRole, ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
 
 interface StaffAccount {
@@ -13,6 +13,7 @@ interface StaffAccount {
   roles: UserRole[];
   status: 'Active' | 'Inactive';
   createdDate: string;
+  onboardingPending?: boolean;
 }
 
 interface UserManagementProps {
@@ -20,6 +21,8 @@ interface UserManagementProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   globalStaff?: any[];
   globalRoles?: any[];
+  applicants?: ApplicantRecord[];
+  updateApplicant?: (id: string, updates: Partial<ApplicantRecord>) => void;
 }
 
 
@@ -59,11 +62,12 @@ const mapStaffFromApi = (u: any): StaffAccount => {
     role: primaryRole,
     roles: rawRoles,
     status: u.status === 'Inactive' ? 'Inactive' : 'Active',
-    createdDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-15',
+    createdDate: u.created_at ? u.created_at.split('T')[0] : '',
+    onboardingPending: Boolean(u.onboarding_pending),
   };
 };
 
-export default function UserManagement({ currentUserName, addActivityLog, globalStaff, globalRoles }: UserManagementProps) {
+export default function UserManagement({ currentUserName, addActivityLog, globalStaff, globalRoles, applicants, updateApplicant }: UserManagementProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -73,6 +77,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>(DEFAULT_ROLES_CATALOG);
   const [staff, setStaff] = useState<StaffAccount[]>(() => {
@@ -214,6 +219,9 @@ export default function UserManagement({ currentUserName, addActivityLog, global
         roles: chosenRoles,
         status: 'Active',
         createdDate: new Date().toISOString().split('T')[0],
+        onboardingPending: true,
+        lastLoginAt: null,
+        lastSeenAt: null,
       };
       setStaff([createdStaff, ...staff]);
 
@@ -309,6 +317,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
     setIsDeleting(true);
 
     const numId = parseInt(selectedStaff.id, 10);
+    const deletedStaffName = selectedStaff.name;
     try {
       if (!isNaN(numId)) {
         await api.delete(`/users/${numId}`);
@@ -316,12 +325,25 @@ export default function UserManagement({ currentUserName, addActivityLog, global
 
       setStaff(staff.filter((s) => s.id !== selectedStaff.id));
 
+      // Automatically release any applicants handled by this staff back to the pool in their current status
+      if (applicants && updateApplicant && deletedStaffName) {
+        const deletedLower = deletedStaffName.trim().toLowerCase();
+        applicants.forEach(app => {
+          if (app.currentHandler && app.currentHandler.trim().toLowerCase() === deletedLower) {
+            updateApplicant(app.id, {
+              currentHandler: 'Unassigned Pool',
+              phaseDescription: 'Returned to unassigned candidate pool (Staff account deleted)'
+            });
+          }
+        });
+      }
+
       addActivityLog({
         applicantId: '',
         action: 'Staff Account Deleted',
         performedBy: currentUserName,
         department: 'Management',
-        details: `Staff account deleted: ${selectedStaff.name} (${selectedStaff.id})`,
+        details: `Staff account deleted: ${selectedStaff.name} (${selectedStaff.id}). Any assigned applicants were returned to the pool.`,
       });
 
       setShowDeleteModal(false);
@@ -356,6 +378,22 @@ export default function UserManagement({ currentUserName, addActivityLog, global
     });
   };
 
+  const handleResendOnboarding = async (staffMember: StaffAccount) => {
+    if (resendingId) return;
+    setResendingId(staffMember.id);
+    try {
+      const numId = parseInt(staffMember.id, 10);
+      const res = await api.post(`/users/${numId}/resend-onboarding-email`, {});
+      const newPass = res.data?.new_temp_pass;
+      alert(`✅ Onboarding email re-sent to ${staffMember.email}!${newPass ? `\n\nNew temporary password: ${newPass}` : ''}`);
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err.message || 'Failed to resend email.';
+      alert(`❌ ${msg}`);
+    } finally {
+      setResendingId(null);
+    }
+  };
+
 
   const getInitials = (name: string) => {
     return name
@@ -375,12 +413,21 @@ export default function UserManagement({ currentUserName, addActivityLog, global
             Manage staff accounts, roles, and system permissions (RBAC)
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-[#0EA5E9]/20"
-        >
-          <UserPlus className="w-4 h-4" /> Add New Staff
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchStaffAndRoles()}
+            className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+            title="Refresh staff list"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-[#0EA5E9]/20"
+          >
+            <UserPlus className="w-4 h-4" /> Add New Staff
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -388,7 +435,6 @@ export default function UserManagement({ currentUserName, addActivityLog, global
           <thead className="bg-slate-50 border-b-2 border-slate-200">
             <tr>
               <th className="px-6 py-4 font-black text-[#0F172A] text-xs uppercase tracking-wider">Employee</th>
-              <th className="px-6 py-4 font-black text-[#0F172A] text-xs uppercase tracking-wider">Email</th>
               <th className="px-6 py-4 font-black text-[#0F172A] text-xs uppercase tracking-wider">Department</th>
               <th className="px-6 py-4 font-black text-[#0F172A] text-xs uppercase tracking-wider">System Role</th>
               <th className="px-6 py-4 font-black text-[#0F172A] text-xs uppercase tracking-wider">Status</th>
@@ -414,7 +460,6 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                     <td className="px-6 py-4"><Skeleton className="h-3.5 w-20" /></td>
                     <td className="px-6 py-4"><SkeletonBadge className="w-24" /></td>
                     <td className="px-6 py-4"><SkeletonBadge className="w-20" /></td>
-                    <td className="px-6 py-4"><SkeletonBadge className="w-16" /></td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         <Skeleton className="h-8 w-8 rounded-lg" />
@@ -427,7 +472,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
               </>
             ) : errorMsg ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center">
+                <td colSpan={5} className="px-6 py-12 text-center">
                   <div className="flex flex-col items-center justify-center text-red-500">
                     <ShieldOff className="w-8 h-8 mb-3 opacity-80" />
                     <p className="font-bold text-sm mb-1">Error Loading Accounts</p>
@@ -440,7 +485,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
               </tr>
             ) : staff.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-[#64748B]">
+                <td colSpan={5} className="px-6 py-8 text-center text-[#64748B]">
                   No staff accounts found.
                 </td>
               </tr>
@@ -452,24 +497,31 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                   staffMember.status === 'Inactive' ? 'bg-slate-50/50 opacity-60' : ''
                 }`}
               >
-                <td className="px-6 py-4 flex items-center gap-3">
-                  <div
-                    className={`w-8 h-8 rounded-full ${
-                      staffMember.status === 'Active'
-                        ? 'bg-[#0EA5E9] text-white'
-                        : 'bg-slate-200 text-slate-400'
-                    } flex items-center justify-center font-bold text-xs`}
-                  >
-                    {getInitials(staffMember.name)}
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-9 h-9 rounded-full ${
+                        staffMember.status === 'Active'
+                          ? 'bg-[#0EA5E9] text-white'
+                          : 'bg-slate-200 text-slate-400'
+                      } flex items-center justify-center font-bold text-xs`}
+                    >
+                      {getInitials(staffMember.name)}
+                    </div>
+                    <div>
+                      <div className={`font-semibold text-sm ${staffMember.status === 'Inactive' ? 'text-slate-400' : 'text-[#0F172A]'}`}>
+                        {staffMember.name}
+                      </div>
+                      <div className="text-[11px] text-slate-400">{staffMember.email}</div>
+                      {staffMember.onboardingPending && (
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px] font-bold">
+                          <Clock size={9} /> Awaiting First Login
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <span className={staffMember.status === 'Inactive' ? 'text-slate-400' : ''}>
-                    {staffMember.name}
-                  </span>
                 </td>
-                <td className={`px-6 py-4 ${staffMember.status === 'Inactive' ? 'text-slate-400' : 'text-[#64748B]'}`}>
-                  {staffMember.email}
-                </td>
-                <td className={`px-6 py-4 ${staffMember.status === 'Inactive' ? 'text-slate-400' : 'text-[#64748B]'}`}>
+                <td className={`px-6 py-4 text-sm ${staffMember.status === 'Inactive' ? 'text-slate-400' : 'text-[#64748B]'}`}>
                   {staffMember.department}
                 </td>
                 <td className="px-6 py-4">
@@ -509,6 +561,19 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center justify-end gap-2">
+                    {/* Resend onboarding email (only for pending staff) */}
+                    {staffMember.onboardingPending && (
+                      <button
+                        onClick={() => handleResendOnboarding(staffMember)}
+                        disabled={resendingId === staffMember.id}
+                        className="p-2 hover:bg-amber-50 rounded-lg transition-colors group disabled:opacity-50"
+                        title="Resend Onboarding Email"
+                      >
+                        {resendingId === staffMember.id
+                          ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                          : <Mail className="w-4 h-4 text-[#64748B] group-hover:text-amber-500" />}
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         setSelectedStaff(staffMember);
@@ -831,7 +896,8 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                 ) : (
                   <button
                     onClick={() => {
-                      const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${window.location.origin}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
+                      const portalUrl = "https://www.flowsensus.app/app";
+                      const onboardingMsg = `Hello ${createdCredentials.name},\n\nYour FlowSensus staff account has been created on behalf of ${createdCredentials.department} Department.\n\nLogin Portal: ${portalUrl}\nWork Email: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.tempPass}\nRole: ${createdCredentials.role}\n\nPlease sign in and set your new private password upon your first session.\n\nBest regards,\nAgency Management`;
                       navigator.clipboard.writeText(onboardingMsg);
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2500);

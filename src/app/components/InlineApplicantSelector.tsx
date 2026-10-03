@@ -159,7 +159,9 @@ export default function InlineApplicantSelector({
                     )}
                   </div>
                 ) : (
-                  <span className="text-slate-400 font-normal">Select an applicant or register new candidate...</span>
+                  <span className="text-slate-400 font-normal">
+                    {allowNew ? 'Select an applicant or register new candidate...' : 'Select an applicant to view or format CV...'}
+                  </span>
                 )}
               </div>
 
@@ -306,6 +308,14 @@ export default function InlineApplicantSelector({
                                     <span className="text-slate-500 capitalize">{applicant.status}</span>
                                   </>
                                 )}
+                                <span>•</span>
+                                <span className={`text-[11px] font-semibold ${
+                                  !applicant.currentHandler || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent'
+                                    ? 'text-amber-600'
+                                    : 'text-slate-600'
+                                }`}>
+                                  Handler: {applicant.currentHandler || 'Unassigned Pool'}
+                                </span>
                               </div>
                             </div>
                           </div>

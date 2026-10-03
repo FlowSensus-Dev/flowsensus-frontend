@@ -25,6 +25,7 @@ import {
   Download,
   Building2,
   ChevronDown,
+  RotateCcw,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
@@ -95,6 +96,13 @@ export default function SmartProfiling({
   const [activeJobCluster, setActiveJobCluster] = useState<OccupationalClusterData | null>(null);
   const [isSynthesizingCluster, setIsSynthesizingCluster] = useState<boolean>(false);
 
+  // Return Candidate to Previous Phase State
+  const [candidateToReturn, setCandidateToReturn] = useState<ApplicantRecord | null>(null);
+  const [returnTargetStage, setReturnTargetStage] = useState<'medical' | 'screening'>('medical');
+  const [returnCategory, setReturnCategory] = useState<string>('Medical / Fitness Clearance Issue');
+  const [returnNotes, setReturnNotes] = useState<string>('');
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState<boolean>(false);
+
   const toggleExamExpanded = (appId: string) => {
     setExpandedExamApplicantIds((prev) => {
       const next = new Set(prev);
@@ -111,7 +119,9 @@ export default function SmartProfiling({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (overlayApplicant) {
+        if (candidateToReturn) {
+          setCandidateToReturn(null);
+        } else if (overlayApplicant) {
           setOverlayApplicant(null);
         } else if (activeModalCandidate) {
           setActiveModalCandidate(null);
@@ -120,7 +130,7 @@ export default function SmartProfiling({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [overlayApplicant, activeModalCandidate]);
+  }, [candidateToReturn, overlayApplicant, activeModalCandidate]);
 
   // 1. Fetch live job orders with vacancy counts
   useEffect(() => {
@@ -1264,8 +1274,98 @@ export default function SmartProfiling({
     }
   };
 
+  // Handler: Return candidate to previous phase (Medical Clearance or Initial Screening)
+  const handleConfirmReturnCandidate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!candidateToReturn || isSubmittingReturn) return;
+
+    if (!returnNotes.trim()) {
+      showToast('Please state a reason for returning candidate to previous phase.');
+      return;
+    }
+
+    setIsSubmittingReturn(true);
+    const applicantId = String(candidateToReturn.id);
+    const numericId = parseInt(applicantId, 10);
+    const reasonText = `${returnCategory}: ${returnNotes.trim()}`;
+    const nowIso = new Date().toISOString();
+
+    const isReturningToMedical = returnTargetStage === 'medical';
+    const targetStatus = isReturningToMedical ? 'Medical Clearance' : 'Initial Screening';
+    const targetPhase = isReturningToMedical ? 2 : 1;
+    const targetDepartment = isReturningToMedical ? 'Admin' : 'Recruitment';
+    const targetHandler = 'Unassigned Pool';
+    const phaseDesc = isReturningToMedical
+      ? `Returned from Profiling to Medical Clearance by ${currentUserName}. Note: ${reasonText}`
+      : `Returned from Profiling to Initial Screening by ${currentUserName}. Note: ${reasonText}`;
+
+    try {
+      if (updateApplicant) {
+        updateApplicant(applicantId, {
+          status: targetStatus,
+          phase: targetPhase,
+          currentHandler: targetHandler,
+          currentDepartment: targetDepartment,
+          phaseDescription: phaseDesc,
+        });
+      }
+
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          application_id: candidateToReturn.applicationId,
+          application_status: targetStatus,
+          status_code: isReturningToMedical ? 'MED_PENDING' : 'SCREENING_PENDING',
+          current_phase: targetPhase,
+          current_handler: targetHandler,
+          current_department: targetDepartment,
+          phase_description: phaseDesc,
+          statusChangeReason: `Returned from Applicant Profiling: ${reasonText}`,
+          statusChangeSource: 'PROFILING',
+          updated_at: nowIso,
+        }).catch(console.error);
+      }
+
+      if (addActivityLog) {
+        addActivityLog({
+          applicantId,
+          action: `Returned to ${targetStatus}`,
+          performedBy: currentUserName,
+          department: 'Recruitment',
+          details: `Candidate ${candidateToReturn.name} returned from Applicant Profiling to ${targetStatus} (${targetDepartment}) by ${currentUserName}. Reason: ${reasonText}`,
+        });
+      }
+
+      showToast(`✓ ${candidateToReturn.name} returned to ${targetStatus}.`);
+      setCandidateToReturn(null);
+      setReturnNotes('');
+      if (activeModalCandidate && String(activeModalCandidate.applicant.id) === applicantId) {
+        setActiveModalCandidate(null);
+      }
+    } catch (err) {
+      console.error('Failed to return candidate:', err);
+      showToast('Failed to return candidate. Please try again.');
+    } finally {
+      setIsSubmittingReturn(false);
+    }
+  };
+
   // Handler: Generate and download official Candidate Profiling Evaluation Report as PDF
-  // CRITICAL CONSTRAINT: Uses the dynamic agency name and POEA license from Supabase with ZERO FlowSensus branding
+  // CRITICAL CONSTRAINTS:
+  // - 0.5-inch margins (12.7mm)
+  // - Primary content font size 11 (matching CV body standard)
+  // - Text alignment and dynamic line heights to prevent collision/overlap
+  // - Dynamic agency name and POEA license with ZERO FlowSensus branding
+  // Handler: Generate and download official Candidate Profiling Evaluation Report as PDF
+  // Structured and designed in exact accordance with the Screening summary evaluation PDF:
+  // - Formal 15mm margins (A4 portrait 210x297mm)
+  // - Clean agency header with double horizontal dividing rules and Ref No / Date
+  // - Structured tabular section headers (slate-100 fill, slate-300 borders)
+  // - Formally partitioned metadata grid (I. Candidate Identification & Job Order Allocation)
+  // - Structured tabular 5-Pillar breakdown with alternating row backgrounds and aggregate summary bar
+  // - Two-compartment Examination Gates and Statutory Regulatory Audit
+  // - Strengths and Gap remediation findings box
+  // - Dual-compartment Official Endorsement & Conforme signatures
+  // - Clean centered running footers
   const handleDownloadProfilingPDF = (candidate: RankedCandidate) => {
     setIsGeneratingPdf(true);
     try {
@@ -1275,186 +1375,231 @@ export default function SmartProfiling({
         format: 'a4',
       });
 
-      const agencyName = (agencyProfile?.agency_name || 'LICENSED OVERSEAS RECRUITMENT AGENCY').toUpperCase();
+      // Pure ASCII / WinAnsi text sanitizer to prevent jsPDF Helvetica character tracking / spacing glitches
+      const cleanPdfText = (str: string | null | undefined): string => {
+        if (!str) return '';
+        return String(str)
+          .replace(/→/g, ': ')
+          .replace(/←/g, '<-')
+          .replace(/[✓✔]/g, '')
+          .replace(/[•●▪]/g, '-')
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/[\u2013\u2014]/g, '-')
+          .replace(/[\u00A0]/g, ' ')
+          .replace(/flowsensus\s*/gi, '')
+          .replace(/[^\x20-\x7E\r\n\t]/g, '');
+      };
+
+      const agencyName = cleanPdfText(agencyProfile?.agency_name || 'LICENSED OVERSEAS RECRUITMENT AGENCY').toUpperCase();
       const poeaLicense = agencyProfile?.poea_license_no
-        ? `POEA/DMW License: ${agencyProfile.poea_license_no}`
+        ? `POEA/DMW License: ${cleanPdfText(agencyProfile.poea_license_no)}`
         : 'POEA / DMW Accredited Overseas Placement Agency';
       const applicant = candidate.applicant;
-      const appName = applicant.name || `${(applicant as any).first_name || ''} ${(applicant as any).last_name || ''}`.trim() || 'Candidate';
-      const appCode = applicant.applicantCode || (applicant.id ? `APP-${String(applicant.id).padStart(5, '0')}` : 'N/A');
-      const targetPos = currentJobOrder?.position || 'Target Position';
-      const targetJoId = currentJobOrder?.id || 'N/A';
-      const targetEmployer = currentJobOrder?.employer || 'Foreign Principal Partner';
-      const targetCountry = currentJobOrder?.country || 'International';
+      const rawAppName = applicant.name || `${(applicant as any).first_name || ''} ${(applicant as any).last_name || ''}`.trim() || 'Candidate';
+      const appName = cleanPdfText(rawAppName);
+      const appCode = cleanPdfText(applicant.applicantCode || (applicant.id ? `APP-${String(applicant.id).padStart(5, '0')}` : 'N/A'));
+      const targetPos = cleanPdfText(currentJobOrder?.position || 'Target Position');
+      const targetJoId = cleanPdfText(currentJobOrder?.id || 'N/A');
+      const targetEmployer = cleanPdfText(currentJobOrder?.employer || 'Foreign Principal Partner');
+      const targetCountry = cleanPdfText(currentJobOrder?.country || 'International');
 
-      const pageWidth = 210;
-      const margin = 14;
-      const contentWidth = pageWidth - (margin * 2);
-      let y = 14;
+      const rawEvaluator = currentUserName || 'Evaluating Officer';
+      const evaluatorName = cleanPdfText(rawEvaluator).replace(/flowsensus\s*/gi, '').trim() || 'Superadmin';
 
-      const checkPageBreak = (neededHeight: number) => {
-        if (y + neededHeight > 275) {
-          doc.addPage();
-          y = 15;
-          renderHeaderBar(true);
-        }
-      };
-
-      const renderHeaderBar = (isContinuation = false) => {
-        // Top Banner with Agency Brand (NO FlowSensus)
-        doc.setFillColor(30, 58, 75); // Professional Navy/Teal #1E3A4B
-        doc.rect(margin, y, contentWidth, isContinuation ? 10 : 20, 'F');
-
-        doc.setTextColor(255, 255, 255);
-        if (isContinuation) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(10);
-          doc.text(`${agencyName} — Candidate Profiling Evaluation (Continued)`, margin + 4, y + 6.5);
-          y += 14;
-        } else {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(13);
-          doc.text(agencyName, margin + 5, y + 8);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.5);
-          doc.setTextColor(203, 213, 225); // Slate 300
-          doc.text(poeaLicense, margin + 5, y + 13);
-          doc.text('Official Evaluation Document • Confidential', pageWidth - margin - 5, y + 13, { align: 'right' });
-          y += 24;
-        }
-      };
-
-      renderHeaderBar(false);
-
-      // Document Title
-      doc.setTextColor(15, 23, 42); // Slate 900
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text('CANDIDATE PROFILING & JOB-FIT EVALUATION REPORT', margin, y);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 116, 139);
-      const evalDate = new Date().toLocaleDateString('en-US', {
+      const refDate = new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
       });
-      doc.text(`Evaluation Date: ${evalDate} | Evaluated By: ${currentUserName || 'Evaluating Officer'}`, margin, y + 4.5);
-      y += 9;
+      const cleanCodeDigits = appCode.replace(/[^a-zA-Z0-9]/g, '');
+      const refNo = `PRF-${new Date().getFullYear()}-${cleanCodeDigits.slice(-5) || '00001'}`;
 
-      // Section: Candidate & Target Job Order Summary Box
-      checkPageBreak(38);
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, y, contentWidth, 34, 2, 2, 'FD');
+      const pageWidth = 210;
+      const margin = 15; // Formal standard 15mm (identical to Screening.tsx)
+      const contentWidth = pageWidth - (margin * 2); // 180mm
+      let y = 16;
 
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text('CANDIDATE IDENTIFICATION', margin + 4, y + 5);
-      doc.text('TARGET FOREIGN JOB ORDER', margin + (contentWidth / 2) + 4, y + 5);
+      const checkPageBreak = (neededHeight: number) => {
+        if (y + neededHeight > 275) {
+          doc.addPage();
+          y = 16;
+          // Clean Continuation Header matching Screening style
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(15, 23, 42);
+          doc.text(`${agencyName} - CANDIDATE PROFILING & JOB-FIT REPORT (CONTINUED)`, margin, y);
 
-      // Left Column: Candidate Info
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`APPLICANT: ${appName} (${appCode}) | REF: ${refNo}`, 195, y, { align: 'right' });
+
+          y += 3;
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.3);
+          doc.line(margin, y, 195, y);
+          y += 6;
+        }
+      };
+
+      // ── Header (Formal, Plain, Official Recruitment Agency Standard - Matching Screening.tsx) ──
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
-      doc.text(appName, margin + 4, y + 10);
+      doc.text(agencyName, margin, y);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(8.5);
       doc.setTextColor(71, 85, 105);
-      doc.text(`Applicant Code: ${appCode}`, margin + 4, y + 14.5);
-      doc.text(`Applied Role: ${applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || 'General Applicant'}`, margin + 4, y + 19);
-      doc.text(`Verified Experience: ${candidate.totalExperienceYears} Year(s)${candidate.isFirstTimeApplicant ? ' (First-Time Track)' : ''}`, margin + 4, y + 23.5);
-      doc.text(`Certifications on File: ${candidate.certificationsCount} Credential(s)`, margin + 4, y + 28);
+      doc.text('OFFICIAL CANDIDATE PROFILING & JOB-FIT EVALUATION REPORT', margin, y + 4.5);
 
-      // Right Column: Target Job Order Info
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`${targetPos} (${targetJoId})`, margin + (contentWidth / 2) + 4, y + 10);
-
-      doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Foreign Principal: ${targetEmployer}`, margin + (contentWidth / 2) + 4, y + 14.5);
-      doc.text(`Destination Country: ${targetCountry}`, margin + (contentWidth / 2) + 4, y + 19);
-      doc.text(`Required Experience: ${currentJobOrder?.minExperience || 1} Year(s)`, margin + (contentWidth / 2) + 4, y + 23.5);
-      doc.text(`Pipeline Status: ${applicant.status || 'Active'}`, margin + (contentWidth / 2) + 4, y + 28);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`REF NO: ${refNo}`, 195, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(`DATE: ${refDate}`, 195, y + 4.5, { align: 'right' });
 
-      y += 38;
+      y += 8;
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, 195, y);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y + 0.8, 195, y + 0.8);
 
-      // Section: Overall Readiness & Classification Scorecard
-      checkPageBreak(24);
+      y += 4.5;
+
+      // ── Section I: Candidate Identification & Target Job Order Allocation ──
       doc.setFillColor(241, 245, 249);
-      doc.roundedRect(margin, y, contentWidth, 20, 2, 2, 'F');
-
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('I. CANDIDATE IDENTIFICATION & TARGET JOB ORDER ALLOCATION', margin + 3, y + 3.8);
+
+      y += 5.5;
+      const gridH = 26; // 4 rows x 6.5mm = 26mm
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, gridH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + gridH); // Center divider
+
+      // 3 horizontal dividers
+      doc.line(margin, y + 6.5, 195, y + 6.5);
+      doc.line(margin, y + 13, 195, y + 13);
+      doc.line(margin, y + 19.5, 195, y + 19.5);
+
+      // Row 1
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('READINESS SCORE', margin + 6, y + 5.5);
-      doc.text('ANALYTICAL CLASSIFICATION', margin + 55, y + 5.5);
-      doc.text('STATUTORY CLEARANCE (DMW/POEA)', margin + 115, y + 5.5);
+      doc.text('FULL CANDIDATE NAME:', margin + 3, y + 2.6);
+      doc.text('TARGET FOREIGN JOB ORDER:', margin + 93, y + 2.6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appName, margin + 3, y + 5.5);
+      doc.text(`${targetPos} (${targetJoId})`, margin + 93, y + 5.5);
 
-      // Readiness Score Value
-      doc.setFontSize(14);
-      doc.setTextColor(30, 58, 75);
-      doc.text(`${candidate.readinessScore}%`, margin + 6, y + 14);
+      // Row 2
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('APPLICANT CODE:', margin + 3, y + 9.1);
+      doc.text('FOREIGN PRINCIPAL / EMPLOYER:', margin + 93, y + 9.1);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appCode, margin + 3, y + 12);
+      doc.text(targetEmployer, margin + 93, y + 12);
 
-      // Classification Badge
-      doc.setFontSize(10);
-      if (candidate.classification === 'Recommended') {
-        doc.setTextColor(16, 185, 129); // Emerald
-        doc.text('RECOMMENDED', margin + 55, y + 13.5);
-      } else if (candidate.classification === 'For Further Review') {
-        doc.setTextColor(217, 119, 6); // Amber
-        doc.text('FOR FURTHER REVIEW', margin + 55, y + 13.5);
-      } else {
-        doc.setTextColor(239, 68, 68); // Red
-        doc.text('NOT RECOMMENDED', margin + 55, y + 13.5);
-      }
+      // Row 3
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('APPLIED TRADE ROLE:', margin + 3, y + 15.6);
+      doc.text('DESTINATION COUNTRY & VACANCIES:', margin + 93, y + 15.6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      const appliedRoleStr = cleanPdfText(applicant.appliedRole || (applicant as any).applied_role || (applicant as any).position || 'General Candidate');
+      doc.text(appliedRoleStr, margin + 3, y + 18.5);
+      doc.text(`${targetCountry} (${currentJobOrder?.vacancies ?? 'Open'} Open Slots)`, margin + 93, y + 18.5);
 
-      // Compliance
-      doc.setFontSize(9);
-      if (candidate.compliancePassed) {
-        doc.setTextColor(16, 185, 129);
-        doc.text('PASSED (All Clear)', margin + 115, y + 13.5);
-      } else {
-        doc.setTextColor(239, 68, 68);
-        doc.text('ACTION REQUIRED', margin + 115, y + 13.5);
-      }
+      // Row 4
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('VERIFIED EXPERIENCE & CERTS:', margin + 3, y + 22.1);
+      doc.text('TARGET EXPERIENCE REQUIRED:', margin + 93, y + 22.1);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${candidate.totalExperienceYears} Year(s) | ${candidate.certificationsCount} Credential(s)${candidate.isFirstTimeApplicant ? ' (First-Time)' : ''}`, margin + 3, y + 25);
+      doc.text(`${currentJobOrder?.minExperience || 1} Year(s) Minimum Requirement`, margin + 93, y + 25);
 
-      y += 24;
+      y += gridH + 4.5;
 
+      // ── Optional Preference Notice ──
       const pdfMismatch = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
       if (pdfMismatch) {
-        checkPageBreak(14);
-        doc.setFillColor(254, 243, 199);
-        doc.setDrawColor(245, 158, 11);
-        doc.roundedRect(margin, y, contentWidth, 10, 1, 1, 'FD');
+        const mismatchMsg = cleanPdfText(`Applicant originally applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'a different job order'}. Evaluated against this position via allied trade cluster qualifications.`);
+        const wrappedNotice = doc.splitTextToSize(mismatchMsg, contentWidth - 48);
+        const noticeH = Math.max(8, 4 + (wrappedNotice.length * 3.6));
+        checkPageBreak(noticeH + 4);
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(margin, y, contentWidth, noticeH, 'FD');
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(146, 64, 14);
-        doc.text('JOB ORDER PREFERENCE NOTICE:', margin + 3, y + 4);
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.text('JOB ORDER PREFERENCE NOTICE:', margin + 3, y + 3.2);
+
         doc.setFont('helvetica', 'normal');
-        doc.text(
-          doc.splitTextToSize(
-            `Applicant applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'different order'} (not this Job Order). Recommended via allied qualifications.`,
-            contentWidth - 65
-          ),
-          margin + 58,
-          y + 4
-        );
-        y += 13;
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(wrappedNotice, margin + 46, y + 3.2, { lineHeightFactor: 1.15 });
+
+        y += noticeH + 4;
       }
 
-      // Section: 5-Category Granular Scoring Breakdown
-      checkPageBreak(75);
+      // ── Section II: Phase 1 Standardized Competency & 5-Pillar Job-Fit Evaluation ──
+      checkPageBreak(45);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
+      doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text('JOB-ORDER READINESS BREAKDOWN (5 CRITICAL PILLARS)', margin, y);
+      doc.text('II. JOB-ORDER READINESS BREAKDOWN (5 CRITICAL PILLARS)', margin + 3, y + 3.8);
+
+      y += 5.5;
+
+      // Table Headers matching Screening.tsx layout - optimized 5-column layout without Rating (sum = 180mm)
+      const colW = [8, 48, 94, 15, 15];
+      const tableHeaders = ['#', 'CRITICAL READINESS PILLAR', 'CRITERIA & VERIFICATION FINDINGS', 'WEIGHT', 'SCORE'];
+
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentWidth, 5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+
+      let curX = margin;
+      doc.text(tableHeaders[0], curX + 2, y + 3.5); curX += colW[0];
+      doc.text(tableHeaders[1], curX + 2, y + 3.5); curX += colW[1];
+      doc.text(tableHeaders[2], curX + 2, y + 3.5); curX += colW[2];
+      doc.text(tableHeaders[3], curX + 2, y + 3.5); curX += colW[3];
+      doc.text(tableHeaders[4], curX + 2, y + 3.5);
+
       y += 5;
 
       const categories = [
@@ -1464,6 +1609,7 @@ export default function SmartProfiling({
           score: candidate.categoryScores.roleMatch,
           max: 30,
           expl: getCategoryCandidateExplanation('roleMatch', candidate, currentJobOrder),
+          passed: candidate.categoryScores.roleMatch >= 16,
         },
         {
           num: '2',
@@ -1471,13 +1617,15 @@ export default function SmartProfiling({
           score: candidate.categoryScores.certifications,
           max: 25,
           expl: getCategoryCandidateExplanation('certifications', candidate, currentJobOrder),
+          passed: candidate.categoryScores.certifications > 0 || (!currentJobOrder?.certifications || currentJobOrder.certifications.length === 0),
         },
         {
           num: '3',
-          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Education Foundation' : 'Work Experience Duration',
+          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Foundation' : 'Work Experience Duration',
           score: candidate.categoryScores.experience,
           max: 20,
           expl: getCategoryCandidateExplanation('experience', candidate, currentJobOrder),
+          passed: candidate.categoryScores.experience >= 15,
         },
         {
           num: '4',
@@ -1485,6 +1633,7 @@ export default function SmartProfiling({
           score: candidate.categoryScores.skills,
           max: 15,
           expl: getCategoryCandidateExplanation('skills', candidate, currentJobOrder),
+          passed: candidate.categoryScores.skills > 0,
         },
         {
           num: '5',
@@ -1492,103 +1641,106 @@ export default function SmartProfiling({
           score: candidate.categoryScores.overseas,
           max: 10,
           expl: getCategoryCandidateExplanation('overseas', candidate, currentJobOrder),
+          passed: candidate.categoryScores.overseas >= 3,
         },
       ];
 
-      categories.forEach((cat) => {
-        const textLines = doc.splitTextToSize(cat.expl, contentWidth - 42);
-        const itemHeight = Math.max(12, 6 + (textLines.length * 3.5));
-        checkPageBreak(itemHeight + 2);
+      categories.forEach((cat, idx) => {
+        const cleanedExpl = cleanPdfText(cat.expl);
+        const textLines = doc.splitTextToSize(cleanedExpl, colW[2] - 4);
+        const rowH = Math.max(7.5, 3.8 + (textLines.length * 3.5));
+        checkPageBreak(rowH);
 
-        doc.setFillColor(255, 255, 255);
+        if (idx % 2 === 1) {
+          doc.setFillColor(249, 250, 251);
+          doc.rect(margin, y, contentWidth, rowH, 'F');
+        }
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(margin, y, contentWidth, itemHeight, 1, 1, 'FD');
+        doc.rect(margin, y, contentWidth, rowH, 'S');
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.setTextColor(30, 41, 59);
-        doc.text(`${cat.num}. ${cat.name}`, margin + 3, y + 4.5);
-
-        // Score
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.setTextColor(30, 58, 75);
-        doc.text(`${cat.score} / ${cat.max} pts`, pageWidth - margin - 3, y + 4.5, { align: 'right' });
-
-        // Explanation text
+        let rx = margin;
+        // Col 0: #
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
-        doc.setTextColor(71, 85, 105);
-        doc.text(textLines, margin + 3, y + 8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text(cat.num, rx + 2, y + 4.2);
+        rx += colW[0];
 
-        y += itemHeight + 2;
+        // Col 1: Pillar Name
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(cat.name, rx + 2, y + 4.2);
+        rx += colW[1];
+
+        // Col 2: Findings & Explanation (Multi-line)
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        doc.text(textLines, rx + 2, y + 3.8, { lineHeightFactor: 1.15 });
+        rx += colW[2];
+
+        // Col 3: Weight
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`${cat.max} pts`, rx + 2, y + 4.2);
+        rx += colW[3];
+
+        // Col 4: Score
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${cat.score} pts`, rx + 2, y + 4.2);
+
+        y += rowH;
       });
 
+      // Aggregate Summary Row matching Screening.tsx (Non-overlapping layout)
       y += 2;
-
-      // Section: Examination & Assessment Gates
-      checkPageBreak(30);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 7, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 7, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
+      doc.setFontSize(7.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('EXAMINATION & CLEARANCE GATES', margin, y);
-      y += 5;
+
+      const classText = candidate.classification === 'Recommended'
+        ? 'RECOMMENDED'
+        : (candidate.classification === 'For Further Review' ? 'FOR FURTHER REVIEW' : 'NOT RECOMMENDED');
+      doc.text(`JOB-FIT READINESS SCORE: ${candidate.readinessScore}% (${classText})`, margin + 4, y + 4.8);
+
+      const statutorySummaryText = candidate.compliancePassed ? 'STATUTORY: PASSED (ALL CLEAR)' : 'STATUTORY: ACTION REQUIRED';
+      doc.text(statutorySummaryText, 195 - 4, y + 4.8, { align: 'right' });
+      y += 11;
+
+      // ── Section III: Examination Clearance Gates & Statutory Clearances ──
+      checkPageBreak(38);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('III. EXAMINATION ASSESSMENT GATES & STATUTORY REGULATORY AUDIT', margin + 3, y + 3.8);
+
+      y += 5.5;
 
       const dynamicGates = (candidate.activeTestResults && candidate.activeTestResults.length > 0)
         ? candidate.activeTestResults.map((t) => ({
-          label: t.name,
+          label: cleanPdfText(t.name),
           val: t.scoringType === 'pass_fail' ? (t.passed ? 'PASSED' : 'FAILED') : `${t.score ?? 0}%`,
-          req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Req: >= ${t.passingScore}%`,
+          req: t.scoringType === 'pass_fail' ? 'Req: Pass' : `Min. ${t.passingScore}%`,
+          passed: t.passed,
         }))
         : [
-          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Req: >= ${dynamicGateDefinitions.skillsTpl.passingScore}%` },
-          { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Req: >= ${dynamicGateDefinitions.iqTpl.passingScore}%` },
-          { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Req: >= ${dynamicGateDefinitions.langTpl.passingScore}%` },
-          { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Req: >= ${dynamicGateDefinitions.eqTpl.passingScore}%` },
+          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Min. ${dynamicGateDefinitions.skillsTpl.passingScore}%`, passed: candidate.techScore >= dynamicGateDefinitions.skillsTpl.passingScore },
+          { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Min. ${dynamicGateDefinitions.iqTpl.passingScore}%`, passed: candidate.iqScore >= dynamicGateDefinitions.iqTpl.passingScore },
+          { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Min. ${dynamicGateDefinitions.langTpl.passingScore}%`, passed: candidate.interviewScore >= dynamicGateDefinitions.langTpl.passingScore },
+          { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Min. ${dynamicGateDefinitions.eqTpl.passingScore}%`, passed: candidate.eqStatus === 'Suitable' },
         ];
-
-      const gateCols = Math.min(4, Math.max(1, dynamicGates.length));
-      const colW = contentWidth / gateCols;
-      const numRows = Math.ceil(dynamicGates.length / 4);
-      const boxHeight = numRows * 16;
-      checkPageBreak(boxHeight + 8);
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, y, contentWidth, boxHeight, 1.5, 1.5, 'FD');
-
-      dynamicGates.forEach((g, idx) => {
-        const row = Math.floor(idx / 4);
-        const col = idx % 4;
-        const xPos = margin + (col * colW) + 3;
-        const rowY = y + (row * 16);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 116, 139);
-        const truncatedLabel = g.label.length > 20 ? `${g.label.slice(0, 18)}...` : g.label;
-        doc.text(truncatedLabel, xPos, rowY + 4.5);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(15, 23, 42);
-        doc.text(g.val, xPos, rowY + 9.5);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
-        doc.setTextColor(148, 163, 184);
-        doc.text(g.req, xPos, rowY + 13.5);
-      });
-
-      y += boxHeight + 4;
-
-      // Section: Statutory Documents Audit
-      checkPageBreak(25);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.text('STATUTORY REGULATORY CLEARANCES (DMW / POEA)', margin, y);
-      y += 5;
 
       const statDocs = [
         { name: 'Passport Validity', status: candidate.passportStatus.status, valid: candidate.passportStatus.valid },
@@ -1596,116 +1748,206 @@ export default function SmartProfiling({
         { name: 'Medical Clearance', status: candidate.medicalStatus.status, valid: candidate.medicalStatus.valid },
       ];
 
-      statDocs.forEach((sd) => {
-        checkPageBreak(7);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
+      // Side-by-Side 2 Compartment Layout (90mm left, 90mm right)
+      const auditBoxH = Math.max(26, 4 + (Math.max(dynamicGates.length, statDocs.length + 1) * 4.8));
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, auditBoxH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + auditBoxH);
+
+      // Left Column: Examination Gates (Un-truncated gate names, right-aligned scores)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('EXAMINATION ASSESSMENT GATES (5 DYNAMIC GATES):', margin + 3, y + 3.2);
+
+      let gateY = y + 7.2;
+      dynamicGates.forEach((g) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
         doc.setTextColor(51, 65, 85);
-        doc.text(`• ${sd.name}:`, margin + 2, y + 3.5);
+        const truncGate = g.label.length > 36 ? `${g.label.slice(0, 34)}...` : g.label;
+        doc.text(`- ${truncGate}:`, margin + 3, gateY);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
+        doc.text(g.val, margin + 62, gateY, { align: 'right' });
 
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(sd.valid ? 22 : 220, sd.valid ? 101 : 38, sd.valid ? 52 : 38);
-        doc.text(sd.status, margin + 45, y + 3.5);
-        y += 5;
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`(${g.req})`, margin + 87, gateY, { align: 'right' });
+        gateY += 4.5;
       });
 
-      // Section: Strengths & Identified Gaps
-      if (candidate.strengths.length > 0 || candidate.gaps.length > 0) {
-        y += 2;
-        checkPageBreak(30);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text('EVALUATION FINDINGS (STRENGTHS & GAPS)', margin, y);
-        y += 5;
+      // Right Column: Statutory Regulatory Clearances (Monochrome, right-aligned to prevent border overflow)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('STATUTORY REGULATORY CLEARANCES (DMW / POEA):', margin + 93, y + 3.2);
 
+      let docY = y + 7.2;
+      statDocs.forEach((sd) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`- ${cleanPdfText(sd.name)}:`, margin + 93, docY);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42); // Pure Black!
+        const cleanStat = cleanPdfText(sd.status)
+          .replace(/\s*-\s*\d+\s*days?\s*left/i, '')
+          .replace(/\s*-\s*\d+\s*days?\s*remaining/i, '');
+        const truncStat = cleanStat.length > 32 ? `${cleanStat.slice(0, 30)}...` : cleanStat;
+        doc.text(truncStat, 195 - 4, docY, { align: 'right' });
+        docY += 5.2;
+      });
+
+      // Overall Statutory Status line in right compartment (Right-aligned, never cross border)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('COMPLIANCE CLEARANCE:', margin + 93, docY + 1.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42); // Pure Black!
+      const compStatus = candidate.compliancePassed
+        ? 'VERIFIED CLEAR (Ready for Processing)'
+        : 'DOCUMENTS RENEWAL REQUIRED';
+      doc.text(compStatus, 195 - 4, docY + 1.5, { align: 'right' });
+
+      y += auditBoxH + 4.5;
+
+      // ── Section IV: Evaluation Findings (Strengths & Identified Gaps - Monochrome) ──
+      if (candidate.strengths.length > 0 || candidate.gaps.length > 0) {
+        checkPageBreak(30);
+        doc.setFillColor(241, 245, 249);
+        doc.rect(margin, y, contentWidth, 5.5, 'F');
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(margin, y, contentWidth, 5.5, 'S');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        doc.text('IV. EVALUATION FINDINGS & TRADE GAP ANALYSIS', margin + 3, y + 3.8);
+
+        y += 5.5;
+
+        // Calculate height for findings box
+        let totalFindingsLines = 0;
+        candidate.strengths.forEach((s) => {
+          totalFindingsLines += doc.splitTextToSize(`- ${cleanPdfText(s)}`, contentWidth - 8).length;
+        });
+        candidate.gaps.forEach((g) => {
+          totalFindingsLines += doc.splitTextToSize(`! ${cleanPdfText(g)}`, contentWidth - 8).length;
+        });
+
+        const findingsBoxH = Math.max(22, 6 + (totalFindingsLines * 3.8) + (candidate.strengths.length > 0 && candidate.gaps.length > 0 ? 5 : 0));
+        checkPageBreak(findingsBoxH);
+
+        doc.setFillColor(255, 255, 255);
+        doc.rect(margin, y, contentWidth, findingsBoxH, 'S');
+
+        let fy = y + 4;
         if (candidate.strengths.length > 0) {
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(16, 185, 129);
-          doc.text('Candidate Strengths:', margin + 2, y + 3.5);
-          y += 5;
+          doc.setFontSize(7);
+          doc.setTextColor(15, 23, 42); // Pure Black!
+          doc.text('CANDIDATE STRENGTHS & ASSETS:', margin + 3, fy);
+          fy += 3.8;
 
           candidate.strengths.forEach((str) => {
-            const lines = doc.splitTextToSize(`✓ ${str}`, contentWidth - 8);
-            checkPageBreak(lines.length * 4 + 1);
+            const cleanStr = cleanPdfText(str);
+            const lines = doc.splitTextToSize(`- ${cleanStr}`, contentWidth - 8);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7.5);
+            doc.setFontSize(7);
             doc.setTextColor(51, 65, 85);
-            doc.text(lines, margin + 4, y + 3);
-            y += (lines.length * 3.5) + 1.5;
+            doc.text(lines, margin + 4, fy, { lineHeightFactor: 1.15 });
+            fy += (lines.length * 3.6);
           });
         }
 
         if (candidate.gaps.length > 0) {
-          y += 2;
-          checkPageBreak(15);
+          if (candidate.strengths.length > 0) fy += 1.5;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(217, 119, 6);
-          doc.text('Identified Gaps & Action Items:', margin + 2, y + 3.5);
-          y += 5;
+          doc.setFontSize(7);
+          doc.setTextColor(15, 23, 42); // Pure Black!
+          doc.text('IDENTIFIED DEFICIENCIES & ACTION ITEMS:', margin + 3, fy);
+          fy += 3.8;
 
           candidate.gaps.forEach((gap) => {
-            const lines = doc.splitTextToSize(`! ${gap}`, contentWidth - 8);
-            checkPageBreak(lines.length * 4 + 1);
+            const cleanGap = cleanPdfText(gap);
+            const lines = doc.splitTextToSize(`! ${cleanGap}`, contentWidth - 8);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7.5);
-            doc.setTextColor(71, 85, 105);
-            doc.text(lines, margin + 4, y + 3);
-            y += (lines.length * 3.5) + 1.5;
+            doc.setFontSize(7);
+            doc.setTextColor(51, 65, 85);
+            doc.text(lines, margin + 4, fy, { lineHeightFactor: 1.15 });
+            fy += (lines.length * 3.6);
           });
         }
+
+        y += findingsBoxH + 4.5;
       }
 
-      // Official Certification & Signatures Box
-      y += 4;
-      checkPageBreak(28);
-      doc.setFillColor(248, 250, 252);
+      // ── Section V: Official Endorsement & Conforme (Agency / Evaluator Signature) ──
+      checkPageBreak(34);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 5.5, 'F');
       doc.setDrawColor(203, 213, 225);
-      doc.roundedRect(margin, y, contentWidth, 24, 1.5, 1.5, 'FD');
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(100, 116, 139);
-      doc.text(
-        'I hereby certify that this candidate profiling report reflects verified credentials, skills assessments, and statutory compliance status pursuant to DMW and agency standards.',
-        margin + 4,
-        y + 4.5
-      );
-
+      doc.rect(margin, y, contentWidth, 5.5, 'S');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text('Evaluated & Certified By:', margin + 4, y + 12);
-      doc.text('Endorsing Licensed Agency:', margin + (contentWidth / 2) + 4, y + 12);
+      doc.text('V. OFFICIAL ENDORSEMENT & CONFORME', margin + 3, y + 3.8);
 
-      doc.setFont('helvetica', 'normal');
+      y += 5.5;
+      const sigH = 26;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margin, y, contentWidth, sigH, 'S');
+      doc.line(margin + 90, y, margin + 90, y + sigH);
+
+      // Left signature (Candidate Conforme)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CANDIDATE ACKNOWLEDGMENT & CONFORME:', margin + 45, y + 4.5, { align: 'center' });
+      doc.line(margin + 8, y + 16, margin + 82, y + 16);
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
-      doc.setTextColor(51, 65, 85);
-      doc.text(`${currentUserName || 'Recruitment Officer'}`, margin + 4, y + 17);
-      doc.text(`${agencyName} (${agencyProfile?.poea_license_no || 'POEA Registered'})`, margin + (contentWidth / 2) + 4, y + 17);
+      doc.setTextColor(15, 23, 42);
+      doc.text(appName, margin + 45, y + 19.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Candidate Signature over Printed Name / Date', margin + 45, y + 23, { align: 'center' });
 
-      // Running page numbers & footer on every page
+      // Right signature (Authorized Evaluating Officer / Agency: Agency Name / Evaluator)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AUTHORIZED EVALUATING OFFICER / ENDORSING AGENCY:', margin + 135, y + 4.5, { align: 'center' });
+      doc.line(margin + 98, y + 16, margin + 172, y + 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${agencyName} / ${evaluatorName}`, margin + 135, y + 19.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Staff Evaluator Signature over Printed Name', margin + 135, y + 23, { align: 'center' });
+
+      // ── Running Footers matching Screening.tsx ──
       const totalPages = doc.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setDrawColor(226, 232, 240);
-        doc.line(margin, 285, pageWidth - margin, 285);
-
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        doc.line(margin, 285, 195, 285);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
+        doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
         doc.text(
-          `Official Evaluation Document • Issued by ${agencyName} • Strictly Confidential`,
-          margin,
-          289
-        );
-        doc.text(
-          `Page ${i} of ${totalPages}`,
-          pageWidth - margin,
-          289,
-          { align: 'right' }
+          `CONFIDENTIAL • ${agencyName} • OFFICIAL PROFILING & JOB-FIT REPORT • A4 STANDARD • PAGE ${i} OF ${totalPages}`,
+          105,
+          288.5,
+          { align: 'center' }
         );
       }
 
@@ -1715,7 +1957,7 @@ export default function SmartProfiling({
       const filename = `${sanitizedCandidate}_Profiling_Evaluation_${sanitizedAgency}.pdf`;
 
       doc.save(filename);
-      showToast(`✓ Evaluation report downloaded: ${filename}`);
+      showToast(`Evaluation report downloaded: ${filename}`);
     } catch (pdfErr) {
       console.error('PDF generation error:', pdfErr);
       showToast('Failed to generate PDF evaluation report. Please try again.');
@@ -1845,72 +2087,48 @@ export default function SmartProfiling({
               </span>
             </div>
 
-            {/* Pipeline Scope Filter & Dynamic DB Clusters Indicator */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPipelineScope('profiling')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                  pipelineScope === 'profiling'
-                    ? 'bg-slate-900 text-white shadow-xs border border-slate-900'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Applicant Profiling</span>
-                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  pipelineScope === 'profiling' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                }`}>
-                  {profilingScopeCounts.profiling}
-                </span>
-              </button>
+            {/* Candidate Pool Dropdown Selector */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="pipeline-pool-select" className="text-xs font-bold text-slate-600 flex items-center gap-1.5 whitespace-nowrap">
+                <Users className="w-3.5 h-3.5 text-slate-500" />
+                <span>Candidate Pool:</span>
+              </label>
 
-              <button
-                type="button"
-                onClick={() => setPipelineScope('all')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                  pipelineScope === 'all'
-                    ? 'bg-sky-600 text-white shadow-xs border border-sky-600'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>All Active Pool</span>
-                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  pipelineScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                }`}>
-                  {profilingScopeCounts.all}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPipelineScope('assigned')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                  pipelineScope === 'assigned'
-                    ? 'bg-emerald-600 text-white shadow-xs border border-emerald-600'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>Assigned to Job Order</span>
-                {currentJobOrder && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    pipelineScope === 'assigned' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {profilingScopeCounts.assigned}
-                  </span>
-                )}
-              </button>
-
-              {Object.keys(dynamicClusters).length > 0 && (
-                <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-1.5 shadow-xs">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>{Object.keys(dynamicClusters).length} Recognized Trade Families</span>
-                </div>
-              )}
+              <div className="relative">
+                <select
+                  id="pipeline-pool-select"
+                  value={pipelineScope}
+                  onChange={(e) => setPipelineScope(e.target.value as any)}
+                  className="appearance-none pl-3.5 pr-8 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A] cursor-pointer transition-all"
+                >
+                  <option value="profiling">
+                    Ready in Profiling ({profilingScopeCounts.profiling})
+                  </option>
+                  <option value="all">
+                    All Agency Pool ({profilingScopeCounts.all})
+                  </option>
+                  {currentJobOrder && (
+                    <option value="assigned">
+                      Assigned to Job Order ({profilingScopeCounts.assigned})
+                    </option>
+                  )}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           </div>
+
+          {/* Helper Banner when no job order is selected */}
+          {!currentJobOrder && (
+            <div className="mt-3 p-3 bg-sky-50/70 border border-sky-200 rounded-xl text-xs text-sky-950 flex items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <Info className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                <p className="text-[11px] text-sky-900 leading-snug">
+                  <strong>Select a Job Order above</strong> to evaluate and rank candidate job-fit against position requirements and credentials.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Allied Trade Recognition Active Tag & Informative Description */}
           {isSynthesizingCluster ? (
@@ -2349,6 +2567,20 @@ export default function SmartProfiling({
                               <span className="whitespace-nowrap">Endorse</span>
                             </button>
                           )}
+
+                          {/* Return Phase Button: Strictly available for candidates in the 'Applicant Profiling' stage */}
+                          {isApplicantInProfiling(candidate.applicant) && (
+                            <button
+                              onClick={() => {
+                                setCandidateToReturn(candidate.applicant);
+                              }}
+                              className="w-[124px] py-1.5 px-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
+                              title="Return candidate to Medical Clearance (Phase 2) or Initial Screening (Phase 1)"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
+                              <span className="whitespace-nowrap">Return Phase</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2381,7 +2613,7 @@ export default function SmartProfiling({
           onClick={() => setActiveModalCandidate(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 overflow-hidden animate-in zoom-in-95 duration-150"
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full p-6 overflow-hidden animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -3013,68 +3245,80 @@ export default function SmartProfiling({
               </div>
             </div>
 
-            {/* Modal Actions: Open Full Profile, Download PDF, Close, and Endorse to CV Encoding */}
-            <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            {/* Modal Actions Footer: Clean, unified-height (h-9) responsive layout */}
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Left Group: Dismiss & Return Candidate to Previous Phase */}
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
+                  onClick={() => setActiveModalCandidate(null)}
+                  className="h-9 px-4 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs flex items-center justify-center"
+                >
+                  Close
+                </button>
+
+                {isApplicantInProfiling(activeModalCandidate.applicant) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCandidateToReturn(activeModalCandidate.applicant);
+                    }}
+                    className="h-9 px-3.5 border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Return candidate to Medical Clearance or Initial Screening"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Return Candidate</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Right Group: Profile Overlay and Informative Action / Status Button */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
                   onClick={() => {
                     const applicant = activeModalCandidate.applicant;
                     setActiveModalCandidate(null);
                     handleOpenProfileOverlay(applicant);
                   }}
-                  className="px-3.5 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  className="h-9 px-3.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap"
                   title="View full candidate profile in overlay"
                 >
                   <Eye className="w-3.5 h-3.5 text-slate-600" />
                   <span>Open Full Profile</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleDownloadProfilingPDF(activeModalCandidate)}
-                  disabled={isGeneratingPdf}
-                  className="px-3.5 py-2 border border-[#20637A] text-[#20637A] hover:bg-teal-50/50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
-                  title="Download official candidate profiling evaluation report (PDF)"
-                >
-                  {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  <span>Download Evaluation Report (PDF)</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setActiveModalCandidate(null)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-
                 {!isApplicantInProfiling(activeModalCandidate.applicant) ? (
                   <div
-                    className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 border border-slate-300 px-3.5 py-2 rounded-lg font-medium shadow-2xs"
+                    className="h-9 px-3.5 flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 border border-slate-300 rounded-lg font-medium shadow-2xs whitespace-nowrap"
                     title={`Candidate current stage is '${activeModalCandidate.applicant.status || 'Active Pool'}'. The Endorse button is available only when the applicant is in the 'Applicant Profiling' stage.`}
                   >
                     <Info className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Endorsement Available Only in Profiling Stage ({activeModalCandidate.applicant.status || 'Active Pool'})</span>
+                    <span>Stage: {activeModalCandidate.applicant.status || 'Active Pool'}</span>
                   </div>
                 ) : activeModalCandidate.classification === 'Not Recommended' ? (
-                  <div className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg font-semibold">
-                    <AlertCircle className="w-3.5 h-3.5 text-red-500" />
-                    <span>Not Ready for CV Encoding</span>
+                  <div
+                    className="h-9 px-3.5 flex items-center gap-1.5 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg font-bold shadow-2xs whitespace-nowrap"
+                    title="Candidate readiness score is below recommendation threshold. Address identified gaps or update qualifications before endorsing."
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                    <span>Not Ready for CV Encoding ({activeModalCandidate.readinessScore}% Match)</span>
                   </div>
                 ) : !activeModalCandidate.compliancePassed || activeModalCandidate.expiredDocs.length > 0 ? (
                   <button
+                    type="button"
                     disabled
-                    className="px-4 py-2 bg-slate-100 border border-slate-300 text-slate-400 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-not-allowed shadow-2xs"
-                    title={`Endorsement Blocked: Candidate has expired or invalid document(s) (${activeModalCandidate.expiredDocs.map((d) => d.name).join(', ') || 'Statutory clearance issue'}). Renewal required.`}
+                    className="h-9 px-3.5 bg-slate-100 border border-slate-300 text-slate-500 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-not-allowed shadow-2xs whitespace-nowrap"
+                    title={`Endorsement Blocked: Candidate has expired document(s) (${activeModalCandidate.expiredDocs.map((d) => d.name).join(', ') || 'Statutory clearance issue'}). Renewal required.`}
                   >
-                    <Lock className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Endorsement Blocked (Expired Documents)</span>
+                    <Lock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span>Endorsement Blocked (Expired Docs)</span>
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => handleEndorseCandidate(activeModalCandidate)}
-                    className="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    className="h-9 px-4 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
                     title="Endorse candidate and forward to CV Encoding"
                   >
                     <Send className="w-3.5 h-3.5" />
@@ -3083,6 +3327,167 @@ export default function SmartProfiling({
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Candidate to Previous Phase Modal Dialog */}
+      {candidateToReturn && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => !isSubmittingReturn && setCandidateToReturn(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 overflow-hidden animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-base">
+                    Return Candidate to Previous Phase
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    {candidateToReturn.name} ({candidateToReturn.applicantCode || `#APP-${candidateToReturn.id}`})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSubmittingReturn && setCandidateToReturn(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmReturnCandidate} className="py-4 space-y-4">
+              {/* Target Stage Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Select Target Phase to Return To <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <label
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
+                      returnTargetStage === 'medical'
+                        ? 'border-sky-500 bg-sky-50/60 text-sky-950 ring-1 ring-sky-500'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold mb-1">
+                      <input
+                        type="radio"
+                        name="returnTarget"
+                        checked={returnTargetStage === 'medical'}
+                        onChange={() => {
+                          setReturnTargetStage('medical');
+                          setReturnCategory('Medical / Fitness Clearance Issue');
+                        }}
+                        className="text-sky-600 focus:ring-sky-500"
+                      />
+                      <span>Fit-to-Work (Phase 2)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-snug pl-5">
+                      Return to Medical Admin for clinic follow-up, repeat lab test, or fitness re-clearance.
+                    </p>
+                  </label>
+
+                  <label
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
+                      returnTargetStage === 'screening'
+                        ? 'border-sky-500 bg-sky-50/60 text-sky-950 ring-1 ring-sky-500'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold mb-1">
+                      <input
+                        type="radio"
+                        name="returnTarget"
+                        checked={returnTargetStage === 'screening'}
+                        onChange={() => {
+                          setReturnTargetStage('screening');
+                          setReturnCategory('Trade Qualification / Skill Discrepancy');
+                        }}
+                        className="text-sky-600 focus:ring-sky-500"
+                      />
+                      <span>Initial Screening (Phase 1)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-snug pl-5">
+                      Return to Screening Panel for interview re-assessment, trade qualification, or credential update.
+                    </p>
+                  </label>
+                </div>
+              </div>
+
+              {/* Return Category */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Return Category <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={returnCategory}
+                  onChange={(e) => setReturnCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]"
+                >
+                  {returnTargetStage === 'medical' ? (
+                    <>
+                      <option value="Medical / Fitness Clearance Issue">Medical / Fitness Clearance Issue</option>
+                      <option value="Clinic Laboratory Re-test Required">Clinic Laboratory Re-test Required</option>
+                      <option value="Expired Medical Certificate">Expired Medical Certificate</option>
+                      <option value="Candidate Reported Medical Condition">Candidate Reported Medical Condition</option>
+                      <option value="Other Medical Requirement">Other Medical Requirement</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Trade Qualification / Skill Discrepancy">Trade Qualification / Skill Discrepancy</option>
+                      <option value="Missing Mandatory Credential / License">Missing Mandatory Credential / License</option>
+                      <option value="Interview Score Re-evaluation">Interview Score Re-evaluation</option>
+                      <option value="Candidate Application Retraction / Change Role">Candidate Application Retraction / Change Role</option>
+                      <option value="Document Discrepancy / Inconsistency">Document Discrepancy / Inconsistency</option>
+                      <option value="Other Screening Note">Other Screening Note</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Detailed Reason Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Return Instructions & Remarks <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  value={returnNotes}
+                  onChange={(e) => setReturnNotes(e.target.value)}
+                  placeholder="State specific instructions for the receiving department/handler..."
+                  rows={3}
+                  required
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => !isSubmittingReturn && setCandidateToReturn(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReturn || !returnNotes.trim()}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingReturn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  <span>Confirm Return to {returnTargetStage === 'medical' ? 'Medical Clearance' : 'Initial Screening'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

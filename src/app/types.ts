@@ -35,7 +35,7 @@ export interface ApplicantRecord {
   placeOfBirth?: string;
   age?: number;
   sex?: 'Male' | 'Female';
-  civilStatus?: 'Single' | 'Married' | 'Widowed' | 'Separated';
+  civilStatus?: 'Single' | 'Married' | 'Widowed' | 'Separated' | 'Divorced';
   citizenship?: string;
   religion?: string;
   heightCm?: number;

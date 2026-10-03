@@ -224,78 +224,78 @@ export function getCategoryCandidateExplanation(categoryKey: string, candidate: 
     case 'roleMatch': {
       const score = candidate.categoryScores.roleMatch;
       if (score === 30) {
-        return `Candidate applied role '${appRole}' directly matches target position '${jobPos}' → Full 30 / 30 pts awarded.`;
+        return `Candidate applied role '${appRole}' directly matches target position '${jobPos}' : Full 30 / 30 pts awarded.`;
       } else if (score === 25) {
-        return `Candidate applied as '${appRole}', but prior work history directly matches target position '${jobPos}' → 25 / 30 pts awarded.`;
+        return `Candidate applied as '${appRole}', but prior work history directly matches target position '${jobPos}' : 25 / 30 pts awarded.`;
       } else if (score === 20) {
-        return `Candidate applied role '${appRole}' aligns with '${jobPos}' within the same occupational cluster family → 20 / 30 pts allied transfer credit awarded.`;
+        return `Candidate applied role '${appRole}' aligns with '${jobPos}' within the same occupational cluster family : 20 / 30 pts allied transfer credit awarded.`;
       } else if (score === 16) {
-        return `Candidate prior work history aligns with the occupational cluster family for '${jobPos}' → 16 / 30 pts allied work credit awarded.`;
+        return `Candidate prior work history aligns with the occupational cluster family for '${jobPos}' : 16 / 30 pts allied work credit awarded.`;
       } else {
-        return `Candidate profile role '${appRole}' is unrelated to target position '${jobPos}' (different trade cluster) → 0 / 30 pts.`;
+        return `Candidate profile role '${appRole}' is unrelated to target position '${jobPos}' (different trade cluster) : 0 / 30 pts.`;
       }
     }
     case 'certifications': {
       const score = candidate.categoryScores.certifications;
       const jobCerts = Array.isArray(jobOrder?.certifications) ? jobOrder.certifications : [];
       if (jobCerts.length === 0) {
-        return `Job order has no mandatory certifications specified → Full 25 / 25 pts baseline awarded.`;
+        return `Job order has no mandatory certifications specified : Full 25 / 25 pts baseline awarded.`;
       }
       if (score === 25) {
-        return `Candidate holds all required certifications for ${jobPos} (${jobCerts.join(', ')}) → Full 25 / 25 pts awarded.`;
+        return `Candidate holds all required certifications for ${jobPos} (${jobCerts.join(', ')}) : Full 25 / 25 pts awarded.`;
       } else if (score > 0) {
         return `Candidate holds partial or allied trade credentials, earning ${score} / 25 pts (allied transfer credentials receive 70% credit).`;
       } else {
-        return `Candidate missing required certifications: ${jobCerts.join(', ')} → 0 / 25 pts.`;
+        return `Candidate missing required certifications: ${jobCerts.join(', ')} : 0 / 25 pts.`;
       }
     }
     case 'experience': {
       const score = candidate.categoryScores.experience;
       if (candidate.isFirstTimeApplicant) {
         if (score >= 20) {
-          return `First-time applicant: Verified completion of certified institutional TVET / tertiary education in aligned trade → Full 20 / 20 pts awarded.`;
+          return `First-time applicant: Verified completion of certified institutional TVET / tertiary education in aligned trade : Full 20 / 20 pts awarded.`;
         } else if (score >= 15) {
-          return `First-time applicant: Secondary educational foundation verified in aligned trade → 15 / 20 pts awarded.`;
+          return `First-time applicant: Secondary educational foundation verified in aligned trade : 15 / 20 pts awarded.`;
         } else {
-          return `First-time applicant: Educational preparation is in an unrelated field ('${appRole}') → 5 / 20 pts general educational credit.`;
+          return `First-time applicant: Educational preparation is in an unrelated field ('${appRole}') : 5 / 20 pts general educational credit.`;
         }
       } else {
         const years = candidate.totalExperienceYears;
         if (candidate.categoryScores.roleMatch > 0) {
           if (years >= minYears + 2) {
-            return `Candidate total experience (${years} yrs) exceeds job requirement (${minYears} yrs) by 2+ years → Full 20 / 20 pts awarded.`;
+            return `Candidate total experience (${years} yrs) exceeds job requirement (${minYears} yrs) by 2+ years : Full 20 / 20 pts awarded.`;
           } else if (years >= minYears) {
-            return `Candidate total experience (${years} yrs) meets the required ${minYears} years → 15 / 20 pts awarded.`;
+            return `Candidate total experience (${years} yrs) meets the required ${minYears} years : 15 / 20 pts awarded.`;
           } else {
-            return `Candidate total experience (${years} yr${years > 1 ? 's' : ''}) is below required ${minYears} years → Pro-rated ${score} / 20 pts awarded.`;
+            return `Candidate total experience (${years} yr${years > 1 ? 's' : ''}) is below required ${minYears} years : Pro-rated ${score} / 20 pts awarded.`;
           }
         } else {
-          return `Candidate's ${years} years experience is in an unrelated field ('${appRole}') rather than '${jobPos}' (req: ${minYears} yrs) → Max 5 / 20 pts non-aligned experience credit awarded.`;
+          return `Candidate's ${years} years experience is in an unrelated field ('${appRole}') rather than '${jobPos}' (req: ${minYears} yrs) : Max 5 / 20 pts non-aligned experience credit awarded.`;
         }
       }
     }
     case 'skills': {
       const score = candidate.categoryScores.skills;
       if (score === 15) {
-        return `Candidate profile possesses 2 or more core trade competencies required for '${jobPos}' → Full 15 / 15 pts awarded.`;
+        return `Candidate profile possesses 2 or more core trade competencies required for '${jobPos}' : Full 15 / 15 pts awarded.`;
       } else if (score === 10) {
-        return `Candidate profile matched 1 core trade competency for '${jobPos}' → 10 / 15 pts awarded.`;
+        return `Candidate profile matched 1 core trade competency for '${jobPos}' : 10 / 15 pts awarded.`;
       } else {
-        return `No matching trade competencies found in candidate skills for '${jobPos}' → 0 / 15 pts.`;
+        return `No matching trade competencies found in candidate skills for '${jobPos}' : 0 / 15 pts.`;
       }
     }
     case 'overseas': {
       const score = candidate.categoryScores.overseas;
       if (score === 10) {
-        return `Candidate has verified prior overseas employment in target destination (${jobCountry}) → Full 10 / 10 pts awarded.`;
+        return `Candidate has verified prior overseas employment in target destination (${jobCountry}) : Full 10 / 10 pts awarded.`;
       } else if (score === 7) {
         return candidate.isFirstTimeApplicant
-          ? `First-time applicant neutral overseas baseline (clean record, eligible for deployment) → 7 / 10 pts awarded.`
-          : `Candidate has prior international / overseas employment experience outside ${jobCountry} → 7 / 10 pts awarded.`;
+          ? `First-time applicant neutral overseas baseline (clean record, eligible for deployment) : 7 / 10 pts awarded.`
+          : `Candidate has prior international / overseas employment experience outside ${jobCountry} : 7 / 10 pts awarded.`;
       } else if (score === 3) {
-        return `Candidate has domestic (Philippine local) experience only; no overseas experience in target destination (${jobCountry}) → 3 / 10 pts.`;
+        return `Candidate has domestic (Philippine local) experience only; no overseas experience in target destination (${jobCountry}) : 3 / 10 pts.`;
       } else {
-        return `No prior employment history recorded → 0 / 10 pts.`;
+        return `No prior employment history recorded : 0 / 10 pts.`;
       }
     }
     default:
