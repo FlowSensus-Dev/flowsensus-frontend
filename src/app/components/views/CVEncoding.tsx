@@ -373,15 +373,21 @@ export default function CVEncoding({
     setIsSaving(true);
     try {
       const customFieldsPayload = buildCustomFields();
+      const effectiveJobOrderId = currentApplicant?.selectedJobOrderId && !isNaN(Number(currentApplicant.selectedJobOrderId))
+        ? Number(currentApplicant.selectedJobOrderId)
+        : (currentApplicant as any)?.job_order_id || (currentApplicant as any)?.jobOrderId || undefined;
+
       if (cvRecord) {
         const res = await api.patch(`/cv/${cvRecord.cv_id}`, {
           statusCode: cvRecord.status_code === 'REJECTED' ? 'DRAFT' : cvRecord.status_code,
           customFields: customFieldsPayload,
+          jobOrderId: effectiveJobOrderId,
         });
         setCvRecord(res.data);
       } else {
         const res = await api.post('/cv', {
           applicantId: Number(selectedApplicantId),
+          jobOrderId: effectiveJobOrderId,
           statusCode: 'DRAFT',
           customFields: customFieldsPayload,
         });
@@ -401,6 +407,9 @@ export default function CVEncoding({
     setIsSubmitting(true);
     try {
       const customFieldsPayload = buildCustomFields();
+      const effectiveJobOrderId = currentApplicant?.selectedJobOrderId && !isNaN(Number(currentApplicant.selectedJobOrderId))
+        ? Number(currentApplicant.selectedJobOrderId)
+        : (currentApplicant as any)?.job_order_id || (currentApplicant as any)?.jobOrderId || undefined;
       let rec = cvRecord;
 
       // Save latest changes first
@@ -408,11 +417,13 @@ export default function CVEncoding({
         const saveRes = await api.patch(`/cv/${rec.cv_id}`, {
           statusCode: 'PENDING_APPROVAL',
           customFields: customFieldsPayload,
+          jobOrderId: effectiveJobOrderId,
         });
         rec = saveRes.data;
       } else {
         const createRes = await api.post('/cv', {
           applicantId: Number(selectedApplicantId),
+          jobOrderId: effectiveJobOrderId,
           statusCode: 'PENDING_APPROVAL',
           customFields: customFieldsPayload,
         });

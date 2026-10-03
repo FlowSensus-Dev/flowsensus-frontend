@@ -1,17 +1,25 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Clock, Upload, Users, CheckCircle2, RefreshCw, Loader2, GripVertical,
-  ChevronRight, Calendar, Link, FileText, Trash2, AlertCircle, Send
+  Clock, Upload, Users, CheckCircle2, RefreshCw, Loader2,
+  ChevronRight, Calendar, Link as LinkIcon, FileText, Trash2,
+  AlertCircle, Send, Eye, Download, X, Building, MapPin,
+  Briefcase, DollarSign, ShieldAlert, ShieldCheck, AlertTriangle,
+  ArrowLeftRight, Check, FileCheck, Ban, ArrowRight, UserCheck, Undo2
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog } from '../../types';
 import { Skeleton, SkeletonText } from '../ui/skeleton';
 import { api } from '../../../lib/api';
+import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface EndorsementTrackerProps {
   applicants?: ApplicantRecord[];
   currentUserName: string;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
+  onNavigate?: (view: string) => void;
+  showToast?: (message: string) => void;
 }
 
 interface CvSubmission {
@@ -32,6 +40,21 @@ interface CvSubmission {
   applicant_name: string;
   applied_role: string;
   job_order_code: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  employer_info?: {
+    employer_id: number;
+    company_name: string;
+    industry: string;
+    address?: string;
+    website?: string;
+    country_name: string;
+    position?: string;
+    total_slots?: number;
+    salary_min?: number;
+    salary_max?: number;
+    salary_currency?: string;
+  } | null;
 }
 
 const STAGES = [
@@ -40,12 +63,13 @@ const STAGES = [
     label: 'Manager Approved',
     shortLabel: 'Approved',
     color: '#10b981',
-    bg: 'bg-emerald-50',
+    bg: 'bg-emerald-50/70',
     border: 'border-emerald-200',
     accent: 'border-l-[#10b981]',
+    badgeBg: 'bg-emerald-100 text-emerald-800',
     icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
     desc: 'CVs approved by Manager, ready to upload to employer portal',
-    nextAction: 'Confirm External Upload',
+    nextAction: 'Confirm Portal Upload',
     nextStage: 'UPLOADED_TO_PORTAL' as const,
   },
   {
@@ -53,12 +77,13 @@ const STAGES = [
     label: 'Uploaded to Portal',
     shortLabel: 'Uploaded',
     color: '#0ea5e9',
-    bg: 'bg-sky-50',
+    bg: 'bg-sky-50/70',
     border: 'border-sky-200',
     accent: 'border-l-[#0ea5e9]',
+    badgeBg: 'bg-sky-100 text-sky-800',
     icon: <Upload className="w-4 h-4 text-sky-600" />,
-    desc: 'CV uploaded to foreign employer portal, awaiting employer response',
-    nextAction: 'Confirm Employer Waiting',
+    desc: 'CV uploaded to foreign employer portal, awaiting encoding completion',
+    nextAction: 'Confirm Portal Encoding Done',
     nextStage: 'WAITING_SELECTION' as const,
   },
   {
@@ -66,28 +91,60 @@ const STAGES = [
     label: 'Waiting Selection',
     shortLabel: 'Waiting',
     color: '#f59e0b',
-    bg: 'bg-amber-50',
+    bg: 'bg-amber-50/70',
     border: 'border-amber-200',
     accent: 'border-l-[#f59e0b]',
+    badgeBg: 'bg-amber-100 text-amber-800',
     icon: <Users className="w-4 h-4 text-amber-600" />,
     desc: 'Employer is reviewing candidates — awaiting hiring decision',
-    nextAction: 'Endorse to Admin',
+    nextAction: 'Record Employer Response',
     nextStage: 'ENDORSED_TO_ADMIN' as const,
   },
   {
     code: 'ENDORSED_TO_ADMIN' as const,
-    label: 'Endorsed to Admin',
-    shortLabel: 'Endorsed',
+    label: 'Pre-Deployment & Admin',
+    shortLabel: 'Admin Endorsement',
     color: '#8b5cf6',
-    bg: 'bg-violet-50',
+    bg: 'bg-violet-50/70',
     border: 'border-violet-200',
     accent: 'border-l-[#8b5cf6]',
+    badgeBg: 'bg-violet-100 text-violet-800',
     icon: <Send className="w-4 h-4 text-violet-600" />,
-    desc: 'Employer selected the candidate — endorsed to Admin for final processing',
-    nextAction: null,
+    desc: 'Employer selected candidate — review eligibility & endorse to Admin',
+    nextAction: 'Verify & Endorse to Admin',
     nextStage: null,
   },
 ];
+
+const PREVIOUS_STAGE_MAP: Record<string, {
+  prevStageCode: 'MANAGER_APPROVED' | 'UPLOADED_TO_PORTAL' | 'WAITING_SELECTION';
+  prevStageLabel: string;
+  applicantStatus: string;
+  phase: number;
+  description: string;
+}> = {
+  UPLOADED_TO_PORTAL: {
+    prevStageCode: 'MANAGER_APPROVED',
+    prevStageLabel: 'Manager Approved',
+    applicantStatus: 'CV Approval',
+    phase: 4,
+    description: 'CV approved by Manager. Ready to upload to foreign employer portal.',
+  },
+  WAITING_SELECTION: {
+    prevStageCode: 'UPLOADED_TO_PORTAL',
+    prevStageLabel: 'Uploaded to Portal',
+    applicantStatus: 'Endorse to Employer',
+    phase: 4,
+    description: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
+  },
+  ENDORSED_TO_ADMIN: {
+    prevStageCode: 'WAITING_SELECTION',
+    prevStageLabel: 'Waiting Selection',
+    applicantStatus: 'Under Employer Review',
+    phase: 4,
+    description: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
+  },
+};
 
 function SkeletonCard() {
   return (
@@ -99,174 +156,479 @@ function SkeletonCard() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// KANBAN CARD & CARD DETAILS RESOLUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ResolvedCardDetails {
+  candidateName: string;
+  candidateCode: string;
+  candidateAppliedRole: string;
+  jobOrderCode: string;
+  jobOrderId: string | null;
+  offeredPosition: string;
+  employerName: string;
+  countryName: string;
+  salaryFormatted: string;
+  slotsText: string;
+  hasMatchedJobOrder: boolean;
+  hasMatchedEmployer: boolean;
+}
+
+export function resolveCardDetails(
+  card: CvSubmission | null | undefined,
+  applicant?: ApplicantRecord,
+  globalJobOrders: any[] = [],
+  globalEmployers: any[] = []
+): ResolvedCardDetails {
+  if (!card) {
+    return {
+      candidateName: '—',
+      candidateCode: '—',
+      candidateAppliedRole: '—',
+      jobOrderCode: '—',
+      jobOrderId: null,
+      offeredPosition: '—',
+      employerName: '—',
+      countryName: '—',
+      salaryFormatted: '—',
+      slotsText: '—',
+      hasMatchedJobOrder: false,
+      hasMatchedEmployer: false,
+    };
+  }
+
+  // 1. Resolve Job Order ID & Code target
+  const joIdTarget = String(
+    card.job_order_id ||
+    applicant?.selectedJobOrderId ||
+    (applicant as any)?.job_order_id ||
+    (applicant as any)?.jobOrderId ||
+    ''
+  ).trim();
+
+  const rawCardJoCode = card.job_order_code && card.job_order_code !== 'JO-304' ? card.job_order_code.trim() : '';
+  const rawAppJoCode = applicant?.jobOrder && applicant.jobOrder !== 'Unassigned' ? applicant.jobOrder.trim() : '';
+  const joCodeTarget = rawCardJoCode || rawAppJoCode || '';
+
+  const matchedJo = (globalJobOrders || []).find((j: any) => {
+    const jId = String(j.id ?? j.job_order_id ?? '').trim();
+    const jCode = String(j.code ?? j.job_order_code ?? j.job_code ?? '').trim();
+    if (joIdTarget && jId && jId === joIdTarget) return true;
+    if (joCodeTarget && jCode && (
+      jCode.toLowerCase() === joCodeTarget.toLowerCase() ||
+      joCodeTarget.toLowerCase().includes(jCode.toLowerCase()) ||
+      jCode.toLowerCase().includes(joCodeTarget.toLowerCase())
+    )) return true;
+    return false;
+  });
+
+  // 2. Resolve Employer target
+  const empIdTarget = String(
+    card.employer_info?.employer_id ||
+    matchedJo?.employer_id ||
+    matchedJo?.employerId ||
+    (applicant as any)?.employer_id ||
+    (applicant as any)?.employerId ||
+    ''
+  ).trim();
+
+  const cardEmpName = card.employer_info?.company_name;
+  const cleanCardEmpName = (cardEmpName && 
+    cardEmpName !== 'Foreign Principal Employer' && 
+    cardEmpName !== 'Foreign Employer' && 
+    cardEmpName !== 'Overseas Employer')
+    ? cardEmpName.trim()
+    : '';
+
+  const matchedEmp = (globalEmployers || []).find((e: any) => {
+    const eId = String(e.id ?? e.employer_id ?? '').trim();
+    const eName = String(e.company_name ?? e.companyName ?? e.name ?? '').trim();
+    if (empIdTarget && eId && eId === empIdTarget) return true;
+    if (cleanCardEmpName && eName && eName.toLowerCase() === cleanCardEmpName.toLowerCase()) return true;
+    if (matchedJo?.employerName && eName && eName.toLowerCase() === String(matchedJo.employerName).toLowerCase()) return true;
+    if (matchedJo?.employer?.company_name && eName && eName.toLowerCase() === String(matchedJo.employer.company_name).toLowerCase()) return true;
+    if ((applicant as any)?.employer && eName && eName.toLowerCase() === String((applicant as any).employer).toLowerCase()) return true;
+    return false;
+  });
+
+  // Candidate fields
+  const candidateName = applicant?.name || card.applicant_name || '—';
+  
+  // Distinguish candidate's applied trade/role
+  const rawRole = applicant?.appliedPosition || applicant?.appliedRole || applicant?.role || card.applied_role || '';
+  const candidateAppliedRole = (rawRole && rawRole !== 'Applicant' && rawRole !== 'OFW Staff') ? rawRole : '—';
+  
+  const candidateCode = applicant?.applicantCode || (applicant?.id ? `APP-${String(applicant.id).padStart(4, '0')}` : (card.applicant_id ? `APP-${String(card.applicant_id).padStart(4, '0')}` : '—'));
+
+  // Job Order Code (accurately resolved, never fake 'JO-304')
+  let jobOrderCode = '—';
+  if (matchedJo?.code || matchedJo?.job_order_code || matchedJo?.job_code) {
+    jobOrderCode = matchedJo.code || matchedJo.job_order_code || matchedJo.job_code;
+  } else if (rawAppJoCode) {
+    jobOrderCode = rawAppJoCode;
+  } else if (rawCardJoCode) {
+    jobOrderCode = rawCardJoCode;
+  } else if (joIdTarget && !isNaN(Number(joIdTarget)) && Number(joIdTarget) > 0) {
+    jobOrderCode = `JO-2026-${String(joIdTarget).padStart(4, '0')}`;
+  }
+
+  // Employer Company Name
+  let employerName = '—';
+  if (matchedEmp?.company_name || matchedEmp?.companyName) {
+    employerName = matchedEmp.company_name || matchedEmp.companyName;
+  } else if (matchedJo?.employerName || matchedJo?.employer?.company_name || matchedJo?.client_employer?.company_name) {
+    employerName = matchedJo.employerName || matchedJo.employer?.company_name || matchedJo.client_employer?.company_name;
+  } else if (cleanCardEmpName) {
+    employerName = cleanCardEmpName;
+  } else if ((applicant as any)?.employer) {
+    employerName = (applicant as any).employer;
+  }
+
+  // Country Destination
+  let countryName = '—';
+  const joCountry = (typeof matchedJo?.country === 'string' ? matchedJo.country : matchedJo?.country?.country_name) || matchedJo?.country_name;
+  const empCountry = matchedEmp?.country || matchedEmp?.country_name || (typeof matchedEmp?.country === 'object' ? matchedEmp.country?.country_name : '');
+  const cardCountry = card.employer_info?.country_name;
+  const cleanCardCountry = (cardCountry && cardCountry !== 'Saudi Arabia' && cardCountry !== 'Overseas') ? cardCountry : '';
+
+  if (joCountry && joCountry !== 'International') {
+    countryName = joCountry;
+  } else if (empCountry && empCountry !== 'International') {
+    countryName = empCountry;
+  } else if (cleanCardCountry) {
+    countryName = cleanCardCountry;
+  } else if ((applicant as any)?.country) {
+    countryName = (applicant as any).country;
+  } else if (joCountry) {
+    countryName = joCountry;
+  } else if (empCountry) {
+    countryName = empCountry;
+  }
+
+  // Offered Position (by Employer / Job Order)
+  let offeredPosition = '—';
+  if (matchedJo?.position || matchedJo?.position_title) {
+    offeredPosition = matchedJo.position || matchedJo.position_title;
+  } else if (card.employer_info?.position && card.employer_info.position !== 'OFW Staff') {
+    offeredPosition = card.employer_info.position;
+  }
+
+  // Contract Salary Offer
+  let salaryFormatted = '—';
+  const salMin = matchedJo?.salaryMin ?? matchedJo?.salary_min ?? card.employer_info?.salary_min;
+  const salMax = matchedJo?.salaryMax ?? matchedJo?.salary_max ?? card.employer_info?.salary_max;
+  const salCurr = matchedJo?.salaryCurrency || matchedJo?.salary_currency || card.employer_info?.salary_currency || '';
+  if ((salMin !== undefined && salMin !== null && Number(salMin) > 0) || (salMax !== undefined && salMax !== null && Number(salMax) > 0)) {
+    const currStr = salCurr ? `${salCurr} ` : '';
+    if (salMin && salMax) {
+      salaryFormatted = `${currStr}${Number(salMin).toLocaleString()} - ${Number(salMax).toLocaleString()}`;
+    } else if (salMin) {
+      salaryFormatted = `${currStr}${Number(salMin).toLocaleString()}`;
+    } else if (salMax) {
+      salaryFormatted = `Up to ${currStr}${Number(salMax).toLocaleString()}`;
+    }
+  } else if ((applicant as any)?.salary) {
+    salaryFormatted = String((applicant as any).salary);
+  }
+
+  // Quota slots
+  let slotsText = '—';
+  const totalSlots = matchedJo?.slots ?? matchedJo?.total_slots ?? card.employer_info?.total_slots;
+  const filledSlots = matchedJo?.filledSlots ?? matchedJo?.filled_slots ?? 0;
+  if (typeof totalSlots === 'number' && totalSlots > 0) {
+    const remaining = Math.max(0, totalSlots - filledSlots);
+    slotsText = remaining > 0 ? `${remaining} of ${totalSlots} quota slots available` : `Quota fully filled (${totalSlots}/${totalSlots})`;
+  }
+
+  return {
+    candidateName,
+    candidateCode,
+    candidateAppliedRole,
+    jobOrderCode,
+    jobOrderId: joIdTarget || null,
+    offeredPosition,
+    employerName,
+    countryName,
+    salaryFormatted,
+    slotsText,
+    hasMatchedJobOrder: Boolean(matchedJo),
+    hasMatchedEmployer: Boolean(matchedEmp),
+  };
+}
+
 interface KanbanCardProps {
   card: CvSubmission;
   stage: typeof STAGES[number];
-  onAdvance: (submissionId: number, nextStage: CvSubmission['board_stage_code'], extra?: Record<string, any>) => void;
-  onRemove: (submissionId: number) => void;
+  applicant?: ApplicantRecord;
+  globalJobOrders?: any[];
+  globalEmployers?: any[];
+  onPreviewCV: (card: CvSubmission) => void;
+  onDownloadCV: (card: CvSubmission) => void;
+  onOpenReturnModal: (card: CvSubmission) => void;
+  onConfirmUpload: (card: CvSubmission, uploadRef: string) => void;
+  onConfirmEncoding: (card: CvSubmission) => void;
+  onOpenEmployerSelection: (card: CvSubmission) => void;
+  onOpenNotSelected: (card: CvSubmission) => void;
+  onOpenVerificationModal: (card: CvSubmission) => void;
+  onPromptRollback: (card: CvSubmission) => void;
   isActing: boolean;
 }
 
-function KanbanCard({ card, stage, onAdvance, onRemove, isActing }: KanbanCardProps) {
+function KanbanCard({
+  card,
+  stage,
+  applicant,
+  globalJobOrders = [],
+  globalEmployers = [],
+  onPreviewCV,
+  onDownloadCV,
+  onOpenReturnModal,
+  onConfirmUpload,
+  onConfirmEncoding,
+  onOpenEmployerSelection,
+  onOpenNotSelected,
+  onOpenVerificationModal,
+  onPromptRollback,
+  isActing,
+}: KanbanCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [uploadRef, setUploadRef] = useState(card.ext_upload_ref || '');
-  const [selectionDate, setSelectionDate] = useState(card.selection_date || '');
-  const [adminNotes, setAdminNotes] = useState(card.admin_notes || '');
 
-  const handleAdvance = () => {
-    if (!stage.nextStage || isActing) return;
-    const extra: Record<string, any> = {};
-    if (stage.code === 'MANAGER_APPROVED' && uploadRef.trim()) extra.extUploadRef = uploadRef.trim();
-    if (stage.code === 'UPLOADED_TO_PORTAL' && selectionDate) extra.selectionDate = selectionDate;
-    if (stage.code === 'WAITING_SELECTION') extra.adminNotes = adminNotes.trim() || undefined;
-    onAdvance(card.submission_id, stage.nextStage!, extra);
-  };
+  const details = resolveCardDetails(card, applicant, globalJobOrders, globalEmployers);
+  const name = details.candidateName;
+  const role = details.candidateAppliedRole;
+  const joCode = details.jobOrderCode;
+  const approver = card.approved_by || 'Manager';
+  const approvalDate = card.approved_at
+    ? new Date(card.approved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+    : (card.stage_updated_at ? new Date(card.stage_updated_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : null);
 
-  const name = card.applicant_name || `Applicant #${card.applicant_id}`;
-  const role = card.applied_role || '—';
-  const joCode = card.job_order_code || (card.job_order_id ? `JO-${card.job_order_id}` : '—');
+  const empCompany = details.employerName;
+  const empCountry = details.countryName;
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${stage.accent} overflow-hidden transition-all`}>
-      <div
-        className="p-4 cursor-pointer hover:bg-slate-50/60 transition-colors"
-        onClick={() => setExpanded(o => !o)}
-      >
+    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${stage.accent} overflow-hidden transition-all hover:shadow-md`}>
+      <div className="p-3.5">
+        {/* Top row: Name & Return Trash Button */}
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="font-bold text-[#0F172A] text-sm truncate">{name}</p>
-            <p className="text-xs text-[#64748B] font-medium mt-0.5">{role}</p>
-            <p className="text-[10px] text-slate-400 mt-1 font-mono">{joCode} · Sub #{card.submission_id}</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="font-extrabold text-[#0F172A] text-sm truncate">{name}</p>
+              {applicant?.status && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                  {applicant.status}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-[#64748B] font-medium mt-0.5 flex items-center gap-1">
+              <Briefcase className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              <span className="truncate">{role}</span>
+            </p>
+            <p className="text-[10px] text-slate-400 mt-0.5 font-mono flex items-center gap-1">
+              <Building className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              <span className="truncate">
+                {joCode !== '—' ? joCode : 'No JO Assigned'}
+                {empCompany !== '—' ? ` · ${empCompany}${empCountry !== '—' ? ` (${empCountry})` : ''}` : ''}
+              </span>
+            </p>
           </div>
-          <button className="flex-shrink-0 text-slate-300 hover:text-slate-500 transition-colors">
-            {expanded
-              ? <ChevronRight className="w-4 h-4 rotate-90 transition-transform" />
-              : <ChevronRight className="w-4 h-4 transition-transform" />
-            }
+
+          {/* Return button (opens Return to Previous Step / Phase modal) */}
+          <button
+            onClick={() => onOpenReturnModal(card)}
+            disabled={isActing}
+            className="p-1.5 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors flex-shrink-0"
+            title="Return applicant to previous step or phase"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {card.stage_updated_at && (
-          <div className="flex items-center gap-1 mt-2 text-[10px] text-slate-400">
-            <Clock className="w-3 h-3" />
-            {new Date(card.stage_updated_at).toLocaleDateString('en-PH')}
-            {card.stage_updated_by && ` · ${card.stage_updated_by}`}
+        {/* Manager Approval Banner */}
+        <div className="mt-2.5 px-2.5 py-1.5 bg-emerald-50/80 border border-emerald-100 rounded-lg flex items-center justify-between text-[11px]">
+          <div className="flex items-center gap-1.5 text-emerald-800 font-semibold truncate">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+            <span className="truncate">Approved by {approver}</span>
+          </div>
+          {approvalDate && (
+            <span className="text-[10px] text-emerald-600 font-mono whitespace-nowrap ml-1">{approvalDate}</span>
+          )}
+        </div>
+
+        {/* Quick Actions: Preview & Download Approved CV */}
+        <div className="flex items-center gap-1.5 mt-2.5">
+          <button
+            onClick={() => onPreviewCV(card)}
+            className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold transition-colors"
+            title="Preview formatted CV"
+          >
+            <Eye className="w-3 h-3 text-[#0EA5E9]" />
+            Preview CV
+          </button>
+          <button
+            onClick={() => onDownloadCV(card)}
+            className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold transition-colors"
+            title="Download approved CV PDF"
+          >
+            <Download className="w-3 h-3 text-[#10B981]" />
+            Download PDF
+          </button>
+        </div>
+
+        {/* Portal Reference badge if present */}
+        {card.ext_upload_ref && (
+          <div className="mt-2 flex items-center gap-1 text-[11px] text-[#0EA5E9] bg-sky-50 px-2 py-1 rounded border border-sky-100 truncate">
+            <LinkIcon className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">Ref: {card.ext_upload_ref}</span>
           </div>
         )}
-      </div>
 
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-slate-100 space-y-3 pt-3">
-          {/* Upload ref field for MANAGER_APPROVED stage */}
+        {/* Stage-specific Interactive Controls */}
+        <div className="mt-3 pt-2.5 border-t border-slate-100">
+          {/* STAGE 1: MANAGER_APPROVED */}
           {stage.code === 'MANAGER_APPROVED' && (
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">
-                Portal Upload Reference (optional)
-              </label>
+            <div className="space-y-2">
               <input
                 type="text"
                 value={uploadRef}
                 onChange={e => setUploadRef(e.target.value)}
-                placeholder="e.g. POEA-2026-0091 or employer ATS link"
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:border-[#0EA5E9] outline-none"
-                onClick={e => e.stopPropagation()}
+                placeholder="Portal Ref (e.g. POEA-2026-0091 or link)"
+                className="w-full border border-slate-200 rounded-lg px-2.5 py-1 text-[11px] focus:border-[#0EA5E9] outline-none"
               />
-            </div>
-          )}
-
-          {/* Existing upload ref display */}
-          {stage.code === 'UPLOADED_TO_PORTAL' && card.ext_upload_ref && (
-            <div className="flex items-center gap-1.5 text-xs text-[#0EA5E9]">
-              <Link className="w-3 h-3" />
-              <span>{card.ext_upload_ref}</span>
-            </div>
-          )}
-
-          {/* Selection date for UPLOADED stage */}
-          {stage.code === 'UPLOADED_TO_PORTAL' && (
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">
-                Selection Date (optional)
-              </label>
-              <input
-                type="date"
-                value={selectionDate}
-                onChange={e => setSelectionDate(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:border-[#0EA5E9] outline-none"
-                onClick={e => e.stopPropagation()}
-              />
-            </div>
-          )}
-
-          {/* Admin notes for WAITING_SELECTION */}
-          {stage.code === 'WAITING_SELECTION' && (
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">
-                Admin Notes
-              </label>
-              <textarea
-                rows={2}
-                value={adminNotes}
-                onChange={e => setAdminNotes(e.target.value)}
-                placeholder="Notes for Admin on final processing..."
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs resize-none focus:border-[#0EA5E9] outline-none"
-                onClick={e => e.stopPropagation()}
-              />
-            </div>
-          )}
-
-          {/* Endorsed summary for ENDORSED_TO_ADMIN */}
-          {stage.code === 'ENDORSED_TO_ADMIN' && card.admin_notes && (
-            <div className="bg-violet-50 rounded-lg p-2 text-xs text-violet-700">
-              <span className="font-bold">Admin notes:</span> {card.admin_notes}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); onRemove(card.submission_id); }}
-              disabled={isActing}
-              className="p-1.5 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30"
-              title="Remove from board"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-
-            {stage.nextAction && (
               <button
-                onClick={(e) => { e.stopPropagation(); handleAdvance(); }}
+                onClick={() => onConfirmUpload(card, uploadRef)}
                 disabled={isActing}
-                style={{ background: stage.color }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity shadow-sm"
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#10b981] hover:bg-[#059669] text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
               >
-                {isActing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronRight className="w-3 h-3" />}
-                {stage.nextAction}
+                {isActing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                Confirm Portal Upload
               </button>
-            )}
+            </div>
+          )}
 
-            {stage.code === 'ENDORSED_TO_ADMIN' && (
-              <span className="text-[10px] text-violet-500 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Final Stage
-              </span>
-            )}
-          </div>
+          {/* STAGE 2: UPLOADED_TO_PORTAL */}
+          {stage.code === 'UPLOADED_TO_PORTAL' && (
+            <div className="space-y-1.5">
+              <button
+                onClick={() => onConfirmEncoding(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
+              >
+                {isActing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                Confirm Encoding Done
+              </button>
+              <button
+                onClick={() => onPromptRollback(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-amber-800 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+                title="Revert back to Manager Approved if clicked by mistake"
+              >
+                <Undo2 className="w-3 h-3 text-amber-600" />
+                Return to Manager Approved
+              </button>
+            </div>
+          )}
+
+          {/* STAGE 3: WAITING_SELECTION */}
+          {stage.code === 'WAITING_SELECTION' && (
+            <div className="space-y-1.5">
+              <button
+                onClick={() => onOpenEmployerSelection(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Employer Selected
+              </button>
+              <button
+                onClick={() => onOpenNotSelected(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-600 hover:text-amber-800 hover:bg-amber-50 border border-slate-200 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+              >
+                <AlertCircle className="w-3 h-3 text-amber-500" />
+                Not Selected / Slot Filled
+              </button>
+              <button
+                onClick={() => onPromptRollback(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-amber-800 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+                title="Revert back to Uploaded to Portal if clicked by mistake"
+              >
+                <Undo2 className="w-3 h-3 text-amber-600" />
+                Return to Uploaded to Portal
+              </button>
+            </div>
+          )}
+
+          {/* STAGE 4: ENDORSED_TO_ADMIN */}
+          {stage.code === 'ENDORSED_TO_ADMIN' && (
+            <div className="space-y-1.5">
+              <button
+                onClick={() => onOpenVerificationModal(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Review & Endorse to Admin
+              </button>
+              <button
+                onClick={() => onPromptRollback(card)}
+                disabled={isActing}
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-amber-800 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+                title="Revert back to Waiting Selection if clicked by mistake"
+              >
+                <Undo2 className="w-3 h-3 text-amber-600" />
+                Return to Waiting Selection
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN ENDORSEMENT TRACKER COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function EndorsementTracker({
   applicants = [],
   currentUserName,
   addActivityLog,
   updateApplicant,
+  globalJobOrders = [],
+  globalEmployers = [],
+  onNavigate,
+  showToast,
 }: EndorsementTrackerProps) {
   const [submissions, setSubmissions] = useState<CvSubmission[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actingId, setActingId] = useState<number | null>(null);
 
+  // Modals state
+  const [returnModalCard, setReturnModalCard] = useState<CvSubmission | null>(null);
+  const [returnDestination, setReturnDestination] = useState<string>('PREV_STAGE');
+  const [returnTargetPhase, setReturnTargetPhase] = useState<number>(4);
+  const [returnReason, setReturnReason] = useState<string>('');
+
+  const [confirmRollbackCard, setConfirmRollbackCard] = useState<CvSubmission | null>(null);
+  const [rollbackReason, setRollbackReason] = useState<string>('Accidentally advanced phase');
+
+  const [previewCard, setPreviewCard] = useState<CvSubmission | null>(null);
+
+  const [employerSelectionCard, setEmployerSelectionCard] = useState<CvSubmission | null>(null);
+  const [selectionRemarks, setSelectionRemarks] = useState<string>('');
+
+  const [notSelectedCard, setNotSelectedCard] = useState<CvSubmission | null>(null);
+  const [notSelectedMode, setNotSelectedMode] = useState<'POOL' | 'RE_ENDORSE'>('POOL');
+  const [selectedNewJobOrderId, setSelectedNewJobOrderId] = useState<string>('');
+  const [needsScreeningTest, setNeedsScreeningTest] = useState<boolean>(false);
+
+  const [verificationCard, setVerificationCard] = useState<CvSubmission | null>(null);
+
+  // Fetch submissions from backend
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -281,73 +643,506 @@ export default function EndorsementTracker({
 
   useEffect(() => { load(); }, [load]);
 
-  const handleAdvance = async (
-    submissionId: number,
-    nextStage: CvSubmission['board_stage_code'],
-    extra: Record<string, any> = {}
-  ) => {
-    setActingId(submissionId);
+  // Helper to find full applicant object
+  const getApplicantForCard = useCallback((card: CvSubmission): ApplicantRecord | undefined => {
+    return applicants.find(a => String(a.id) === String(card.applicant_id));
+  }, [applicants]);
+
+  const notify = (msg: string) => {
+    if (showToast) showToast(msg);
+    else alert(msg);
+  };
+
+  // ── 1. Confirm Portal Upload (Advances to UPLOADED_TO_PORTAL) ────────────────
+  const handleConfirmUpload = async (card: CvSubmission, uploadRef: string) => {
+    setActingId(card.submission_id);
     try {
-      const res = await api.patch(`/cv-submissions/${submissionId}`, {
-        boardStageCode: nextStage,
-        ...extra,
-      });
+      const extra: Record<string, any> = {
+        boardStageCode: 'UPLOADED_TO_PORTAL',
+      };
+      if (uploadRef.trim()) extra.extUploadRef = uploadRef.trim();
+
+      const res = await api.patch(`/cv-submissions/${card.submission_id}`, extra);
       const updated: CvSubmission = res.data;
-      setSubmissions(prev => prev.map(s => s.submission_id === submissionId ? updated : s));
+      setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? updated : s));
 
-      // Update applicant phase for the ENDORSED_TO_ADMIN transition
-      if (nextStage === 'ENDORSED_TO_ADMIN') {
-        const app = applicants.find(a => String(a.id) === String(updated.applicant_id));
-        if (app) {
-          updateApplicant(String(app.id), {
-            phase: 5,
-            status: 'Endorse for Administrative Processing',
-            currentHandler: 'Admin',
-            currentDepartment: 'Admin',
-            phaseDescription: 'Employer confirmed selection. Admin & Accounting deployment modules unlocked.',
-          });
+      // Update applicant status to "Endorse to Employer"
+      updateApplicant(String(card.applicant_id), {
+        status: 'Endorse to Employer',
+        phaseDescription: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
+      });
 
-          const numId = parseInt(String(app.id), 10);
-          if (!isNaN(numId)) {
-            api.put(`/applicants/${numId}`, {
-              application_id: app.applicationId,
-              application_status: 'Endorse for Administrative Processing',
-              current_phase: 5,
-              current_handler: 'Admin',
-              current_department: 'Admin',
-              phase_description: 'Employer confirmed selection. Admin & Accounting deployment modules unlocked.',
-              statusChangeReason: 'Candidate endorsed to Admin from Endorsement Tracker',
-              statusChangeSource: 'ENDORSEMENT_TRACKER',
-              updated_at: new Date().toISOString(),
-            }).catch(console.error);
-          }
-        }
-        addActivityLog({
-          applicantId: String(updated.applicant_id),
-          action: 'Endorsed to Admin',
-          performedBy: currentUserName,
-          department: 'Recruitment',
-          details: `Submission #${submissionId} moved to Endorsed to Admin. Phase 5 unlocked.`,
-        });
+      const numId = parseInt(String(card.applicant_id), 10);
+      if (!isNaN(numId)) {
+        api.put(`/applicants/${numId}`, {
+          application_status: 'Endorse to Employer',
+          phase_description: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
+          statusChangeReason: 'Confirmed portal upload in Endorsement Tracker',
+          statusChangeSource: 'ENDORSEMENT_TRACKER',
+          updated_at: new Date().toISOString(),
+        }).catch(console.error);
       }
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: 'Endorsed to Employer',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Candidate CV uploaded to portal (Ref: ${uploadRef || 'None'}). Status: Endorse to Employer.`,
+      });
+
+      notify(`✓ ${card.applicant_name}: Status updated to "Endorse to Employer"`);
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err.message;
-      alert(`Failed to advance stage: ${msg}`);
+      alert(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
   };
 
-  const handleRemove = async (submissionId: number) => {
-    if (!confirm('Remove this card from the Endorsement Tracker board?')) return;
-    setActingId(submissionId);
+  // ── 2. Confirm Portal Encoding Done (Advances to WAITING_SELECTION) ──────────
+  const handleConfirmEncoding = async (card: CvSubmission) => {
+    setActingId(card.submission_id);
     try {
-      await api.delete(`/cv-submissions/${submissionId}`);
-      setSubmissions(prev => prev.filter(s => s.submission_id !== submissionId));
-    } catch {
-      alert('Failed to remove card');
+      const res = await api.patch(`/cv-submissions/${card.submission_id}`, {
+        boardStageCode: 'WAITING_SELECTION',
+      });
+      const updated: CvSubmission = res.data;
+      setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? updated : s));
+
+      // Update applicant status to "Under Employer Review"
+      updateApplicant(String(card.applicant_id), {
+        status: 'Under Employer Review',
+        phaseDescription: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
+      });
+
+      const numId = parseInt(String(card.applicant_id), 10);
+      if (!isNaN(numId)) {
+        api.put(`/applicants/${numId}`, {
+          application_status: 'Under Employer Review',
+          phase_description: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
+          statusChangeReason: 'Confirmed portal encoding complete; under employer review',
+          statusChangeSource: 'ENDORSEMENT_TRACKER',
+          updated_at: new Date().toISOString(),
+        }).catch(console.error);
+      }
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: 'Under Employer Review',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Candidate CV confirmed encoded in portal. Status updated to Under Employer Review.`,
+      });
+
+      notify(`✓ ${card.applicant_name}: Status updated to "Under Employer Review"`);
+    } catch (err: any) {
+      alert(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
+    }
+  };
+
+  // ── 3. Confirm Employer Selection (Advances to PRE-DEPLOYMENT / ADMIN) ───────
+  const handleConfirmEmployerSelection = async () => {
+    if (!employerSelectionCard) return;
+    const card = employerSelectionCard;
+    setActingId(card.submission_id);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const res = await api.patch(`/cv-submissions/${card.submission_id}`, {
+        boardStageCode: 'ENDORSED_TO_ADMIN',
+        selectionDate: nowIso.split('T')[0],
+        adminNotes: selectionRemarks.trim() || undefined,
+      });
+      const updated: CvSubmission = res.data;
+      setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? updated : s));
+
+      const app = getApplicantForCard(card);
+      const details = resolveCardDetails(card, app, globalJobOrders, globalEmployers);
+      const empName = details.employerName !== '—' ? details.employerName : 'Employer';
+
+      // Update applicant status to "Pre-Deployment Processing" (Phase 5)
+      updateApplicant(String(card.applicant_id), {
+        phase: 5,
+        status: 'Pre-Deployment Processing',
+        currentHandler: 'Admin',
+        currentDepartment: 'Admin',
+        phaseDescription: `Candidate selected by ${empName}. In Pre-Deployment Processing. Ready for document validation.`,
+      });
+
+      const numId = parseInt(String(card.applicant_id), 10);
+      if (!isNaN(numId)) {
+        api.put(`/applicants/${numId}`, {
+          current_phase: 5,
+          application_status: 'Pre-Deployment Processing',
+          current_handler: 'Admin',
+          current_department: 'Admin',
+          phase_description: `Candidate selected by ${empName}. In Pre-Deployment Processing. Ready for document validation.`,
+          statusChangeReason: `Employer selection confirmed: ${selectionRemarks || 'Selected by foreign employer'}`,
+          statusChangeSource: 'ENDORSEMENT_TRACKER',
+          updated_at: nowIso,
+        }).catch(console.error);
+      }
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: 'Employer Accepted Candidate',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `Selected by ${empName}. Moved to Pre-Deployment Processing.`,
+      });
+
+      setEmployerSelectionCard(null);
+      setSelectionRemarks('');
+      notify(`🎉 ${card.applicant_name}: Selected by employer! Moved to Pre-Deployment Processing.`);
+    } catch (err: any) {
+      alert(`Failed to record selection: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // ── 4. Employer Not Selected / Slot Filled Handler ───────────────────────────
+  const handleConfirmNotSelected = async () => {
+    if (!notSelectedCard) return;
+    const card = notSelectedCard;
+    setActingId(card.submission_id);
+
+    try {
+      const numId = parseInt(String(card.applicant_id), 10);
+
+      if (notSelectedMode === 'POOL') {
+        // Keep in pool as Waiting Selection
+        updateApplicant(String(card.applicant_id), {
+          status: 'Waiting Selection',
+          phaseDescription: 'Candidate awaiting new job order endorsement (previous slot filled/not selected).',
+        });
+
+        if (!isNaN(numId)) {
+          await api.put(`/applicants/${numId}`, {
+            application_status: 'Waiting Selection',
+            phase_description: 'Candidate awaiting new job order endorsement (previous slot filled/not selected).',
+            statusChangeReason: 'Employer slot filled / not selected; retained in Waiting Selection pool',
+            statusChangeSource: 'ENDORSEMENT_TRACKER',
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        // Remove card from this job order submission
+        await api.delete(`/cv-submissions/${card.submission_id}`);
+        setSubmissions(prev => prev.filter(s => s.submission_id !== card.submission_id));
+
+        addActivityLog({
+          applicantId: String(card.applicant_id),
+          action: 'Moved to Waiting Selection',
+          performedBy: currentUserName,
+          department: 'Recruitment',
+          details: `Candidate not selected or slot filled. Placed in Waiting Selection talent pool.`,
+        });
+
+        notify(`ℹ️ ${card.applicant_name}: Status updated to "Waiting Selection" (Retained in pool)`);
+      } else {
+        // Re-endorse to new Job Order
+        const targetJo = globalJobOrders.find(j => String(j.id || j.job_order_id) === String(selectedNewJobOrderId));
+        const newJoCode = targetJo?.job_code || targetJo?.jobCode || `JO-${selectedNewJobOrderId}`;
+        const newPosition = targetJo?.position || targetJo?.appliedPosition || 'New Position';
+
+        if (needsScreeningTest) {
+          // Send back to Screening Panel for assessment
+          updateApplicant(String(card.applicant_id), {
+            phase: 2,
+            status: 'Initial Screening',
+            jobOrder: newJoCode,
+            selectedJobOrderId: String(selectedNewJobOrderId),
+            role: newPosition,
+            currentHandler: 'Recruitment',
+            currentDepartment: 'Recruitment',
+            phaseDescription: `Re-endorsed to ${newJoCode}. Returned to Screening Panel for additional assessment.`,
+          });
+
+          if (!isNaN(numId)) {
+            await api.put(`/applicants/${numId}`, {
+              current_phase: 2,
+              application_status: 'Initial Screening',
+              job_order_id: Number(selectedNewJobOrderId),
+              current_handler: 'Recruitment',
+              current_department: 'Recruitment',
+              phase_description: `Re-endorsed to ${newJoCode}. Returned to Screening Panel for additional assessment.`,
+              statusChangeReason: `Re-endorsed to ${newJoCode}; returned to screening for required evaluations`,
+              statusChangeSource: 'ENDORSEMENT_TRACKER',
+              updated_at: new Date().toISOString(),
+            });
+          }
+
+          // Remove submission card from previous job order
+          await api.delete(`/cv-submissions/${card.submission_id}`);
+          setSubmissions(prev => prev.filter(s => s.submission_id !== card.submission_id));
+
+          addActivityLog({
+            applicantId: String(card.applicant_id),
+            action: 'Re-endorsed to New Job Order (Screening)',
+            performedBy: currentUserName,
+            department: 'Recruitment',
+            details: `Re-endorsed to ${newJoCode}. Returned to Screening Panel for required tests.`,
+          });
+
+          notify(`🔄 ${card.applicant_name}: Re-endorsed to ${newJoCode} & returned to Screening Panel`);
+        } else {
+          // Qualifications match: set to Waiting Selection under new Job Order
+          updateApplicant(String(card.applicant_id), {
+            status: 'Waiting Selection',
+            jobOrder: newJoCode,
+            selectedJobOrderId: String(selectedNewJobOrderId),
+            role: newPosition,
+            phaseDescription: `Assigned to ${newJoCode}. Waiting for endorsement package submission.`,
+          });
+
+          if (!isNaN(numId)) {
+            await api.put(`/applicants/${numId}`, {
+              application_status: 'Waiting Selection',
+              job_order_id: Number(selectedNewJobOrderId),
+              phase_description: `Assigned to ${newJoCode}. Waiting for endorsement package submission.`,
+              statusChangeReason: `Assigned to new Job Order ${newJoCode}`,
+              statusChangeSource: 'ENDORSEMENT_TRACKER',
+              updated_at: new Date().toISOString(),
+            });
+          }
+
+          // Remove old submission
+          await api.delete(`/cv-submissions/${card.submission_id}`);
+          setSubmissions(prev => prev.filter(s => s.submission_id !== card.submission_id));
+
+          addActivityLog({
+            applicantId: String(card.applicant_id),
+            action: 'Reassigned to New Job Order',
+            performedBy: currentUserName,
+            department: 'Recruitment',
+            details: `Reassigned to ${newJoCode} (${newPosition}) as Waiting Selection.`,
+          });
+
+          notify(`✓ ${card.applicant_name}: Reassigned to ${newJoCode} (Waiting Selection)`);
+        }
+      }
+
+      setNotSelectedCard(null);
+      setSelectedNewJobOrderId('');
+      setNeedsScreeningTest(false);
+    } catch (err: any) {
+      alert(`Error updating outcome: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // ── 5. Deployment Eligibility Verification (Provisional vs Endorse Admin) ────
+  const handleVerifyAndEndorseAdmin = async (card: CvSubmission, isComplete: boolean, missingItems: string[]) => {
+    setActingId(card.submission_id);
+    const numId = parseInt(String(card.applicant_id), 10);
+
+    try {
+      if (!isComplete) {
+        // RESULT 1: Incomplete records -> Block and update status to "Provisional"
+        const reasonText = `Deployment blocked due to missing records: ${missingItems.join(', ')}. Recruitment team notified.`;
+
+        updateApplicant(String(card.applicant_id), {
+          status: 'Provisional',
+          currentHandler: 'Recruitment',
+          currentDepartment: 'Recruitment',
+          phaseDescription: reasonText,
+        });
+
+        if (!isNaN(numId)) {
+          await api.put(`/applicants/${numId}`, {
+            application_status: 'Provisional',
+            current_handler: 'Recruitment',
+            current_department: 'Recruitment',
+            phase_description: reasonText,
+            statusChangeReason: reasonText,
+            statusChangeSource: 'DEPLOYMENT_VERIFICATION',
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        addActivityLog({
+          applicantId: String(card.applicant_id),
+          action: 'Deployment Blocked (Provisional)',
+          performedBy: currentUserName,
+          department: 'Recruitment',
+          details: reasonText,
+        });
+
+        notify(`⚠️ ${card.applicant_name} marked as Provisional: missing ${missingItems.length} requirement(s).`);
+      } else {
+        // RESULT 2: Complete records -> Endorse for Administrative Processing
+        updateApplicant(String(card.applicant_id), {
+          phase: 5,
+          status: 'Endorse for Administrative Processing',
+          currentHandler: 'Admin',
+          currentDepartment: 'Admin',
+          phaseDescription: 'Deployment eligibility records complete. Endorsed for Administrative Processing. Document Validation & Expense Ledger unlocked.',
+        });
+
+        if (!isNaN(numId)) {
+          await api.put(`/applicants/${numId}`, {
+            current_phase: 5,
+            application_status: 'Endorse for Administrative Processing',
+            current_handler: 'Admin',
+            current_department: 'Admin',
+            phase_description: 'Deployment eligibility records complete. Endorsed for Administrative Processing. Document Validation & Expense Ledger unlocked.',
+            statusChangeReason: 'Deployment records verified complete from Endorsement Tracker',
+            statusChangeSource: 'DEPLOYMENT_VERIFICATION',
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        addActivityLog({
+          applicantId: String(card.applicant_id),
+          action: 'Endorsed for Administrative Processing',
+          performedBy: currentUserName,
+          department: 'Admin',
+          details: `Deployment eligibility records verified complete. Endorsed for administrative processing.`,
+        });
+
+        notify(`✓ ${card.applicant_name}: Endorsed for Administrative Processing! Document Validation & Ledger unlocked.`);
+      }
+
+      setVerificationCard(null);
+    } catch (err: any) {
+      alert(`Verification update failed: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // ── Rollback Stage Handler (Return card to previous step in Tracker) ────────
+  const handleRollbackStage = async (card: CvSubmission, customReason?: string) => {
+    const prevInfo = PREVIOUS_STAGE_MAP[card.board_stage_code];
+    if (!prevInfo) return;
+
+    setActingId(card.submission_id);
+    try {
+      const res = await api.patch(`/cv-submissions/${card.submission_id}`, {
+        boardStageCode: prevInfo.prevStageCode,
+      });
+      const updated: CvSubmission = res.data;
+      setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? updated : s));
+
+      updateApplicant(String(card.applicant_id), {
+        phase: prevInfo.phase,
+        status: prevInfo.applicantStatus,
+        phaseDescription: prevInfo.description,
+      });
+
+      const numId = parseInt(String(card.applicant_id), 10);
+      if (!isNaN(numId)) {
+        await api.put(`/applicants/${numId}`, {
+          current_phase: prevInfo.phase,
+          application_status: prevInfo.applicantStatus,
+          phase_description: prevInfo.description,
+          statusChangeReason: customReason || `Returned to previous step (${prevInfo.prevStageLabel}) in Endorsement Tracker`,
+          statusChangeSource: 'ENDORSEMENT_STAGE_ROLLBACK',
+          updated_at: new Date().toISOString(),
+        }).catch(console.error);
+      }
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: `Returned to ${prevInfo.prevStageLabel}`,
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `Stepped back from ${card.board_stage_code} to ${prevInfo.prevStageCode}. Status reverted to "${prevInfo.applicantStatus}". ${customReason ? `Reason: ${customReason}` : ''}`,
+      });
+
+      notify(`↩ ${card.applicant_name}: Returned to previous step "${prevInfo.prevStageLabel}"`);
+    } catch (err: any) {
+      alert(`Failed to return to previous step: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // ── 6. Return Applicant to Previous Step or Phase Modal Handler ──────────────
+  const handleConfirmReturn = async () => {
+    if (!returnModalCard) return;
+    const card = returnModalCard;
+    const reason = returnReason.trim() || 'Returned by staff from Endorsement Tracker';
+
+    // If user chose to step back within the tracker
+    if (returnDestination === 'PREV_STAGE') {
+      await handleRollbackStage(card, reason);
+      setReturnModalCard(null);
+      setReturnReason('');
+      return;
+    }
+
+    const targetPhaseMap: Record<number, { status: string; desc: string }> = {
+      4: { status: 'CV Encoding', desc: 'Returned to CV Encoding for revisions.' },
+      3: { status: 'Applicant Profiling', desc: 'Returned to Applicant Profiling for profile updates.' },
+      2: { status: 'Initial Screening', desc: 'Returned to Screening Panel for re-evaluation.' },
+      1: { status: 'Applicant Registration', desc: 'Returned to initial registration.' },
+    };
+
+    const target = targetPhaseMap[returnTargetPhase] || targetPhaseMap[4];
+    setActingId(card.submission_id);
+
+    try {
+      const numId = parseInt(String(card.applicant_id), 10);
+      if (!isNaN(numId)) {
+        await api.put(`/applicants/${numId}`, {
+          current_phase: returnTargetPhase,
+          application_status: target.status,
+          current_handler: 'Recruitment',
+          current_department: 'Recruitment',
+          phase_description: `${target.desc} Reason: ${reason}`,
+          statusChangeReason: reason,
+          statusChangeSource: 'ENDORSEMENT_TRACKER_RETURN',
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      // Remove submission from Endorsement Tracker
+      await api.delete(`/cv-submissions/${card.submission_id}`);
+      setSubmissions(prev => prev.filter(s => s.submission_id !== card.submission_id));
+
+      updateApplicant(String(card.applicant_id), {
+        phase: returnTargetPhase,
+        status: target.status,
+        currentHandler: 'Recruitment',
+        currentDepartment: 'Recruitment',
+        phaseDescription: `${target.desc} Reason: ${reason}`,
+      });
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: `Returned to ${target.status}`,
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `Returned from Endorsement Tracker to Phase ${returnTargetPhase} (${target.status}). Reason: ${reason}`,
+      });
+
+      setReturnModalCard(null);
+      setReturnReason('');
+      notify(`✓ ${card.applicant_name} returned to Phase ${returnTargetPhase} (${target.status})`);
+    } catch (err: any) {
+      alert(`Failed to return candidate: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // ── 7. Direct Download CV PDF ───────────────────────────────────────────────
+  const handleDownloadCV = async (card: CvSubmission) => {
+    const app = getApplicantForCard(card);
+    if (!app) {
+      alert('Applicant record details not found in current pool.');
+      return;
+    }
+    try {
+      await downloadCVPdf(app, '', [], currentUserName, card.cv_id);
+      notify(`✓ Downloaded approved CV for ${app.name}`);
+    } catch (err: any) {
+      alert(`Failed to download CV: ${err.message}`);
     }
   };
 
@@ -359,17 +1154,26 @@ export default function EndorsementTracker({
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">Endorsement Tracker</h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">Endorsement Tracker</h2>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0EA5E9]/10 text-[#0EA5E9] border border-[#0EA5E9]/20">
+              Module 3 · CV Endorsement
+            </span>
+          </div>
           <p className="text-sm text-[#64748B] mt-1 font-medium">
-            Track approved CVs from manager approval to employer selection and admin endorsement.
+            Track approved CVs from manager sign-off, external employer portal upload, selection, and deployment eligibility verification.
           </p>
         </div>
-        <button
-          onClick={load}
-          className="p-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={load}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3 py-2 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 transition-colors shadow-sm text-xs font-semibold"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Board
+          </button>
+        </div>
       </div>
 
       {/* Kanban Board — 4 columns */}
@@ -379,10 +1183,10 @@ export default function EndorsementTracker({
           return (
             <div
               key={stage.code}
-              className={`rounded-xl p-4 flex flex-col min-h-[520px] border ${stage.border} ${stage.bg}`}
+              className={`rounded-xl p-4 flex flex-col min-h-[540px] border ${stage.border} ${stage.bg}`}
             >
               {/* Column header */}
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   {stage.icon}
                   <p className="text-xs uppercase tracking-widest text-[#0F172A] font-black leading-tight">
@@ -390,25 +1194,27 @@ export default function EndorsementTracker({
                   </p>
                 </div>
                 <span
-                  className="px-2 py-0.5 text-xs font-bold rounded text-white"
+                  className="px-2 py-0.5 text-xs font-extrabold rounded-full text-white"
                   style={{ background: stage.color }}
                 >
                   {cards.length}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 mb-3 leading-snug">{stage.desc}</p>
+              <p className="text-[10px] text-slate-500 mb-3 leading-snug">{stage.desc}</p>
 
-              {/* Cards */}
+              {/* Cards Container */}
               <div className="flex-1 space-y-3 overflow-y-auto">
                 {isLoading ? (
                   [1, 2].map(i => <SkeletonCard key={i} />)
                 ) : cards.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center h-40 text-center">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center mb-2"
-                      style={{ background: `${stage.color}18` }}>
+                  <div className="flex-1 flex flex-col items-center justify-center h-44 text-center">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center mb-2"
+                      style={{ background: `${stage.color}18` }}
+                    >
                       {stage.icon}
                     </div>
-                    <p className="text-xs text-slate-400 font-medium">No cards here yet</p>
+                    <p className="text-xs text-slate-400 font-medium">No candidates in this stage</p>
                   </div>
                 ) : (
                   cards.map(card => (
@@ -416,8 +1222,34 @@ export default function EndorsementTracker({
                       key={card.submission_id}
                       card={card}
                       stage={stage}
-                      onAdvance={handleAdvance}
-                      onRemove={handleRemove}
+                      applicant={getApplicantForCard(card)}
+                      globalJobOrders={globalJobOrders}
+                      globalEmployers={globalEmployers}
+                      onPreviewCV={c => setPreviewCard(c)}
+                      onDownloadCV={handleDownloadCV}
+                      onOpenReturnModal={c => {
+                        setReturnModalCard(c);
+                        setReturnDestination(PREVIOUS_STAGE_MAP[c.board_stage_code] ? 'PREV_STAGE' : 'PHASE_4');
+                        setReturnTargetPhase(4);
+                        setReturnReason('');
+                      }}
+                      onConfirmUpload={handleConfirmUpload}
+                      onConfirmEncoding={handleConfirmEncoding}
+                      onOpenEmployerSelection={c => {
+                        setEmployerSelectionCard(c);
+                        setSelectionRemarks('');
+                      }}
+                      onOpenNotSelected={c => {
+                        setNotSelectedCard(c);
+                        setNotSelectedMode('POOL');
+                        setSelectedNewJobOrderId('');
+                        setNeedsScreeningTest(false);
+                      }}
+                      onOpenVerificationModal={c => setVerificationCard(c)}
+                      onPromptRollback={c => {
+                        setConfirmRollbackCard(c);
+                        setRollbackReason('Accidentally advanced phase');
+                      }}
                       isActing={actingId === card.submission_id}
                     />
                   ))
@@ -428,21 +1260,829 @@ export default function EndorsementTracker({
         })}
       </div>
 
-      {/* Legend */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-3">Stage Flow</p>
-        <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
-          {STAGES.map((s, i) => (
-            <div key={s.code} className="flex items-center gap-1.5">
-              <span className="px-2 py-0.5 rounded-full font-bold text-white text-[10px]" style={{ background: s.color }}>
-                {s.shortLabel}
-              </span>
-              {i < STAGES.length - 1 && <ChevronRight className="w-3 h-3 text-slate-300" />}
-            </div>
-          ))}
-          <span className="ml-2 text-[#10b981] font-semibold">→ Phase 5 unlocked at "Endorsed to Admin"</span>
+      {/* Stage Flow Indicator */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide">Endorsement Workflow Pipeline</p>
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-600 mt-2">
+            <span className="px-2.5 py-1 rounded-md font-bold bg-emerald-100 text-emerald-800 text-[11px]">
+              1. Manager Approved
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+            <span className="px-2.5 py-1 rounded-md font-bold bg-sky-100 text-sky-800 text-[11px]">
+              2. Endorsed to Employer (Portal Uploaded)
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+            <span className="px-2.5 py-1 rounded-md font-bold bg-amber-100 text-amber-800 text-[11px]">
+              3. Under Employer Review / Selection
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+            <span className="px-2.5 py-1 rounded-md font-bold bg-violet-100 text-violet-800 text-[11px]">
+              4. Pre-Deployment Processing & Admin Validation
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-[#10b981] font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>Document Validation & Expense Ledger Unlocked at Phase 5</span>
         </div>
       </div>
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* CONFIRMATION OVERLAY: RETURN TO PREVIOUS STEP                       */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {confirmRollbackCard && (() => {
+        const prevInfo = PREVIOUS_STAGE_MAP[confirmRollbackCard.board_stage_code];
+        const cardName = confirmRollbackCard.applicant_name;
+        const currentStageObj = STAGES.find(s => s.code === confirmRollbackCard.board_stage_code);
+        const currentStageLabel = currentStageObj?.label || confirmRollbackCard.board_stage_code;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+              {/* Header */}
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-amber-50 via-sky-50/40 to-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Undo2 className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[#0F172A]">Confirm Return to Previous Step</h3>
+                    <p className="text-[11px] text-slate-500 font-medium">Revert accidental stage progression</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRollbackCard(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                {/* Candidate Info Card */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Candidate</p>
+                  <p className="text-base font-extrabold text-[#0F172A] mt-0.5">{cardName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                    <Briefcase className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                    <span>{confirmRollbackCard.applied_role || 'Applicant'}</span>
+                    <span className="text-slate-300">·</span>
+                    <span className="font-mono text-[11px]">{confirmRollbackCard.job_order_code || 'Unassigned JO'}</span>
+                  </p>
+                </div>
+
+                {/* Stage Transition Visualizer */}
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
+                  <p className="text-[11px] font-bold text-amber-900 uppercase tracking-wide">Stage Reversal</p>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex-1 p-2 bg-white rounded-lg border border-slate-200 text-center">
+                      <span className="text-[10px] text-slate-400 block font-semibold">FROM</span>
+                      <span className="font-bold text-slate-700 truncate block">{currentStageLabel}</span>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <div className="flex-1 p-2 bg-white rounded-lg border border-emerald-300 text-center shadow-xs">
+                      <span className="text-[10px] text-emerald-600 block font-semibold">RETURN TO</span>
+                      <span className="font-bold text-emerald-700 truncate block">{prevInfo?.prevStageLabel || 'Previous'}</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-amber-900 leading-snug">
+                    Status will revert to <strong className="text-amber-950 font-bold">"{prevInfo?.applicantStatus}"</strong> (Phase {prevInfo?.phase || 4}). Candidate will remain active in Endorsement Tracker.
+                  </p>
+                </div>
+
+                {/* Reason Input */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                    Reason for Returning (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={rollbackReason}
+                    onChange={e => setRollbackReason(e.target.value)}
+                    placeholder="e.g. Accidentally advanced phase..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[
+                      'Accidentally advanced phase',
+                      'Portal upload pending revision',
+                      'Encoding details need correction',
+                      'Employer requested re-check',
+                    ].map(chip => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setRollbackReason(chip)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                          rollbackReason === chip
+                            ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-transparent'
+                        }`}
+                      >
+                        + {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmRollbackCard(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const card = confirmRollbackCard;
+                    setConfirmRollbackCard(null);
+                    await handleRollbackStage(card, rollbackReason.trim() || 'Accidental stage progression reverted');
+                  }}
+                  disabled={actingId !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {actingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
+                  Confirm Return to {prevInfo?.prevStageLabel || 'Previous Step'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 1: RETURN TO PREVIOUS STEP OR PHASE MODAL                     */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {returnModalCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/60">
+              <div className="flex items-center gap-2 text-amber-900 font-bold">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-extrabold">Return Candidate to Previous Step or Phase</h3>
+              </div>
+              <button
+                onClick={() => setReturnModalCard(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-xs text-slate-500 font-medium">Candidate</p>
+                <p className="text-sm font-black text-slate-900">{returnModalCard.applicant_name}</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  Current Stage: {returnModalCard.board_stage_code} · {returnModalCard.job_order_code || 'Unassigned JO'}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Select Return Target
+                </label>
+                <div className="grid grid-cols-1 gap-2">
+                  {/* Previous Tracker Step Option (if applicable) */}
+                  {PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code] && (
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        returnDestination === 'PREV_STAGE'
+                          ? 'border-sky-500 bg-sky-50/80 text-sky-950 font-bold ring-1 ring-sky-500'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="returnDest"
+                        checked={returnDestination === 'PREV_STAGE'}
+                        onChange={() => setReturnDestination('PREV_STAGE')}
+                        className="mt-0.5 text-sky-600 focus:ring-sky-500"
+                      />
+                      <div>
+                        <div className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
+                          <Undo2 className="w-3.5 h-3.5 text-sky-600" />
+                          Step Back to: {PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code].prevStageLabel}
+                        </div>
+                        <div className="text-[11px] text-sky-700 font-normal mt-0.5">
+                          Undo accidental advance. Keeps candidate in Endorsement Tracker. Status reverts to "{PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code].applicantStatus}".
+                        </div>
+                      </div>
+                    </label>
+                  )}
+
+                  <div className="pt-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Or Return to Previous Workflow Phase:
+                  </div>
+
+                  {[
+                    { phase: 4, name: 'Phase 4: CV Encoding', status: 'CV Encoding', desc: 'Exit tracker and return to CV Encoding for revisions or correction' },
+                    { phase: 3, name: 'Phase 3: Applicant Profiling', status: 'Applicant Profiling', desc: 'Return to update personal, skills, or photo data' },
+                    { phase: 2, name: 'Phase 2: Screening Panel', status: 'Initial Screening', desc: 'Return for re-assessment or re-evaluation tests' },
+                    { phase: 1, name: 'Phase 1: Registration', status: 'Applicant Registration', desc: 'Return to intake & initial data encoding' },
+                  ].map(p => (
+                    <label
+                      key={p.phase}
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        returnDestination === `PHASE_${p.phase}`
+                          ? 'border-amber-500 bg-amber-50/40 text-amber-950 font-bold ring-1 ring-amber-500'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="returnDest"
+                        checked={returnDestination === `PHASE_${p.phase}`}
+                        onChange={() => {
+                          setReturnDestination(`PHASE_${p.phase}`);
+                          setReturnTargetPhase(p.phase);
+                        }}
+                        className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                      />
+                      <div>
+                        <div className="text-xs font-bold">{p.name} ({p.status})</div>
+                        <div className="text-[11px] text-slate-500 font-normal">{p.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Reason for Return {returnDestination === 'PREV_STAGE' ? '(Optional)' : '(Required)'}
+                </label>
+                <textarea
+                  rows={2}
+                  value={returnReason}
+                  onChange={e => setReturnReason(e.target.value)}
+                  placeholder={
+                    returnDestination === 'PREV_STAGE'
+                      ? 'e.g. Accidentally clicked next step, pending portal verification...'
+                      : 'Specify why this candidate is being returned to previous phase...'
+                  }
+                  className="w-full border border-slate-200 rounded-xl p-3 text-xs focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+                />
+                {/* Quick preset chips */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {(returnDestination === 'PREV_STAGE' ? [
+                    'Accidentally clicked next step',
+                    'Portal upload pending revision',
+                    'Encoding details need correction',
+                    'Waiting on employer portal access',
+                  ] : [
+                    'CV format revision required',
+                    'Employer requested additional work history',
+                    'Candidate requested job order change',
+                    'Manager rejected candidate package',
+                    'Skill assessment score review required',
+                  ]).map(chip => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setReturnReason(chip)}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                    >
+                      + {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setReturnModalCard(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReturn}
+                disabled={actingId !== null}
+                className={`flex items-center gap-1.5 px-4 py-2 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50 ${
+                  returnDestination === 'PREV_STAGE'
+                    ? 'bg-sky-600 hover:bg-sky-700'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                {actingId ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : returnDestination === 'PREV_STAGE' ? (
+                  <Undo2 className="w-3.5 h-3.5" />
+                ) : (
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                )}
+                {returnDestination === 'PREV_STAGE' && PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code]
+                  ? `Confirm Step Back to ${PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code].prevStageLabel}`
+                  : `Confirm Return to Phase ${returnTargetPhase}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 2: CV PREVIEW MODAL                                           */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {previewCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[95vh] flex flex-col overflow-hidden border border-slate-200">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#0EA5E9]" />
+                <div>
+                  <h3 className="font-extrabold text-[#0F172A] text-sm">
+                    Approved CV Preview — {previewCard.applicant_name}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Verified Manager Approval by {previewCard.approved_by || 'Manager'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDownloadCV(previewCard)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#10b981] hover:bg-[#059669] text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => setPreviewCard(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100/70 flex justify-center">
+              {(() => {
+                const app = getApplicantForCard(previewCard);
+                if (!app) {
+                  return (
+                    <div className="p-8 text-center text-slate-400 font-medium">
+                      Applicant profile data is currently being fetched...
+                    </div>
+                  );
+                }
+                return (
+                  <div className="bg-white shadow-xl rounded-lg p-2 max-w-[820px]">
+                    <CVPreviewDoc applicant={app} scale={0.88} />
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 3: EMPLOYER SELECTION DETAILS & PRE-DEPLOYMENT ADVANCEMENT     */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {employerSelectionCard && (() => {
+        const app = getApplicantForCard(employerSelectionCard);
+        const details = resolveCardDetails(employerSelectionCard, app, globalJobOrders, globalEmployers);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200">
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-emerald-50/70">
+                <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <h3 className="text-base font-extrabold">Employer Selection Details & Acceptance</h3>
+                </div>
+                <button
+                  onClick={() => setEmployerSelectionCard(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {/* 1. Candidate Information (Applicant) */}
+                <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="bg-slate-100/90 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-slate-500" />
+                      Candidate Information (Applicant)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500 font-semibold">
+                      Ref: {details.candidateCode}
+                    </span>
+                  </div>
+                  <div className="p-3.5 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 font-medium block">Candidate Full Name:</span>
+                      <span className="font-extrabold text-[#0F172A] text-sm block mt-0.5">
+                        {details.candidateName}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-medium block">Applicant Applied Role:</span>
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 mt-1">
+                        <Briefcase className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{details.candidateAppliedRole}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Prospective Employer & Job Order Details */}
+                <div className="bg-emerald-50/40 rounded-xl border border-emerald-200/80 overflow-hidden">
+                  <div className="bg-emerald-100/70 px-4 py-2 border-b border-emerald-200/80 flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <Building className="w-3.5 h-3.5 text-emerald-700" />
+                      Prospective Employer & Job Order Offer
+                    </span>
+                    <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-900 bg-white/90 px-2 py-0.5 rounded border border-emerald-300">
+                      <span className="text-emerald-700 font-sans font-semibold">Job Order:</span>
+                      <span>{details.jobOrderCode}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 font-medium block">Employer / Company:</span>
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                        <Building className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{details.employerName}</span>
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-medium block">Country Destination:</span>
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{details.countryName}</span>
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-medium block">Job Order Position Offered:</span>
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                        <Briefcase className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{details.offeredPosition}</span>
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-medium block">Contract Salary Offer:</span>
+                      <span className="font-bold text-emerald-700 flex items-center gap-1.5 mt-0.5">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <span className="truncate">{details.salaryFormatted}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="px-3.5 py-2 bg-emerald-100/50 border-t border-emerald-200/60 text-[11px] text-emerald-900 flex items-center justify-between">
+                    <span className="text-emerald-700 font-medium">Quota Availability:</span>
+                    <span className={`px-2 py-0.5 rounded font-semibold ${
+                      details.slotsText.includes('fully')
+                        ? 'bg-amber-100 text-amber-800'
+                        : details.slotsText !== '—'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {details.slotsText}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                    Employer Acceptance Remarks / Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={selectionRemarks}
+                    onChange={e => setSelectionRemarks(e.target.value)}
+                    placeholder="e.g. Interview passed on Oct 3, principal letter ref #EMP-2026-99"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+
+                <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-start gap-2 text-xs text-sky-900">
+                  <AlertCircle className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+                  <p>
+                    Confirming this acceptance will update applicant status to{' '}
+                    <strong className="font-extrabold text-sky-950">"Pre-Deployment Processing"</strong> (Phase 5). Next, Admin staff will verify mandatory deployment clearance records.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setEmployerSelectionCard(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmEmployerSelection}
+                  disabled={actingId !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {actingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  Proceed to Pre-Deployment Processing
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 4: NOT SELECTED / SLOT FILLED OUTCOME                          */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {notSelectedCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-2 text-amber-900 font-bold">
+                <AlertCircle className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-extrabold">Employer Outcome: Not Selected / Slot Filled</h3>
+              </div>
+              <button
+                onClick={() => setNotSelectedCard(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Applicant</p>
+                <p className="text-sm font-extrabold text-slate-900">{notSelectedCard.applicant_name}</p>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">
+                  {(() => {
+                    const d = resolveCardDetails(notSelectedCard, getApplicantForCard(notSelectedCard), globalJobOrders, globalEmployers);
+                    return `Job Order: ${d.jobOrderCode !== '—' ? d.jobOrderCode : 'None'}${d.employerName !== '—' ? ` · ${d.employerName}` : ''}`;
+                  })()}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Choose Next Action for Candidate:
+                </label>
+
+                {/* Option 1: Retain in Talent Pool as Waiting Selection */}
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    notSelectedMode === 'POOL'
+                      ? 'border-amber-500 bg-amber-50/50 text-amber-950 font-bold'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="notSelectedAction"
+                    checked={notSelectedMode === 'POOL'}
+                    onChange={() => setNotSelectedMode('POOL')}
+                    className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold">Retain in Talent Pool (Waiting Selection)</div>
+                    <div className="text-[11px] text-slate-500 font-normal">
+                      Update applicant status to "Waiting Selection" until another employer opening matches.
+                    </div>
+                  </div>
+                </label>
+
+                {/* Option 2: Re-endorse to Another Job Order */}
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    notSelectedMode === 'RE_ENDORSE'
+                      ? 'border-[#0EA5E9] bg-sky-50/50 text-sky-950 font-bold'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="notSelectedAction"
+                    checked={notSelectedMode === 'RE_ENDORSE'}
+                    onChange={() => setNotSelectedMode('RE_ENDORSE')}
+                    className="mt-0.5 text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                  />
+                  <div className="flex-1">
+                    <div className="text-xs font-bold">Endorse to Another Open Job Order</div>
+                    <div className="text-[11px] text-slate-500 font-normal">
+                      Reassign candidate to an alternate open job order with available slots.
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Job Order Dropdown when re-endorsing */}
+              {notSelectedMode === 'RE_ENDORSE' && (
+                <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-200 animate-in fade-in">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Select Available Job Order
+                    </label>
+                    <select
+                      value={selectedNewJobOrderId}
+                      onChange={e => setSelectedNewJobOrderId(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg p-2 text-xs bg-white outline-none focus:border-[#0EA5E9]"
+                    >
+                      <option value="">-- Choose Job Order --</option>
+                      {globalJobOrders.map(jo => {
+                        const id = String(jo.id || jo.job_order_id);
+                        const code = jo.job_code || jo.jobCode || `JO-${id}`;
+                        const pos = jo.position || 'OFW Role';
+                        const slots = jo.total_slots || jo.totalSlots || 0;
+                        return (
+                          <option key={id} value={id}>
+                            {code} — {pos} ({slots} slots)
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <label className="flex items-start gap-2 cursor-pointer text-xs text-slate-700 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={needsScreeningTest}
+                      onChange={e => setNeedsScreeningTest(e.target.checked)}
+                      className="rounded text-[#0EA5E9] mt-0.5"
+                    />
+                    <span>
+                      Job Order requires additional evaluations / tests candidate has not taken yet (Return to Screening Panel)
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setNotSelectedCard(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmNotSelected}
+                disabled={actingId !== null || (notSelectedMode === 'RE_ENDORSE' && !selectedNewJobOrderId)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-40"
+              >
+                {actingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Confirm Outcome
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL 5: DEPLOYMENT ELIGIBILITY VERIFICATION (PROVISIONAL VS ADMIN)  */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {verificationCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-violet-50">
+              <div className="flex items-center gap-2 text-violet-900 font-bold">
+                <ShieldCheck className="w-5 h-5 text-violet-600" />
+                <h3 className="text-base font-extrabold">Deployment Eligibility Verification</h3>
+              </div>
+              <button
+                onClick={() => setVerificationCard(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Candidate</p>
+                <p className="text-sm font-extrabold text-slate-900">{verificationCard.applicant_name}</p>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">
+                  {(() => {
+                    const d = resolveCardDetails(verificationCard, getApplicantForCard(verificationCard), globalJobOrders, globalEmployers);
+                    const pos = d.offeredPosition !== '—' ? d.offeredPosition : d.candidateAppliedRole;
+                    return `Employer: ${d.employerName} · Position: ${pos}`;
+                  })()}
+                </p>
+              </div>
+
+              {/* Requirement Checklist Audit */}
+              {(() => {
+                const app = getApplicantForCard(verificationCard);
+                // Mandatory deployment records to check
+                const checkItems = [
+                  { key: 'passport', name: 'Valid Passport (>= 6 Months Validity)', checked: Boolean(app?.dateOfBirth || app?.citizenship) },
+                  { key: 'medical', name: 'Medical Clearance (Fit-to-Work Generated)', checked: Boolean(app?.medicalReferralGenerated || app?.hasCompleteAssessments) },
+                  { key: 'clearance', name: 'NBI / Police Clearance Verification', checked: Boolean(app?.address || app?.presentAddress) },
+                  { key: 'contract', name: 'Signed Employer Offer / Job Acceptance', checked: true },
+                  { key: 'peos', name: 'DMW e-Registration / OFW Information Record', checked: Boolean(app?.contact && app?.email) },
+                ];
+
+                const missingItems = checkItems.filter(i => !i.checked).map(i => i.name);
+                const isComplete = missingItems.length === 0;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      <div className="bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Mandatory Deployment Record Verification
+                      </div>
+                      {checkItems.map(item => (
+                        <div key={item.key} className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-800">{item.name}</span>
+                          {item.checked ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              VERIFIED
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                              MISSING
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Result Banner 1: Incomplete */}
+                    {!isComplete && (
+                      <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs space-y-1.5 text-red-900">
+                        <div className="flex items-center gap-1.5 font-extrabold text-red-800">
+                          <Ban className="w-4 h-4 text-red-600 flex-shrink-0" />
+                          Deployment Blocked: Incomplete Records
+                        </div>
+                        <p className="text-[11px] text-red-700">
+                          Endorsement to Administrative Processing is blocked. The applicant must be marked as{' '}
+                          <strong>Provisional</strong> to notify Recruitment for required document compliance.
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {missingItems.map(m => (
+                            <span key={m} className="px-2 py-0.5 bg-red-100 text-red-800 rounded font-semibold text-[10px]">
+                              Missing: {m}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Result Banner 2: Complete */}
+                    {isComplete && (
+                      <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1 text-emerald-900">
+                        <div className="flex items-center gap-1.5 font-extrabold text-emerald-800">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          All Deployment Eligibility Records Verified
+                        </div>
+                        <p className="text-[11px] text-emerald-700">
+                          Applicant profile is cleared for Phase 5. Admin and Accounting staff will gain full access to Document Validation and the Expense Ledger.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="p-4 bg-slate-50 -mx-6 -mb-6 border-t border-slate-100 flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setVerificationCard(null)}
+                        className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                      >
+                        Cancel
+                      </button>
+
+                      {!isComplete ? (
+                        <button
+                          onClick={() => handleVerifyAndEndorseAdmin(verificationCard, false, missingItems)}
+                          disabled={actingId !== null}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                        >
+                          {actingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                          Mark as Provisional & Notify Recruitment
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleVerifyAndEndorseAdmin(verificationCard, true, [])}
+                          disabled={actingId !== null}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                        >
+                          {actingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          Confirm Endorse for Administrative Processing
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

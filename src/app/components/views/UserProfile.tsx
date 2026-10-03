@@ -611,7 +611,7 @@ export default function UserProfile({
                 <>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Document OCR</span>
+                    <span className="text-[#0F172A]">Document Validation</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-[#10B981]" />

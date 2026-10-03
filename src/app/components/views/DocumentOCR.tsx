@@ -321,10 +321,10 @@ export default function DocumentOCR({
         <div>
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
             <ScanText className="w-8 h-8 text-purple-600" />
-            Document OCR & Biometric Cross-Validation
+            Document Validation & Biometric Cross-Checking
           </h2>
           <p className="text-sm text-slate-500 mt-1 font-medium">
-            Automated document inspection and verification with POEA/DMW 3-2-1 compliance cross-checking
+            Automated document inspection and validation with POEA/DMW 3-2-1 compliance cross-checking
           </p>
         </div>
 
@@ -573,7 +573,7 @@ export default function DocumentOCR({
                 Document OCR biometric cross-validation unlocks once foreign employer hiring is confirmed (Phase 4+).
               </>
             ) : (
-              'This module requires foreign employer acceptance to be recorded before document verification proceeds.'
+              'This module requires foreign employer acceptance to be recorded before document validation proceeds.'
             )}
           </p>
 
@@ -676,7 +676,7 @@ export default function DocumentOCR({
             {/* Workflow Steps */}
             <div className="bg-slate-50 rounded-xl p-6 border border-slate-200">
               <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-3">
-                Automated Document Verification Protocol:
+                Automated Document Validation Protocol:
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs text-slate-600">
                 <div className="flex items-start gap-2.5">

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   CheckSquare, XCircle, Clock, FileText,
   Search, Loader2, Eye, EyeOff, ThumbsUp, ThumbsDown,
-  Send, RefreshCw, Download, ZoomIn, ZoomOut
+  Send, RefreshCw, Download, ZoomIn, ZoomOut, CheckCircle2, ArrowRight
 } from 'lucide-react';
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
 import { SkeletonText, SkeletonBadge } from '../ui/skeleton';
@@ -18,6 +18,7 @@ interface ManagerHubProps {
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   selectedApplicantId?: string;
+  onNavigate?: (view: string) => void;
 }
 
 interface CvRecord {
@@ -74,15 +75,18 @@ function SkeletonRow() {
 interface CvDetailGateProps {
   cvRecord: CvRecord;
   applicant: ApplicantRecord | undefined;
+  isEndorsed: boolean;
+  activeSubmission?: any;
   onApprove: (cvId: number) => void;
   onReject: (cvId: number, reason: string) => void;
   onEndorse: (cvId: number) => void;
+  onNavigate?: (view: string) => void;
   isActing: boolean;
   onClose: () => void;
 }
 
 function CvDetailGate({
-  cvRecord, applicant, onApprove, onReject, onEndorse, isActing, onClose
+  cvRecord, applicant, isEndorsed, activeSubmission, onApprove, onReject, onEndorse, onNavigate, isActing, onClose
 }: CvDetailGateProps) {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
@@ -90,7 +94,7 @@ function CvDetailGate({
   const [zoomLevel, setZoomLevel] = useState(0.65);
 
   const canApproveOrReject = cvRecord.status_code === 'PENDING_APPROVAL';
-  const canEndorse = cvRecord.status_code === 'APPROVED';
+  const canEndorse = cvRecord.status_code === 'APPROVED' && !isEndorsed;
 
   // Build custom fields array from cv_record for the preview
   const previewCustomFields = cvRecord.custom_fields
@@ -141,6 +145,12 @@ function CvDetailGate({
           </div>
           <div className="flex items-center gap-2">
             <StatusBadge status={cvRecord.status_code} />
+            {isEndorsed && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                <Send className="w-3 h-3 text-sky-600" />
+                Endorsed to Tracker
+              </span>
+            )}
             <button
               onClick={() => setShowCVPreview(p => !p)}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-colors ${
@@ -313,6 +323,22 @@ function CvDetailGate({
             </div>
           )}
 
+          {/* Active Tracker Endorsement banner */}
+          {isEndorsed && (
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-sky-900 font-semibold">
+                <CheckCircle2 className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                <span>
+                  This CV is actively endorsed in the <strong>Endorsement Tracker</strong>
+                  {activeSubmission?.board_stage_code ? ` (${activeSubmission.board_stage_code.replace(/_/g, ' ')})` : ''}.
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded font-mono font-bold bg-sky-100 text-sky-700 text-[10px]">
+                Phase 4 Active
+              </span>
+            </div>
+          )}
+
           {/* Reject form */}
           {showRejectForm && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
@@ -365,15 +391,38 @@ function CvDetailGate({
               </button>
             </>
           )}
-          {canEndorse && (
-            <button
-              onClick={() => onEndorse(cvRecord.cv_id)}
-              disabled={isActing}
-              className="px-5 py-2.5 text-sm font-bold bg-[#0EA5E9] text-white rounded-lg hover:bg-[#0284C7] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-sky-100 transition-colors"
-            >
-              {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              Endorse to Tracker
-            </button>
+          {cvRecord.status_code === 'APPROVED' && (
+            isEndorsed ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Already Endorsed
+                </span>
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onNavigate('endorsement');
+                    }}
+                    className="px-4 py-2 text-xs font-bold bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg flex items-center gap-1.5 shadow-sm transition-colors"
+                    title="Open Endorsement Tracker"
+                  >
+                    <span>View in Tracker</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => onEndorse(cvRecord.cv_id)}
+                disabled={isActing}
+                className="px-5 py-2.5 text-sm font-bold bg-[#0EA5E9] text-white rounded-lg hover:bg-[#0284C7] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-sky-100 transition-colors"
+              >
+                {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Endorse to Tracker
+              </button>
+            )
           )}
           <button
             onClick={onClose}
@@ -395,8 +444,10 @@ export default function ManagerHub({
   currentUserName,
   addActivityLog,
   updateApplicant,
+  onNavigate,
 }: ManagerHubProps) {
   const [cvRecords, setCvRecords] = useState<CvRecord[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -406,10 +457,15 @@ export default function ManagerHub({
   const loadCvRecords = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await api.get('/cv');
-      setCvRecords(res.data || []);
+      const [cvRes, subRes] = await Promise.all([
+        api.get('/cv').catch(() => ({ data: [] })),
+        api.get('/cv-submissions').catch(() => ({ data: [] })),
+      ]);
+      setCvRecords(cvRes.data || []);
+      setSubmissions(subRes.data || []);
     } catch {
       setCvRecords([]);
+      setSubmissions([]);
     } finally {
       setIsLoading(false);
     }
@@ -528,12 +584,18 @@ export default function ManagerHub({
     const cvRec = cvRecords.find(r => r.cv_id === cvId);
     if (!cvRec) return;
 
+    const app = applicants.find(a => String(a.id) === String(cvRec.applicant_id));
+    const effectiveJobOrderId = cvRec.job_order_id
+      || (app?.selectedJobOrderId && !isNaN(Number(app.selectedJobOrderId)) ? Number(app.selectedJobOrderId) : undefined)
+      || (app as any)?.job_order_id
+      || (app as any)?.jobOrderId;
+
     setIsActing(true);
     try {
       await api.post('/cv-submissions', {
         cvId,
         applicantId: cvRec.applicant_id,
-        jobOrderId: cvRec.job_order_id,
+        jobOrderId: effectiveJobOrderId || undefined,
         boardStageCode: 'MANAGER_APPROVED',
       });
 
@@ -583,6 +645,21 @@ export default function ManagerHub({
       setIsActing(false);
     }
   };
+
+  // ─── Endorsement Detection ───────────────────────────────────────────────────
+  const getSubmissionForCv = useCallback((cvId: number, applicantId: number) => {
+    return submissions.find(s => s.cv_id === cvId || s.applicant_id === applicantId);
+  }, [submissions]);
+
+  const isCvEndorsed = useCallback((cv: CvRecord) => {
+    const sub = getSubmissionForCv(cv.cv_id, cv.applicant_id);
+    if (sub) return true;
+    const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
+    if (app && app.phase != null && app.phase >= 4 && app.status !== 'CV Encoding') {
+      return true;
+    }
+    return false;
+  }, [getSubmissionForCv, applicants]);
 
   // ─── Filtered list ────────────────────────────────────────────────────────────
   const filtered = cvRecords.filter(cv => {
@@ -716,7 +793,15 @@ export default function ManagerHub({
                 </div>
 
                 {/* Status */}
-                <StatusBadge status={cv.status_code} />
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <StatusBadge status={cv.status_code} />
+                  {isCvEndorsed(cv) && (
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                      <Send className="w-2.5 h-2.5 text-sky-600" />
+                      In Tracker
+                    </span>
+                  )}
+                </div>
 
                 {/* Arrow */}
                 <Eye className="w-4 h-4 text-slate-300 group-hover:text-[#0EA5E9] transition-colors flex-shrink-0" />
@@ -727,17 +812,24 @@ export default function ManagerHub({
       </div>
 
       {/* Detail gate modal */}
-      {selectedCv && (
-        <CvDetailGate
-          cvRecord={selectedCv}
-          applicant={selectedCvApplicant}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onEndorse={handleEndorse}
-          isActing={isActing}
-          onClose={() => setSelectedCv(null)}
-        />
-      )}
+      {selectedCv && (() => {
+        const sub = getSubmissionForCv(selectedCv.cv_id, selectedCv.applicant_id);
+        const endorsed = isCvEndorsed(selectedCv);
+        return (
+          <CvDetailGate
+            cvRecord={selectedCv}
+            applicant={selectedCvApplicant}
+            isEndorsed={endorsed}
+            activeSubmission={sub}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onEndorse={handleEndorse}
+            onNavigate={onNavigate}
+            isActing={isActing}
+            onClose={() => setSelectedCv(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

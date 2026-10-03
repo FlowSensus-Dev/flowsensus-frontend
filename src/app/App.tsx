@@ -76,7 +76,7 @@ function LandingPage({
     { icon: <Sparkles size={20} />, title: "CV Readiness Engine", desc: "Automated 7-criteria scoring detects whether an applicant's profile is ready for employer submission." },
     { icon: <Globe size={20} />, title: "Employer Endorsement", desc: "Track foreign employer selections, interview schedules, and deployment clearances in one place." },
     { icon: <BarChart3 size={20} />, title: "Accounting Dashboard", desc: "Expense tracking, category breakdowns, and one-click CSV/PDF exports for financial compliance." },
-    { icon: <Shield size={20} />, title: "OCR Document Checks", desc: "Automated document verification flags discrepancies before visa and deployment processing." },
+    { icon: <Shield size={20} />, title: "Document Validation Checks", desc: "Automated document validation flags discrepancies before visa and deployment processing." },
   ];
 
   return (
@@ -338,7 +338,7 @@ function LandingPage({
               { phase: "02", title: "Screening & Medical", desc: "English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
               { phase: "03", title: "CV Encoding", desc: "Readiness engine evaluates 7 criteria. Management approves for employer submission.", side: "left", color: "#F59E0B" },
               { phase: "04", title: "Employer Endorsement", desc: "Foreign employer selects candidates. Interview scheduling and endorsement tracking.", side: "right", color: "#10B981" },
-              { phase: "05", title: "Final Deployment", desc: "OCR document verification, expense tracking, visa processing, and departure monitoring.", side: "left", color: "#EF4444" },
+              { phase: "05", title: "Final Deployment", desc: "Document validation, expense tracking, visa processing, and departure monitoring.", side: "left", color: "#EF4444" },
             ].map((p, i) => (
               <div key={i} className={`relative flex items-start gap-8 mb-10 ${p.side === "right" ? "md:flex-row-reverse" : ""}`}>
                 <div className={`flex-1 ${p.side === "right" ? "md:text-right" : ""}`}>
@@ -377,7 +377,7 @@ function LandingPage({
               { icon: <Sparkles size={18} />, title: "CV Readiness Engine", desc: "Automated 7-criteria scoring tells you instantly whether a profile is ready for endorsement." },
               { icon: <Globe size={18} />, title: "Employer Endorsement Tracking", desc: "Foreign employer selections, interview records, and deployment decisions in one view." },
               { icon: <BarChart3 size={18} />, title: "Accounting & Analytics", desc: "Expense tracking by category, deployment cost reports, and one-click PDF/CSV export." },
-              { icon: <Shield size={18} />, title: "OCR Document Verification", desc: "Automated document checks catch discrepancies before they become costly delays." },
+              { icon: <Shield size={18} />, title: "Document Validation", desc: "Automated document validation catches discrepancies before they become costly delays." },
               { icon: <Building2 size={18} />, title: "Custom Subdomain", desc: "Your agency gets its own workspace URL (agency.flowsensus.com) from day one." },
               { icon: <Palette size={18} />, title: "Brand Customization", desc: "Upload your logo and set your accent color. Your workspace, your identity." },
               { icon: <Layers size={18} />, title: "Activity Audit Log", desc: "Full per-applicant audit trail. Know who did what and when across every department." },
