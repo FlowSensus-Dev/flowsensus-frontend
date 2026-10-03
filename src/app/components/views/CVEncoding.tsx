@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Lock, Save, Send, Download, Loader2, FileText, Plus, Trash2, ChevronDown,
   ChevronUp, CheckCircle2, Clock, XCircle, AlertCircle, User, Briefcase,
-  GraduationCap, Languages, Star, Edit3, RefreshCw, Undo2, Sparkles, RotateCcw
+  GraduationCap, Star, Edit3, RefreshCw, Undo2, Sparkles, Eye, EyeOff,
+  ZoomIn, ZoomOut, X, UserPlus, UserCheck
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
-import { Skeleton, SkeletonText, SkeletonAvatar } from '../ui/skeleton';
+import { SkeletonText } from '../ui/skeleton';
 import { api } from '../../../lib/api';
+import { CVPreviewDoc, buildCVHtml, downloadCVPdf } from '../CVPreview';
 
 interface CVEncodingProps {
   workflow: WorkflowState;
@@ -135,6 +137,10 @@ export default function CVEncoding({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Preview overlay state
+  const [showPreview, setShowPreview] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(0.75);
+
   // Return to Profiling modal state
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnCategory, setReturnCategory] = useState('Trade Skills / Assessment Re-evaluation');
@@ -184,23 +190,46 @@ export default function CVEncoding({
     });
   }, [applicants]);
 
-  // Keep selected applicant synced with eligible applicants pool
+  // Sync selected applicant with initialApplicantId prop if provided
   useEffect(() => {
-    if (eligibleApplicants.length > 0) {
-      const match = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId));
-      if (!match) {
-        setSelectedApplicantId(String(eligibleApplicants[0].id));
-      }
-    } else if (applicants.length > 0 && selectedApplicantId) {
+    if (initialApplicantId) {
+      setSelectedApplicantId(initialApplicantId);
+    }
+  }, [initialApplicantId]);
+
+  // Keep selected applicant synced if currently selected candidate is no longer eligible
+  useEffect(() => {
+    if (selectedApplicantId) {
       const match = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId));
       if (!match) {
         setSelectedApplicantId('');
       }
     }
-  }, [eligibleApplicants, selectedApplicantId, applicants.length]);
+  }, [eligibleApplicants, selectedApplicantId]);
 
   const currentApplicant = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId))
     || applicants.find(a => String(a.id) === String(selectedApplicantId));
+
+  // Effective custom fields including any pending entry typed into the inputs
+  const effectiveCustomFields = useMemo(() => {
+    const list = [...customFields];
+    if (newFieldKey.trim()) {
+      list.push({ key: newFieldKey.trim(), value: newFieldValue.trim() });
+    }
+    return list;
+  }, [customFields, newFieldKey, newFieldValue]);
+
+  // Determine whether CV has 2 pages
+  const hasPage2 = useMemo(() => {
+    if (!currentApplicant) return false;
+    return Boolean(
+      (currentApplicant.employmentHistory || []).length > 0 ||
+      (currentApplicant.skills || []).length > 0 ||
+      (currentApplicant.languageRecords || []).length > 0 ||
+      (currentApplicant.certifications || []).length > 0 ||
+      effectiveCustomFields.length > 0
+    );
+  }, [currentApplicant, effectiveCustomFields]);
 
   // Check if module is accessible: phase >= 3 or appropriate status
   const isLocked = !workflow.medicalCleared && !(currentApplicant && (
@@ -211,6 +240,85 @@ export default function CVEncoding({
 
   const canSubmit = cvRecord && ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) && !isLocked;
   const canSaveDraft = !isLocked && cvRecord?.status_code !== 'APPROVED';
+
+  // Close overlay on Escape key
+  useEffect(() => {
+    if (!showPreview) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowPreview(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showPreview]);
+
+  // ─── Turnover / Claim Applicant ─────────────────────────────────────────────
+  const handleClaimApplicant = async (app: ApplicantRecord) => {
+    const applicantId = String(app.id);
+    const numericId = parseInt(applicantId, 10);
+    const nowIso = new Date().toISOString();
+
+    const updates: Partial<ApplicantRecord> = {
+      currentHandler: currentUserName,
+      currentDepartment: 'Recruitment',
+      phaseDescription: `CV Encoding claimed by ${currentUserName}`
+    };
+
+    updateApplicant(applicantId, updates);
+
+    if (!isNaN(numericId)) {
+      await api.put(`/applicants/${numericId}`, {
+        application_id: app.applicationId,
+        current_handler: currentUserName,
+        current_department: 'Recruitment',
+        phase_description: updates.phaseDescription,
+        statusChangeReason: `CV Encoding claimed by ${currentUserName}`,
+        statusChangeSource: 'STAFF_ACTION',
+        updated_at: nowIso
+      }).catch(console.error);
+    }
+
+    addActivityLog({
+      applicantId,
+      action: 'Turnover: Claimed at CV Encoding',
+      performedBy: currentUserName,
+      department: 'Recruitment',
+      details: `${currentUserName} claimed CV Encoding of applicant ${app.name} from the queue.`
+    });
+
+    showToast(`✓ Candidate ${app.name} claimed into your queue as current handler.`);
+  };
+
+  const handleReleaseApplicant = async (app: ApplicantRecord) => {
+    const applicantId = String(app.id);
+    const numericId = parseInt(applicantId, 10);
+    const nowIso = new Date().toISOString();
+
+    const updates: Partial<ApplicantRecord> = {
+      currentHandler: 'Unassigned Pool',
+      phaseDescription: `Returned to unassigned CV Encoding queue pool by ${currentUserName}`
+    };
+
+    updateApplicant(applicantId, updates);
+
+    if (!isNaN(numericId)) {
+      await api.put(`/applicants/${numericId}`, {
+        application_id: app.applicationId,
+        current_handler: 'Unassigned Pool',
+        phase_description: updates.phaseDescription,
+        statusChangeReason: `Returned to unassigned pool by ${currentUserName}`,
+        statusChangeSource: 'STAFF_ACTION',
+        updated_at: nowIso
+      }).catch(console.error);
+    }
+
+    addActivityLog({
+      applicantId,
+      action: 'Turnover: Released to Pool',
+      performedBy: currentUserName,
+      department: 'Recruitment',
+      details: `${currentUserName} returned applicant ${app.name} to the unassigned queue.`
+    });
+
+    showToast(`Applicant ${app.name} returned to unassigned pool.`);
+  };
 
   // ─── Load CV record whenever applicant changes ──────────────────────────────
   const loadCvRecord = useCallback(async (applicantId: string) => {
@@ -253,7 +361,7 @@ export default function CVEncoding({
   const buildCustomFields = () => {
     const fields: Record<string, any> = {};
     if (summaryOverride.trim()) fields['summary_override'] = summaryOverride.trim();
-    customFields.forEach(f => {
+    effectiveCustomFields.forEach(f => {
       if (f.key.trim()) fields[f.key.trim()] = f.value;
     });
     return Object.keys(fields).length > 0 ? fields : null;
@@ -434,139 +542,39 @@ export default function CVEncoding({
     }
   };
 
-  // ─── Export to PDF (text-selectable via print) ────────────────────────────────
+  // ─── Export to PDF (direct download via jsPDF) ────────────────────────────────
   const handleExportToPDF = async () => {
     if (!currentApplicant || isExporting) return;
     setIsExporting(true);
     try {
-      const a = currentApplicant;
-
-      // Build a rich HTML document that browser can print to PDF (text-selectable)
-      const employmentRows = (a.employmentHistory || []).map(e =>
-        `<tr>
-          <td>${e.company}</td>
-          <td>${e.position}</td>
-          <td>${e.dateStarted} – ${e.isPresent ? 'Present' : e.dateEnded}</td>
-          <td>${e.country}</td>
-          <td>${e.reasonForLeaving || '—'}</td>
-        </tr>`
-      ).join('');
-
-      const educationRows = (a.education || []).map(ed =>
-        `<tr><td>${ed.level}</td><td>${ed.school}</td><td>${ed.course || '—'}</td><td>${ed.yearGraduated || '—'}</td></tr>`
-      ).join('');
-
-      const skillsList = (a.skills || []).map(s => `<li>${s}</li>`).join('');
-      const langList = (a.languageRecords || []).map(l =>
-        `<li>${l.language} — Spoken: ${l.spokenRating}/5, Written: ${l.writtenRating}/5</li>`
-      ).join('');
-
-      const customFieldsRows = cvRecord?.custom_fields
-        ? Object.entries(cvRecord.custom_fields)
-          .filter(([k]) => k !== 'summary_override')
-          .map(([k, v]) => `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`).join('')
-        : '';
-
-      const summaryText = summaryOverride.trim()
-        || (cvRecord?.custom_fields?.summary_override as string | undefined)
-        || `Experienced ${a.role || 'professional'} seeking overseas employment opportunities.`;
-
-      const photoHtml = a.photoUrl
-        ? `<img src="${a.photoUrl}" alt="Applicant photo" style="width:100px;height:120px;object-fit:cover;border:2px solid #e2e8f0;border-radius:4px;" />`
-        : `<div style="width:100px;height:120px;background:#f1f5f9;border:2px solid #e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;">No Photo</div>`;
-
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>CV – ${a.name}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Arial', sans-serif; font-size: 11pt; color: #1e293b; line-height: 1.5; }
-  .page { max-width: 800px; margin: 0 auto; padding: 32px 40px; }
-  .header { display: flex; gap: 24px; align-items: flex-start; border-bottom: 3px solid #0ea5e9; padding-bottom: 16px; margin-bottom: 20px; }
-  .header-info h1 { font-size: 22pt; font-weight: 800; color: #0f172a; }
-  .header-info .role { font-size: 12pt; color: #0ea5e9; font-weight: 600; margin-top: 2px; }
-  .header-info .meta { font-size: 9pt; color: #64748b; margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; }
-  .section { margin-bottom: 18px; }
-  .section h2 { font-size: 10pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #0ea5e9; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10pt; }
-  th { background: #f8fafc; text-align: left; padding: 5px 8px; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; border-bottom: 1px solid #e2e8f0; }
-  td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
-  ul { padding-left: 16px; }
-  li { margin-bottom: 2px; }
-  .summary { font-style: italic; color: #475569; }
-  .footer { margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 10px; font-size: 9pt; color: #94a3b8; display: flex; justify-content: space-between; }
-  .badge { display: inline-block; background: #0ea5e9; color: white; font-size: 9pt; padding: 2px 8px; border-radius: 9999px; margin: 2px; }
-  .custom-table td:first-child { font-weight: 600; width: 35%; }
-  @media print { .no-print { display: none; } }
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    ${photoHtml}
-    <div class="header-info">
-      <h1>${a.name}</h1>
-      <div class="role">${a.role || a.appliedRole || 'N/A'}</div>
-      <div class="meta">
-        <span>📧 ${a.email || 'N/A'}</span>
-        <span>📱 ${a.contact || 'N/A'}</span>
-        <span>🎂 ${a.dateOfBirth || 'N/A'}</span>
-        <span>⚥ ${a.sex || 'N/A'} · ${a.civilStatus || 'N/A'}</span>
-        <span>🏠 ${a.presentAddress || 'N/A'}</span>
-        <span>🌏 ${a.citizenship || 'Filipino'}</span>
-        <span>📏 ${a.heightCm ? a.heightCm + ' cm' : 'N/A'} · ⚖ ${a.weightKg ? a.weightKg + ' kg' : 'N/A'}</span>
-        <span>🗒 Ref: ${a.applicantCode || a.id}</span>
-      </div>
-    </div>
-  </div>
-
-  ${summaryText ? `<div class="section"><h2>Professional Summary</h2><p class="summary">${summaryText}</p></div>` : ''}
-
-  ${(a.skills || []).length > 0 ? `<div class="section"><h2>Key Skills</h2><div>${(a.skills || []).map(s => `<span class="badge">${s}</span>`).join('')}</div></div>` : ''}
-
-  ${employmentRows ? `<div class="section"><h2>Employment History</h2><table><thead><tr><th>Company</th><th>Position</th><th>Period</th><th>Country</th><th>Reason for Leaving</th></tr></thead><tbody>${employmentRows}</tbody></table></div>` : ''}
-
-  ${educationRows ? `<div class="section"><h2>Educational Background</h2><table><thead><tr><th>Level</th><th>School</th><th>Course</th><th>Year</th></tr></thead><tbody>${educationRows}</tbody></table></div>` : ''}
-
-  ${langList ? `<div class="section"><h2>Language Proficiency</h2><ul>${langList}</ul></div>` : ''}
-
-  ${customFieldsRows ? `<div class="section"><h2>Additional Information</h2><table class="custom-table">${customFieldsRows}</table></div>` : ''}
-
-  <div class="footer">
-    <span>Prepared by: <strong>${currentUserName}</strong></span>
-    <span>Generated: ${new Date().toLocaleString('en-PH')}</span>
-    <span>FlowSensus — Confidential</span>
-  </div>
-</div>
-<script>window.onload = () => window.print();</script>
-</body>
-</html>`;
-
-      const win = window.open('', '_blank');
-      if (win) {
-        win.document.write(html);
-        win.document.close();
-      }
-
+      await downloadCVPdf(
+        currentApplicant,
+        summaryOverride,
+        effectiveCustomFields,
+        currentUserName,
+        cvRecord?.cv_id,
+      );
       addActivityLog({
         applicantId: selectedApplicantId,
         action: 'CV Exported to PDF',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `CV exported for ${a.name}`,
+        details: `CV exported for ${currentApplicant.name}`,
       });
-      showToast('✓ CV opened in print dialog — choose "Save as PDF"');
+      showToast(`✓ CV-${currentApplicant.name}.pdf downloaded successfully`);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      showToast('Error exporting CV to PDF. Please try again.');
     } finally {
       setIsExporting(false);
     }
   };
 
+
   // ─── Add / remove custom field ────────────────────────────────────────────────
   const handleAddCustomField = () => {
     if (!newFieldKey.trim()) return;
-    setCustomFields(prev => [...prev, { key: newFieldKey.trim(), value: newFieldValue }]);
+    setCustomFields(prev => [...prev, { key: newFieldKey.trim(), value: newFieldValue.trim() }]);
     setNewFieldKey('');
     setNewFieldValue('');
   };
@@ -628,6 +636,89 @@ export default function CVEncoding({
             onSelectApplicant={(id) => { setSelectedApplicantId(id); }}
             allowNew={false}
           />
+
+          {/* ── Candidate Handler & Claim Banner ── */}
+          {currentApplicant && (
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center font-bold text-sm border border-sky-100 flex-shrink-0">
+                  {currentApplicant.name?.charAt(0) || 'A'}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-slate-900">{currentApplicant.name}</span>
+                    <span className="text-xs font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-semibold border border-sky-200">
+                      {currentApplicant.applicantCode || `#${currentApplicant.id}`}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">({currentApplicant.role || currentApplicant.appliedRole || 'Candidate'})</span>
+                  </div>
+                  <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
+                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned Pool'}</strong></span>
+                    <span>•</span>
+                    <span>Status: <strong className="text-slate-700 font-semibold">{currentApplicant.status || 'CV Encoding'}</strong></span>
+                    <span>•</span>
+                    <span>Phase {currentApplicant.phase || 3}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Handler Claim / Release Actions */}
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const isAssignedToMe = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
+                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
+
+                  if (isAssignedToMe) {
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Handled by You
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleReleaseApplicant(currentApplicant)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer font-medium"
+                          title="Release candidate back to unassigned pool"
+                        >
+                          <Undo2 className="w-3 h-3 inline mr-1" />
+                          Return to Pool
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  if (isUnassigned) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleClaimApplicant(currentApplicant)}
+                        className="inline-flex items-center gap-1.5 text-xs px-3.5 py-1.5 rounded-lg bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-bold transition-all shadow-xs cursor-pointer"
+                        title="Claim applicant and become current handler"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> Claim Candidate
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 italic">
+                        Handled by {currentApplicant.currentHandler}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleClaimApplicant(currentApplicant)}
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold transition-colors cursor-pointer"
+                        title="Reassign this candidate to yourself"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> Take Over
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center shadow-sm max-w-xl mx-auto my-6">
@@ -651,7 +742,7 @@ export default function CVEncoding({
       )}
 
       {/* ── Locked overlay ── */}
-      {isLocked && (
+      {isLocked && currentApplicant && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex items-center gap-3">
           <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
           <div>
@@ -684,28 +775,146 @@ export default function CVEncoding({
       ) : (
         <div className={`space-y-4 ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
 
-          {/* ── Profile Preview (read-only pull from live data) ── */}
+          {/* ── Live CV Preview Overlay Modal ── */}
+          {showPreview && currentApplicant && (
+            <div
+              className="fixed inset-0 z-[100] flex flex-col bg-black/80 backdrop-blur-sm"
+              onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}
+            >
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-6 py-3 bg-[#1e293b] border-b border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <Eye className="w-5 h-5 text-white/60" />
+                  <span className="text-white font-bold text-sm">
+                    CV Preview — {currentApplicant.name}
+                  </span>
+                  <span className="px-2 py-0.5 bg-white/10 text-white/80 rounded text-[11px] font-mono">
+                    {hasPage2 ? '2 Pages · A4' : '1 Page · A4'}
+                  </span>
+                  {cvRecord && (
+                    <span className="text-white/40 text-xs">CV #{cvRecord.cv_id}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Zoom controls */}
+                  <button
+                    onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
+                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <span className="text-white/60 text-xs font-mono min-w-[48px] text-center">
+                    {Math.round(zoomLevel * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setZoomLevel(z => Math.min(2, +(z + 0.1).toFixed(1)))}
+                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-5 bg-white/20 mx-1" />
+                  <button
+                    onClick={handleExportToPDF}
+                    disabled={isExporting}
+                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Export PDF
+                  </button>
+                  <button
+                    onClick={() => setShowPreview(false)}
+                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1"
+                    title="Close preview (Esc)"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              {/* Scrollable A4 canvas area */}
+              <div className="flex-1 overflow-auto flex items-start justify-center p-8 bg-slate-900/80">
+                <div
+                  style={{
+                    width: 794 * zoomLevel,
+                    minHeight: (hasPage2 ? 2340 : 1160) * zoomLevel,
+                    flexShrink: 0,
+                    position: 'relative',
+                    paddingBottom: 40 * zoomLevel,
+                  }}
+                >
+                  <div
+                    style={{
+                      transformOrigin: 'top left',
+                      transform: `scale(${zoomLevel})`,
+                      width: 794,
+                    }}
+                  >
+                    <CVPreviewDoc
+                      applicant={currentApplicant}
+                      summaryOverride={summaryOverride}
+                      customFields={effectiveCustomFields}
+                      cvId={cvRecord?.cv_id}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Personal Information (all fields matching CV preview) ── */}
           <SectionCard title="Personal Information" icon={<User className="w-4 h-4 text-[#0EA5E9]" />}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
               {[
                 ['Full Name', currentApplicant.name],
-                ['Date of Birth', currentApplicant.dateOfBirth || '—'],
-                ['Age', currentApplicant.age || '—'],
-                ['Sex', currentApplicant.sex || '—'],
-                ['Civil Status', currentApplicant.civilStatus || '—'],
-                ['Citizenship', currentApplicant.citizenship || '—'],
-                ['Height', currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : '—'],
-                ['Weight', currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : '—'],
-                ['Email', currentApplicant.email || '—'],
-                ['Contact', currentApplicant.contact || '—'],
-                ['Present Address', currentApplicant.presentAddress || '—'],
-                ['Provincial Address', currentApplicant.provincialAddress || '—'],
+                ['Date of Birth', currentApplicant.dateOfBirth],
+                ['Place of Birth', currentApplicant.placeOfBirth],
+                ['Age', currentApplicant.age ? `${currentApplicant.age} yrs old` : undefined],
+                ['Sex', currentApplicant.sex],
+                ['Civil Status', currentApplicant.civilStatus],
+                ['No. of Children', currentApplicant.noOfChildren !== undefined && currentApplicant.noOfChildren !== null ? String(currentApplicant.noOfChildren) : undefined],
+                ['Religion', currentApplicant.religion],
+                ['Citizenship', currentApplicant.citizenship || 'Filipino'],
+                ['Height', currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : undefined],
+                ['Weight', currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : undefined],
+                ['Present Address', currentApplicant.presentAddress],
+                ['Provincial Address', currentApplicant.provincialAddress],
+                ['Email', currentApplicant.email],
+                ['Mobile No.', currentApplicant.contact],
+                ['Facebook', currentApplicant.facebookUrl],
+                ['WhatsApp', currentApplicant.whatsappNumber],
+                ['LinkedIn', currentApplicant.linkedinUrl],
+                ['Languages Spoken', (currentApplicant.languagesSpoken || []).length > 0 ? (currentApplicant.languagesSpoken || []).join(', ') : undefined],
+                ['Applied Position', currentApplicant.role || currentApplicant.appliedRole],
+                ['Applicant Code', currentApplicant.applicantCode],
               ].map(([label, val]) => (
                 <div key={label}>
                   <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide">{label}</p>
-                  <p className="font-medium text-[#0F172A] truncate">{val}</p>
+                  <p className="font-medium text-[#0F172A] break-words">
+                    {val || <span className="text-slate-400 font-normal italic">—</span>}
+                  </p>
                 </div>
               ))}
+            </div>
+            {/* Emergency Contact */}
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide mb-2">Emergency Contact</p>
+              {currentApplicant.emergencyContactName ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                  {[
+                    ['Name', currentApplicant.emergencyContactName],
+                    ['Relationship', currentApplicant.emergencyContactRelationship || '—'],
+                    ['Contact No.', currentApplicant.emergencyContactNumber || '—'],
+                  ].map(([label, val]) => (
+                    <div key={label}>
+                      <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide">{label}</p>
+                      <p className="font-medium text-[#0F172A]">{val}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 italic">None on file</p>
+              )}
             </div>
             <p className="text-[11px] text-slate-400 mt-4 flex items-center gap-1.5">
               <Lock className="w-3 h-3" /> Personal data is pulled live from the applicant profile and cannot be edited here.
@@ -783,6 +992,20 @@ export default function CVEncoding({
                   )}
                 </div>
               </div>
+              <div>
+                <p className="text-xs font-bold text-[#475569] uppercase tracking-wide mb-2">Certifications</p>
+                {(currentApplicant.certifications || []).length === 0 ? (
+                  <span className="text-sm text-slate-400 italic">None on file</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(currentApplicant.certifications || []).map(c => (
+                      <span key={c} className="px-2.5 py-1 bg-amber-500/10 text-amber-700 text-xs font-bold rounded-full">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </SectionCard>
 
@@ -836,29 +1059,39 @@ export default function CVEncoding({
             ))}
 
             {cvRecord?.status_code !== 'APPROVED' && (
-              <div className="flex gap-2 mt-3 items-center border-t border-slate-100 pt-3">
-                <input
-                  type="text"
-                  value={newFieldKey}
-                  onChange={e => setNewFieldKey(e.target.value)}
-                  placeholder="New field name"
-                  className="w-1/3 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                />
-                <input
-                  type="text"
-                  value={newFieldValue}
-                  onChange={e => setNewFieldValue(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddCustomField(); }}
-                  placeholder="Value"
-                  className="flex-1 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                />
-                <button
-                  onClick={handleAddCustomField}
-                  disabled={!newFieldKey.trim()}
-                  className="px-3 py-1.5 bg-[#0EA5E9]/10 text-[#0EA5E9] text-sm font-bold rounded-lg hover:bg-[#0EA5E9]/20 disabled:opacity-40 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={newFieldKey}
+                    onChange={e => setNewFieldKey(e.target.value)}
+                    placeholder="Field name (e.g. YouTube Link)"
+                    className="w-1/3 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={newFieldValue}
+                    onChange={e => setNewFieldValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddCustomField(); }}
+                    placeholder="Value (e.g. https://youtu.be/...)"
+                    className="flex-1 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomField}
+                    disabled={!newFieldKey.trim()}
+                    className="px-4 py-2 bg-[#0EA5E9] text-white text-xs font-bold rounded-lg hover:bg-[#0284C7] disabled:opacity-40 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer flex-shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Field
+                  </button>
+                </div>
+                {newFieldKey.trim() && (
+                  <p className="text-[11px] text-sky-700 mt-2 bg-sky-50 px-3 py-1 rounded-md border border-sky-200 inline-flex items-center gap-1.5 font-medium">
+                    <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+                    Custom field &ldquo;{newFieldKey.trim()}&rdquo; is ready and will appear in the CV preview and exported PDF.
+                  </p>
+                )}
               </div>
             )}
           </SectionCard>
@@ -892,6 +1125,20 @@ export default function CVEncoding({
                 <Undo2 className="w-4 h-4 text-amber-600" />
                 Return to Profiling
               </button>
+              {/* Preview CV — beside Save Draft */}
+              {currentApplicant && (
+                <button
+                  onClick={() => setShowPreview(p => !p)}
+                  className={`px-4 py-2.5 text-sm font-bold rounded-lg border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    showPreview
+                      ? 'bg-slate-700 text-white border-slate-700'
+                      : 'border-slate-300 text-slate-600 bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  {showPreview ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPreview ? 'Hide Preview' : 'Preview CV'}
+                </button>
+              )}
               <button
                 onClick={handleSaveDraft}
                 disabled={!canSaveDraft || isSaving}

@@ -597,8 +597,28 @@ export default function Registration({
         if (!isMounted) return;
         if (res.data) {
           const enriched = mapApplicantFromApi(res.data);
+          const existingApp = applicants.find(a => String(a.id) === String(selectedApplicantId));
+          const effectiveStatus = existingApp?.status || enriched.status;
+          const effectivePhase = existingApp?.phase ?? enriched.phase;
+          const effectiveHandler = existingApp?.currentHandler || enriched.currentHandler;
+          const effectiveDept = existingApp?.currentDepartment || enriched.currentDepartment;
+          const effectiveDesc = existingApp?.phaseDescription || enriched.phaseDescription;
+
+          enriched.status = effectiveStatus;
+          enriched.phase = effectivePhase;
+          enriched.currentHandler = effectiveHandler;
+          enriched.currentDepartment = effectiveDept;
+          enriched.phaseDescription = effectiveDesc;
+
           populateApplicantData(enriched);
-          updateApplicant?.(selectedApplicantId, enriched);
+          updateApplicant?.(selectedApplicantId, {
+            ...enriched,
+            status: effectiveStatus,
+            phase: effectivePhase,
+            currentHandler: effectiveHandler,
+            currentDepartment: effectiveDept,
+            phaseDescription: effectiveDesc,
+          });
         }
       })
       .catch(err => {
@@ -1016,11 +1036,34 @@ export default function Registration({
             updatePayload.job_order_id = null;
           }
 
+          if (currentApp?.status) {
+            updatePayload.status_code = currentApp.status;
+            updatePayload.application_status = currentApp.status;
+          }
+          if (typeof currentApp?.phase === 'number') {
+            updatePayload.current_phase = currentApp.phase;
+          }
+          if (currentApp?.currentHandler) {
+            updatePayload.current_handler = currentApp.currentHandler;
+          }
+          if (currentApp?.currentDepartment) {
+            updatePayload.current_department = currentApp.currentDepartment;
+          }
+          if (currentApp?.phaseDescription) {
+            updatePayload.phase_description = currentApp.phaseDescription;
+          }
+
           await api.put(`/applicants/${numericId}`, updatePayload);
         }
 
         if (updateApplicant) {
           updateApplicant(selectedApplicantId, {
+            // Strictly preserve workflow state for existing applicants:
+            status: currentApp?.status,
+            phase: currentApp?.phase,
+            currentHandler: currentApp?.currentHandler,
+            currentDepartment: currentApp?.currentDepartment,
+            phaseDescription: currentApp?.phaseDescription,
             firstName: personal.firstName,
             middleName: personal.middleName,
             lastName: personal.lastName,

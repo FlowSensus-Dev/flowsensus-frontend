@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  CheckSquare, XCircle, Clock, FileText, ChevronDown, ChevronUp,
-  Search, Filter, Loader2, AlertCircle, Eye, ThumbsUp, ThumbsDown,
-  Send, RefreshCw, User, Briefcase, Building2
+  CheckSquare, XCircle, Clock, FileText,
+  Search, Loader2, Eye, EyeOff, ThumbsUp, ThumbsDown,
+  Send, RefreshCw, Download, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
-import { Skeleton, SkeletonText, SkeletonBadge } from '../ui/skeleton';
+import { SkeletonText, SkeletonBadge } from '../ui/skeleton';
 import { api } from '../../../lib/api';
+import { CVPreviewDoc, buildCVHtml, downloadCVPdf } from '../CVPreview';
 
 interface ManagerHubProps {
   workflow: WorkflowState;
@@ -85,13 +86,48 @@ function CvDetailGate({
 }: CvDetailGateProps) {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
+  const [showCVPreview, setShowCVPreview] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(0.65);
 
   const canApproveOrReject = cvRecord.status_code === 'PENDING_APPROVAL';
   const canEndorse = cvRecord.status_code === 'APPROVED';
 
+  // Build custom fields array from cv_record for the preview
+  const previewCustomFields = cvRecord.custom_fields
+    ? Object.entries(cvRecord.custom_fields)
+        .filter(([k]) => k !== 'summary_override')
+        .map(([key, value]) => ({ key, value: String(value) }))
+    : [];
+  const previewSummary = cvRecord.custom_fields?.summary_override as string | undefined;
+
+  const previewHasPage2 = Boolean(
+    applicant && (
+      (applicant.employmentHistory || []).length > 0 ||
+      (applicant.skills || []).length > 0 ||
+      (applicant.languageRecords || []).length > 0 ||
+      (applicant.certifications || []).length > 0 ||
+      previewCustomFields.length > 0
+    )
+  );
+
+  const handleExportPreviewPDF = async () => {
+    if (!applicant) return;
+    try {
+      await downloadCVPdf(
+        applicant,
+        previewSummary || '',
+        previewCustomFields,
+        'Manager Hub',
+        cvRecord.cv_id,
+      );
+    } catch (err) {
+      console.error('PDF export failed:', err);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 sticky top-0 bg-white z-10">
           <div>
@@ -106,6 +142,17 @@ function CvDetailGate({
           <div className="flex items-center gap-2">
             <StatusBadge status={cvRecord.status_code} />
             <button
+              onClick={() => setShowCVPreview(p => !p)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-colors ${
+                showCVPreview
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+              }`}
+            >
+              {showCVPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {showCVPreview ? 'Hide Preview' : 'Preview CV'}
+            </button>
+            <button
               onClick={onClose}
               className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
             >
@@ -116,6 +163,84 @@ function CvDetailGate({
 
         {/* Body */}
         <div className="p-6 space-y-5">
+
+          {/* ── Full-width A4 CV Preview Panel ── */}
+          {showCVPreview && applicant && (
+            <div className="rounded-xl border border-slate-300 overflow-hidden bg-slate-100">
+              {/* Preview toolbar */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-200 border-b border-slate-300">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-slate-600" />
+                  <span className="text-xs font-bold text-slate-700">CV Preview</span>
+                  <span className="text-[10px] text-slate-500 font-mono bg-white px-2 py-0.5 rounded border border-slate-300">
+                    {previewHasPage2 ? '2 Pages · A4' : '1 Page · A4'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
+                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-300 rounded transition-colors"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-slate-500 text-xs font-mono w-10 text-center">
+                    {Math.round(zoomLevel * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setZoomLevel(z => Math.min(1.5, +(z + 0.1).toFixed(1)))}
+                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-300 rounded transition-colors"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-400 mx-1" />
+                  <button
+                    onClick={handleExportPreviewPDF}
+                    className="px-2.5 py-1 text-[10px] font-bold text-sky-700 border border-sky-200 bg-white rounded hover:bg-sky-50 flex items-center gap-1 transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    Export PDF
+                  </button>
+                </div>
+              </div>
+              {/* Scrollable A4 canvas — fills full modal width */}
+              <div
+                className="overflow-auto"
+                style={{ maxHeight: '60vh' }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    minWidth: 794 * zoomLevel,
+                    minHeight: (previewHasPage2 ? 2340 : 1160) * zoomLevel,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'flex-start',
+                    padding: '24px 16px 48px',
+                    background: '#334155',
+                  }}
+                >
+                  <div
+                    style={{
+                      transformOrigin: 'top center',
+                      transform: `scale(${zoomLevel})`,
+                      width: 794,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CVPreviewDoc
+                      applicant={applicant}
+                      summaryOverride={previewSummary}
+                      customFields={previewCustomFields}
+                      cvId={cvRecord.cv_id}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Applicant snapshot */}
           <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
             <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-3">Applicant Snapshot</p>
