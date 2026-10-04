@@ -13,11 +13,15 @@ export default function ComplianceAlerts({ applicants = [], showToast }: Complia
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<any>(null);
 
-  const loadAlerts = async () => {
+  const loadAlerts = async (triggerScan = false) => {
     setIsLoading(true);
     try {
-      // Refresh backend scan first
-      await api.post('/documents/alerts/scan').catch(console.warn);
+      if (triggerScan) {
+        await api.post('/documents/alerts/scan').catch(console.warn);
+      } else {
+        // Trigger non-blocking scan in background on initial load
+        api.post('/documents/alerts/scan').catch(() => {});
+      }
       
       const res = await api.get('/documents/alerts');
       const alertList: any[] = Array.isArray(res.data) ? res.data : (res.data?.alerts || []);
@@ -45,14 +49,14 @@ export default function ComplianceAlerts({ applicants = [], showToast }: Complia
   };
 
   useEffect(() => {
-    loadAlerts();
+    loadAlerts(false);
   }, []);
 
   const handleDismiss = async (alertId: number) => {
     try {
       await api.post(`/documents/alerts/${alertId}/dismiss`);
       showToast('Alert dismissed');
-      loadAlerts();
+      loadAlerts(false);
     } catch (err: any) {
       showToast(`Failed to dismiss alert: ${err.message}`);
     }
@@ -88,7 +92,7 @@ export default function ComplianceAlerts({ applicants = [], showToast }: Complia
             Automated expiration monitoring for pre-deployment documents.
           </p>
         </div>
-        <button onClick={loadAlerts} disabled={isLoading} className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold">
+        <button onClick={() => loadAlerts(true)} disabled={isLoading} className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold">
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
