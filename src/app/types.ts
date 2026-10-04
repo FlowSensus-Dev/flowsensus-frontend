@@ -1,5 +1,28 @@
 export type UserRole = 'Recruitment' | 'Admin' | 'Accounting' | 'Management' | 'Applicant' | 'Employer' | '';
 
+export type ViewType =
+  | 'dashboard'
+  | 'applicants'
+  | 'registration'
+  | 'screening'
+  | 'profiling'
+  | 'cv'
+  | 'endorsement'
+  | 'fittowork'
+  | 'ocr'
+  | 'alerts'
+  | 'expense'
+  | 'manager'
+  | 'forecast'
+  | 'users'
+  | 'history'
+  | 'reports'
+  | 'profile'
+  | 'requirements'
+  | 'evaluation'
+  | 'joborders'
+  | 'employers';
+
 export interface WorkflowState {
   screeningPassed: boolean;
   medicalCleared: boolean;
@@ -446,6 +469,10 @@ export interface ActivityLog {
   department: string;
   timestamp: string;
   details: string;
+  audit_log_id?: number;
+  applicant_id?: number;
+  performed_by?: string;
+  created_at?: string;
 }
 
 export interface StaffAccount {

@@ -1195,12 +1195,17 @@ export default function App() {
       });
 
     // 2. Fetch all other module resources in parallel concurrently
+    const activeRoles: string[] = (currentUserRoles && currentUserRoles.length > 0)
+      ? currentUserRoles
+      : [currentUserRole];
+    const canManageStaff = isSuperAdmin || activeRoles.includes('Management') || activeRoles.includes('Admin');
+
     Promise.allSettled([
       api.get('/audit-logs'),
       api.get('/financial/records'),
       api.get('/job-orders'),
       api.get('/employers'),
-      api.get('/users'),
+      canManageStaff ? api.get('/users') : Promise.resolve({ data: [] }),
       api.get('/users/roles'),
       api.get('/forecasting/pipeline')
     ]).then(([logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes]) => {
@@ -1265,19 +1270,6 @@ export default function App() {
     liveMounted.current = true;
     const checkSession = async () => {
       try {
-        // SECURITY CHECK: Verify "Remember Me" policy
-        const rememberMe = localStorage.getItem('fs_remember_me');
-        const sessionActive = sessionStorage.getItem('fs_session_active');
-        if (rememberMe === 'false' && !sessionActive) {
-          // Browser was closed and reopened, but the user did not opt into "Remember Me".
-          // Invalidate the session immediately to prevent unauthorized access.
-          await supabase.auth.signOut();
-          localStorage.removeItem('fs_remember_me');
-          sessionStorage.removeItem('fs_session_active');
-          syncLiveSession(null);
-          return;
-        }
-
         const { data: { session } } = await supabase.auth.getSession();
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
@@ -1331,9 +1323,12 @@ export default function App() {
     checkSession();
 
     // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user) {
+        if (event === 'SIGNED_IN') {
+          api.post('/users/record-login', {}).catch(() => {});
+        }
         const generation = liveSession.current.generation;
         // Defer requests: the API interceptor calls Supabase session methods.
         setTimeout(() => {
@@ -1358,11 +1353,83 @@ export default function App() {
     }
   }, [view]);
 
-  // Background polling disabled to prevent UI interruptions and state wipes while typing
-  // Manual refreshing or websockets should be used instead.
+  // ── Global Supabase Realtime Subscriptions (Live Candidate & Audit Sync) ──
   useEffect(() => {
-    // No-op
-  }, [view]);
+    if (view !== "app" || !liveSession.current.userId) return;
+
+    let debounceTimer: any = null;
+    const triggerDebouncedRefresh = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (liveMounted.current) {
+          fetchLiveBackendData();
+        }
+      }, 400);
+    };
+
+    const channel = supabase
+      .channel('realtime:global_candidate_operations')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'job_application' },
+        () => {
+          triggerDebouncedRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applicant' },
+        () => {
+          triggerDebouncedRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clinic_referral' },
+        () => {
+          triggerDebouncedRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applicant_requirement' },
+        () => {
+          triggerDebouncedRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'audit_log' },
+        (payload: any) => {
+          if (payload?.new) {
+            const raw = payload.new;
+            const newLog: ActivityLog = {
+              audit_log_id: raw.audit_log_id,
+              applicant_id: raw.applicant_id,
+              performed_by: raw.performed_by,
+              created_at: raw.created_at,
+              id: `LOG-${raw.audit_log_id || Date.now()}`,
+              applicantId: raw.applicant_id ? String(raw.applicant_id) : '',
+              action: raw.action || 'System Action',
+              performedBy: raw.performed_by || 'System User',
+              department: raw.department || 'Operations',
+              details: raw.details || '',
+              timestamp: raw.created_at || new Date().toISOString(),
+            };
+            setActivityLogs((prev) => {
+              if (prev.some((l) => l.audit_log_id === raw.audit_log_id)) return prev;
+              return [newLog, ...prev];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [view, liveSession.current.userId]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
     const timestamp = new Date().toISOString();

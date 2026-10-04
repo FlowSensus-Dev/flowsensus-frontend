@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord, Clinic, ClinicReferral } from '../../types';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 
 interface FitToWorkProps {
   workflow: WorkflowState;
@@ -164,6 +165,31 @@ export default function FitToWork({
 
   useEffect(() => {
     loadClinicsAndReferrals();
+
+    // Live Real-Time Subscription to clinic referrals and partner clinics
+    const channel = supabase
+      .channel('realtime:fit_to_work_clearance')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clinic_referral' },
+        (payload: any) => {
+          console.log('[FitToWork] Realtime clinic referral update:', payload.eventType);
+          loadClinicsAndReferrals();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clinic' },
+        (payload: any) => {
+          console.log('[FitToWork] Realtime clinic update:', payload.eventType);
+          loadClinicsAndReferrals();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Filter applicants eligible for Fit-to-Work Clearance ──────────────────

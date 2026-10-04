@@ -10,6 +10,7 @@ import {
 import { ApplicantRecord, ActivityLog } from '../../types';
 import { Skeleton, SkeletonText } from '../ui/skeleton';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface EndorsementTrackerProps {
@@ -803,7 +804,26 @@ export default function EndorsementTracker({
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { 
+    load(); 
+
+    // Live Real-Time Subscription to cv_employer_submission table
+    const channel = supabase
+      .channel('realtime:cv_employer_submission_tracker')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cv_employer_submission' },
+        (payload: any) => {
+          console.log('[EndorsementTracker] Realtime CV submission update:', payload.eventType);
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [load]);
 
   // Helper to find full applicant object
   const getApplicantForCard = useCallback((card: CvSubmission): ApplicantRecord | undefined => {

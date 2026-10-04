@@ -3,6 +3,7 @@ import { UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check, M
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ActivityLog, UserRole, ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 
 interface StaffAccount {
   id: string;
@@ -14,6 +15,8 @@ interface StaffAccount {
   status: 'Active' | 'Inactive';
   createdDate: string;
   onboardingPending?: boolean;
+  lastLoginAt?: string | null;
+  lastSeenAt?: string | null;
 }
 
 interface UserManagementProps {
@@ -64,6 +67,8 @@ const mapStaffFromApi = (u: any): StaffAccount => {
     status: u.status === 'Inactive' ? 'Inactive' : 'Active',
     createdDate: u.created_at ? u.created_at.split('T')[0] : '',
     onboardingPending: Boolean(u.onboarding_pending),
+    lastLoginAt: u.last_login_at || null,
+    lastSeenAt: u.last_seen_at || null,
   };
 };
 
@@ -74,6 +79,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
   const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
   const [editRoles, setEditRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(!globalStaff || globalStaff.length === 0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -87,7 +93,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
   });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Synchronize when globalStaff updates from background fetch
+  // Synchronize when globalStaff updates from parent background fetch
   useEffect(() => {
     if (globalStaff && Array.isArray(globalStaff) && globalStaff.length > 0) {
       setStaff(globalStaff.map(mapStaffFromApi));
@@ -95,10 +101,10 @@ export default function UserManagement({ currentUserName, addActivityLog, global
     }
   }, [globalStaff]);
 
-  // ── Fetch Live Staff & Available Roles from Backend on Mount ─────────────
-  const fetchStaffAndRoles = async () => {
+  // ── Fetch Live Staff & Available Roles from Backend (Bypasses Stale Cache) ─────────────
+  const fetchStaffAndRoles = async (silent = false) => {
     try {
-      if (!globalStaff || globalStaff.length === 0) {
+      if (!silent && (!globalStaff || globalStaff.length === 0)) {
         setLoading(true);
       }
       setErrorMsg(null);
@@ -127,23 +133,67 @@ export default function UserManagement({ currentUserName, addActivityLog, global
         console.warn('Could not fetch roles from backend, using default catalog:', roleErr);
       }
 
-      // 2. Fetch live users
-      const res = (globalStaff && globalStaff.length > 0) ? { data: globalStaff } : await api.get('/users');
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+      // 2. Fetch live users directly from backend API (guaranteed fresh timestamps)
+      const res = await api.get('/users');
+      if (res.data && Array.isArray(res.data)) {
         const liveStaff: StaffAccount[] = res.data.map(mapStaffFromApi);
         setStaff(liveStaff);
       }
     } catch (err: any) {
       console.warn('Could not fetch live users from Supabase, falling back to local state:', err);
-      setErrorMsg(err?.response?.data?.detail || err.message || 'Failed to fetch staff accounts. Please try logging in again.');
+      if (!silent) {
+        setErrorMsg(err?.response?.data?.detail || err.message || 'Failed to fetch staff accounts.');
+      }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
+  // ── Realtime Supabase Subscription & Live Auto-Sync ──────────────────────
   useEffect(() => {
+    // 1. Initial live fetch
     fetchStaffAndRoles();
+
+    // 2. Realtime subscription to app_user table updates (instant login & status reflection)
+    const channel = supabase
+      .channel('realtime:app_user_management')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_user' },
+        (payload: any) => {
+          console.log('[UserManagement] Real-time app_user change received:', payload.eventType, payload.new);
+          fetchStaffAndRoles(true);
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[UserManagement] Live real-time channel subscribed');
+        }
+      });
+
+    // 3. Re-verify fresh status when window/tab is focused
+    const handleFocus = () => fetchStaffAndRoles(true);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
+
+  const formatRelativeTime = (isoString?: string | null) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffSec < 45) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   const generateTempPassword = () => {
     const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -380,14 +430,21 @@ export default function UserManagement({ currentUserName, addActivityLog, global
 
   const handleResendOnboarding = async (staffMember: StaffAccount) => {
     if (resendingId) return;
+    if (!staffMember.onboardingPending) {
+      const confirmReset = window.confirm(
+        `Send new login credentials to ${staffMember.name} (${staffMember.email})?\n\nThis will generate a new temporary password and email it directly to their inbox.`
+      );
+      if (!confirmReset) return;
+    }
     setResendingId(staffMember.id);
     try {
       const numId = parseInt(staffMember.id, 10);
       const res = await api.post(`/users/${numId}/resend-onboarding-email`, {});
       const newPass = res.data?.new_temp_pass;
-      alert(`✅ Onboarding email re-sent to ${staffMember.email}!${newPass ? `\n\nNew temporary password: ${newPass}` : ''}`);
+      alert(`✅ Onboarding credentials email dispatched to ${staffMember.email}!${newPass ? `\n\nTemporary password: ${newPass}` : ''}`);
+      setStaff(staff.map(s => s.id === staffMember.id ? { ...s, onboardingPending: true } : s));
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err.message || 'Failed to resend email.';
+      const msg = err?.response?.data?.detail || err.message || 'Failed to send onboarding email.';
       alert(`❌ ${msg}`);
     } finally {
       setResendingId(null);
@@ -415,15 +472,19 @@ export default function UserManagement({ currentUserName, addActivityLog, global
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => fetchStaffAndRoles()}
-            className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+            onClick={() => {
+              setIsRefreshing(true);
+              fetchStaffAndRoles();
+            }}
+            disabled={isRefreshing}
+            className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
             title="Refresh staff list"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-[#0EA5E9]' : ''}`} />
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-[#0EA5E9]/20"
+            className="px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-[#0EA5E9]/20 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" /> Add New Staff
           </button>
@@ -477,7 +538,7 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                     <ShieldOff className="w-8 h-8 mb-3 opacity-80" />
                     <p className="font-bold text-sm mb-1">Error Loading Accounts</p>
                     <p className="text-xs text-red-400 mb-4">{errorMsg}</p>
-                    <button onClick={fetchStaffAndRoles} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
+                    <button onClick={() => fetchStaffAndRoles()} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-semibold text-xs transition-colors">
                       Retry
                     </button>
                   </div>
@@ -513,9 +574,21 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                         {staffMember.name}
                       </div>
                       <div className="text-[11px] text-slate-400">{staffMember.email}</div>
-                      {staffMember.onboardingPending && (
+                      {staffMember.onboardingPending ? (
                         <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px] font-bold">
                           <Clock size={9} /> Awaiting First Login
+                        </span>
+                      ) : staffMember.lastLoginAt ? (
+                        <span
+                          className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-emerald-600 font-semibold"
+                          title={`Last login: ${new Date(staffMember.lastLoginAt).toLocaleString()}`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Active · {formatRelativeTime(staffMember.lastLoginAt)}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-slate-400 font-medium">
+                          Active staff
                         </span>
                       )}
                     </div>
@@ -561,19 +634,17 @@ export default function UserManagement({ currentUserName, addActivityLog, global
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center justify-end gap-2">
-                    {/* Resend onboarding email (only for pending staff) */}
-                    {staffMember.onboardingPending && (
-                      <button
-                        onClick={() => handleResendOnboarding(staffMember)}
-                        disabled={resendingId === staffMember.id}
-                        className="p-2 hover:bg-amber-50 rounded-lg transition-colors group disabled:opacity-50"
-                        title="Resend Onboarding Email"
-                      >
-                        {resendingId === staffMember.id
-                          ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
-                          : <Mail className="w-4 h-4 text-[#64748B] group-hover:text-amber-500" />}
-                      </button>
-                    )}
+                    {/* Send / Resend onboarding email */}
+                    <button
+                      onClick={() => handleResendOnboarding(staffMember)}
+                      disabled={resendingId === staffMember.id}
+                      className="p-2 hover:bg-amber-50 rounded-lg transition-colors group disabled:opacity-50 cursor-pointer"
+                      title={staffMember.onboardingPending ? "Resend Onboarding Email" : "Send New Login Credentials via Email"}
+                    >
+                      {resendingId === staffMember.id
+                        ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                        : <Mail className={`w-4 h-4 ${staffMember.onboardingPending ? 'text-amber-500' : 'text-[#64748B] group-hover:text-amber-500'}`} />}
+                    </button>
                     <button
                       onClick={() => {
                         setSelectedStaff(staffMember);

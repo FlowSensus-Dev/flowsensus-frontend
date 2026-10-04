@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
-import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
+import { UserRole, ViewType, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
 import { api } from '../../lib/api';
+import { supabase } from '../../lib/supabase';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
 import ApplicantList from './views/ApplicantList';
@@ -31,28 +32,9 @@ import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
 
-export type ViewType =
-  | 'dashboard'
-  | 'applicants'
-  | 'registration'
-  | 'screening'
-  | 'profiling'
-  | 'cv'
-  | 'endorsement'
-  | 'fittowork'
-  | 'ocr'
-  | 'alerts'
-  | 'expense'
-  | 'manager'
-  | 'forecast'
-  | 'users'
-  | 'history'
-  | 'reports'
-  | 'profile'
-  | 'requirements'
-  | 'evaluation'
-  | 'joborders'
-  | 'employers';
+import { hasAccessToView } from '../../lib/accessControl';
+
+export type { ViewType };
 
 interface AppShellProps {
   currentUserRole: UserRole;
@@ -199,9 +181,24 @@ export default function AppShell({
 
   useEffect(() => {
     fetchEvaluationTemplates();
+
+    const evalChannel = supabase
+      .channel('realtime:evaluation_templates_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'evaluation_template' },
+        () => {
+          fetchEvaluationTemplates();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(evalChannel);
+    };
   }, []);
 
-  // Fetch live workflow module permissions from backend
+  // Fetch live workflow module permissions from backend & subscribe in real time
   useEffect(() => {
     const fetchWorkflowPerms = async () => {
       try {
@@ -220,7 +217,43 @@ export default function AppShell({
       }
     };
     fetchWorkflowPerms();
+
+    const permChannel = supabase
+      .channel('realtime:workflow_module_access_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'workflow_module_access' },
+        (payload: any) => {
+          console.log('[AppShell] Realtime module access change received:', payload.eventType);
+          fetchWorkflowPerms();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(permChannel);
+    };
   }, []);
+
+  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
+    ? currentUserRoles
+    : (currentUserRole ? [currentUserRole] : []);
+
+  // Determine if active user roles have finished resolving from session
+  const isRolesLoaded = Boolean(isSuperAdmin || (userRolesList.length > 0 && userRolesList[0] !== ''));
+
+  // Authoritative URL & Real-time Access Guard:
+  // If the user navigates directly to an unauthorized URL or if permissions are revoked in real time,
+  // ensure they cannot access modules they lack permission for.
+  useEffect(() => {
+    // Wait until user roles have loaded before making authorization decisions
+    if (!isRolesLoaded) return;
+
+    if (!hasAccessToView(currentView, userRolesList, isSuperAdmin, workflowPermissions)) {
+      showToastNotification(`Access restricted: You do not have permission to access the ${currentView} module.`);
+      navigate('/app/dashboard', { replace: true });
+    }
+  }, [currentView, workflowPermissions, currentUserRole, currentUserRoles, isSuperAdmin, isRolesLoaded, navigate]);
 
   const showToastNotification = (message: string) => {
     setToastMessage(message);
@@ -243,6 +276,42 @@ export default function AppShell({
 
   const renderView = () => {
     const isApplicantsLoading = applicantsLoaded === false;
+
+    // While roles are loading on cold page reload, show subtle spinner rather than false-positive access denied
+    if (!isRolesLoaded && currentView !== 'dashboard' && currentView !== 'applicants' && currentView !== 'profile') {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+          <p className="text-sm font-medium">Verifying access permissions...</p>
+        </div>
+      );
+    }
+
+    // Enforce immediate client-side barrier against broken access control / URL tampering
+    if (isRolesLoaded && !hasAccessToView(currentView, userRolesList, isSuperAdmin, workflowPermissions)) {
+      return (
+        <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+            <Lock size={26} className="text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 tracking-tight">Access Restricted</h2>
+          <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+            You do not have permission to access the <span className="font-semibold text-slate-900 capitalize">{currentView}</span> module.
+          </p>
+          <div className="mt-3 py-1.5 px-3 bg-slate-50 rounded-lg inline-block border border-slate-200 text-xs text-slate-600 font-mono">
+            Assigned Role{userRolesList.length > 1 ? 's' : ''}: <span className="font-semibold text-slate-800">{userRolesList.join(', ')}</span>
+          </div>
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={() => handleNavigate('dashboard')}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-150 cursor-pointer flex items-center gap-2"
+            >
+              <span>Return to Dashboard</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     switch (currentView) {
       case 'dashboard':
@@ -520,30 +589,7 @@ export default function AppShell({
         );
       case 'requirements':
         return <RequirementsSetup showToast={showToastNotification} currentUserName={currentUserName} />;
-      case 'evaluation': {
-        const userRolesList = (currentUserRoles && currentUserRoles.length > 0)
-          ? currentUserRoles
-          : [currentUserRole];
-        const canAccess = isSuperAdmin || userRolesList.includes('Management');
-        if (!canAccess) {
-          return (
-            <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm">
-              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Lock size={22} />
-              </div>
-              <h2 className="text-lg font-bold text-slate-800">Access Restricted</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                The Evaluation & Workflow configuration module is restricted exclusively to the Management role.
-              </p>
-              <button
-                onClick={() => handleNavigate('dashboard')}
-                className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                Return to Dashboard
-              </button>
-            </div>
-          );
-        }
+      case 'evaluation':
         return (
           <EvaluationSetup
             showToast={showToastNotification}
@@ -553,7 +599,6 @@ export default function AppShell({
             globalJobOrders={globalJobOrders}
           />
         );
-      }
       case 'joborders':
         return (
           <JobOrders
