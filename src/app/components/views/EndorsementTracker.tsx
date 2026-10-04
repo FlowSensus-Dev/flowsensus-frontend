@@ -1567,9 +1567,6 @@ export default function EndorsementTracker({
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">Endorsement Tracker</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0EA5E9]/10 text-[#0EA5E9] border border-[#0EA5E9]/20">
-              Module 3 · CV Endorsement
-            </span>
           </div>
           <p className="text-sm text-[#64748B] mt-1 font-medium">
             Track approved CVs from manager sign-off, external employer portal upload, selection, and deployment eligibility verification.
