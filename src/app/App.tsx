@@ -526,9 +526,8 @@ function RegistrationWizard({ onBack, onComplete }: {
           <div className="absolute left-0 right-0 top-[18px] h-px bg-slate-200 z-0" />
           {STEPS.map((s) => (
             <div key={s.id} className="relative z-10 flex flex-col items-center gap-1.5 cursor-pointer" onClick={() => s.id < step && setStep(s.id)}>
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all border-2 ${
-                step > s.id ? "text-white border-transparent" : step === s.id ? "bg-white text-[#0EA5E9] border-[#0EA5E9]" : "bg-white border-slate-200 text-slate-400"
-              }`} style={step > s.id ? { background: form.accentColor, borderColor: form.accentColor } : step === s.id ? { borderColor: form.accentColor, color: form.accentColor } : {}}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all border-2 ${step > s.id ? "text-white border-transparent" : step === s.id ? "bg-white text-[#0EA5E9] border-[#0EA5E9]" : "bg-white border-slate-200 text-slate-400"
+                }`} style={step > s.id ? { background: form.accentColor, borderColor: form.accentColor } : step === s.id ? { borderColor: form.accentColor, color: form.accentColor } : {}}>
                 {step > s.id ? <Check size={15} /> : s.id}
               </div>
               <span className={`text-xs hidden sm:block whitespace-nowrap ${step >= s.id ? "text-[#0F172A] font-medium" : "text-slate-400"}`}>{s.label}</span>
@@ -606,9 +605,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   </label>
                   <div
                     onClick={() => document.getElementById("dmw-upload")?.click()}
-                    className={`relative border-2 border-dashed rounded-xl p-5 cursor-pointer transition-all ${
-                      form.dmwLicenseUrl ? "border-[#10B981] bg-[#10B981]/5" : "border-slate-200 hover:border-[#0EA5E9] bg-white hover:bg-[#0EA5E9]/3"
-                    }`}
+                    className={`relative border-2 border-dashed rounded-xl p-5 cursor-pointer transition-all ${form.dmwLicenseUrl ? "border-[#10B981] bg-[#10B981]/5" : "border-slate-200 hover:border-[#0EA5E9] bg-white hover:bg-[#0EA5E9]/3"
+                      }`}
                   >
                     <input
                       id="dmw-upload" type="file" accept="image/*,.pdf" className="hidden"
@@ -691,9 +689,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   <ImagePlus size={15} className="text-slate-400" /> Agency Logo <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <div
-                  className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-                    dragOver ? "border-[#0EA5E9] bg-[#0EA5E9]/5" : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
+                  className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${dragOver ? "border-[#0EA5E9] bg-[#0EA5E9]/5" : "border-slate-200 hover:border-slate-300 bg-white"
+                    }`}
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleLogoFile(f); }}
@@ -733,9 +730,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                       key={c.value}
                       title={c.name}
                       onClick={() => set("accentColor", c.value)}
-                      className={`w-9 h-9 rounded-full border-2 transition-all ${
-                        form.accentColor === c.value ? "border-[#0F172A] scale-110 shadow-md" : "border-transparent hover:scale-105"
-                      }`}
+                      className={`w-9 h-9 rounded-full border-2 transition-all ${form.accentColor === c.value ? "border-[#0F172A] scale-110 shadow-md" : "border-transparent hover:scale-105"
+                        }`}
                       style={{ background: c.value }}
                     />
                   ))}
@@ -798,10 +794,9 @@ function RegistrationWizard({ onBack, onComplete }: {
                   </div>
                   {form.adminPassword && (
                     <div className="mt-2 flex gap-1">
-                      {[1,2,3,4].map((n) => (
-                        <div key={n} className={`h-1 flex-1 rounded-full transition-colors ${
-                          form.adminPassword.length >= n * 3 ? n <= 2 ? "bg-red-400" : n === 3 ? "bg-yellow-400" : "bg-[#10B981]" : "bg-slate-200"
-                        }`} />
+                      {[1, 2, 3, 4].map((n) => (
+                        <div key={n} className={`h-1 flex-1 rounded-full transition-colors ${form.adminPassword.length >= n * 3 ? n <= 2 ? "bg-red-400" : n === 3 ? "bg-yellow-400" : "bg-[#10B981]" : "bg-slate-200"
+                          }`} />
                       ))}
                     </div>
                   )}
@@ -810,9 +805,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   <label className="block text-sm font-medium text-[#0F172A] mb-1.5">Confirm Password <span className="text-red-400">*</span></label>
                   <div className="relative">
                     <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type="password" value={form.adminConfirm} onChange={(e) => set("adminConfirm", e.target.value)} placeholder="Re-enter your password" className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white ${
-                      form.adminConfirm && form.adminPassword !== form.adminConfirm ? "border-red-300" : "border-slate-200 focus:border-[#0EA5E9]"
-                    }`} />
+                    <input type="password" value={form.adminConfirm} onChange={(e) => set("adminConfirm", e.target.value)} placeholder="Re-enter your password" className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white ${form.adminConfirm && form.adminPassword !== form.adminConfirm ? "border-red-300" : "border-slate-200 focus:border-[#0EA5E9]"
+                      }`} />
                   </div>
                   {form.adminConfirm && form.adminPassword !== form.adminConfirm && (
                     <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
@@ -907,9 +901,8 @@ function RegistrationWizard({ onBack, onComplete }: {
             <button
               onClick={() => step === 4 ? onComplete(form) : setStep(step + 1)}
               disabled={!canAdvance()}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all text-white ${
-                canAdvance() ? "opacity-100 hover:opacity-90" : "opacity-40 cursor-not-allowed"
-              }`}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all text-white ${canAdvance() ? "opacity-100 hover:opacity-90" : "opacity-40 cursor-not-allowed"
+                }`}
               style={{ background: canAdvance() ? form.accentColor : "#94a3b8" }}
             >
               {step === 4 ? "Launch My Workspace" : "Continue"} <ChevronRight size={16} />
@@ -988,9 +981,8 @@ function ProvisioningScreen({ form, onDone }: { form: FormData; onDone: () => vo
 
             <div className="space-y-3">
               {PROVISION_STEPS.map((s, i) => (
-                <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-                  i > current ? "opacity-30" : ""
-                }`}>
+                <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${i > current ? "opacity-30" : ""
+                  }`}>
                   <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                     {completed.includes(i) ? (
                       <CheckCircle2 size={18} className="text-[#10B981]" />
@@ -1253,7 +1245,7 @@ export default function App() {
       } else if (expRes.status === 'rejected') {
         console.warn('Backend financial records unavailable:', expRes.reason);
       }
-      
+
       if (!isCurrent()) return;
 
       // Populate global shared context to prevent duplicate fetches in child views
@@ -1327,7 +1319,7 @@ export default function App() {
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user) {
         if (event === 'SIGNED_IN') {
-          api.post('/users/record-login', {}).catch(() => {});
+          api.post('/users/record-login', {}).catch(() => { });
         }
         const generation = liveSession.current.generation;
         // Defer requests: the API interceptor calls Supabase session methods.
@@ -1474,10 +1466,10 @@ export default function App() {
   ) => {
     // Record session persistence preference
     if (rememberMe) {
-      localStorage.setItem('fs_remember_me', 'true');
+      sessionStorage.setItem('fs_remember_me', 'true');
       sessionStorage.setItem('fs_session_active', '1');
     } else {
-      localStorage.setItem('fs_remember_me', 'false');
+      sessionStorage.setItem('fs_remember_me', 'false');
       sessionStorage.setItem('fs_session_active', '1');
     }
 
@@ -1486,12 +1478,14 @@ export default function App() {
       setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
+      setIsSuperAdmin(false);
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
       showAppView("app");
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
+    else setLoggedInApplicantId("");
     addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
 
     // Ensure live applicant data is immediately retrieved upon login
@@ -1500,7 +1494,7 @@ export default function App() {
 
   const handleLogout = async () => {
     syncLiveSession(null);
-    localStorage.removeItem('fs_remember_me');
+    sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
     try {
       await supabase.auth.signOut();

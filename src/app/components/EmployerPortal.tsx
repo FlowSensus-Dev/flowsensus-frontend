@@ -181,18 +181,18 @@ const EMPLOYEES: DeployedEmployee[] = [
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<EmployeeStatus, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  active:       { label: 'Currently Deployed', color: '#059669', bg: '#F0FDF4', border: '#BBF7D0', icon: <Activity size={11} /> },
-  completed:    { label: 'Contract Completed', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', icon: <CheckCircle2 size={11} /> },
-  left_early:   { label: 'Left Early',         color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: <AlertCircle size={11} /> },
-  pending_eval: { label: 'Awaiting Evaluation',color: '#B45309', bg: '#FEF3C7', border: '#FDE68A', icon: <Clock size={11} /> },
+  active: { label: 'Currently Deployed', color: '#059669', bg: '#F0FDF4', border: '#BBF7D0', icon: <Activity size={11} /> },
+  completed: { label: 'Contract Completed', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', icon: <CheckCircle2 size={11} /> },
+  left_early: { label: 'Left Early', color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: <AlertCircle size={11} /> },
+  pending_eval: { label: 'Awaiting Evaluation', color: '#B45309', bg: '#FEF3C7', border: '#FDE68A', icon: <Clock size={11} /> },
 };
 
 const OVERALL_LABELS = ['', 'Unsatisfactory', 'Needs Improvement', 'Meets Expectations', 'Exceeds Expectations', 'Outstanding'];
 const PERFORMANCE_CRITERIA = [
-  { key: 'work_performance', label: 'Work Performance',  icon: TrendingUp    },
-  { key: 'communication',    label: 'Communication',     icon: MessageSquare },
-  { key: 'adaptability',     label: 'Adaptability',      icon: Zap           },
-  { key: 'attitude',         label: 'Attitude',          icon: ThumbsUp      },
+  { key: 'work_performance', label: 'Work Performance', icon: TrendingUp },
+  { key: 'communication', label: 'Communication', icon: MessageSquare },
+  { key: 'adaptability', label: 'Adaptability', icon: Zap },
+  { key: 'attitude', label: 'Attitude', icon: ThumbsUp },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -336,10 +336,10 @@ function EmployeeCard({
 
 function DashboardView() {
   const counts = {
-    active:    EMPLOYEES.filter((e) => e.status === 'active').length,
+    active: EMPLOYEES.filter((e) => e.status === 'active').length,
     completed: EMPLOYEES.filter((e) => e.status === 'completed').length,
     leftEarly: EMPLOYEES.filter((e) => e.status === 'left_early').length,
-    pending:   EMPLOYEES.filter((e) => e.status === 'pending_eval').length,
+    pending: EMPLOYEES.filter((e) => e.status === 'pending_eval').length,
     evaluated: EMPLOYEES.filter((e) => e.evaluation).length,
   };
 
@@ -375,9 +375,9 @@ function DashboardView() {
         <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y divide-slate-100 border-t border-slate-100">
           {[
             { label: 'Contact Person', value: EMPLOYER.contactPerson, sub: EMPLOYER.contactTitle, icon: Users },
-            { label: 'Email',           value: EMPLOYER.email,         sub: EMPLOYER.phone,          icon: Mail  },
-            { label: 'Accreditation',   value: EMPLOYER.accreditationNo, sub: 'POEA Certified',      icon: Shield },
-            { label: 'Address',         value: 'Al Markaziyah, Abu Dhabi', sub: 'UAE',               icon: MapPin },
+            { label: 'Email', value: EMPLOYER.email, sub: EMPLOYER.phone, icon: Mail },
+            { label: 'Accreditation', value: EMPLOYER.accreditationNo, sub: 'POEA Certified', icon: Shield },
+            { label: 'Address', value: 'Al Markaziyah, Abu Dhabi', sub: 'UAE', icon: MapPin },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -396,10 +396,10 @@ function DashboardView() {
         <div className="grid grid-cols-5 divide-x divide-slate-100 border-t border-slate-100 bg-[#FAFAFA]">
           {[
             { label: 'Lifetime Deployed', value: EMPLOYER.totalDeployedLifetime, color: '#0C1A2E' },
-            { label: 'Currently Active',  value: counts.active,                  color: '#059669' },
-            { label: 'Evaluated',         value: counts.evaluated,               color: '#1D4ED8' },
-            { label: 'Pending Eval.',     value: counts.pending,                 color: '#D97706' },
-            { label: 'Left Early',        value: counts.leftEarly,               color: '#EF4444' },
+            { label: 'Currently Active', value: counts.active, color: '#059669' },
+            { label: 'Evaluated', value: counts.evaluated, color: '#1D4ED8' },
+            { label: 'Pending Eval.', value: counts.pending, color: '#D97706' },
+            { label: 'Left Early', value: counts.leftEarly, color: '#EF4444' },
           ].map((s) => (
             <div key={s.label} className="px-4 py-3 text-center">
               <p className="text-xl font-black" style={{ color: s.color }}>{s.value}</p>
@@ -490,18 +490,18 @@ function DashboardView() {
 // ─── Evaluations view ─────────────────────────────────────────────────────────
 
 function EvaluationsView({ onEvaluate }: { onEvaluate: (emp: DeployedEmployee) => void }) {
-  const pending   = EMPLOYEES.filter((e) => (e.status === 'pending_eval') || (e.status === 'left_early' && !e.evaluation));
+  const pending = EMPLOYEES.filter((e) => (e.status === 'pending_eval') || (e.status === 'left_early' && !e.evaluation));
   const evaluated = EMPLOYEES.filter((e) => !!e.evaluation);
-  const active    = EMPLOYEES.filter((e) => e.status === 'active');
+  const active = EMPLOYEES.filter((e) => e.status === 'active');
 
   return (
     <div className="space-y-6">
       {/* ── Stats header ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Awaiting Evaluation', value: pending.length,   color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: Clock },
-          { label: 'Evaluated',           value: evaluated.length, color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', icon: BadgeCheck },
-          { label: 'Currently Deployed',  value: active.length,    color: '#059669', bg: '#F0FDF4', border: '#BBF7D0', icon: Activity },
+          { label: 'Awaiting Evaluation', value: pending.length, color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: Clock },
+          { label: 'Evaluated', value: evaluated.length, color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', icon: BadgeCheck },
+          { label: 'Currently Deployed', value: active.length, color: '#059669', bg: '#F0FDF4', border: '#BBF7D0', icon: Activity },
         ].map((s) => {
           const Icon = s.icon;
           return (
@@ -634,7 +634,7 @@ function EvaluationsView({ onEvaluate }: { onEvaluate: (emp: DeployedEmployee) =
                     <span className={`text-xs font-bold flex items-center gap-1 ${ev.rehireRecommended ? 'text-[#059669]' : 'text-[#EF4444]'}`}>
                       {ev.rehireRecommended
                         ? <><CheckCircle2 size={11} /> Rehire Recommended</>
-                        : <><AlertCircle   size={11} /> Not Recommended</>
+                        : <><AlertCircle size={11} /> Not Recommended</>
                       }
                     </span>
                     <span className="text-[10px] text-[#94A3B8]">{fmt(ev.dateEvaluated)}</span>
@@ -703,11 +703,11 @@ function EvalFormView({
   emp: DeployedEmployee;
   onBack: () => void;
 }) {
-  const [overallRating, setOverallRating]     = useState(0);
+  const [overallRating, setOverallRating] = useState(0);
   const [criteriaRatings, setCriteriaRatings] = useState<Record<string, number>>({});
-  const [comments, setComments]               = useState('');
-  const [rehire, setRehire]                   = useState<boolean | null>(null);
-  const [submitted, setSubmitted]             = useState(false);
+  const [comments, setComments] = useState('');
+  const [rehire, setRehire] = useState<boolean | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   const setCriterion = (key: string, val: number) =>
     setCriteriaRatings((prev) => ({ ...prev, [key]: val }));
@@ -739,8 +739,8 @@ function EvalFormView({
         <div className="grid grid-cols-3 divide-x divide-slate-100">
           {[
             { label: 'Date Started', value: emp.dateStarted },
-            { label: 'Date Ended',   value: emp.dateEnded || 'Ongoing' },
-            { label: 'Duration',     value: emp.contractDuration },
+            { label: 'Date Ended', value: emp.dateEnded || 'Ongoing' },
+            { label: 'Duration', value: emp.contractDuration },
           ].map((item) => (
             <div key={item.label} className="px-4 py-3">
               <p className="text-[10px] text-[#64748B] uppercase font-bold tracking-wide mb-0.5">{item.label}</p>
@@ -802,8 +802,8 @@ function EvalFormView({
               <p className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider mb-3">Rehire Recommendation</p>
               <div className="flex gap-3">
                 {[
-                  { v: true,  label: 'Recommend for Rehire', color: '#10B981', bg: '#F0FDF4', border: '#BBF7D0' },
-                  { v: false, label: 'Do Not Recommend',     color: '#EF4444', bg: '#FEF2F2', border: '#FECACA' },
+                  { v: true, label: 'Recommend for Rehire', color: '#10B981', bg: '#F0FDF4', border: '#BBF7D0' },
+                  { v: false, label: 'Do Not Recommend', color: '#EF4444', bg: '#FEF2F2', border: '#FECACA' },
                 ].map((opt) => (
                   <button key={String(opt.v)} type="button" onClick={() => setRehire(opt.v)}
                     className="flex-1 py-2.5 rounded-lg text-sm font-semibold border-2 transition-all"
@@ -886,8 +886,8 @@ interface EmployerPortalProps {
 }
 
 export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
-  const [view, setView]                       = useState<PortalView>('dashboard');
-  const [evalTarget, setEvalTarget]           = useState<DeployedEmployee | null>(null);
+  const [view, setView] = useState<PortalView>('dashboard');
+  const [evalTarget, setEvalTarget] = useState<DeployedEmployee | null>(null);
 
   const handleEvaluate = (emp: DeployedEmployee) => {
     setEvalTarget(emp);
@@ -904,7 +904,7 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
   ).length;
 
   const NAV: { key: PortalView; label: string; icon: React.ReactNode }[] = [
-    { key: 'dashboard',   label: 'Dashboard',   icon: <Globe size={14} />  },
+    { key: 'dashboard', label: 'Dashboard', icon: <Globe size={14} /> },
     { key: 'evaluations', label: 'Evaluations', icon: <BarChart3 size={14} /> },
   ];
 
@@ -953,11 +953,10 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
               <button
                 key={tab.key}
                 onClick={() => setView(tab.key)}
-                className={`flex items-center gap-2 px-4 py-3.5 text-sm font-semibold border-b-2 transition-all relative ${
-                  view === tab.key
+                className={`flex items-center gap-2 px-4 py-3.5 text-sm font-semibold border-b-2 transition-all relative ${view === tab.key
                     ? 'text-white border-[#3B82F6]'
                     : 'text-[#64748B] border-transparent hover:text-[#94A3B8] hover:border-[#334155]'
-                }`}
+                  }`}
               >
                 {tab.icon}
                 {tab.label}
@@ -987,9 +986,9 @@ export default function EmployerPortal({ onLogout }: EmployerPortalProps) {
 
       {/* ── Main content ──────────────────────────────────────────────────────── */}
       <main className="max-w-5xl mx-auto px-4 py-8">
-        {view === 'dashboard'   && <DashboardView />}
+        {view === 'dashboard' && <DashboardView />}
         {view === 'evaluations' && <EvaluationsView onEvaluate={handleEvaluate} />}
-        {view === 'eval-form'   && evalTarget && (
+        {view === 'eval-form' && evalTarget && (
           <EvalFormView emp={evalTarget} onBack={handleBackFromForm} />
         )}
       </main>
