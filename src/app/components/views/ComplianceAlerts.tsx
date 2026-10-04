@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Clock, Calendar, ShieldAlert, CheckCircle, RefreshCw, XCircle } from 'lucide-react';
 import { ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 
 interface ComplianceAlertsProps {
   applicants?: ApplicantRecord[];
@@ -50,6 +51,23 @@ export default function ComplianceAlerts({ applicants = [], showToast }: Complia
 
   useEffect(() => {
     loadAlerts(false);
+
+    // Live Real-Time Subscription to document_alert table
+    const channel = supabase
+      .channel('realtime:compliance_alerts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'document_alert' },
+        (payload: any) => {
+          console.log('[ComplianceAlerts] Realtime alert update:', payload.eventType);
+          loadAlerts(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleDismiss = async (alertId: number) => {
@@ -92,9 +110,11 @@ export default function ComplianceAlerts({ applicants = [], showToast }: Complia
             Automated expiration monitoring for pre-deployment documents.
           </p>
         </div>
-        <button onClick={() => loadAlerts(true)} disabled={isLoading} className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold">
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => loadAlerts(true)} disabled={isLoading} className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold">
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {stats && (

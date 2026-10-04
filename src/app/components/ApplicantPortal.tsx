@@ -32,10 +32,10 @@ const DEPLOYMENT = {
 };
 
 const WELFARE_CRITERIA = [
-  { key: 'working_conditions',    label: 'Working Conditions',    icon: Briefcase,   desc: 'Workload, hours, and work environment quality' },
-  { key: 'fair_treatment',        label: 'Fair Treatment',        icon: ShieldCheck, desc: 'Respect, equity, and non-discriminatory practices' },
-  { key: 'living_accommodations', label: 'Living Accommodations', icon: Home,        desc: 'Housing, meals, and personal space provided' },
-  { key: 'workplace_safety',      label: 'Workplace Safety',      icon: Stethoscope, desc: 'Safety protocols, equipment, and emergency procedures' },
+  { key: 'working_conditions', label: 'Working Conditions', icon: Briefcase, desc: 'Workload, hours, and work environment quality' },
+  { key: 'fair_treatment', label: 'Fair Treatment', icon: ShieldCheck, desc: 'Respect, equity, and non-discriminatory practices' },
+  { key: 'living_accommodations', label: 'Living Accommodations', icon: Home, desc: 'Housing, meals, and personal space provided' },
+  { key: 'workplace_safety', label: 'Workplace Safety', icon: Stethoscope, desc: 'Safety protocols, equipment, and emergency procedures' },
 ];
 
 const RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
@@ -65,11 +65,10 @@ function StarInput({
         >
           <Star
             size={size}
-            className={`transition-colors duration-150 ${
-              (hovered || value) >= s
+            className={`transition-colors duration-150 ${(hovered || value) >= s
                 ? 'text-amber-400 fill-amber-400'
                 : 'text-slate-200 fill-slate-200'
-            }`}
+              }`}
           />
         </button>
       ))}
@@ -84,10 +83,10 @@ interface ApplicantPortalProps {
 }
 
 export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
-  const [overallRating, setOverallRating]   = useState(0);
+  const [overallRating, setOverallRating] = useState(0);
   const [criteriaRatings, setCriteriaRatings] = useState<Record<string, number>>({});
-  const [remarks, setRemarks]               = useState('');
-  const [submitted, setSubmitted]           = useState(false);
+  const [remarks, setRemarks] = useState('');
+  const [submitted, setSubmitted] = useState(false);
 
   const setCriterion = (key: string, val: number) =>
     setCriteriaRatings((prev) => ({ ...prev, [key]: val }));

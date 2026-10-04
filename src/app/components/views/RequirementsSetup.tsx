@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { DocumentRequirement, ApplicantTypeLookup, JobCategoryLookup } from '../../types';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 
 const BADGE_PALETTE = [
@@ -118,6 +119,23 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
 
   useEffect(() => {
     fetchData();
+
+    // Live Real-Time Subscription to requirement table
+    const channel = supabase
+      .channel('realtime:document_requirements_setup')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'requirement' },
+        (payload: any) => {
+          console.log('[RequirementsSetup] Realtime requirement update:', payload.eventType);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Lookup Name Mappings ───────────────────────────────────────────────────

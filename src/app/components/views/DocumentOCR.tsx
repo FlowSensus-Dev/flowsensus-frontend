@@ -64,7 +64,6 @@ export default function DocumentOCR({
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
-  const [claimStatus, setClaimStatus] = useState<any>(null);
   
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewMime, setPreviewMime] = useState<string | null>(null);
@@ -96,12 +95,27 @@ export default function DocumentOCR({
   useEffect(() => {
     if (activeApplicantId && activeApplicantId !== 'new' && !isNaN(Number(activeApplicantId))) {
       loadRequirements(activeApplicantId);
+
+      const channel = supabase
+        .channel(`realtime:applicant_documents_${activeApplicantId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'applicant_requirement' },
+          (payload: any) => {
+            console.log('[DocumentOCR] Realtime applicant_requirement update:', payload.eventType);
+            loadRequirements(activeApplicantId);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     } else {
       setRequirements([]);
       setSelectedReq(null);
       setPreviewUrl(null);
       setOcrData(null);
-      setClaimStatus(null);
     }
   }, [activeApplicantId]);
 
@@ -121,35 +135,10 @@ export default function DocumentOCR({
         const updated = reqList.find(r => r.applicant_req_id === selectedReq.applicant_req_id);
         if (updated) setSelectedReq(updated);
       }
-      
-      try {
-        const claimRes = await api.post(`/documents/claims/${appId}/claim`, { timeout_minutes: 30 });
-        if (claimRes.data?.claim) {
-          setClaimStatus(claimRes.data.claim);
-        }
-      } catch (err: any) {
-        if (err.response?.status === 409 && err.response?.data?.detail) {
-          const detail = err.response.data.detail;
-          if (!detail.includes(currentUserName)) {
-            showToast(`Note: ${detail}`);
-          }
-        }
-      }
     } catch (err: any) {
       showToast(`Failed to load requirements: ${err.message}`);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleRelease = async () => {
-    if (!activeApplicantId) return;
-    try {
-      await api.delete(`/documents/claims/${activeApplicantId}/release`);
-      setClaimStatus(null);
-      showToast('Applicant released');
-    } catch (err: any) {
-      showToast(`Failed to release: ${err.message}`);
     }
   };
 
@@ -381,24 +370,19 @@ export default function DocumentOCR({
           </select>
         </div>
         
-        {activeApplicantId && claimStatus && (
-          <div className="flex items-center gap-3 bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200">
-            <div className="text-xs">
-              <span className="block text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Current Claim</span>
-              <span className={`font-semibold ${claimStatus.claimed_by === currentUserName ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {claimStatus.claimed_by === currentUserName ? 'Claimed by You' : `Claimed by ${claimStatus.claimed_by}`}
-              </span>
+        {activeApplicantId && (() => {
+          const activeApp = phaseQualifiedApplicants.find(a => String(a.id) === String(activeApplicantId));
+          return activeApp ? (
+            <div className="flex items-center gap-3 bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200">
+              <div className="text-xs">
+                <span className="block text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Assigned Handler</span>
+                <span className="font-semibold text-slate-700">
+                  {activeApp.currentHandler || 'Unassigned Pool'}
+                </span>
+              </div>
             </div>
-            {claimStatus.claimed_by === currentUserName && (
-              <button 
-                onClick={handleRelease} 
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-md font-medium text-xs transition-colors cursor-pointer"
-              >
-                Release
-              </button>
-            )}
-          </div>
-        )}
+          ) : null;
+        })()}
       </div>
 
       {activeApplicantId && (

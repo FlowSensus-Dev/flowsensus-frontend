@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
+import { hasAccessToView } from '../../lib/accessControl';
 import Logo from './Logo';
 
 interface SidebarProps {
@@ -141,26 +142,7 @@ export default function Sidebar({
     : [currentUserRole];
 
   const hasItemAccess = (item: NavItem): boolean => {
-    if (isSuperAdmin) return true; // Super Admin has universal access
-    if (userRolesList.includes('Management')) return true; // Management has universal access
-
-    // Universal modules
-    if (item.id === 'dashboard' || item.id === 'applicants') return true;
-
-    // Excluded Management-only modules
-    if (['evaluation', 'forecast', 'history', 'reports', 'users'].includes(item.id)) {
-      return false; // Checked Management above
-    }
-
-    // Dynamic database workflow module permissions
-    if (workflowPermissions && workflowPermissions[item.id]) {
-      const allowedRoles = workflowPermissions[item.id];
-      return allowedRoles.some((r) => userRolesList.includes(r));
-    }
-
-    // Default static role fallback
-    if (item.roles === 'All') return true;
-    return item.roles.some((r) => userRolesList.includes(r));
+    return hasAccessToView(item.id, userRolesList, isSuperAdmin, workflowPermissions);
   };
 
   const rolesDisplayText = isSuperAdmin

@@ -10,6 +10,7 @@ import {
 import { ApplicantRecord, ActivityLog } from '../../types';
 import { Skeleton, SkeletonText } from '../ui/skeleton';
 import { api } from '../../../lib/api';
+import { supabase } from '../../../lib/supabase';
 import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface EndorsementTrackerProps {
@@ -803,7 +804,26 @@ export default function EndorsementTracker({
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { 
+    load(); 
+
+    // Live Real-Time Subscription to cv_employer_submission table
+    const channel = supabase
+      .channel('realtime:cv_employer_submission_tracker')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cv_employer_submission' },
+        (payload: any) => {
+          console.log('[EndorsementTracker] Realtime CV submission update:', payload.eventType);
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [load]);
 
   // Helper to find full applicant object
   const getApplicantForCard = useCallback((card: CvSubmission): ApplicantRecord | undefined => {
@@ -1567,9 +1587,6 @@ export default function EndorsementTracker({
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">Endorsement Tracker</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0EA5E9]/10 text-[#0EA5E9] border border-[#0EA5E9]/20">
-              Module 3 · CV Endorsement
-            </span>
           </div>
           <p className="text-sm text-[#64748B] mt-1 font-medium">
             Track approved CVs from manager sign-off, external employer portal upload, selection, and deployment eligibility verification.

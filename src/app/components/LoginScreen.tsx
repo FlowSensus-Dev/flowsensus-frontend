@@ -180,6 +180,9 @@ export default function LoginScreen({
             return;
           }
 
+          // Record login in app_user to update last_login_at and broadcast realtime update
+          api.post('/users/record-login', {}).catch(e => console.warn('Could not record login timestamp:', e));
+
           onLogin(role, name, undefined, isSuper, roles, rememberMe);
         }
         return;
