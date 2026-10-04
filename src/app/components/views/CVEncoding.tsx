@@ -238,8 +238,9 @@ export default function CVEncoding({
       'Under Employer Review', 'Deployed'].includes(currentApplicant.status)
   ));
 
-  const canSubmit = cvRecord && ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) && !isLocked;
-  const canSaveDraft = !isLocked && cvRecord?.status_code !== 'APPROVED';
+  const isEditable = !isLocked && (cvRecord?.status_code !== 'APPROVED' || currentApplicant?.status === 'CV Encoding');
+  const canSubmit = !isLocked && (!cvRecord || ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) || currentApplicant?.status === 'CV Encoding');
+  const canSaveDraft = isEditable;
 
   // Close overlay on Escape key
   useEffect(() => {
@@ -332,6 +333,14 @@ export default function CVEncoding({
     try {
       const res = await api.get(`/cv/applicant/${applicantId}`);
       const rec: CvRecord | null = res.data || null;
+      if (rec && rec.status_code === 'APPROVED') {
+        const app = applicants.find(a => String(a.id) === String(applicantId));
+        if (app?.status === 'CV Encoding') {
+          // Candidate returned for revision - update to DRAFT so it can be re-encoded
+          api.patch(`/cv/${rec.cv_id}`, { statusCode: 'DRAFT' }).catch(console.error);
+          rec.status_code = 'DRAFT';
+        }
+      }
       setCvRecord(rec);
       if (rec?.custom_fields) {
         // Extract summary_override from custom_fields
@@ -379,7 +388,7 @@ export default function CVEncoding({
 
       if (cvRecord) {
         const res = await api.patch(`/cv/${cvRecord.cv_id}`, {
-          statusCode: cvRecord.status_code === 'REJECTED' ? 'DRAFT' : cvRecord.status_code,
+          statusCode: (cvRecord.status_code === 'REJECTED' || cvRecord.status_code === 'APPROVED') ? 'DRAFT' : cvRecord.status_code,
           customFields: customFieldsPayload,
           jobOrderId: effectiveJobOrderId,
         });
@@ -606,7 +615,7 @@ export default function CVEncoding({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {cvRecord && <StatusBadge status={cvRecord.status_code} />}
+          {cvRecord && <StatusBadge status={currentApplicant?.status === 'CV Encoding' && cvRecord.status_code === 'APPROVED' ? 'DRAFT' : cvRecord.status_code} />}
           {currentApplicant && (
             <button
               onClick={() => setShowReturnModal(true)}
@@ -1029,7 +1038,7 @@ export default function CVEncoding({
               rows={4}
               value={summaryOverride}
               onChange={e => setSummaryOverride(e.target.value)}
-              disabled={cvRecord?.status_code === 'APPROVED'}
+              disabled={!isEditable}
               placeholder={`Experienced ${currentApplicant.role || 'professional'} seeking overseas employment opportunities...`}
               className="w-full border-2 border-slate-200 px-4 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400 transition-colors"
             />
@@ -1047,7 +1056,7 @@ export default function CVEncoding({
                   type="text"
                   value={field.key}
                   onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, key: e.target.value } : f))}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   placeholder="Field name"
                   className="w-1/3 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                 />
@@ -1055,13 +1064,13 @@ export default function CVEncoding({
                   type="text"
                   value={field.value}
                   onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   placeholder="Value"
                   className="flex-1 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                 />
                 <button
                   onClick={() => handleRemoveCustomField(idx)}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1069,7 +1078,7 @@ export default function CVEncoding({
               </div>
             ))}
 
-            {cvRecord?.status_code !== 'APPROVED' && (
+            {isEditable && (
               <div className="mt-3 border-t border-slate-100 pt-3">
                 <div className="flex gap-2 items-center">
                   <input

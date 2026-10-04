@@ -482,7 +482,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
-            onNavigate={(v) => setActiveView(v)}
+            onNavigate={(v) => setCurrentView(v as any)}
           />
         );
       case 'forecast':

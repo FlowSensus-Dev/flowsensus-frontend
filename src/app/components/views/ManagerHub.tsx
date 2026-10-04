@@ -476,6 +476,7 @@ export default function ManagerHub({
   }, [loadCvRecords]);
 
   // ─── Approve ──────────────────────────────────────────────────────────────────
+  // ─── Approve ──────────────────────────────────────────────────────────────────
   const handleApprove = async (cvId: number) => {
     setIsActing(true);
     try {
@@ -488,12 +489,33 @@ export default function ManagerHub({
       updateWorkflow({ cvApproved: true });
 
       const app = applicants.find(a => String(a.id) === String(updated.applicant_id));
+      const effectiveJobOrderId = updated.job_order_id
+        || (app?.selectedJobOrderId && !isNaN(Number(app.selectedJobOrderId)) ? Number(app.selectedJobOrderId) : undefined)
+        || (app as any)?.job_order_id
+        || (app as any)?.jobOrderId;
+
+      // Auto-create submission card in Endorsement Tracker (Stage 1: MANAGER_APPROVED)
+      try {
+        const subRes = await api.post('/cv-submissions', {
+          cvId,
+          applicantId: updated.applicant_id,
+          jobOrderId: effectiveJobOrderId || undefined,
+          boardStageCode: 'MANAGER_APPROVED',
+        });
+        if (subRes.data) {
+          setSubmissions(prev => [...prev.filter(s => s.submission_id !== subRes.data.submission_id), subRes.data]);
+        }
+      } catch (subErr) {
+        console.warn('Submission creation warning (may already exist):', subErr);
+      }
+
       if (app) {
         updateApplicant(String(app.id), {
+          phase: 4,
           status: 'CV Approved - Sending to Employer',
           currentHandler: currentUserName,
           currentDepartment: 'Management',
-          phaseDescription: 'CV approved by management, ready for employer endorsement.',
+          phaseDescription: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
         });
 
         const numId = parseInt(String(app.id), 10);
@@ -501,11 +523,11 @@ export default function ManagerHub({
           api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
-            current_phase: 3,
+            current_phase: 4,
             current_handler: currentUserName,
             current_department: 'Management',
-            phase_description: 'CV approved by management, ready for employer endorsement.',
-            statusChangeReason: 'Manager approved CV',
+            phase_description: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
+            statusChangeReason: 'Manager approved CV and endorsed to Tracker',
             statusChangeSource: 'MANAGER_HUB',
             updated_at: new Date().toISOString(),
           }).catch(console.error);
@@ -517,10 +539,10 @@ export default function ManagerHub({
         action: 'CV Approved by Manager',
         performedBy: currentUserName,
         department: 'Management',
-        details: `CV #${cvId} approved. Proceed to endorse via Endorsement Tracker.`,
+        details: `CV #${cvId} approved. Endorsed to Endorsement Tracker (Manager Approved stage).`,
       });
 
-      showToast('✓ CV approved! You may now endorse it to the Tracker.');
+      showToast('✓ CV approved and pushed to Endorsement Tracker!');
     } catch (err: any) {
       showToast(`❌ Approval failed: ${err?.response?.data?.detail || err.message}`);
     } finally {
@@ -592,35 +614,37 @@ export default function ManagerHub({
 
     setIsActing(true);
     try {
-      await api.post('/cv-submissions', {
+      const subRes = await api.post('/cv-submissions', {
         cvId,
         applicantId: cvRec.applicant_id,
         jobOrderId: effectiveJobOrderId || undefined,
         boardStageCode: 'MANAGER_APPROVED',
       });
+      if (subRes.data) {
+        setSubmissions(prev => [...prev.filter(s => s.submission_id !== subRes.data.submission_id), subRes.data]);
+      }
 
       // Master Key: unlock employer accepted
       updateWorkflow({ employerAccepted: true });
 
-      const app = applicants.find(a => String(a.id) === String(cvRec.applicant_id));
       if (app) {
         updateApplicant(String(app.id), {
           phase: 4,
-          status: 'Under Employer Review',
+          status: 'CV Approved - Sending to Employer',
           currentHandler: 'Recruitment',
           currentDepartment: 'Recruitment',
-          phaseDescription: 'CV endorsed to Employer Tracker. Awaiting employer selection.',
+          phaseDescription: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
         });
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
           api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
-            application_status: 'Under Employer Review',
+            application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
             current_handler: 'Recruitment',
             current_department: 'Recruitment',
-            phase_description: 'CV endorsed to Employer Tracker. Awaiting employer selection.',
+            phase_description: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
             statusChangeReason: 'CV endorsed to Employer Tracker',
             statusChangeSource: 'MANAGER_HUB',
             updated_at: new Date().toISOString(),
@@ -636,8 +660,7 @@ export default function ManagerHub({
         details: `CV #${cvId} pushed to Endorsement Tracker (MANAGER_APPROVED stage). Phase 4 unlocked.`,
       });
 
-      showToast('✓ CV endorsed to Employer Tracker! Phase 4 now active. (Master Key Activated)');
-      setSelectedCv(null);
+      showToast('✓ CV endorsed to Employer Tracker! Phase 4 now active.');
       await loadCvRecords();
     } catch (err: any) {
       showToast(`❌ Endorsement failed: ${err?.response?.data?.detail || err.message}`);
@@ -652,14 +675,8 @@ export default function ManagerHub({
   }, [submissions]);
 
   const isCvEndorsed = useCallback((cv: CvRecord) => {
-    const sub = getSubmissionForCv(cv.cv_id, cv.applicant_id);
-    if (sub) return true;
-    const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
-    if (app && app.phase != null && app.phase >= 4 && app.status !== 'CV Encoding') {
-      return true;
-    }
-    return false;
-  }, [getSubmissionForCv, applicants]);
+    return Boolean(getSubmissionForCv(cv.cv_id, cv.applicant_id));
+  }, [getSubmissionForCv]);
 
   // ─── Filtered list ────────────────────────────────────────────────────────────
   const filtered = cvRecords.filter(cv => {

@@ -1,5 +1,7 @@
-import { AlertTriangle, Clock, Calendar } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, Clock, Calendar, ShieldAlert, CheckCircle, RefreshCw, XCircle } from 'lucide-react';
 import { ApplicantRecord } from '../../types';
+import { api } from '../../../lib/api';
 
 interface ComplianceAlertsProps {
   applicants?: ApplicantRecord[];
@@ -7,63 +9,154 @@ interface ComplianceAlertsProps {
 }
 
 export default function ComplianceAlerts({ applicants = [], showToast }: ComplianceAlertsProps) {
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [stats, setStats] = useState<any>(null);
+
+  const loadAlerts = async () => {
+    setIsLoading(true);
+    try {
+      // Refresh backend scan first
+      await api.post('/documents/alerts/scan').catch(console.warn);
+      
+      const res = await api.get('/documents/alerts');
+      const alertList: any[] = Array.isArray(res.data) ? res.data : (res.data?.alerts || []);
+      setAlerts(alertList);
+
+      if (res.data?.stats) {
+        setStats(res.data.stats);
+      } else {
+        const total = alertList.length;
+        const expired = alertList.filter((a: any) => a.alert_level === 'EXPIRED').length;
+        const critical = alertList.filter((a: any) => a.alert_level === 'CRITICAL_30').length;
+        const warning = alertList.filter((a: any) => a.alert_level === 'WARNING_60').length;
+        setStats({
+          total_active_alerts: total,
+          expired_count: expired,
+          critical_count: critical,
+          warning_count: warning,
+        });
+      }
+    } catch (err: any) {
+      showToast(`Failed to load alerts: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAlerts();
+  }, []);
+
+  const handleDismiss = async (alertId: number) => {
+    try {
+      await api.post(`/documents/alerts/${alertId}/dismiss`);
+      showToast('Alert dismissed');
+      loadAlerts();
+    } catch (err: any) {
+      showToast(`Failed to dismiss alert: ${err.message}`);
+    }
+  };
+
+  const renderIcon = (level: string) => {
+    switch (level) {
+      case 'EXPIRED': return <XCircle className="w-5 h-5 text-red-600" />;
+      case 'CRITICAL_30': return <AlertTriangle className="w-5 h-5 text-orange-500" />;
+      case 'WARNING_60': return <Clock className="w-5 h-5 text-amber-500" />;
+      default: return <ShieldAlert className="w-5 h-5 text-slate-500" />;
+    }
+  };
+
+  const renderBg = (level: string) => {
+    switch (level) {
+      case 'EXPIRED': return 'bg-red-50 border-red-200';
+      case 'CRITICAL_30': return 'bg-orange-50 border-orange-200';
+      case 'WARNING_60': return 'bg-amber-50 border-amber-200';
+      default: return 'bg-slate-50 border-slate-200';
+    }
+  };
+
   return (
-    <div className="space-y-6 w-full">
-      <div className="mb-6">
-        <h2 className="text-3xl font-extrabold tracking-tight">3-2-1 Compliance Watch</h2>
-        <p className="text-sm text-[#64748B] mt-1 font-medium">
-          Automated expiration monitoring for pre-deployment documents.
-        </p>
+    <div className="space-y-6 w-full pb-12">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-3xl font-extrabold tracking-tight flex items-center gap-2">
+            <ShieldAlert className="w-8 h-8 text-amber-600" />
+            3-2-1 Compliance Watch
+          </h2>
+          <p className="text-sm text-[#64748B] mt-1 font-medium">
+            Automated expiration monitoring for pre-deployment documents.
+          </p>
+        </div>
+        <button onClick={loadAlerts} disabled={isLoading} className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold">
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
       </div>
 
+      {stats && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <p className="text-3xl font-black text-slate-800">{stats.total_active_alerts}</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Total Active</p>
+          </div>
+          <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
+            <p className="text-3xl font-black text-red-600">{stats.expired_count}</p>
+            <p className="text-xs font-bold text-red-500 uppercase tracking-widest mt-1">Expired</p>
+          </div>
+          <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 text-center">
+            <p className="text-3xl font-black text-orange-600">{stats.critical_count}</p>
+            <p className="text-xs font-bold text-orange-500 uppercase tracking-widest mt-1">30 Days</p>
+          </div>
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
+            <p className="text-3xl font-black text-amber-600">{stats.warning_count}</p>
+            <p className="text-xs font-bold text-amber-500 uppercase tracking-widest mt-1">60 Days</p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-4">
-        {/* Expired (Red) */}
-        <div className="bg-red-50/80 border border-[#EF4444]/30 rounded-xl p-5 flex items-center justify-between shadow-sm">
-          <div className="flex gap-4 items-center">
-            <div className="w-10 h-10 rounded-full bg-[#EF4444]/10 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-[#EF4444]" />
-            </div>
-            <div>
-              <p className="font-bold text-[#0F172A] text-sm">TESDA Certificate • Juan Dela Cruz</p>
-              <p className="text-xs font-bold text-[#EF4444] mt-1 uppercase tracking-wider">Expired 3 days ago</p>
-            </div>
+        {alerts.length === 0 && !isLoading && (
+          <div className="bg-green-50 border border-green-200 text-green-800 p-8 rounded-xl text-center flex flex-col items-center">
+            <CheckCircle className="w-12 h-12 mb-3 text-green-500" />
+            <p className="font-bold text-lg">All Clear!</p>
+            <p className="text-sm">No compliance alerts detected across active pipeline applicants.</p>
           </div>
-          <button className="px-4 py-2 bg-white border-2 border-[#EF4444] text-[#EF4444] text-xs font-bold rounded-lg hover:bg-[#EF4444] hover:text-white transition-colors">
-            Request Replacement
-          </button>
-        </div>
-
-        {/* 30 Days (Amber) */}
-        <div className="bg-amber-50/80 border border-[#F59E0B]/30 rounded-xl p-5 flex items-center justify-between shadow-sm">
-          <div className="flex gap-4 items-center">
-            <div className="w-10 h-10 rounded-full bg-[#F59E0B]/10 flex items-center justify-center">
-              <Clock className="w-5 h-5 text-[#F59E0B]" />
+        )}
+        
+        {alerts.map((a: any) => {
+          const app = applicants.find(applicant => applicant.id === a.applicant_id) || { name: `Applicant #${a.applicant_id}` };
+          
+          return (
+            <div key={a.alert_id} className={`border rounded-xl p-5 flex items-center justify-between shadow-sm ${renderBg(a.alert_level)}`}>
+              <div className="flex gap-4 items-center">
+                <div className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center">
+                  {renderIcon(a.alert_level)}
+                </div>
+                <div>
+                  <p className="font-bold text-[#0F172A] text-sm">
+                    {a.applicant_requirement?.requirement?.requirement_name || 'Document'} • {app.name}
+                  </p>
+                  <p className={`text-xs font-bold mt-1 uppercase tracking-wider ${
+                    a.alert_level === 'EXPIRED' ? 'text-red-600' : 'text-amber-600'
+                  }`}>
+                    {a.alert_level.replace('_', ' ')}: {a.message}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button className="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors">
+                  Notify Applicant
+                </button>
+                <button 
+                  onClick={() => handleDismiss(a.alert_id)}
+                  className="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-[#0F172A] text-sm">Medical Clearance • Ana Reyes</p>
-              <p className="text-xs font-bold text-[#F59E0B] mt-1 uppercase tracking-wider">Expires in 28 days</p>
-            </div>
-          </div>
-          <button className="px-4 py-2 bg-white border-2 border-[#F59E0B] text-[#F59E0B] text-xs font-bold rounded-lg hover:bg-[#F59E0B] hover:text-white transition-colors">
-            Notify Applicant
-          </button>
-        </div>
-
-        {/* 60 Days (Yellow/Amber) */}
-        <div className="bg-amber-50/50 border border-[#F59E0B]/20 rounded-xl p-5 flex items-center justify-between shadow-sm">
-          <div className="flex gap-4 items-center">
-            <div className="w-10 h-10 rounded-full bg-[#F59E0B]/5 flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <p className="font-bold text-[#0F172A] text-sm">NBI Clearance • Pedro Garcia</p>
-              <p className="text-xs font-bold text-amber-600 mt-1 uppercase tracking-wider">Expires in 58 days</p>
-            </div>
-          </div>
-          <button className="px-4 py-2 bg-white border-2 border-amber-600 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-600 hover:text-white transition-colors">
-            Notify Applicant
-          </button>
-        </div>
+          );
+        })}
       </div>
     </div>
   );

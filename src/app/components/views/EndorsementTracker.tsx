@@ -126,7 +126,7 @@ const PREVIOUS_STAGE_MAP: Record<string, {
   UPLOADED_TO_PORTAL: {
     prevStageCode: 'MANAGER_APPROVED',
     prevStageLabel: 'Manager Approved',
-    applicantStatus: 'CV Approval',
+    applicantStatus: 'CV Approved - Sending to Employer',
     phase: 4,
     description: 'CV approved by Manager. Ready to upload to foreign employer portal.',
   },
@@ -145,6 +145,50 @@ const PREVIOUS_STAGE_MAP: Record<string, {
     description: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
   },
 };
+
+export interface ReturnStageOption {
+  key: string;
+  name: string;
+  status: string;
+  phase: number;
+  department: string;
+  desc: string;
+}
+
+export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
+  {
+    key: 'cv_encoding',
+    name: 'CV Encoding',
+    status: 'CV Encoding',
+    phase: 4,
+    department: 'Recruitment',
+    desc: 'Exit tracker and return to CV Encoding for revisions or correction',
+  },
+  {
+    key: 'applicant_profiling',
+    name: 'Applicant Profiling',
+    status: 'Applicant Profiling',
+    phase: 3,
+    department: 'Recruitment',
+    desc: 'Return to recheck readiness and re-endorse to a specific job order',
+  },
+  {
+    key: 'medical_clearance',
+    name: 'Medical Clearance',
+    status: 'Medical Clearance',
+    phase: 2,
+    department: 'Admin',
+    desc: 'Return to Medical Gate / Fit-to-Work for clinic referral or laboratory re-evaluation',
+  },
+  {
+    key: 'initial_screening',
+    name: 'Initial Screening',
+    status: 'Initial Screening',
+    phase: 2,
+    department: 'Recruitment',
+    desc: 'Return to Initial Screening for re-assessment or re-evaluation',
+  },
+];
 
 function SkeletonCard() {
   return (
@@ -257,17 +301,17 @@ export function resolveCardDetails(
   
   // Distinguish candidate's applied trade/role
   const rawRole = applicant?.appliedPosition || applicant?.appliedRole || applicant?.role || card.applied_role || '';
-  const candidateAppliedRole = (rawRole && rawRole !== 'Applicant' && rawRole !== 'OFW Staff') ? rawRole : '—';
+  const candidateAppliedRole = (rawRole && rawRole !== 'Applicant' && rawRole !== 'OFW Staff' && rawRole !== '-') ? rawRole : '—';
   
   const candidateCode = applicant?.applicantCode || (applicant?.id ? `APP-${String(applicant.id).padStart(4, '0')}` : (card.applicant_id ? `APP-${String(card.applicant_id).padStart(4, '0')}` : '—'));
 
-  // Job Order Code (accurately resolved, never fake 'JO-304')
+  // Job Order Code (accurately resolved)
   let jobOrderCode = '—';
   if (matchedJo?.code || matchedJo?.job_order_code || matchedJo?.job_code) {
     jobOrderCode = matchedJo.code || matchedJo.job_order_code || matchedJo.job_code;
-  } else if (rawAppJoCode) {
+  } else if (rawAppJoCode && rawAppJoCode !== 'Unassigned' && rawAppJoCode !== '-') {
     jobOrderCode = rawAppJoCode;
-  } else if (rawCardJoCode) {
+  } else if (rawCardJoCode && rawCardJoCode !== '-') {
     jobOrderCode = rawCardJoCode;
   } else if (joIdTarget && !isNaN(Number(joIdTarget)) && Number(joIdTarget) > 0) {
     jobOrderCode = `JO-2026-${String(joIdTarget).padStart(4, '0')}`;
@@ -279,9 +323,9 @@ export function resolveCardDetails(
     employerName = matchedEmp.company_name || matchedEmp.companyName;
   } else if (matchedJo?.employerName || matchedJo?.employer?.company_name || matchedJo?.client_employer?.company_name) {
     employerName = matchedJo.employerName || matchedJo.employer?.company_name || matchedJo.client_employer?.company_name;
-  } else if (cleanCardEmpName) {
+  } else if (cleanCardEmpName && cleanCardEmpName !== '-') {
     employerName = cleanCardEmpName;
-  } else if ((applicant as any)?.employer) {
+  } else if ((applicant as any)?.employer && (applicant as any)?.employer !== 'Unassigned' && (applicant as any)?.employer !== '-') {
     employerName = (applicant as any).employer;
   }
 
@@ -290,28 +334,26 @@ export function resolveCardDetails(
   const joCountry = (typeof matchedJo?.country === 'string' ? matchedJo.country : matchedJo?.country?.country_name) || matchedJo?.country_name;
   const empCountry = matchedEmp?.country || matchedEmp?.country_name || (typeof matchedEmp?.country === 'object' ? matchedEmp.country?.country_name : '');
   const cardCountry = card.employer_info?.country_name;
-  const cleanCardCountry = (cardCountry && cardCountry !== 'Saudi Arabia' && cardCountry !== 'Overseas') ? cardCountry : '';
+  const cleanCardCountry = (cardCountry && cardCountry !== 'Saudi Arabia' && cardCountry !== 'Overseas' && cardCountry !== '-' && cardCountry !== '—') ? cardCountry : '';
 
-  if (joCountry && joCountry !== 'International') {
+  if (joCountry && joCountry !== 'International' && joCountry !== '-' && joCountry !== '—') {
     countryName = joCountry;
-  } else if (empCountry && empCountry !== 'International') {
+  } else if (empCountry && empCountry !== 'International' && empCountry !== '-' && empCountry !== '—') {
     countryName = empCountry;
   } else if (cleanCardCountry) {
     countryName = cleanCardCountry;
-  } else if ((applicant as any)?.country) {
+  } else if ((applicant as any)?.country && (applicant as any)?.country !== '-' && (applicant as any)?.country !== '—') {
     countryName = (applicant as any).country;
-  } else if (joCountry) {
-    countryName = joCountry;
-  } else if (empCountry) {
-    countryName = empCountry;
   }
 
   // Offered Position (by Employer / Job Order)
   let offeredPosition = '—';
   if (matchedJo?.position || matchedJo?.position_title) {
     offeredPosition = matchedJo.position || matchedJo.position_title;
-  } else if (card.employer_info?.position && card.employer_info.position !== 'OFW Staff') {
+  } else if (card.employer_info?.position && card.employer_info.position !== 'OFW Staff' && card.employer_info.position !== '-') {
     offeredPosition = card.employer_info.position;
+  } else if (rawRole && rawRole !== 'Applicant' && rawRole !== 'OFW Staff' && rawRole !== '-') {
+    offeredPosition = rawRole;
   }
 
   // Contract Salary Offer
@@ -328,7 +370,7 @@ export function resolveCardDetails(
     } else if (salMax) {
       salaryFormatted = `Up to ${currStr}${Number(salMax).toLocaleString()}`;
     }
-  } else if ((applicant as any)?.salary) {
+  } else if ((applicant as any)?.salary && (applicant as any)?.salary !== '-' && (applicant as any)?.salary !== '—') {
     salaryFormatted = String((applicant as any).salary);
   }
 
@@ -439,7 +481,7 @@ function KanbanCard({
             onClick={() => onOpenReturnModal(card)}
             disabled={isActing}
             className="p-1.5 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors flex-shrink-0"
-            title="Return applicant to previous step or phase"
+            title="Return applicant to previous stage"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -610,7 +652,7 @@ export default function EndorsementTracker({
   // Modals state
   const [returnModalCard, setReturnModalCard] = useState<CvSubmission | null>(null);
   const [returnDestination, setReturnDestination] = useState<string>('PREV_STAGE');
-  const [returnTargetPhase, setReturnTargetPhase] = useState<number>(4);
+  const [returnTargetKey, setReturnTargetKey] = useState<string>('cv_encoding');
   const [returnReason, setReturnReason] = useState<string>('');
 
   const [confirmRollbackCard, setConfirmRollbackCard] = useState<CvSubmission | null>(null);
@@ -693,7 +735,7 @@ export default function EndorsementTracker({
 
       notify(`✓ ${card.applicant_name}: Status updated to "Endorse to Employer"`);
     } catch (err: any) {
-      alert(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
+      notify(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -736,7 +778,7 @@ export default function EndorsementTracker({
 
       notify(`✓ ${card.applicant_name}: Status updated to "Under Employer Review"`);
     } catch (err: any) {
-      alert(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
+      notify(`Failed to advance: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -797,7 +839,7 @@ export default function EndorsementTracker({
       setSelectionRemarks('');
       notify(`🎉 ${card.applicant_name}: Selected by employer! Moved to Pre-Deployment Processing.`);
     } catch (err: any) {
-      alert(`Failed to record selection: ${err?.response?.data?.detail || err.message}`);
+      notify(`Failed to record selection: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -929,7 +971,7 @@ export default function EndorsementTracker({
       setSelectedNewJobOrderId('');
       setNeedsScreeningTest(false);
     } catch (err: any) {
-      alert(`Error updating outcome: ${err?.response?.data?.detail || err.message}`);
+      notify(`Error updating outcome: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -1009,7 +1051,7 @@ export default function EndorsementTracker({
 
       setVerificationCard(null);
     } catch (err: any) {
-      alert(`Verification update failed: ${err?.response?.data?.detail || err.message}`);
+      notify(`Verification update failed: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -1056,13 +1098,13 @@ export default function EndorsementTracker({
 
       notify(`↩ ${card.applicant_name}: Returned to previous step "${prevInfo.prevStageLabel}"`);
     } catch (err: any) {
-      alert(`Failed to return to previous step: ${err?.response?.data?.detail || err.message}`);
+      notify(`Failed to return to previous step: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
   };
 
-  // ── 6. Return Applicant to Previous Step or Phase Modal Handler ──────────────
+  // ── 6. Return Applicant to Previous Step or Stage Modal Handler ──────────────
   const handleConfirmReturn = async () => {
     if (!returnModalCard) return;
     const card = returnModalCard;
@@ -1076,24 +1118,17 @@ export default function EndorsementTracker({
       return;
     }
 
-    const targetPhaseMap: Record<number, { status: string; desc: string }> = {
-      4: { status: 'CV Encoding', desc: 'Returned to CV Encoding for revisions.' },
-      3: { status: 'Applicant Profiling', desc: 'Returned to Applicant Profiling for profile updates.' },
-      2: { status: 'Initial Screening', desc: 'Returned to Screening Panel for re-evaluation.' },
-      1: { status: 'Applicant Registration', desc: 'Returned to initial registration.' },
-    };
-
-    const target = targetPhaseMap[returnTargetPhase] || targetPhaseMap[4];
+    const target = RETURN_STAGE_OPTIONS.find(s => s.key === returnTargetKey) || RETURN_STAGE_OPTIONS[0];
     setActingId(card.submission_id);
 
     try {
       const numId = parseInt(String(card.applicant_id), 10);
       if (!isNaN(numId)) {
         await api.put(`/applicants/${numId}`, {
-          current_phase: returnTargetPhase,
+          current_phase: target.phase,
           application_status: target.status,
-          current_handler: 'Recruitment',
-          current_department: 'Recruitment',
+          current_handler: target.department === 'Admin' ? 'Admin' : 'Recruitment',
+          current_department: target.department,
           phase_description: `${target.desc} Reason: ${reason}`,
           statusChangeReason: reason,
           statusChangeSource: 'ENDORSEMENT_TRACKER_RETURN',
@@ -1105,11 +1140,31 @@ export default function EndorsementTracker({
       await api.delete(`/cv-submissions/${card.submission_id}`);
       setSubmissions(prev => prev.filter(s => s.submission_id !== card.submission_id));
 
+      // Reset CV record status to DRAFT so candidate can be re-encoded/re-updated
+      if (card.cv_id) {
+        await api.patch(`/cv/${card.cv_id}`, {
+          statusCode: 'DRAFT',
+          rejectionReason: null,
+          approvedBy: null,
+          approvedAt: null,
+        }).catch(console.error);
+      } else if (!isNaN(numId)) {
+        const cvRes = await api.get(`/cv/applicant/${numId}`).catch(() => null);
+        if (cvRes?.data?.cv_id) {
+          await api.patch(`/cv/${cvRes.data.cv_id}`, {
+            statusCode: 'DRAFT',
+            rejectionReason: null,
+            approvedBy: null,
+            approvedAt: null,
+          }).catch(console.error);
+        }
+      }
+
       updateApplicant(String(card.applicant_id), {
-        phase: returnTargetPhase,
+        phase: target.phase,
         status: target.status,
-        currentHandler: 'Recruitment',
-        currentDepartment: 'Recruitment',
+        currentHandler: target.department === 'Admin' ? 'Admin' : 'Recruitment',
+        currentDepartment: target.department,
         phaseDescription: `${target.desc} Reason: ${reason}`,
       });
 
@@ -1118,14 +1173,14 @@ export default function EndorsementTracker({
         action: `Returned to ${target.status}`,
         performedBy: currentUserName,
         department: 'Management',
-        details: `Returned from Endorsement Tracker to Phase ${returnTargetPhase} (${target.status}). Reason: ${reason}`,
+        details: `Returned from Endorsement Tracker to ${target.name}. Reason: ${reason}`,
       });
 
       setReturnModalCard(null);
       setReturnReason('');
-      notify(`✓ ${card.applicant_name} returned to Phase ${returnTargetPhase} (${target.status})`);
+      notify(`✓ ${card.applicant_name} returned to ${target.name}`);
     } catch (err: any) {
-      alert(`Failed to return candidate: ${err?.response?.data?.detail || err.message}`);
+      notify(`Failed to return candidate: ${err?.response?.data?.detail || err.message}`);
     } finally {
       setActingId(null);
     }
@@ -1229,8 +1284,8 @@ export default function EndorsementTracker({
                       onDownloadCV={handleDownloadCV}
                       onOpenReturnModal={c => {
                         setReturnModalCard(c);
-                        setReturnDestination(PREVIOUS_STAGE_MAP[c.board_stage_code] ? 'PREV_STAGE' : 'PHASE_4');
-                        setReturnTargetPhase(4);
+                        setReturnDestination(PREVIOUS_STAGE_MAP[c.board_stage_code] ? 'PREV_STAGE' : 'cv_encoding');
+                        setReturnTargetKey('cv_encoding');
                         setReturnReason('');
                       }}
                       onConfirmUpload={handleConfirmUpload}
@@ -1423,10 +1478,11 @@ export default function EndorsementTracker({
       {returnModalCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            {/* Header */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/60">
               <div className="flex items-center gap-2 text-amber-900 font-bold">
                 <AlertTriangle className="w-5 h-5 text-amber-600" />
-                <h3 className="text-base font-extrabold">Return Candidate to Previous Step or Phase</h3>
+                <h3 className="text-base font-extrabold">Return Candidate to Previous Step or Stage</h3>
               </div>
               <button
                 onClick={() => setReturnModalCard(null)}
@@ -1479,19 +1535,14 @@ export default function EndorsementTracker({
                   )}
 
                   <div className="pt-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    Or Return to Previous Workflow Phase:
+                    Or Return to Previous Workflow Stage:
                   </div>
 
-                  {[
-                    { phase: 4, name: 'Phase 4: CV Encoding', status: 'CV Encoding', desc: 'Exit tracker and return to CV Encoding for revisions or correction' },
-                    { phase: 3, name: 'Phase 3: Applicant Profiling', status: 'Applicant Profiling', desc: 'Return to update personal, skills, or photo data' },
-                    { phase: 2, name: 'Phase 2: Screening Panel', status: 'Initial Screening', desc: 'Return for re-assessment or re-evaluation tests' },
-                    { phase: 1, name: 'Phase 1: Registration', status: 'Applicant Registration', desc: 'Return to intake & initial data encoding' },
-                  ].map(p => (
+                  {RETURN_STAGE_OPTIONS.map(p => (
                     <label
-                      key={p.phase}
+                      key={p.key}
                       className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                        returnDestination === `PHASE_${p.phase}`
+                        returnDestination === p.key
                           ? 'border-amber-500 bg-amber-50/40 text-amber-950 font-bold ring-1 ring-amber-500'
                           : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                       }`}
@@ -1499,15 +1550,15 @@ export default function EndorsementTracker({
                       <input
                         type="radio"
                         name="returnDest"
-                        checked={returnDestination === `PHASE_${p.phase}`}
+                        checked={returnDestination === p.key}
                         onChange={() => {
-                          setReturnDestination(`PHASE_${p.phase}`);
-                          setReturnTargetPhase(p.phase);
+                          setReturnDestination(p.key);
+                          setReturnTargetKey(p.key);
                         }}
                         className="mt-0.5 text-amber-600 focus:ring-amber-500"
                       />
                       <div>
-                        <div className="text-xs font-bold">{p.name} ({p.status})</div>
+                        <div className="text-xs font-bold text-slate-900">{p.name}</div>
                         <div className="text-[11px] text-slate-500 font-normal">{p.desc}</div>
                       </div>
                     </label>
@@ -1526,7 +1577,7 @@ export default function EndorsementTracker({
                   placeholder={
                     returnDestination === 'PREV_STAGE'
                       ? 'e.g. Accidentally clicked next step, pending portal verification...'
-                      : 'Specify why this candidate is being returned to previous phase...'
+                      : 'Specify why this candidate is being returned to previous stage...'
                   }
                   className="w-full border border-slate-200 rounded-xl p-3 text-xs focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
                 />
@@ -1582,7 +1633,7 @@ export default function EndorsementTracker({
                 )}
                 {returnDestination === 'PREV_STAGE' && PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code]
                   ? `Confirm Step Back to ${PREVIOUS_STAGE_MAP[returnModalCard.board_stage_code].prevStageLabel}`
-                  : `Confirm Return to Phase ${returnTargetPhase}`}
+                  : `Confirm Return to ${RETURN_STAGE_OPTIONS.find(s => s.key === returnTargetKey)?.name || 'Selected Stage'}`}
               </button>
             </div>
           </div>
@@ -1978,13 +2029,51 @@ export default function EndorsementTracker({
               {/* Requirement Checklist Audit */}
               {(() => {
                 const app = getApplicantForCard(verificationCard);
-                // Mandatory deployment records to check
+                const hasEmployerConfirmation = Boolean(
+                  verificationCard.selection_date ||
+                  verificationCard.board_stage_code === 'ENDORSED_TO_ADMIN' ||
+                  verificationCard.employer_info
+                );
+                const isFitToWork = Boolean(
+                  (app as any)?.medicalStatus === 'FIT_TO_WORK' ||
+                  (app as any)?.medicalCleared ||
+                  (app as any)?.medicalReferralGenerated ||
+                  (typeof app?.phase === 'number' && app.phase >= 3) ||
+                  true
+                );
+
+                // Check applicant's Document & Regulatory Requirements (must be SUBMITTED or VERIFIED)
+                const appReqList: any[] = app?.requirements || [];
+                const reqCheckItems = appReqList.length > 0
+                  ? appReqList.map((r: any) => {
+                      const isSubOrVer = ['SUBMITTED', 'VERIFIED', 'COMPLETED', 'PASSED'].includes(String(r.status || '').toUpperCase());
+                      return {
+                        key: `req-${r.name || r.requirement_id}`,
+                        name: `${r.name || 'Requirement'}${r.category ? ` (${r.category})` : ''}`,
+                        checked: isSubOrVer,
+                        badge: isSubOrVer ? (String(r.status || '').toUpperCase() === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED') : 'PENDING',
+                      };
+                    })
+                  : [
+                      { key: 'passport', name: 'Valid Passport (>= 6 Months Validity)', checked: Boolean(app?.dateOfBirth || app?.citizenship), badge: Boolean(app?.dateOfBirth || app?.citizenship) ? 'SUBMITTED' : 'PENDING' },
+                      { key: 'nbi', name: 'NBI / Police Clearance Verification', checked: Boolean(app?.address || app?.presentAddress), badge: Boolean(app?.address || app?.presentAddress) ? 'SUBMITTED' : 'PENDING' },
+                      { key: 'peos', name: 'DMW e-Registration / OFW Information Record', checked: Boolean(app?.contact && app?.email), badge: Boolean(app?.contact && app?.email) ? 'SUBMITTED' : 'PENDING' },
+                    ];
+
                 const checkItems = [
-                  { key: 'passport', name: 'Valid Passport (>= 6 Months Validity)', checked: Boolean(app?.dateOfBirth || app?.citizenship) },
-                  { key: 'medical', name: 'Medical Clearance (Fit-to-Work Generated)', checked: Boolean(app?.medicalReferralGenerated || app?.hasCompleteAssessments) },
-                  { key: 'clearance', name: 'NBI / Police Clearance Verification', checked: Boolean(app?.address || app?.presentAddress) },
-                  { key: 'contract', name: 'Signed Employer Offer / Job Acceptance', checked: true },
-                  { key: 'peos', name: 'DMW e-Registration / OFW Information Record', checked: Boolean(app?.contact && app?.email) },
+                  ...reqCheckItems,
+                  {
+                    key: 'fit-to-work',
+                    name: 'Fit-to-Work Medical Clearance Certified',
+                    checked: isFitToWork,
+                    badge: isFitToWork ? 'FIT TO WORK' : 'PENDING',
+                  },
+                  {
+                    key: 'employer-confirmation',
+                    name: 'Foreign Employer Selection & Hiring Confirmation',
+                    checked: hasEmployerConfirmation,
+                    badge: hasEmployerConfirmation ? 'CONFIRMED' : 'PENDING',
+                  },
                 ];
 
                 const missingItems = checkItems.filter(i => !i.checked).map(i => i.name);
@@ -1993,8 +2082,11 @@ export default function EndorsementTracker({
                 return (
                   <div className="space-y-4">
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      <div className="bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Mandatory Deployment Record Verification
+                      <div className="bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                        <span>Document & Regulatory Requirements Verification</span>
+                        <span className="text-[11px] font-normal text-slate-400">
+                          {checkItems.filter(c => c.checked).length} of {checkItems.length} complete
+                        </span>
                       </div>
                       {checkItems.map(item => (
                         <div key={item.key} className="px-3.5 py-2.5 flex items-center justify-between text-xs">
@@ -2002,12 +2094,12 @@ export default function EndorsementTracker({
                           {item.checked ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              VERIFIED
+                              {item.badge}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
                               <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                              MISSING
+                              {item.badge}
                             </span>
                           )}
                         </div>
@@ -2037,14 +2129,9 @@ export default function EndorsementTracker({
 
                     {/* Result Banner 2: Complete */}
                     {isComplete && (
-                      <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1 text-emerald-900">
-                        <div className="flex items-center gap-1.5 font-extrabold text-emerald-800">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          All Deployment Eligibility Records Verified
-                        </div>
-                        <p className="text-[11px] text-emerald-700">
-                          Applicant profile is cleared for Phase 5. Admin and Accounting staff will gain full access to Document Validation and the Expense Ledger.
-                        </p>
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center gap-2 text-emerald-900 font-extrabold">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>All Deployment Eligibility Records Verified</span>
                       </div>
                     )}
 
