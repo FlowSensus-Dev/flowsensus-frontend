@@ -55,7 +55,7 @@ const SECTIONS = [
   { id: 'ids',         label: 'IDs & Docs',     icon: <IdCard size={13} /> },
   { id: 'scores',      label: 'Test Scores',    icon: <BarChart3 size={13} /> },
   { id: 'finances',    label: 'Financials',     icon: <DollarSign size={13} /> },
-  { id: 'activity',    label: 'Activity',       icon: <Clock size={13} /> },
+  { id: 'activity',    label: 'Activity History', icon: <Clock size={13} /> },
 ];
 
 function monthsBetween(a: string, b: string) {
@@ -135,6 +135,27 @@ export default function ApplicantProfile({
   const applicant = enrichedData
     ? { ...applicantProp, ...enrichedData }
     : applicantProp;
+
+  // ── Per-Applicant Activity History Timeline ─────────────────────────────
+  const [applicantTimeline, setApplicantTimeline] = useState<any[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+
+  useEffect(() => {
+    if (!applicantProp?.id) return;
+    setIsTimelineLoading(true);
+    api.get(`/audit-logs/applicant/${applicantProp.id}`)
+      .then(res => {
+        if (res.data && Array.isArray(res.data)) {
+          setApplicantTimeline(res.data);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load applicant activity history:', err);
+      })
+      .finally(() => {
+        setIsTimelineLoading(false);
+      });
+  }, [applicantProp?.id]);
 
   useEffect(() => {
     api.get('/evaluations/templates')
@@ -1645,35 +1666,126 @@ export default function ApplicantProfile({
         )}
       </div>
 
-      {/* ── Activity ──────────────────────────────────────────────────────────── */}
+      {/* ── Activity History ──────────────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-24 pt-6 space-y-4 pb-8">
-        <div className="flex items-center gap-2">
-          <Clock size={16} className="text-[#0EA5E9]" />
-          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity Log</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock size={16} className="text-[#0EA5E9]" />
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity History</h3>
+          </div>
+          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+            {applicantTimeline.length > 0 ? `${applicantTimeline.length} Events` : `${activityLogs.length} Events`}
+          </span>
         </div>
-        {activityLogs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No activity logs</div>
+
+        {isTimelineLoading ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-8 text-center space-y-2">
+            <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">Loading applicant audit timeline...</p>
+          </div>
+        ) : (applicantTimeline.length === 0 && activityLogs.length === 0) ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">
+            No activity history recorded for this applicant
+          </div>
         ) : (
           <div className="relative pl-6">
             <div className="absolute left-[11px] top-3 bottom-3 w-px bg-slate-200" />
             <div className="space-y-4">
-              {activityLogs.map(log => (
-                <div key={log.id} className="relative">
-                  <div className="absolute -left-6 top-2.5 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white" />
-                  <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide">{log.action}</p>
-                        <p className="text-sm font-semibold text-[#0F172A] mt-0.5">{log.performedBy}</p>
+              {(applicantTimeline.length > 0 ? applicantTimeline : activityLogs.map(l => ({
+                audit_log_id: l.audit_log_id || 0,
+                occurred_at: l.timestamp,
+                actor_name: l.performedBy || 'Staff User',
+                actor_role: 'Staff',
+                action: l.action,
+                module: l.department || 'Operations',
+                description: l.details || '',
+              }))).map((log: any, idx: number) => {
+                const act = (log.action || '').toUpperCase();
+                const isClaim = act.includes('CLAIM') || act.includes('REASSIGN') || act.includes('POOL');
+                const isStatus = act.includes('STATUS') || act.includes('APPROV') || act.includes('PASS');
+                const isAlert = act.includes('RETURN') || act.includes('REJECT') || act.includes('FLAG');
+
+                let badgeColor = 'bg-sky-50 text-sky-700 border-sky-200';
+                if (isStatus || act.includes('VERIF')) badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (isClaim) badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                if (isAlert) badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+
+                return (
+                  <div key={log.audit_log_id || idx} className="relative">
+                    <div className="absolute -left-6 top-3 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white shadow-xs" />
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2 hover:border-slate-300 transition-colors shadow-2xs">
+                      {/* Top Header */}
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded border ${badgeColor}`}>
+                            {log.action?.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-xs font-bold text-[#0F172A]">
+                            {log.actor_name || log.performedBy || 'Staff User'}
+                          </span>
+                          {log.actor_role && (
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {log.actor_role}
+                            </span>
+                          )}
+                          {log.module && (
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              • {log.module}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1 flex-shrink-0">
+                          <Clock size={11} /> {new Date(log.occurred_at || log.timestamp).toLocaleString('en-PH')}
+                        </span>
                       </div>
-                      <span className="text-xs text-slate-400 flex items-center gap-1 flex-shrink-0">
-                        <Clock size={11} /> {new Date(log.timestamp).toLocaleString('en-PH')}
-                      </span>
+
+                      {/* Description Sentence */}
+                      <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                        {log.description || log.details}
+                      </p>
+
+                      {/* Handler Handoff Line */}
+                      {(log.prev_handler_name || log.new_handler_name) && (
+                        <div className="p-2 bg-slate-50 border border-slate-200/80 rounded-lg text-xs flex items-center gap-2">
+                          <span className="font-bold text-slate-600">Handler:</span>
+                          <span className="text-slate-500">
+                            {log.prev_handler_name || 'Unassigned Pool'} → <strong className="text-slate-800">{log.new_handler_name || 'Unassigned Pool'}</strong>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Reason / Remarks if present */}
+                      {log.reason && (
+                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">Reason / Remarks:</span> {log.reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Changes Diff if present */}
+                      {log.changes && Object.keys(log.changes).length > 0 && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                            Fields Changed:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                            {Object.entries(log.changes).map(([f, d]: [string, any]) => (
+                              <div key={f} className="p-1.5 bg-slate-50 rounded border border-slate-200 flex items-center justify-between font-mono">
+                                <span className="text-slate-600 font-semibold">{f}:</span>
+                                <span className="text-slate-800">
+                                  <span className="text-rose-600">{String(d?.old ?? 'null')}</span> → <span className="text-emerald-600 font-bold">{String(d?.new ?? 'null')}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{log.details}</p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

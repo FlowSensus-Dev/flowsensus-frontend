@@ -130,7 +130,7 @@ export default function Sidebar({
         { id: 'evaluation', label: 'Evaluation & Workflow', icon: SlidersHorizontal, roles: ['Management'] },
         { id: 'manager', label: 'CV & Employer Hub', icon: CheckSquare, roles: ['Management'] },
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
-        { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
+        { id: 'history', label: 'Audit Log', icon: History, roles: ['Admin', 'Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
         { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
       ],

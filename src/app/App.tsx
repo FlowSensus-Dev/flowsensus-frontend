@@ -1204,21 +1204,26 @@ export default function App() {
       if (!isCurrent()) return;
 
       // Process logs
-      if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
-        const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
-          audit_log_id: l.audit_log_id,
-          applicant_id: l.applicant_id,
-          performed_by: l.performed_by,
-          created_at: l.created_at,
-          id: `LOG-${l.audit_log_id}`,
-          applicantId: l.applicant_id ? String(l.applicant_id) : '',
-          action: l.action,
-          performedBy: l.performed_by || 'System User',
-          department: l.department,
-          details: l.details,
-          timestamp: l.created_at || new Date().toISOString(),
-        }));
-        setActivityLogs(liveLogs);
+      if (logsRes.status === 'fulfilled' && logsRes.value.data) {
+        const rawList = Array.isArray(logsRes.value.data)
+          ? logsRes.value.data
+          : (logsRes.value.data.items && Array.isArray(logsRes.value.data.items) ? logsRes.value.data.items : []);
+        if (rawList.length > 0) {
+          const liveLogs: ActivityLog[] = rawList.map((l: any) => ({
+            audit_log_id: l.audit_log_id || l.id,
+            applicant_id: l.applicant_id,
+            performed_by: l.actor_name || l.performed_by || 'Staff User',
+            created_at: l.occurred_at || l.created_at,
+            id: `LOG-${l.audit_log_id || l.id}`,
+            applicantId: l.applicant_id ? String(l.applicant_id) : '',
+            action: l.action,
+            performedBy: l.actor_name || l.performed_by || 'Staff User',
+            department: l.module || l.department || 'Operations',
+            details: l.description || l.details || '',
+            timestamp: l.occurred_at || l.created_at || new Date().toISOString(),
+          }));
+          setActivityLogs(liveLogs);
+        }
       } else if (logsRes.status === 'rejected') {
         console.warn('Backend audit logs unavailable:', logsRes.reason);
       }
@@ -1396,17 +1401,17 @@ export default function App() {
           if (payload?.new) {
             const raw = payload.new;
             const newLog: ActivityLog = {
-              audit_log_id: raw.audit_log_id,
+              audit_log_id: raw.audit_log_id || raw.id,
               applicant_id: raw.applicant_id,
-              performed_by: raw.performed_by,
-              created_at: raw.created_at,
-              id: `LOG-${raw.audit_log_id || Date.now()}`,
+              performed_by: raw.actor_name || raw.performed_by || 'Staff User',
+              created_at: raw.occurred_at || raw.created_at,
+              id: `LOG-${raw.audit_log_id || raw.id || Date.now()}`,
               applicantId: raw.applicant_id ? String(raw.applicant_id) : '',
               action: raw.action || 'System Action',
-              performedBy: raw.performed_by || 'System User',
-              department: raw.department || 'Operations',
-              details: raw.details || '',
-              timestamp: raw.created_at || new Date().toISOString(),
+              performedBy: raw.actor_name || raw.performed_by || 'Staff User',
+              department: raw.module || raw.department || 'Operations',
+              details: raw.description || raw.details || '',
+              timestamp: raw.occurred_at || raw.created_at || new Date().toISOString(),
             };
             setActivityLogs((prev) => {
               if (prev.some((l) => l.audit_log_id === raw.audit_log_id)) return prev;
@@ -1486,13 +1491,26 @@ export default function App() {
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     else setLoggedInApplicantId("");
-    addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+    addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
 
     // Ensure live applicant data is immediately retrieved upon login
     fetchLiveBackendData();
   };
 
   const handleLogout = async () => {
+    // Record audit event before tearing down auth session
+    try {
+      await addActivityLog({
+        applicantId: "",
+        action: "LOGOUT",
+        performedBy: currentUserName,
+        department: currentUserRole || "Operations",
+        details: `${currentUserName} logged out`
+      });
+    } catch (e) {
+      console.warn("Logout audit skipped:", e);
+    }
+
     syncLiveSession(null);
     sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
@@ -1501,7 +1519,7 @@ export default function App() {
     } catch (err) {
       console.error("Sign out error:", err);
     }
-    addActivityLog({ applicantId: "", action: "User Logout", performedBy: currentUserName, department: currentUserRole, details: `${currentUserName} logged out` });
+
     setApplicants([]);
     setActivityLogs([]);
     setExpenses([]);

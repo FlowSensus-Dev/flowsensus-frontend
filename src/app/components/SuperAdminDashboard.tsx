@@ -10,6 +10,7 @@ import {
 import { UserRole, ApplicantRecord, ActivityLog } from '../types';
 import { api } from '../../lib/api';
 import { Skeleton } from './ui/skeleton';
+import DeploymentHistory from './views/DeploymentHistory';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -728,63 +729,10 @@ export default function SuperAdminDashboard({
             </div>
           )}
 
-          {/* ── Audit Ledger ─────────────────────────────────────────── */}
+          {/* ── Audit Ledger / Audit Log ─────────────────────────────── */}
           {view === 'audit' && (
             <div className="space-y-4">
-              <div className="flex gap-3 items-center">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-500 font-medium whitespace-nowrap">
-                  <RefreshCw size={13} /> Read-Only · {liveAuditLogs.length} records
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-[#F8FAFC] border-b border-slate-100">
-                        {/* Only columns that map to verified AuditLogResponse fields */}
-                        {['Log ID', 'Timestamp', 'Action', 'Details'].map(h => (
-                          <th key={h} className="text-left px-5 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {liveAuditLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-5 py-10 text-center text-slate-400 text-sm">
-                            No audit records available
-                          </td>
-                        </tr>
-                      ) : liveAuditLogs.map((log, i) => (
-                        <tr key={log.audit_log_id || i} className="hover:bg-[#F8FAFC] transition-colors">
-                          <td className="px-5 py-3.5 align-top">
-                            <span className="font-['JetBrains_Mono',monospace] text-xs text-[#6366F1]">
-                              {log.audit_log_id ?? '—'}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 align-top whitespace-nowrap">
-                            <span className="font-['JetBrains_Mono',monospace] text-xs text-slate-500">
-                              {fmtTimestamp(log.created_at)}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 align-top whitespace-nowrap">
-                            <span className="text-sm font-medium text-[#0F172A]">{log.action}</span>
-                          </td>
-                          <td className="px-5 py-3.5 align-top">
-                            <span className="text-xs text-slate-600 whitespace-pre-wrap">
-                              {log.details && log.details !== '—' ? log.details : '—'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-5 py-3 border-t border-slate-100 bg-[#F8FAFC] flex items-center justify-between text-xs text-slate-400">
-                  <span>{liveAuditLogs.length} entries · Recent System Activity</span>
-                  <span>Includes local activity; persistence not confirmed</span>
-                </div>
-              </div>
+              <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />
             </div>
           )}
 
