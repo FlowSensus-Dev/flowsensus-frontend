@@ -414,7 +414,8 @@ export interface DocumentRequirement {
   description: string;
   isRequired: boolean;
   applicantTypes: string[];
-  jobCategories: string[];
+  jobOrders: number[];
+  jobCategories?: string[];
   expiryTracked: boolean;
   validityMonths?: number;
   validityDays?: number;
