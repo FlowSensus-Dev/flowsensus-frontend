@@ -426,6 +426,10 @@ export default function AppShell({
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
+            globalJobOrders={globalJobOrders}
+            globalEmployers={globalEmployers}
+            onNavigate={(view: string) => setCurrentView(view as any)}
+            showToast={showToastNotification}
           />
         );
       case 'fittowork':
@@ -478,6 +482,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
+            onNavigate={(v) => setCurrentView(v as any)}
           />
         );
       case 'forecast':

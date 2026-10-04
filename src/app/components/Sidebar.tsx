@@ -113,7 +113,7 @@ export default function Sidebar({
       title: 'Document Processing',
       roles: ['Admin', 'Management'],
       items: [
-        { id: 'ocr', label: 'Document OCR', icon: ScanText, roles: ['Admin', 'Management'] },
+        { id: 'ocr', label: 'Document Validation', icon: ScanText, roles: ['Admin', 'Management'] },
         { id: 'alerts', label: '3-2-1 Alerts', icon: BellRing, roles: ['Admin', 'Management'] },
       ],
     },

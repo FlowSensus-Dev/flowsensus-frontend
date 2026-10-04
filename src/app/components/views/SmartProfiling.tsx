@@ -3348,7 +3348,7 @@ export default function SmartProfiling({
                 </div>
                 <div>
                   <h4 className="font-black text-slate-900 text-base">
-                    Return Candidate to Previous Phase
+                    Return Candidate to Previous Stage
                   </h4>
                   <p className="text-xs text-slate-500">
                     {candidateToReturn.name} ({candidateToReturn.applicantCode || `#APP-${candidateToReturn.id}`})
@@ -3368,7 +3368,7 @@ export default function SmartProfiling({
               {/* Target Stage Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Select Target Phase to Return To <span className="text-rose-500">*</span>
+                  Select Target Stage to Return To <span className="text-rose-500">*</span>
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <label
@@ -3389,7 +3389,7 @@ export default function SmartProfiling({
                         }}
                         className="text-sky-600 focus:ring-sky-500"
                       />
-                      <span>Fit-to-Work (Phase 2)</span>
+                      <span>Fit-to-Work (Medical Clearance)</span>
                     </div>
                     <p className="text-[11px] text-slate-500 leading-snug pl-5">
                       Return to Medical Admin for clinic follow-up, repeat lab test, or fitness re-clearance.
@@ -3414,7 +3414,7 @@ export default function SmartProfiling({
                         }}
                         className="text-sky-600 focus:ring-sky-500"
                       />
-                      <span>Initial Screening (Phase 1)</span>
+                      <span>Initial Screening</span>
                     </div>
                     <p className="text-[11px] text-slate-500 leading-snug pl-5">
                       Return to Screening Panel for interview re-assessment, trade qualification, or credential update.
