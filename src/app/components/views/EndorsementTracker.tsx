@@ -34,6 +34,8 @@ interface CvSubmission {
   admin_notes: string | null;
   stage_updated_by: string | null;
   stage_updated_at: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
   created_at: string;
   updated_at: string;
   // Enriched by backend
@@ -449,6 +451,28 @@ function KanbanCard({
   const empCompany = details.employerName;
   const empCountry = details.countryName;
 
+  const appStatus = applicant?.status || '';
+  const isEndorsedForAdmin = Boolean(
+    stage.code === 'ENDORSED_TO_ADMIN' && (
+      appStatus === 'Endorse for Administrative Processing' ||
+      appStatus === 'Pre-Deployment Processing' ||
+      (typeof applicant?.phase === 'number' && applicant.phase >= 5) ||
+      (card.admin_notes && card.admin_notes.includes('Endorsed for Administrative Processing'))
+    )
+  );
+
+  let endorserName = card.stage_updated_by || card.updated_by || 'Admin Officer';
+  if (card.admin_notes && card.admin_notes.includes('Endorsed for Administrative Processing by ')) {
+    const parts = card.admin_notes.split('Endorsed for Administrative Processing by ');
+    if (parts[1]) {
+      endorserName = parts[1].split(' on ')[0].trim();
+    }
+  }
+
+  const endorsedDate = card.stage_updated_at
+    ? new Date(card.stage_updated_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+    : (card.updated_at ? new Date(card.updated_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : null);
+
   return (
     <div className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${stage.accent} overflow-hidden transition-all hover:shadow-md`}>
       <div className="p-3.5">
@@ -457,11 +481,15 @@ function KanbanCard({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="font-extrabold text-[#0F172A] text-sm truncate">{name}</p>
-              {applicant?.status && (
+              {isEndorsedForAdmin ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 border border-violet-200">
+                  Endorsed for Administrative Processing
+                </span>
+              ) : applicant?.status ? (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
                   {applicant.status}
                 </span>
-              )}
+              ) : null}
             </div>
             <p className="text-xs text-[#64748B] font-medium mt-0.5 flex items-center gap-1">
               <Briefcase className="w-3 h-3 text-slate-400 flex-shrink-0" />
@@ -497,6 +525,24 @@ function KanbanCard({
             <span className="text-[10px] text-emerald-600 font-mono whitespace-nowrap ml-1">{approvalDate}</span>
           )}
         </div>
+
+        {/* Administrative Endorsement Confirmed Banner */}
+        {isEndorsedForAdmin && (
+          <div className="mt-2 px-2.5 py-1.5 bg-violet-50/90 border border-violet-200 rounded-lg text-[11px] space-y-0.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-violet-900 font-bold truncate">
+                <ShieldCheck className="w-3.5 h-3.5 text-violet-600 flex-shrink-0" />
+                <span className="truncate">Endorsed for Admin Processing</span>
+              </div>
+              {endorsedDate && (
+                <span className="text-[10px] text-violet-600 font-mono whitespace-nowrap ml-1">{endorsedDate}</span>
+              )}
+            </div>
+            <p className="text-[10px] text-violet-700 pl-5">
+              Confirmed by <span className="font-semibold text-violet-900">{endorserName}</span>
+            </p>
+          </div>
+        )}
 
         {/* Quick Actions: Preview & Download Approved CV */}
         <div className="flex items-center gap-1.5 mt-2.5">
@@ -606,14 +652,36 @@ function KanbanCard({
           {/* STAGE 4: ENDORSED_TO_ADMIN */}
           {stage.code === 'ENDORSED_TO_ADMIN' && (
             <div className="space-y-1.5">
-              <button
-                onClick={() => onOpenVerificationModal(card)}
-                disabled={isActing}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Review & Endorse to Admin
-              </button>
+              {isEndorsedForAdmin ? (
+                <div className="w-full bg-violet-50/80 border border-violet-200 rounded-lg p-2.5 text-center space-y-1.5">
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-violet-900">
+                    <CheckCircle2 className="w-4 h-4 text-violet-600" />
+                    <span>Endorsement Confirmed</span>
+                  </div>
+                  <p className="text-[10.5px] text-violet-700 font-medium">
+                    Endorsed by <span className="font-bold text-violet-900">{endorserName}</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Unlocked for Document Validation & Expense Ledger
+                  </p>
+                  <button
+                    onClick={() => onOpenVerificationModal(card)}
+                    className="w-full mt-1 flex items-center justify-center gap-1 py-1 px-2 text-[11px] font-bold text-violet-700 hover:text-violet-900 bg-white hover:bg-violet-100/50 border border-violet-200 rounded-md transition-colors shadow-2xs"
+                  >
+                    <Eye className="w-3 h-3 text-violet-500" />
+                    View Verification Checklist
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onOpenVerificationModal(card)}
+                  disabled={isActing}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Review & Endorse to Admin
+                </button>
+              )}
               <button
                 onClick={() => onPromptRollback(card)}
                 disabled={isActing}
@@ -1017,6 +1085,9 @@ export default function EndorsementTracker({
         notify(`⚠️ ${card.applicant_name} marked as Provisional: missing ${missingItems.length} requirement(s).`);
       } else {
         // RESULT 2: Complete records -> Endorse for Administrative Processing
+        const endorseNotes = `Endorsed for Administrative Processing by ${currentUserName}`;
+        const nowIso = new Date().toISOString();
+
         updateApplicant(String(card.applicant_id), {
           phase: 5,
           status: 'Endorse for Administrative Processing',
@@ -1034,8 +1105,29 @@ export default function EndorsementTracker({
             phase_description: 'Deployment eligibility records complete. Endorsed for Administrative Processing. Document Validation & Expense Ledger unlocked.',
             statusChangeReason: 'Deployment records verified complete from Endorsement Tracker',
             statusChangeSource: 'DEPLOYMENT_VERIFICATION',
-            updated_at: new Date().toISOString(),
+            updated_at: nowIso,
           });
+        }
+
+        // Persist confirmation note and endorser on cv_employer_submission
+        try {
+          const subRes = await api.patch(`/cv-submissions/${card.submission_id}`, {
+            boardStageCode: 'ENDORSED_TO_ADMIN',
+            adminNotes: endorseNotes,
+            stageUpdatedBy: currentUserName,
+            updatedBy: currentUserName,
+          });
+          if (subRes.data) {
+            setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? subRes.data : s));
+          }
+        } catch (subErr) {
+          console.warn('Failed to update submission notes:', subErr);
+          setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? {
+            ...s,
+            admin_notes: endorseNotes,
+            stage_updated_by: currentUserName,
+            stage_updated_at: nowIso,
+          } : s));
         }
 
         addActivityLog({
@@ -1043,7 +1135,7 @@ export default function EndorsementTracker({
           action: 'Endorsed for Administrative Processing',
           performedBy: currentUserName,
           department: 'Admin',
-          details: `Deployment eligibility records verified complete. Endorsed for administrative processing.`,
+          details: `Deployment eligibility records verified complete. Endorsed for administrative processing by ${currentUserName}.`,
         });
 
         notify(`✓ ${card.applicant_name}: Endorsed for Administrative Processing! Document Validation & Ledger unlocked.`);
@@ -1066,6 +1158,7 @@ export default function EndorsementTracker({
     try {
       const res = await api.patch(`/cv-submissions/${card.submission_id}`, {
         boardStageCode: prevInfo.prevStageCode,
+        adminNotes: '',
       });
       const updated: CvSubmission = res.data;
       setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? updated : s));
@@ -2079,6 +2172,21 @@ export default function EndorsementTracker({
                 const missingItems = checkItems.filter(i => !i.checked).map(i => i.name);
                 const isComplete = missingItems.length === 0;
 
+                const isAlreadyEndorsed = Boolean(
+                  app?.status === 'Endorse for Administrative Processing' ||
+                  app?.status === 'Pre-Deployment Processing' ||
+                  (typeof app?.phase === 'number' && app.phase >= 5) ||
+                  (verificationCard.board_stage_code === 'ENDORSED_TO_ADMIN' && verificationCard.admin_notes && verificationCard.admin_notes.includes('Endorsed for Administrative Processing'))
+                );
+
+                let modalEndorserName = verificationCard.stage_updated_by || verificationCard.updated_by || currentUserName;
+                if (verificationCard.admin_notes && verificationCard.admin_notes.includes('Endorsed for Administrative Processing by ')) {
+                  const parts = verificationCard.admin_notes.split('Endorsed for Administrative Processing by ');
+                  if (parts[1]) {
+                    modalEndorserName = parts[1].split(' on ')[0].trim();
+                  }
+                }
+
                 return (
                   <div className="space-y-4">
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
@@ -2106,8 +2214,18 @@ export default function EndorsementTracker({
                       ))}
                     </div>
 
-                    {/* Result Banner 1: Incomplete */}
-                    {!isComplete && (
+                    {/* Result Banner: Already Endorsed */}
+                    {isAlreadyEndorsed ? (
+                      <div className="p-3.5 bg-violet-50 border border-violet-200 rounded-xl text-xs space-y-1 text-violet-900">
+                        <div className="flex items-center gap-2 font-extrabold text-violet-900">
+                          <CheckCircle2 className="w-4 h-4 text-violet-600 flex-shrink-0" />
+                          <span>Endorsement Confirmed: Endorsed for Administrative Processing</span>
+                        </div>
+                        <p className="text-[11px] text-violet-700 pl-6">
+                          Endorsed by <strong>{modalEndorserName}</strong>. Phase 5 Document Validation & Expense Ledger are unlocked.
+                        </p>
+                      </div>
+                    ) : !isComplete ? (
                       <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs space-y-1.5 text-red-900">
                         <div className="flex items-center gap-1.5 font-extrabold text-red-800">
                           <Ban className="w-4 h-4 text-red-600 flex-shrink-0" />
@@ -2125,10 +2243,7 @@ export default function EndorsementTracker({
                           ))}
                         </div>
                       </div>
-                    )}
-
-                    {/* Result Banner 2: Complete */}
-                    {isComplete && (
+                    ) : (
                       <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center gap-2 text-emerald-900 font-extrabold">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                         <span>All Deployment Eligibility Records Verified</span>
@@ -2140,10 +2255,18 @@ export default function EndorsementTracker({
                         onClick={() => setVerificationCard(null)}
                         className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
                       >
-                        Cancel
+                        {isAlreadyEndorsed ? 'Close' : 'Cancel'}
                       </button>
 
-                      {!isComplete ? (
+                      {isAlreadyEndorsed ? (
+                        <button
+                          onClick={() => setVerificationCard(null)}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Done (Already Endorsed)
+                        </button>
+                      ) : !isComplete ? (
                         <button
                           onClick={() => handleVerifyAndEndorseAdmin(verificationCard, false, missingItems)}
                           disabled={actingId !== null}
