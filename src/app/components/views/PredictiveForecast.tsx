@@ -5,12 +5,10 @@ import {
   AlertCircle,
   Check,
   RefreshCw,
-  Zap,
   Clock,
   Layers,
   Sparkles,
-  Play,
-  Loader2,
+  ChevronDown,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
@@ -23,7 +21,8 @@ interface StageForecast {
   most_likely: number | null;
   pessimistic: number | null;
   pert_baseline: number;
-  current_forecast: number;
+  current_forecast?: number | null;
+  current_ses_forecast_days?: number | null;
   is_fallback: boolean;
   fallback_reason?: string;
 }
@@ -74,23 +73,7 @@ export default function PredictiveForecast({
   const forecastRequestId = useRef(0);
   const forecastApplicationId = useRef<number | null>(null);
 
-  // Interactive Simulation State
-  const [simStage, setSimStage] = useState<string>('Medical Clearance');
-  const [simActual, setSimActual] = useState<number>(8.5);
-  const [simAlpha, setSimAlpha] = useState<number>(0.35);
-  const simAlphaInitialized = useRef(false);
-  const [simResult, setSimResult] = useState<{
-    new_forecast_days: number;
-    forecast_delta_days: number;
-  } | null>(null);
-  const [simulating, setSimulating] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (pipelineData && !simAlphaInitialized.current) {
-      simAlphaInitialized.current = true;
-      setSimAlpha(pipelineData.alpha_used);
-    }
-  }, [pipelineData]);
+  const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
 
   // Unique applicants for Target Candidate selector
   const uniqueApplicants = useMemo(() => {
@@ -152,9 +135,6 @@ export default function PredictiveForecast({
     try {
       const res = globalPipelineForecast ? { data: globalPipelineForecast } : await api.get('/forecasting/pipeline');
       setPipelineData(res.data);
-      if (res.data.stages && res.data.stages.length > 0) {
-        setSimStage(res.data.stages[1]?.stage_name || res.data.stages[0]?.stage_name);
-      }
     } catch (err: any) {
       console.error('Failed to fetch forecasting data from backend:', err);
       setBackendError(
@@ -224,51 +204,11 @@ export default function PredictiveForecast({
     }
   };
 
-  const handleSimulate = async () => {
-    if (!pipelineData) return;
-    const stageObj = pipelineData.stages.find((s) => s.stage_name === simStage);
-    const prev = stageObj ? stageObj.current_forecast : 6.0;
-
-    setSimulating(true);
-    try {
-      const res = await api.post('/forecasting/simulate-step', {
-        applicant_id: parseInt(activeApplicantId, 10) || 1,
-        workflow_stage: simStage,
-        days_passed: Number(simActual),
-        reason: 'Normal Process',
-        actual_penalty: 0.0,
-        advance_stage: true,
-      });
-
-      const newF = res.data.new_stage_forecast;
-      const prevF = res.data.previous_stage_forecast ?? prev;
-      setSimResult({
-        new_forecast_days: newF,
-        forecast_delta_days: Number((newF - prevF).toFixed(2)),
-      });
-
-      // Refresh baseline pipeline and application forecast
-      fetchPipeline();
-      if (activeApplicationId) {
-        fetchApplicationForecast(activeApplicationId);
-      }
-    } catch (err: any) {
-      console.error('Simulation error:', err);
-      const newF = Number((simAlpha * simActual + (1 - simAlpha) * prev).toFixed(2));
-      setSimResult({
-        new_forecast_days: newF,
-        forecast_delta_days: Number((newF - prev).toFixed(2)),
-      });
-    } finally {
-      setSimulating(false);
-    }
-  };
-
   const selectedApplicationRecord =
     matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
     (matchingApplications.length === 1 ? matchingApplications[0] : null);
 
-  const totalDays = pipelineData?.total_pipeline_duration_days || 45.42;
+  const totalDays = pipelineData?.total_pipeline_duration_days;
 
   const hasRecord = Boolean(forecastResponse?.record);
   const isDeployed =
@@ -321,7 +261,7 @@ export default function PredictiveForecast({
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
                   <Skeleton className="h-6 w-6 rounded" />
                   <Skeleton className="h-4 w-44" />
@@ -394,25 +334,22 @@ export default function PredictiveForecast({
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-xs">
-                {backendError ? 'Backend Connection Notice' : 'FastAPI Backend Live & Connected'}
-              </span>
-              <span className="bg-slate-900 text-white font-mono text-[10px] px-2 py-0.5 rounded">
-                http://localhost:8000
+                {backendError ? 'Backend Connection Notice' : loading ? 'Loading Backend Forecast' : 'Backend Forecast Loaded'}
               </span>
             </div>
             <p className="text-xs text-slate-600 mt-0.5">
               {backendError
-                ? `Using local baseline calculations (${backendError})`
-                : `Active Tenant Agency: #${pipelineData?.agency_id || 1} • Smoothing Factor α: ${
-                    pipelineData?.alpha_used || 0.35
-                  } • Dynamic Exceptions Active`}
+                ? `Forecast refresh unavailable (${backendError}). Previously loaded data, if shown, may be stale.`
+                : pipelineData
+                ? `Active Tenant Agency: #${pipelineData.agency_id} | Agency SES Alpha: ${pipelineData?.alpha_used ?? 'Unavailable'}`
+                : 'Waiting for backend forecasting data'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-xs font-semibold">
           <span className="bg-white/80 border border-slate-200 px-3 py-1 rounded-full shadow-sm text-slate-600">
-            Agency Baseline Total: <strong>{totalDays.toFixed(1)} days</strong>
+            Agency Baseline Total: <strong>{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
           </span>
         </div>
       </div>
@@ -550,7 +487,7 @@ export default function PredictiveForecast({
             </p>
           </div>
           <div className="text-xs font-bold uppercase tracking-wider text-sky-600 border border-sky-300 bg-sky-50/50 px-4 py-2 rounded-full w-fit">
-            {selectedApplicationRecord?.jobOrder || selectedApplicant.jobOrder || 'JO-2026-0042'}
+            {selectedApplicationRecord?.jobOrder || selectedApplicant.jobOrder || 'Unassigned'}
           </div>
         </div>
 
@@ -571,7 +508,7 @@ export default function PredictiveForecast({
                 {isDeployed ? (
                   'Actual deployment date unavailable'
                 ) : hasRecord ? (
-                  `Personalized via PERT baselines + recursive SES updates (${remainingDays} remaining)`
+                  `Backend timeline estimate using PERT and available SES state (${remainingDays} remaining)`
                 ) : forecastResponse?.limitations && forecastResponse.limitations.length > 0 ? (
                   `Limitation: ${forecastResponse.limitations.join('; ')}`
                 ) : forecastError ? (
@@ -579,7 +516,7 @@ export default function PredictiveForecast({
                 ) : matchingApplications.length === 0 ? (
                   'No job application available for this applicant'
                 ) : matchingApplications.length > 1 && !activeApplicationId ? (
-                  'Select a job application above to compute estimated deployment'
+                  'Select a job application above to view estimated deployment'
                 ) : (
                   'Reliable timeline forecast unavailable for this application'
                 )}
@@ -596,9 +533,9 @@ export default function PredictiveForecast({
                 </p>
               </div>
               <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                <p className="text-[10px] uppercase font-bold text-slate-400">Learning Alpha (α)</p>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Agency SES Alpha (α)</p>
                 <p className="text-2xl font-black text-amber-400 mt-0.5">
-                  {forecastResponse?.record?.ses_alpha_used ?? (pipelineData?.alpha_used || 0.35)}
+                  {forecastResponse?.record?.ses_alpha_used ?? (pipelineData?.alpha_used ?? 'N/A')}
                 </p>
               </div>
             </div>
@@ -607,13 +544,13 @@ export default function PredictiveForecast({
 
         {/* Agency Stage Baseline Table (Clearly presented as agency reference, not fake individual forecast) */}
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
             <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
               <Layers size={16} className="text-sky-500" />
               Agency Stage-by-Stage Baseline (PERT & SES Reference)
             </h4>
             <span className="text-[11px] text-slate-500 font-medium">
-              Baseline Pipeline Total: <strong className="text-slate-800">{totalDays.toFixed(1)} days</strong>
+              Baseline Pipeline Total: <strong className="text-slate-800">{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
             </span>
           </div>
 
@@ -629,46 +566,76 @@ export default function PredictiveForecast({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {pipelineData?.stages?.map((stage, idx) => (
-                  <tr key={stage.stage_name} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-bold text-slate-800">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-mono">
-                          {idx + 1}
-                        </span>
-                        <span>{stage.stage_name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center font-mono text-slate-600">
-                      {stage.observation_count} records
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-600">
-                      {stage.pert_baseline.toFixed(2)} d
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-sky-700 bg-sky-50/50">
-                      {stage.current_forecast.toFixed(2)} d
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {stage.is_fallback ? (
-                        <span
-                          title={stage.fallback_reason || 'Using baseline prior'}
-                          className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200"
-                        >
-                          <Clock size={10} />
-                          Prior Baseline
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-200">
-                          <Check size={10} />
-                          Historical Empirical
-                        </span>
+                {pipelineData?.stages?.map((stage, idx) => {
+                  // Prefer explicit persisted state; legacy current_forecast can include a PERT prior.
+                  const ses = stage.current_ses_forecast_days !== undefined
+                    ? stage.current_ses_forecast_days
+                    : stage.current_forecast;
+                  const learned = stage.observation_count > 0 && ses != null && (stage.current_ses_forecast_days !== undefined || !stage.is_fallback);
+                  const coldStart = stage.observation_count === 0;
+                  const expanded = expandedStages.has(stage.stage_name);
+                  const detailsId = `forecast-stage-details-${idx}`;
+                  const days = (value: number | null | undefined) =>
+                    value != null ? `${value.toFixed(2)} d` : 'Unavailable';
+                  return (
+                    <React.Fragment key={stage.stage_name}>
+                      <tr className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-800">
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-controls={expanded ? detailsId : undefined}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} Forecast Details for ${stage.stage_name}`}
+                            onClick={() => setExpandedStages((previous) => {
+                              const next = new Set(previous);
+                              if (next.has(stage.stage_name)) next.delete(stage.stage_name);
+                              else next.add(stage.stage_name);
+                              return next;
+                            })}
+                            className="flex items-center gap-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                          >
+                            <ChevronDown size={14} className={`shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+                            <span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-mono">{idx + 1}</span>
+                            <span>{stage.stage_name}</span>
+                          </button>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-600">{stage.observation_count ?? 'Unavailable'}</td>
+                        <td className="py-3 px-4 text-right font-mono text-slate-600">{days(stage.pert_baseline)}</td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-sky-700 bg-sky-50/50">{learned ? days(ses) : coldStart ? 'Not learned yet' : 'Unavailable'}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span title={stage.fallback_reason} className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${learned ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                            {learned ? <Check size={10} /> : <Clock size={10} />}
+                            {learned ? 'Learned SES' : coldStart ? 'PERT Baseline' : 'SES Unavailable'}
+                          </span>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr id={detailsId}>
+                          <td colSpan={5} className="px-4 py-3 bg-slate-50/70">
+                            <p className="font-bold text-slate-700 mb-2">Forecast Details</p>
+                            <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-x-4 gap-y-2">
+                              {[
+                                ['Optimistic', days(stage.optimistic)],
+                                ['Most Likely', days(stage.most_likely)],
+                                ['Pessimistic', days(stage.pessimistic)],
+                                ['PERT Baseline', days(stage.pert_baseline)],
+                                ['Current SES Forecast', learned ? days(ses) : coldStart ? 'Not learned yet' : 'Unavailable'],
+                                ['Observation Count', stage.observation_count ?? 'Unavailable'],
+                                ['Agency SES Alpha', pipelineData?.alpha_used ?? 'Unavailable'],
+                              ].map(([label, value]) => (
+                                <div key={String(label)}><dt className="text-slate-500">{label}</dt><dd className="font-mono font-semibold text-slate-800 mt-1">{value}</dd></div>
+                              ))}
+                            </dl>
+                            {coldStart && stage.pert_baseline != null && <p className="text-amber-700 mt-3">No learned observations yet - using PERT baseline</p>}
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                )) || (
+                    </React.Fragment>
+                  );
+                }) || (
                   <tr>
                     <td colSpan={5} className="py-6 text-center text-slate-400">
-                      Loading stage data from backend...
+                      {backendError ? 'Stage forecast unavailable.' : loading ? 'Loading stage data from backend...' : 'No stage data available.'}
                     </td>
                   </tr>
                 )}
@@ -678,121 +645,15 @@ export default function PredictiveForecast({
         </div>
       </div>
 
-      {/* Interactive Simulation Panel */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <div className="inline-flex items-center gap-1.5 bg-purple-50 text-purple-700 font-bold text-xs px-2.5 py-1 rounded-md mb-1.5 border border-purple-200">
-              <Zap size={13} />
-              Manager Simulation Laboratory
-            </div>
-            <h3 className="text-xl font-black text-slate-900">
-              Test Single Exponential Smoothing (SES) Live
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Simulate actual turnaround updates and observe recursive forecast adaptation in real time:
-              <span className="font-mono ml-1 text-slate-700">F_(t+1) = α · A_t + (1 - α) · F_t</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 pb-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Target Stage</label>
-            <select
-              value={simStage}
-              onChange={(e) => {
-                setSimStage(e.target.value);
-                setSimResult(null);
-              }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-            >
-              {pipelineData?.stages?.map((s) => (
-                <option key={s.stage_name} value={s.stage_name}>
-                  {s.stage_name} (Current: {s.current_forecast.toFixed(1)}d)
-                </option>
-              )) || <option>Medical Clearance</option>}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Simulated Turnaround (Actual Days)
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              max="60"
-              value={simActual}
-              onChange={(e) => {
-                setSimActual(parseFloat(e.target.value) || 0);
-                setSimResult(null);
-              }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Alpha Smoothing Factor (α: {simAlpha})
-            </label>
-            <input
-              type="range"
-              min="0.05"
-              max="0.95"
-              step="0.05"
-              value={simAlpha}
-              onChange={(e) => {
-                simAlphaInitialized.current = true;
-                setSimAlpha(parseFloat(e.target.value));
-                setSimResult(null);
-              }}
-              className="w-full accent-sky-500 mt-2"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-slate-100">
-          <button
-            onClick={handleSimulate}
-            disabled={simulating}
-            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-2"
-          >
-            <Play size={14} className={simulating ? 'animate-spin' : ''} />
-            <span>Run SES Recalculation Step</span>
-          </button>
-
-          {simResult && (
-            <div className="w-full sm:w-auto bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg flex items-center gap-4 text-xs">
-              <span className="text-slate-500">New Stage Forecast:</span>
-              <strong className="text-sky-700 font-mono text-sm">
-                {simResult.new_forecast_days.toFixed(2)} days
-              </strong>
-              <span
-                className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${
-                  simResult.forecast_delta_days > 0
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {simResult.forecast_delta_days > 0 ? '+' : ''}
-                {simResult.forecast_delta_days.toFixed(2)} d
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Dynamic Exception Penalty Weights Card */}
+      {/* Backend Exception Penalty Weights */}
       {pipelineData?.dynamic_exceptions && pipelineData.dynamic_exceptions.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
           <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center gap-2">
             <AlertCircle size={16} className="text-amber-500" />
-            Dynamic Exception Penalty Buffer Weights
+            Configured Exception Penalty Weights
           </h3>
           <p className="text-xs text-slate-500 mb-4">
-            FlowSensus uses configured seed/default penalties until completed exception observations enable adaptive learning from disruption resolution durations.
+            Current penalty weights and observation history
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {pipelineData.dynamic_exceptions.map((ex) => (
@@ -815,9 +676,7 @@ export default function PredictiveForecast({
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-500 mt-2">
-                  {ex.observation_count === 0
-                    ? 'Configured seed/default · No completed exception learning yet'
-                    : `Learned/adaptive · ${ex.observation_count} completed observation${ex.observation_count === 1 ? '' : 's'}`}
+                  {`Backend reports ${ex.observation_count} observation${ex.observation_count === 1 ? '' : 's'}`}
                 </p>
               </div>
             ))}
