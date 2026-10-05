@@ -1123,6 +1123,14 @@ export default function App() {
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
+  const liveIsApplicant = useRef(false);
+  const isApplicantUser = (u: any) => {
+    const am = u?.app_metadata || {};
+    const um = u?.user_metadata || {};
+    const roles = [am.role, um.role, ...(Array.isArray(am.roles) ? am.roles : []), ...(Array.isArray(um.roles) ? um.roles : [])]
+      .map((r: any) => String(r || '').toLowerCase());
+    return roles.includes('applicant') || Boolean(am.applicant_code || um.applicant_code);
+  };
 
   const syncLiveSession = (userId: string | null) => {
     if (!liveSession.current.ready || liveSession.current.userId !== userId) {
@@ -1141,7 +1149,7 @@ export default function App() {
   };
 
   const fetchLiveBackendData = async () => {
-    if (!liveMounted.current || !liveSession.current.userId) return;
+    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current) return;
     const generation = liveSession.current.generation;
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
@@ -1277,6 +1285,7 @@ export default function App() {
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
         if (liveSession.current.ready && liveSession.current.userId !== userId) return;
+        liveIsApplicant.current = isApplicantUser(session?.user);
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
@@ -1346,9 +1355,10 @@ export default function App() {
 
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+      liveIsApplicant.current = isApplicantUser(session?.user);
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user) {
-        if (event === 'SIGNED_IN') {
+        if (event === 'SIGNED_IN' && !liveIsApplicant.current) {
           api.post('/users/record-login', {}).catch(() => { });
         }
         const generation = liveSession.current.generation;
@@ -1516,7 +1526,9 @@ export default function App() {
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     else setLoggedInApplicantId("");
-    addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+    if (role !== "Applicant") {
+      addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+    }
 
     // Ensure live applicant data is immediately retrieved upon login
     fetchLiveBackendData();

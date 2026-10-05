@@ -589,12 +589,13 @@ export default function UserManagement({
         });
       } else {
         const res = await api.post(`/users/applicants/${resendTarget.id}/resend-email`, {});
+        const newPass = res.data?.temp_pass || res.data?.password || 'New Secure Temp Pass';
         setCreatedCredentialsResult({
           title: 'Applicant Credentials Dispatched',
           name: resendTarget.name,
           email: resendTarget.email,
           username: resendTarget.applicantCode || res.data?.applicant_code || resendTarget.email,
-          password: res.data?.temp_pass || 'Flowsensu$2026',
+          password: newPass,
           portalName: 'Applicant Account',
           emailDispatched: Boolean(res.data?.email_dispatched),
           message: `Official login credentials were sent to ${resendTarget.email}.`,
@@ -1306,7 +1307,7 @@ export default function UserManagement({
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500">Password Provisioning:</span>
                   <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    {resendTarget.type === 'staff' ? 'New Secure Temp Pass' : 'Flowsensu$2026'}
+                    New Secure Temp Pass
                   </span>
                 </div>
               </div>

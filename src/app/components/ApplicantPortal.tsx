@@ -3,7 +3,7 @@ import {
   LogOut, Briefcase, Clock, CheckCircle2, Globe, Building2,
   Award, Layers, ShieldCheck, FileCheck, Stethoscope, FileText,
   PlaneTakeoff, User, RefreshCw, Copy, Check, ChevronDown,
-  ChevronUp, Milestone, AlertTriangle, Bell, X, Info
+  ChevronUp, Milestone, AlertTriangle, Bell, X, Info, Calendar
 } from 'lucide-react';
 import { api } from '../../lib/api';
 
@@ -47,6 +47,7 @@ interface PortalApplication {
   actual_deployment_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  phase_end_dates?: Record<string, string | null>;
 }
 
 interface PortalDocument {
@@ -585,9 +586,20 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     {/* Phase Details (Shows Current Status, No Deliverable) */}
                     {isExpanded && (
                       <div className="px-3.5 pb-4 sm:px-4 pt-1 border-t border-slate-100 text-xs space-y-3 animate-in fade-in duration-150">
-                        <p className="text-slate-600 leading-relaxed text-[11px] sm:text-xs">
-                          {p.description}
-                        </p>
+                        <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-600">
+                          <Calendar size={13} className="text-slate-400" />
+                          <span className="font-semibold text-slate-500">
+                            {isCompleted ? 'Phase ended:' : 'Phase end date:'}
+                          </span>
+                          <span className="font-bold text-slate-800">
+                            {(() => {
+                              const end = activeApp?.phase_end_dates?.[String(p.phase)];
+                              return end
+                                ? new Date(end).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                                : 'To be determined';
+                            })()}
+                          </span>
+                        </div>
 
                         {/* Current Status Box (Replaces Key Milestone per User Requirement) */}
                         <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
@@ -730,7 +742,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     <Award size={15} />
                   </div>
                   <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-                    Active Placement Dossier
+                    Active Placement
                   </h3>
                 </div>
                 <span className="font-mono text-xs font-bold text-slate-500">
@@ -749,11 +761,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   </p>
                 </div>
 
-                {activeApp?.match_score && (
-                  <span className="self-start sm:self-auto px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-extrabold rounded-full border border-emerald-200">
-                    {activeApp.match_score}% Qualification Match
-                  </span>
-                )}
+
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-sky-100 text-xs">

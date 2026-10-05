@@ -106,6 +106,7 @@ export default function LoginScreen({
     isSuper: boolean;
     roles?: UserRole[];
     rememberMe?: boolean;
+    applicantId?: string;
   } | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
@@ -128,12 +129,20 @@ export default function LoginScreen({
     let targetEmail = trimmedUser;
     let resolvedApplicantData: any = null;
 
-    // ── STEP 1: RESOLVE IF INPUT IS AN APPLICANT IDENTIFIER (CODE OR EMAIL) ──
-    try {
-      const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`);
-      resolvedApplicantData = resolveRes.data;
-    } catch {
-      resolvedApplicantData = null;
+    // ── STEP 1: RESOLVE APPLICANT CODE → EMAIL (applicant portal only, code required) ──
+    // Staff/employer logins skip this round trip; post-auth role checks still enforce portal isolation.
+    if (portal === 'applicant') {
+      if (trimmedUser.includes('@')) {
+        setErrorMessage('Applicants must sign in with their Applicant Code (e.g. APP-2026-FPT-00028), not an email address.');
+        setLoading(false);
+        return;
+      }
+      try {
+        const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`);
+        resolvedApplicantData = resolveRes.data;
+      } catch {
+        resolvedApplicantData = null;
+      }
     }
 
     // ── STRICT PORTAL ISOLATION CHECK 1: APPLICANT ATTEMPTING TO SIGN IN TO STAFF PORTAL ──
@@ -233,6 +242,29 @@ export default function LoginScreen({
       } else if (portal === 'applicant') {
         const applicantName = user?.user_metadata?.full_name || resolvedApplicantData?.full_name || trimmedUser;
         const applicantId = resolvedApplicantData?.applicant_id || user?.user_metadata?.applicant_id || user?.app_metadata?.applicant_id || selectedApplicantId;
+
+        // Check if applicant is required to change password on first login or after credentials resend
+        const isDefaultPass = password.trim() === 'Flowsensu$2026';
+        const mustChange = Boolean(
+          user?.user_metadata?.must_change_password ??
+          user?.app_metadata?.must_change_password ??
+          isDefaultPass
+        );
+
+        if (mustChange) {
+          setForcePasswordChangeUser({
+            user,
+            role: 'Applicant',
+            name: applicantName,
+            isSuper: false,
+            roles: ['Applicant'],
+            rememberMe,
+            applicantId: applicantId ? String(applicantId) : undefined,
+          });
+          setLoading(false);
+          return;
+        }
+
         onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
       } else {
         // Parse all assigned roles from metadata
@@ -303,19 +335,36 @@ export default function LoginScreen({
       });
       if (authError) throw authError;
 
-      // 2. Synchronize password hash in backend USER table
+      // 2. Synchronize password hash and clear must_change_password flag in server app_metadata
       try {
-        await api.post('/users/change-password', {
-          new_password: newPasswordInput,
-        });
+        if (forcePasswordChangeUser.role === 'Applicant') {
+          await api.post('/applicants/me/change-password', {
+            new_password: newPasswordInput,
+          });
+        } else {
+          await api.post('/users/change-password', {
+            new_password: newPasswordInput,
+          });
+        }
       } catch (backendErr) {
         console.warn('Backend password sync warning:', backendErr);
       }
 
-      // 3. Complete login into workspace
-      const { role, name, isSuper, roles, rememberMe: userRememberMe } = forcePasswordChangeUser;
+      // 3. The password change invalidates the current session, so sign in again
+      //    with the new password to obtain a fresh, valid token.
+      const accountEmail = forcePasswordChangeUser.user?.email;
+      if (accountEmail) {
+        const { error: reAuthError } = await supabase.auth.signInWithPassword({
+          email: accountEmail,
+          password: newPasswordInput,
+        });
+        if (reAuthError) throw reAuthError;
+      }
+
+      // 4. Complete login into workspace or applicant portal
+      const { role, name, isSuper, roles, rememberMe: userRememberMe, applicantId } = forcePasswordChangeUser;
       setForcePasswordChangeUser(null);
-      onLogin(role, name, undefined, isSuper, roles, userRememberMe);
+      onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
     } catch (err: any) {
       setPasswordChangeError(err.message || 'Failed to update password. Please try again.');
     } finally {
@@ -472,7 +521,7 @@ export default function LoginScreen({
                 {/* Email / Username / Applicant Code */}
                 <div>
                   <label className="text-sm font-bold text-[#0F172A] block mb-1.5">
-                    {portal === 'applicant' ? 'Applicant Code or Registered Email' : 'Email / Username'}
+                    {portal === 'applicant' ? 'Applicant Code' : 'Email / Username'}
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 absolute left-3 top-3.5 text-[#94A3B8]" />
@@ -488,7 +537,7 @@ export default function LoginScreen({
                       onBlur={(e) => (e.currentTarget.style.borderColor = '')}
                       placeholder={
                         portal === 'applicant'
-                          ? 'e.g. APP-2026-FPT-00028 or your email'
+                          ? 'e.g. APP-2026-FPT-00028'
                           : 'Enter your email address'
                       }
                       required
@@ -501,8 +550,8 @@ export default function LoginScreen({
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-sm font-bold text-[#0F172A]">Password</label>
                     {portal === 'applicant' && (
-                      <span className="text-[11px] text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                        Default: Flowsensu$2026
+                      <span className="text-[11px] text-sky-700 font-medium bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
+                        Temporary password sent via email
                       </span>
                     )}
                   </div>
@@ -586,7 +635,9 @@ export default function LoginScreen({
             </div>
             <h2 className="text-xl font-extrabold text-center text-[#0F172A]">Set Your Private Password</h2>
             <p className="text-xs text-slate-500 text-center mt-2 mb-6 leading-relaxed">
-              Welcome to the team! Your account was initialized with a temporary password. Please set a new private password before entering the workspace.
+              {forcePasswordChangeUser.role === 'Applicant'
+                ? 'Welcome! Your applicant portal account was initialized with a temporary password. Please set a new private password before accessing your applicant portal.'
+                : 'Welcome to the team! Your account was initialized with a temporary password. Please set a new private password before entering the workspace.'}
             </p>
 
             {passwordChangeError && (
@@ -722,7 +773,9 @@ export default function LoginScreen({
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    Save Password & Enter Workspace
+                    {forcePasswordChangeUser.role === 'Applicant'
+                      ? 'Save Password & Enter Portal'
+                      : 'Save Password & Enter Workspace'}
                   </>
                 )}
               </button>
