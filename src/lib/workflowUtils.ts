@@ -102,11 +102,11 @@ export function canGenerateMedicalReferral(scores?: { englishProficiency?: numbe
   );
 }
 
-export function moveToMedicalReferral(applicant: ApplicantRecord, clinic: string): Partial<ApplicantRecord> {
+export function moveToMedicalReferral(applicant: ApplicantRecord, clinic: string, handlerName?: string): Partial<ApplicantRecord> {
   return {
     status: 'Medical Clearance',
     phase: 2,
-    currentHandler: 'Maria Santos',
+    currentHandler: handlerName || applicant.currentHandler || 'Unassigned',
     currentDepartment: 'Admin',
     phaseDescription: `Medical referral issued to ${clinic}. Awaiting examination clearance from clinic.`,
   };
