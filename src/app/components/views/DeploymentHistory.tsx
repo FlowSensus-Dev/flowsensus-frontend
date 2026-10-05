@@ -977,7 +977,7 @@ export default function DeploymentHistory({ activityLogs = [], applicants = [] }
                                 <div className="flex items-center gap-2 text-xs">
                                   <span className="font-semibold text-slate-600">Handler:</span>
                                   <span className="text-slate-500">
-                                    {item.prev_handler_name || 'Unassigned Pool'} → <strong className="text-slate-900">{item.new_handler_name || 'Unassigned Pool'}</strong>
+                                    {(item.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : item.prev_handler_name) || 'Unassigned'} → <strong className="text-slate-900">{(item.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : item.new_handler_name) || 'Unassigned'}</strong>
                                   </span>
                                 </div>
                               )}

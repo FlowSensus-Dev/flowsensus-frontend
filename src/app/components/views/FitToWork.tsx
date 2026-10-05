@@ -254,7 +254,7 @@ export default function FitToWork({
     return medicalApplicants.filter(a => {
       // 1. Queue Tab Filter
       const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-      const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+      const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
       const isProv = a.status === 'Provisional';
 
       if (queueTab === 'MY_QUEUE' && !isAssignedToMe) return false;
@@ -306,7 +306,7 @@ export default function FitToWork({
       if (a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase()) {
         myQueueCount++;
       }
-      if (!a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent') {
+      if (!a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent') {
         unassignedCount++;
       }
     });
@@ -365,7 +365,7 @@ export default function FitToWork({
     const nowIso = new Date().toISOString();
 
     const updates: Partial<ApplicantRecord> = {
-      currentHandler: 'Unassigned Pool',
+      currentHandler: 'Unassigned',
       phaseDescription: `Returned to unassigned candidate pool by ${currentUserName}`
     };
 
@@ -374,7 +374,7 @@ export default function FitToWork({
     if (!isNaN(numericId)) {
       await api.put(`/applicants/${numericId}`, {
         application_id: app.applicationId,
-        current_handler: 'Unassigned Pool',
+        current_handler: 'Unassigned',
         phase_description: updates.phaseDescription,
         statusChangeReason: `Returned to pool by ${currentUserName}`,
         statusChangeSource: 'STAFF_ACTION',
@@ -390,7 +390,7 @@ export default function FitToWork({
       details: `${currentUserName} returned applicant ${app.name} to the unassigned candidate pool for staff re-allocation.`
     });
 
-    showToast(`Applicant ${app.name} returned to the unassigned pool.`);
+    showToast(`Applicant ${app.name} returned to unassigned.`);
   };
 
   // ── Dynamic Clinic Assignment (Only when in employee's queue) ──────────────
@@ -846,7 +846,7 @@ export default function FitToWork({
         const updates: Partial<ApplicantRecord> = {
           status: 'Initial Screening',
           phase: 1,
-          currentHandler: 'Unassigned Pool',
+          currentHandler: 'Unassigned',
           currentDepartment: 'Recruitment',
           phaseDescription: `Returned from Medical Clearance to Screening Pool by ${currentUserName}. Medical finding: ${reasonText}`
         };
@@ -858,7 +858,7 @@ export default function FitToWork({
             application_id: unfitApplicant.applicationId,
             application_status: 'Initial Screening',
             current_phase: 1,
-            current_handler: 'Unassigned Pool',
+            current_handler: 'Unassigned',
             current_department: 'Recruitment',
             phase_description: updates.phaseDescription,
             statusChangeReason: `Returned from Medical Gate: ${reasonText}`,
@@ -872,7 +872,7 @@ export default function FitToWork({
           action: 'Returned to Screening Panel Pool',
           performedBy: currentUserName,
           department: 'Recruitment',
-          details: `Applicant ${unfitApplicant.name} returned to the Screening Panel unassigned pool by ${currentUserName}. Medical reason: ${reasonText}.`
+          details: `Applicant ${unfitApplicant.name} returned to the Screening Panel unassigned by ${currentUserName}. Medical reason: ${reasonText}.`
         });
 
         showToast(`↩ Applicant ${unfitApplicant.name} returned to the Screening Panel pool.`);
@@ -907,7 +907,7 @@ export default function FitToWork({
       const updates: Partial<ApplicantRecord> = {
         status: 'Initial Screening',
         phase: 1,
-        currentHandler: 'Unassigned Pool',
+        currentHandler: 'Unassigned',
         currentDepartment: 'Recruitment',
         phaseDescription: `Returned from Medical Gate to Screening Pool by ${currentUserName}: ${returnScreeningReason.trim()}`
       };
@@ -919,7 +919,7 @@ export default function FitToWork({
           application_id: returningApplicant.applicationId,
           application_status: 'Initial Screening',
           current_phase: 1,
-          current_handler: 'Unassigned Pool',
+          current_handler: 'Unassigned',
           current_department: 'Recruitment',
           phase_description: updates.phaseDescription,
           statusChangeReason: `Returned to Screening Pool: ${returnScreeningReason.trim()}`,
@@ -933,7 +933,7 @@ export default function FitToWork({
         action: 'Returned to Screening Panel Pool',
         performedBy: currentUserName,
         department: 'Recruitment',
-        details: `Candidate ${returningApplicant.name} returned to Screening Panel unassigned pool by ${currentUserName}. Note: ${returnScreeningReason.trim()}`
+        details: `Candidate ${returningApplicant.name} returned to Screening Panel unassigned by ${currentUserName}. Note: ${returnScreeningReason.trim()}`
       });
 
       setShowReturnScreeningModal(false);
@@ -1282,7 +1282,7 @@ export default function FitToWork({
               }`}
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>Unassigned Pool</span>
+              <span>Unassigned</span>
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-current font-bold">
                 {metrics.unassigned}
               </span>
@@ -1426,7 +1426,7 @@ export default function FitToWork({
                   const clearanceStatus = getClearanceStatus(app);
                   const isProvisional = app.status === 'Provisional';
                   const isMyAssignment = app.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-                  const isUnassigned = !app.currentHandler || app.currentHandler === 'Unassigned Pool' || app.currentHandler === 'System Agent';
+                  const isUnassigned = !app.currentHandler || app.currentHandler === 'Unassigned' || app.currentHandler === 'Unassigned Pool' || app.currentHandler === 'System Agent';
                   const matchedClinic = clinics.find(c => (c.clinicName === clinicName || (c as any).clinic_name === clinicName));
                   const matchedClinicId = matchedClinic ? (matchedClinic.clinicId || (matchedClinic as any).clinic_id) : '';
 
@@ -1606,7 +1606,7 @@ export default function FitToWork({
                           {isUnassigned ? (
                             <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
                               <UserPlus className="w-3 h-3 text-amber-600" />
-                              Unassigned Pool
+                              Unassigned
                             </span>
                           ) : (
                             <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border ${
@@ -1942,7 +1942,7 @@ export default function FitToWork({
 
             <form onSubmit={handleConfirmReturnToScreening} className="p-6 space-y-4">
               <p className="text-xs text-slate-600 leading-relaxed">
-                Candidate <strong className="text-slate-900">{returningApplicant.name}</strong> will be moved out of the Medical Gate and returned to the <strong>Screening Panel Unassigned Pool</strong> so recruiters can re-evaluate or match them with alternative job orders.
+                Candidate <strong className="text-slate-900">{returningApplicant.name}</strong> will be moved out of the Medical Gate and returned to the <strong>Screening Panel Unassigned</strong> so recruiters can re-evaluate or match them with alternative job orders.
               </p>
 
               <div>

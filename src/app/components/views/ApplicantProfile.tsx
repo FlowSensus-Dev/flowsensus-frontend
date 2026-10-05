@@ -1182,7 +1182,7 @@ export default function ApplicantProfile({
                   serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
                   noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
                   competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
-                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'No expiry') : 'No expiry',
+                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
                   proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
                 }))
               : [];
@@ -1207,7 +1207,7 @@ export default function ApplicantProfile({
                   <div className="grid grid-cols-3 gap-3 mt-2.5 text-xs text-slate-500">
                     <div><span className="text-slate-400">Hours: </span>{row.noOfHours || '—'}</div>
                     <div><span className="text-slate-400">Issued: </span>{row.competencyDateIssued || '—'}</div>
-                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate || 'No expiry'}</div>
+                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate && row.expiryDate !== 'No expiry' ? row.expiryDate : 'N/A'}</div>
                   </div>
                 </div>
               ))}
@@ -1381,20 +1381,19 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{row.type}</p>
-                        {row.proofDocumentUrl
-                          ? <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
-                          : <span className="flex items-center gap-1 text-xs text-amber-500"><FileX size={11} /> No scan</span>
-                        }
+                        {row.proofDocumentUrl && (
+                          <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
+                        )}
                       </div>
                       <code className="text-xs text-[#0EA5E9] font-mono">{row.identificationNo || '—'}</code>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      {row.expiryDate ? (
+                      {row.expiryDate && row.expiryDate !== 'No expiry' && row.expiryDate !== 'N/A' ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
                           {isExpired ? '⚠ Expired: ' : 'Exp: '}{row.expiryDate}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-400">No expiry</span>
+                        <span className="text-xs text-slate-400 font-medium">N/A</span>
                       )}
                     </div>
                   </div>
@@ -1416,8 +1415,11 @@ export default function ApplicantProfile({
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
               {(applicant.requirements || []).map((req, idx) => {
-                const isVerified = (req.status || '').toUpperCase() === 'VERIFIED' || (req.ocr_validation_status || '').toUpperCase() === 'PASSED';
-                const isExpired = req.expiration_date && new Date(req.expiration_date) < new Date();
+                const statusNormalized = (req.status || 'PENDING').toUpperCase();
+                const isVerified = statusNormalized === 'VERIFIED';
+                const isSubmitted = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
+                const hasValidExpiry = Boolean(req.expiration_date && req.expiration_date !== 'No expiry' && req.expiration_date !== 'N/A');
+                const isExpired = Boolean(hasValidExpiry && req.expiration_date && new Date(req.expiration_date) < new Date());
                 return (
                   <div key={req.applicant_req_id || `req-${idx}`} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isVerified ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
@@ -1429,30 +1431,32 @@ export default function ApplicantProfile({
                         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
                           {req.category}
                         </span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          isVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {req.status}
-                        </span>
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                         {req.issue_date && <span>Issued: {req.issue_date}</span>}
-                        {req.expiration_date && (
-                          <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
-                            Expires: {req.expiration_date} {isExpired && '(Expired)'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {req.ocr_validation_status && (
-                      <div className="text-right flex-shrink-0">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          req.ocr_validation_status.toUpperCase() === 'PASSED' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          OCR: {req.ocr_validation_status}
+                        <span>
+                          Expires:{' '}
+                          {hasValidExpiry ? (
+                            <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
+                              {req.expiration_date} {isExpired && '(Expired)'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-medium">N/A</span>
+                          )}
                         </span>
                       </div>
-                    )}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                        isVerified
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : isSubmitted
+                          ? 'bg-amber-100 text-amber-800 border-amber-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {req.status || 'PENDING'}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -1749,7 +1753,7 @@ export default function ApplicantProfile({
                         <div className="p-2 bg-slate-50 border border-slate-200/80 rounded-lg text-xs flex items-center gap-2">
                           <span className="font-bold text-slate-600">Handler:</span>
                           <span className="text-slate-500">
-                            {log.prev_handler_name || 'Unassigned Pool'} → <strong className="text-slate-800">{log.new_handler_name || 'Unassigned Pool'}</strong>
+                            {(log.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.prev_handler_name) || 'Unassigned'} → <strong className="text-slate-800">{(log.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.new_handler_name) || 'Unassigned'}</strong>
                           </span>
                         </div>
                       )}

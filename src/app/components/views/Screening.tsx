@@ -422,7 +422,7 @@ export default function Screening({
   // Live queue counts for Turnover Navigation Tabs
   const screeningQueueCounts = useMemo(() => {
     const myQueue = allActiveScreeningCandidates.filter(a => a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase()).length;
-    const unassigned = allActiveScreeningCandidates.filter(a => !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent').length;
+    const unassigned = allActiveScreeningCandidates.filter(a => !a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent').length;
     return {
       all: allActiveScreeningCandidates.length,
       myQueue,
@@ -1449,7 +1449,7 @@ export default function Screening({
       const updates: Partial<ApplicantRecord> = {
         status: 'Medical Clearance',
         phase: 2,
-        currentHandler: 'Unassigned Pool',
+        currentHandler: 'Unassigned',
         currentDepartment: 'Admin',
         medicalReferralClinic: hasClinic ? selectedClinic : 'Pending Clinic Assignment',
         medicalReferralDate: hasClinic ? new Date().toISOString().split('T')[0] : undefined,
@@ -1462,7 +1462,7 @@ export default function Screening({
           application_id: selectedApplicant.applicationId,
           application_status: 'Medical Clearance',
           current_phase: 2,
-          current_handler: 'Unassigned Pool',
+          current_handler: 'Unassigned',
           current_department: 'Admin',
           phase_description: updates.phaseDescription,
           test_scores: {
@@ -1579,7 +1579,7 @@ export default function Screening({
     if (!target) return;
 
     const isAssignedToMe = target.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-    const isUnassigned = !target.currentHandler || target.currentHandler === 'Unassigned Pool' || target.currentHandler === 'System Agent';
+    const isUnassigned = !target.currentHandler || target.currentHandler === 'Unassigned' || target.currentHandler === 'Unassigned Pool' || target.currentHandler === 'System Agent';
 
     // Disallow opening if claimed and currently handled by another staff member
     if (!isAssignedToMe && !isUnassigned) {
@@ -1600,13 +1600,13 @@ export default function Screening({
     const target = applicants.find(a => String(a.id) === id);
     const numericId = parseInt(id, 10);
     updateApplicant(id, {
-      currentHandler: 'Unassigned Pool',
+      currentHandler: 'Unassigned',
       phaseDescription: `Returned to unassigned screening candidate pool by ${currentUserName}`
     });
     if (!isNaN(numericId)) {
       await api.put(`/applicants/${numericId}`, {
         application_id: target?.applicationId,
-        current_handler: 'Unassigned Pool',
+        current_handler: 'Unassigned',
         phase_description: `Returned to unassigned screening candidate pool by ${currentUserName}`
       }).catch(console.error);
     }
@@ -1793,7 +1793,7 @@ export default function Screening({
                 const activeFlags = (a.employmentFlags || []).filter(f => !f.dismissed && !f.validated);
                 const isProvisional = a.status === 'Provisional';
                 const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
                 const isHandledByOther = !isUnassigned && !isAssignedToMe;
                 const canOpen = !isHandledByOther && activeFlags.length === 0;
 
@@ -1837,7 +1837,7 @@ export default function Screening({
                         {isUnassigned ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
                             <UserPlus className="w-3 h-3 text-amber-600" />
-                            Unassigned Pool
+                            Unassigned
                           </span>
                         ) : isAssignedToMe ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
@@ -1975,7 +1975,7 @@ export default function Screening({
               {filteredPhase2.map(a => {
                 const isProvisional = a.status === 'Provisional';
                 const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
                 const isHandledByOther = !isUnassigned && !isAssignedToMe;
                 const canOpen = !isHandledByOther;
 
@@ -2017,7 +2017,7 @@ export default function Screening({
                         {isUnassigned ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
                             <UserPlus className="w-3 h-3 text-amber-600" />
-                            Unassigned Pool
+                            Unassigned
                           </span>
                         ) : isAssignedToMe ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
@@ -2129,7 +2129,7 @@ export default function Screening({
               {filteredPhase3.map(a => {
                 const referralDone = a.medicalReferralGenerated || generatedReferralIds.has(a.id);
                 const isAssignedToMe = a.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
+                const isUnassigned = !a.currentHandler || a.currentHandler === 'Unassigned' || a.currentHandler === 'Unassigned Pool' || a.currentHandler === 'System Agent';
                 const isHandledByOther = !isUnassigned && !isAssignedToMe;
                 const canOpen = !isHandledByOther;
 
@@ -2169,7 +2169,7 @@ export default function Screening({
                         {isUnassigned ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
                             <UserPlus className="w-3 h-3 text-amber-600" />
-                            Unassigned Pool
+                            Unassigned
                           </span>
                         ) : isAssignedToMe ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold border bg-sky-50 text-sky-700 border-sky-300">
@@ -2328,13 +2328,13 @@ export default function Screening({
               {selectedApplicant && (
                 (() => {
                   const isAssignedToMe = selectedApplicant.currentHandler?.trim().toLowerCase() === currentUserName.trim().toLowerCase();
-                  const isUnassigned = !selectedApplicant.currentHandler || selectedApplicant.currentHandler === 'Unassigned Pool' || selectedApplicant.currentHandler === 'System Agent';
+                  const isUnassigned = !selectedApplicant.currentHandler || selectedApplicant.currentHandler === 'Unassigned' || selectedApplicant.currentHandler === 'Unassigned Pool' || selectedApplicant.currentHandler === 'System Agent';
                   if (isUnassigned) {
                     return (
                       <button
                         onClick={() => handleClaimApplicant(selectedApplicant.id)}
                         className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#0EA5E9]/20 border border-[#0EA5E9]/40 text-sky-300 hover:bg-[#0EA5E9]/30 hover:text-white transition-all cursor-pointer font-semibold"
-                        title="Claim candidate from the unassigned pool into your active screening queue"
+                        title="Claim candidate into your active screening queue"
                       >
                         <UserPlus size={13} /> Claim Candidate
                       </button>

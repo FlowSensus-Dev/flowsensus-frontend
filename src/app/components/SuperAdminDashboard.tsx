@@ -74,7 +74,7 @@ const ROLE_OPTS: RoleOption[] = [
   { role: 'Admin', label: 'Administrative', icon: Settings },
   { role: 'Accounting', label: 'Accounting', icon: Receipt },
   { role: 'Employer', label: 'Employer Portal', icon: Building2 },
-  { role: 'Applicant', label: 'Applicant Portal', icon: User },
+  { role: 'Applicant', label: 'Applicant Accounts', icon: User },
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────────────

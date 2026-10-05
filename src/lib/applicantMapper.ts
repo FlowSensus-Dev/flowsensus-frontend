@@ -32,7 +32,7 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
         issuedBy: c.includes('TESDA') ? 'TESDA' : (c.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
         noOfHours: '—',
         competencyDateIssued: '—',
-        expiryDate: 'No expiry'
+        expiryDate: 'N/A'
       };
     }
     return {
@@ -42,7 +42,7 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
       issuedBy: c.issuedBy || c.issued_by || (c.title?.includes('TESDA') ? 'TESDA' : 'Accredited Issuer'),
       noOfHours: c.noOfHours ? String(c.noOfHours) : (c.no_of_hours ? String(c.no_of_hours) : '—'),
       competencyDateIssued: c.competencyDateIssued || c.dateIssued || c.issue_date || c.issued || '—',
-      expiryDate: c.expiryDate || c.expiry_date || c.expiry || 'No expiry',
+      expiryDate: c.expiryDate || c.expiry_date || c.expiry || 'N/A',
       proofDocumentUrl: c.proofDocumentUrl || c.proof_url
     };
   });
@@ -156,7 +156,7 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     selectedJobOrderId: item.job_order_id ? String(item.job_order_id) : (formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined),
     phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
     status: item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration',
-    currentHandler: item.current_handler || item.currentHandler || 'Unassigned Pool',
+    currentHandler: (item.current_handler === 'Unassigned Pool' || item.currentHandler === 'Unassigned Pool') ? 'Unassigned' : (item.current_handler || item.currentHandler || 'Unassigned'),
     currentHandlerUserId: item.current_handler_user_id || item.currentHandlerUserId || undefined,
     currentDepartment: item.current_department || 'Recruitment',
     lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),

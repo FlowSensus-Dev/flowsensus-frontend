@@ -1165,10 +1165,16 @@ export default function App() {
               if (
                 local &&
                 local.currentHandler &&
+                local.currentHandler !== 'Unassigned' &&
                 local.currentHandler !== 'Unassigned Pool' &&
                 local.currentHandler !== 'System Agent' &&
-                (live.currentHandler === 'Unassigned Pool' || live.currentHandler === 'System Agent')
+                (live.currentHandler === 'Unassigned' || live.currentHandler === 'Unassigned Pool' || live.currentHandler === 'System Agent')
               ) {
+                // If applicant status changed (e.g. returned to Screening, Medical, or Pool),
+                // do not keep the previous handler — respect the unassigned state immediately
+                if (local.status !== live.status) {
+                  return live;
+                }
                 // Backend lost the handler name — keep the local value
                 return { ...live, currentHandler: local.currentHandler };
               }
@@ -1289,6 +1295,25 @@ export default function App() {
           } else {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
+
+            const isApplicant =
+              (appMeta.role || userMeta.role || '').toLowerCase() === 'applicant' ||
+              (Array.isArray(appMeta.roles) && appMeta.roles.map((r: any) => String(r).toLowerCase()).includes('applicant')) ||
+              (Array.isArray(userMeta.roles) && userMeta.roles.map((r: any) => String(r).toLowerCase()).includes('applicant')) ||
+              Boolean(appMeta.applicant_code || userMeta.applicant_code);
+
+            if (isApplicant) {
+              setIsSuperAdmin(false);
+              setCurrentUserRole("Applicant");
+              setCurrentUserRoles(["Applicant"]);
+              setCurrentUserName(userMeta.full_name || email || "Applicant");
+              setLoggedInApplicantId(String(appMeta.applicant_id || userMeta.applicant_id || ""));
+              if (window.location.pathname === '/app') {
+                navigateTo("app");
+              }
+              return;
+            }
+
             let roles: UserRole[] = [];
             if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
               roles = userMeta.roles;
@@ -1678,13 +1703,21 @@ export default function App() {
       );
     }
 
+    if (currentUserRole === "Applicant") {
+      return (
+        <ApplicantPortal
+          onLogout={handleLogout}
+          applicantId={loggedInApplicantId}
+          applicantName={currentUserName}
+        />
+      );
+    }
+
     return (
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {currentUserRole === "Applicant" ? (
-            <ApplicantPortal onLogout={handleLogout} />
-          ) : currentUserRole === "Employer" ? (
+          {currentUserRole === "Employer" ? (
             <EmployerPortal onLogout={handleLogout} />
           ) : (
             <AppShell
