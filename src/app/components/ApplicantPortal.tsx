@@ -6,6 +6,7 @@ import {
   ChevronUp, Milestone, AlertTriangle, Bell, X, Info, Calendar
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { supabase } from '../../lib/supabase';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -81,9 +82,9 @@ const PHASES = [
   },
   {
     phase: 2,
-    title: 'Medical Clearance & Health Profiling',
+    title: 'Medical Clearance',
     shortTitle: 'Medical',
-    subtitle: 'DOH/GAMCA accredited clinic referral and Fit-to-Work certification',
+    subtitle: 'Fit-to-Work certification',
     icon: Stethoscope,
     description: 'Complete diagnostic workup, laboratory tests, and physical examination to ensure medical readiness.',
   },
@@ -111,16 +112,6 @@ const PHASES = [
     icon: PlaneTakeoff,
     description: 'Final administrative clearances, contract verification, visa stamping, and travel coordination.',
   },
-];
-
-// Fallback regulatory documents matching standard overseas deployment requirements
-const DEFAULT_REGULATORY_DOCS: PortalDocument[] = [
-  { applicant_req_id: 1, requirement_name: 'Passport (Valid min. 1 year)', category: 'REGULATORY', is_mandatory: true, status: 'VERIFIED' },
-  { applicant_req_id: 2, requirement_name: 'NBI Clearance (For Travel Abroad)', category: 'REGULATORY', is_mandatory: true, status: 'VERIFIED' },
-  { applicant_req_id: 3, requirement_name: 'Medical Certificate (DOH/GAMCA Accredited)', category: 'MEDICAL', is_mandatory: true, status: 'SUBMITTED' },
-  { applicant_req_id: 4, requirement_name: 'Birth Certificate (PSA Authenticated)', category: 'IDENTITY', is_mandatory: true, status: 'VERIFIED' },
-  { applicant_req_id: 5, requirement_name: 'International Bio-Data / Resume', category: 'QUALIFICATION', is_mandatory: true, status: 'SUBMITTED' },
-  { applicant_req_id: 6, requirement_name: 'Pre-Departure Orientation Certificate (PDOS)', category: 'DEPLOYMENT', is_mandatory: true, status: 'PENDING' },
 ];
 
 export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
@@ -170,11 +161,20 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       if (Array.isArray(resApps.data)) {
         setApplications(resApps.data);
       }
-      if (Array.isArray(resDocs.data) && resDocs.data.length > 0) {
+      if (Array.isArray(resDocs.data)) {
         setDocuments(resDocs.data);
       } else {
-        setDocuments(DEFAULT_REGULATORY_DOCS);
+        setDocuments([]);
       }
+
+      // Persist to session cache for instant future loads
+      try {
+        sessionStorage.setItem('fs_cache_applicant_portal', JSON.stringify({
+          profile: resProfile.data,
+          applications: Array.isArray(resApps.data) ? resApps.data : [],
+          documents: Array.isArray(resDocs.data) ? resDocs.data : [],
+        }));
+      } catch (e) {}
     } catch (err: any) {
       console.error('Failed to load applicant portal data:', err);
       const detail = err?.response?.data?.detail;
@@ -183,16 +183,69 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       } else {
         setErrorMsg('Could not retrieve your live application status. Please try refreshing.');
       }
-      setDocuments(DEFAULT_REGULATORY_DOCS);
+      setDocuments([]);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
   };
 
+  // Instant SWR mount: hydrate from session storage immediately if available
   useEffect(() => {
-    fetchPortalData();
+    let hasCache = false;
+    try {
+      const cachedData = sessionStorage.getItem('fs_cache_applicant_portal');
+      if (cachedData) {
+        const parsed = JSON.parse(cachedData);
+        if (parsed.profile) setProfile(parsed.profile);
+        if (Array.isArray(parsed.applications) && parsed.applications.length > 0) setApplications(parsed.applications);
+        if (Array.isArray(parsed.documents)) setDocuments(parsed.documents);
+        setLoading(false);
+        hasCache = true;
+      }
+    } catch (e) {}
+
+    // Fetch fresh data in background (silent if already rendered from cache)
+    fetchPortalData(hasCache);
   }, []);
+
+  // Supabase Realtime synchronization: automatically update when agency changes status, phase, or documents
+  useEffect(() => {
+    if (!profile?.applicant_id) return;
+    const applicantId = profile.applicant_id;
+
+    let debounceTimer: any = null;
+    const triggerDebouncedRefresh = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchPortalData(true);
+      }, 500);
+    };
+
+    const channel = supabase
+      .channel(`realtime:applicant_portal_${applicantId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'job_application', filter: `applicant_id=eq.${applicantId}` },
+        triggerDebouncedRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applicant', filter: `applicant_id=eq.${applicantId}` },
+        triggerDebouncedRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applicant_requirement', filter: `applicant_id=eq.${applicantId}` },
+        triggerDebouncedRefresh
+      )
+      .subscribe();
+
+    return () => {
+      clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.applicant_id]);
 
   const activeApp = applications[0] || null;
   const currentPhaseNumber = activeApp?.current_phase || 1;
@@ -225,29 +278,43 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
     (d) => d.status?.toUpperCase() === 'VERIFIED'
   ).length;
 
-  const notificationsList = [
-    {
+  const notificationsList: Array<{
+    id: number;
+    title: string;
+    message: string;
+    time: string;
+    type: string;
+  }> = [];
+
+  if (activeApp) {
+    notificationsList.push({
       id: 1,
       title: 'Current Stage Progress',
-      message: `Phase ${currentPhaseNumber}: ${activeApp?.status_code || profile?.status_code || 'In Active Evaluation'}. Your profile is active.`,
-      time: 'Real-time',
+      message: `Phase ${currentPhaseNumber}: ${activeApp.status_code || profile?.status_code || 'In Active Evaluation'}. Your profile is active.`,
+      time: 'Live status',
       type: 'info',
-    },
-    {
+    });
+  }
+
+  if (documents.length > 0) {
+    notificationsList.push({
       id: 2,
       title: 'Document Compliance Status',
       message: `${verifiedDocsCount} of ${documents.length} regulatory requirements have been verified by your agency.`,
-      time: 'Recent update',
+      time: 'Document check',
       type: 'success',
-    },
-    {
+    });
+  }
+
+  if (activeApp?.handler_name) {
+    notificationsList.push({
       id: 3,
       title: 'Officer Assigned',
-      message: `Case Handler: ${activeApp?.handler_name || 'Flowsensus Superadmin'} is processing your deployment file.`,
-      time: 'Active record',
+      message: `Case Handler: ${activeApp.handler_name} is processing your deployment file.`,
+      time: 'Assignment',
       type: 'info',
-    },
-  ];
+    });
+  }
 
   return (
     <div className="w-full min-h-screen bg-slate-100 text-[#0F172A] flex flex-col items-center justify-start py-3 sm:py-6 md:py-8 px-2 sm:px-4 md:px-6 antialiased selection:bg-[#0EA5E9]/20 overflow-x-hidden">
@@ -285,18 +352,17 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   setShowNotifications((prev) => !prev);
                   if (!showNotifications) setHasUnreadNotifications(false);
                 }}
-                className={`relative p-2 rounded-xl transition-all cursor-pointer ${
-                  showNotifications
-                    ? 'bg-sky-50 text-[#0EA5E9] border border-sky-200'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
-                }`}
+                className={`relative p-2 rounded-xl transition-all cursor-pointer ${showNotifications
+                  ? 'bg-sky-50 text-[#0EA5E9] border border-sky-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
+                  }`}
                 title="Notifications"
                 aria-label="View notifications"
               >
                 <Bell size={16} />
-                {hasUnreadNotifications && (
+                {hasUnreadNotifications && notificationsList.length > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-white">
-                    3
+                    {notificationsList.length}
                   </span>
                 )}
               </button>
@@ -319,15 +385,21 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   </div>
 
                   <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
-                    {notificationsList.map((notif) => (
-                      <div key={notif.id} className="p-3.5 hover:bg-slate-50/80 transition-colors text-left">
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <p className="text-xs font-bold text-slate-900">{notif.title}</p>
-                          <span className="text-[10px] text-slate-400">{notif.time}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-600 leading-snug">{notif.message}</p>
+                    {notificationsList.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        No notifications at this time
                       </div>
-                    ))}
+                    ) : (
+                      notificationsList.map((notif) => (
+                        <div key={notif.id} className="p-3.5 hover:bg-slate-50/80 transition-colors text-left">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <p className="text-xs font-bold text-slate-900">{notif.title}</p>
+                            <span className="text-[10px] text-slate-400">{notif.time}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 leading-snug">{notif.message}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-center">
@@ -405,7 +477,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     {fullName}
                   </h1>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
-                    {activeApp?.status_code || profile?.status_code || 'Pending Interview'}
+                    {activeApp?.status_code || profile?.status_code || 'Registered'}
                   </span>
                 </div>
 
@@ -417,7 +489,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     className="inline-flex items-center gap-1 font-mono text-[#38BDF8] bg-white/10 hover:bg-white/15 px-2 py-0.5 rounded-md transition-colors cursor-pointer group"
                     title="Click to copy Applicant Code"
                   >
-                    <span>{profile?.applicant_code || 'APP-2026-FPT-00000'}</span>
+                    <span>{profile?.applicant_code || 'N/A'}</span>
                     {copiedCode ? (
                       <Check size={11} className="text-emerald-400" />
                     ) : (
@@ -428,13 +500,13 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   <span className="hidden sm:inline text-slate-600">·</span>
                   <span className="flex items-center gap-1 text-slate-200">
                     <Briefcase size={12} className="text-[#0EA5E9]" />
-                    {activeApp?.position || 'Caregiver / Overseas Candidate'}
+                    {activeApp?.position || 'No Active Job Order'}
                   </span>
 
                   <span className="hidden sm:inline text-slate-600">·</span>
                   <span className="flex items-center gap-1 text-slate-200">
                     <Globe size={12} className="text-[#0EA5E9]" />
-                    {activeApp?.country_name || 'Overseas Destination'}
+                    {activeApp?.country_name || 'Destination Pending'}
                   </span>
                 </div>
               </div>
@@ -499,13 +571,12 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     key={p.phase}
                     type="button"
                     onClick={() => setExpandedPhase(p.phase)}
-                    className={`flex-1 min-w-[70px] sm:min-w-0 py-2 px-1.5 rounded-xl border text-center transition-all cursor-pointer ${
-                      isCurrent
-                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] font-bold shadow-xs'
-                        : isCompleted
+                    className={`flex-1 min-w-[70px] sm:min-w-0 py-2 px-1.5 rounded-xl border text-center transition-all cursor-pointer ${isCurrent
+                      ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] font-bold shadow-xs'
+                      : isCompleted
                         ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
                         : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
-                    }`}
+                      }`}
                   >
                     <div className="text-[11px] sm:text-xs font-black">Phase {p.phase}</div>
                     <div className="text-[9px] sm:text-[10px] truncate mt-0.5">{p.shortTitle}</div>
@@ -524,13 +595,12 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                 return (
                   <div
                     key={p.phase}
-                    className={`rounded-2xl border transition-all overflow-hidden ${
-                      isCurrent
-                        ? 'border-[#0EA5E9] bg-sky-50/30 ring-2 ring-[#0EA5E9]/20 shadow-sm'
-                        : isCompleted
+                    className={`rounded-2xl border transition-all overflow-hidden ${isCurrent
+                      ? 'border-[#0EA5E9] bg-sky-50/30 ring-2 ring-[#0EA5E9]/20 shadow-sm'
+                      : isCompleted
                         ? 'border-emerald-200 bg-emerald-50/15'
                         : 'border-slate-200 bg-white'
-                    }`}
+                      }`}
                   >
                     {/* Phase Header */}
                     <button
@@ -540,22 +610,20 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0 ${
-                            isCompleted
-                              ? 'bg-emerald-600 text-white'
-                              : isCurrent
+                          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0 ${isCompleted
+                            ? 'bg-emerald-600 text-white'
+                            : isCurrent
                               ? 'bg-[#0EA5E9] text-white shadow-md shadow-[#0EA5E9]/25'
                               : 'bg-slate-100 text-slate-500'
-                          }`}
+                            }`}
                         >
                           {isCompleted ? <Check size={16} /> : <span>{p.phase}</span>}
                         </div>
 
                         <div className="min-w-0">
                           <h3
-                            className={`text-xs sm:text-sm font-bold truncate ${
-                              isCurrent ? 'text-[#0EA5E9]' : isCompleted ? 'text-emerald-900' : 'text-slate-800'
-                            }`}
+                            className={`text-xs sm:text-sm font-bold truncate ${isCurrent ? 'text-[#0EA5E9]' : isCompleted ? 'text-emerald-900' : 'text-slate-800'
+                              }`}
                           >
                             Phase {p.phase}: {p.title}
                           </h3>
@@ -567,13 +635,12 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
 
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <span
-                          className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                            isCurrent
-                              ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
-                              : isCompleted
+                          className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${isCurrent
+                            ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
+                            : isCompleted
                               ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                               : 'bg-slate-100 text-slate-500 border-slate-200'
-                          }`}
+                            }`}
                         >
                           {isCurrent ? '● Active' : isCompleted ? '✓ Completed' : 'Upcoming'}
                         </span>
@@ -609,17 +676,17 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                             </span>
                             <span className="text-xs sm:text-sm font-bold text-slate-800">
                               {isCurrent
-                                ? activeApp?.status_code || profile?.status_code || 'Under Active Evaluation'
+                                ? activeApp?.status_code || profile?.status_code || 'Active Evaluation'
                                 : isCompleted
-                                ? 'Phase Completed & Verified'
-                                : 'Pending Completion of Preceding Phase'}
+                                  ? 'Phase Completed & Verified'
+                                  : 'Pending Completion of Preceding Phase'}
                             </span>
                           </div>
 
                           {isCurrent && (
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#0EA5E9] bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-100 self-start sm:self-auto">
                               <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9] animate-pulse" />
-                              Assigned Officer: {activeApp?.handler_name || 'Flowsensus Superadmin'}
+                              Assigned Officer: {activeApp?.handler_name || 'Unassigned'}
                             </span>
                           )}
                         </div>
@@ -649,12 +716,12 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between py-1 border-b border-slate-200/70">
                   <span className="text-slate-500 font-medium">Applicant Code:</span>
-                  <span className="font-mono font-bold text-slate-900">{profile?.applicant_code}</span>
+                  <span className="font-mono font-bold text-slate-900">{profile?.applicant_code || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/70">
                   <span className="text-slate-500 font-medium">Registered Email:</span>
                   <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
-                    {profile?.email}
+                    {profile?.email || 'N/A'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/70">
@@ -663,7 +730,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/70">
                   <span className="text-slate-500 font-medium">Civil Status:</span>
-                  <span className="font-medium text-slate-900">{profile?.civil_status || 'Single'}</span>
+                  <span className="font-medium text-slate-900">{profile?.civil_status || 'Not specified'}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/70">
                   <span className="text-slate-500 font-medium">Birth Date:</span>
@@ -672,7 +739,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500 font-medium">Birthplace / Origin:</span>
                   <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
-                    {profile?.place_of_birth || 'Philippines'}
+                    {profile?.place_of_birth || 'Not specified'}
                   </span>
                 </div>
               </div>
@@ -690,15 +757,15 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                       Assigned Case Handler
                     </h3>
                   </div>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Designated
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${activeApp?.handler_name ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${activeApp?.handler_name ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                    {activeApp?.handler_name ? 'Designated' : 'Unassigned'}
                   </span>
                 </div>
 
                 <div className="mt-3.5 bg-white border border-slate-200 rounded-xl p-3.5 flex items-center gap-3">
                   <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#0EA5E9] to-[#0284C7] text-white flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0">
-                    {(activeApp?.handler_name || 'Flowsensus Superadmin')
+                    {(activeApp?.handler_name || 'Unassigned')
                       .split(' ')
                       .map((n) => n[0])
                       .join('')
@@ -708,13 +775,13 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Officer Name</p>
                     <p className="font-black text-slate-900 text-sm sm:text-base truncate">
-                      {activeApp?.handler_name || 'Flowsensus Superadmin'}
+                      {activeApp?.handler_name || 'Unassigned Officer'}
                     </p>
                     <p className="text-xs text-[#0EA5E9] font-medium truncate mt-0.5">
-                      {activeApp?.stage_name || 'Agency Processing Specialist'}
+                      {activeApp?.handler_name ? (activeApp?.stage_name || 'Agency Processing Specialist') : 'No officer assigned yet'}
                     </p>
                     <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                      {profile?.agency_name || 'Flowsensus Agency Operations Office'}
+                      {profile?.agency_name || 'Agency Operations Office'}
                     </p>
                   </div>
                 </div>
@@ -746,45 +813,51 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   </h3>
                 </div>
                 <span className="font-mono text-xs font-bold text-slate-500">
-                  {activeApp?.job_code || 'JOB-ACTIVE-001'}
+                  {activeApp?.job_code || 'N/A'}
                 </span>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                <div>
-                  <h4 className="text-base sm:text-lg font-black text-slate-900">
-                    {activeApp?.position || 'Caregiver / General Healthcare'}
-                  </h4>
-                  <p className="text-xs text-[#0EA5E9] font-bold mt-0.5 flex items-center gap-1">
-                    <Building2 size={13} />
-                    {activeApp?.employer_name || 'Accredited Foreign Principal'}
-                  </p>
-                </div>
+              {activeApp ? (
+                <>
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-base sm:text-lg font-black text-slate-900">
+                        {activeApp.position || 'Position Unspecified'}
+                      </h4>
+                      <p className="text-xs text-[#0EA5E9] font-bold mt-0.5 flex items-center gap-1">
+                        <Building2 size={13} />
+                        {activeApp.employer_name || 'Principal Unassigned'}
+                      </p>
+                    </div>
+                  </div>
 
-
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-sky-100 text-xs">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Destination Country</span>
-                  <span className="font-bold text-slate-800 flex items-center gap-1">
-                    <Globe size={12} className="text-[#0EA5E9]" />
-                    {activeApp?.country_name || 'Overseas Destination'}
-                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-sky-100 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Destination Country</span>
+                      <span className="font-bold text-slate-800 flex items-center gap-1">
+                        <Globe size={12} className="text-[#0EA5E9]" />
+                        {activeApp.country_name || 'Destination Pending'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Current Stage</span>
+                      <span className="font-semibold text-slate-800">
+                        {activeApp.status_code || profile?.status_code || 'Pending'}
+                      </span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Assigned Officer</span>
+                      <span className="font-semibold text-slate-800 truncate block">
+                        {activeApp.handler_name || 'Unassigned'}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="py-4 text-center text-xs text-slate-500">
+                  No active job placement order currently associated with your account.
                 </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Current Stage</span>
-                  <span className="font-semibold text-slate-800">
-                    {activeApp?.status_code || profile?.status_code || 'Screening & Interview'}
-                  </span>
-                </div>
-                <div className="col-span-2 sm:col-span-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Assigned Officer</span>
-                  <span className="font-semibold text-slate-800 truncate block">
-                    {activeApp?.handler_name || 'Flowsensus Superadmin'}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Regulatory Document Requirements (Aligned with Applicant Profile) */}
@@ -804,53 +877,63 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                   </div>
                 </div>
                 <span className="text-xs text-slate-500 font-semibold self-start sm:self-auto">
-                  {verifiedDocsCount} of {documents.length} Verified
+                  {documents.length > 0 ? `${verifiedDocsCount} of ${documents.length} Verified` : 'No Requirements'}
                 </span>
               </div>
 
               {/* Document List aligned with applicant profile */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {documents.map((doc) => {
-                  const statusNormalized = doc.status?.toUpperCase() || 'PENDING';
-                  const isVerified = statusNormalized === 'VERIFIED';
-                  const isUnderReview = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
-                  const hasValidExpiry = doc.expiration_date && doc.expiration_date !== 'No expiry' && doc.expiration_date !== 'N/A';
+              {documents.length === 0 ? (
+                <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center">
+                  <FileText className="text-slate-300 mb-2" size={32} />
+                  <p className="text-xs font-bold text-slate-700">No Regulatory Requirements Recorded</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5 max-w-sm">
+                    Your agency has not yet assigned specific regulatory document requirements to your profile.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {documents.map((doc) => {
+                    const statusNormalized = doc.status?.toUpperCase() || 'PENDING';
+                    const isVerified = statusNormalized === 'VERIFIED';
+                    const isUnderReview = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
+                    const hasValidExpiry = doc.expiration_date && doc.expiration_date !== 'No expiry' && doc.expiration_date !== 'N/A';
 
-                  return (
-                    <div
-                      key={doc.applicant_req_id}
-                      className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2.5"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-xs font-bold text-slate-800 truncate">{doc.requirement_name}</p>
+                    return (
+                      <div
+                        key={doc.applicant_req_id}
+                        className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-slate-800 truncate">{doc.requirement_name}</p>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5 truncate">
+                            <span>{doc.category || 'MANDATORY DOCUMENT'}</span>
+                            <span>·</span>
+                            <span>Expires: {hasValidExpiry ? doc.expiration_date : 'N/A'}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5 truncate">
-                          <span>{doc.category || 'MANDATORY DOCUMENT'}</span>
-                          <span>·</span>
-                          <span>Expires: {hasValidExpiry ? doc.expiration_date : 'N/A'}</span>
+
+                        <div className="flex-shrink-0">
+                          {isVerified ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 size={11} /> Verified
+                            </span>
+                          ) : isUnderReview ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                              <Clock size={11} /> Under Review
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
+                              Pending
+                            </span>
+                          )}
                         </div>
                       </div>
-
-                      <div className="flex-shrink-0">
-                        {isVerified ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            <CheckCircle2 size={11} /> Verified
-                          </span>
-                        ) : isUnderReview ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
-                            <Clock size={11} /> Under Review
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
-                            Pending
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Regulatory Notice for Applicants */}
               <p className="text-[10px] sm:text-[11px] text-slate-400 text-center pt-2 leading-relaxed">

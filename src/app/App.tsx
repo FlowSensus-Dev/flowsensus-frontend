@@ -1136,12 +1136,53 @@ export default function App() {
     if (!liveSession.current.ready || liveSession.current.userId !== userId) {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
-      setApplicants([]);
-      setApplicantsLoaded(false);
-      setActivityLogs([]);
-      setExpenses([]);
-      setGlobalJobOrders(null);
-      setGlobalEmployers(null);
+
+      // Hydrate from sessionStorage cache for instant 0ms dashboard render (Stale-While-Revalidate)
+      let hasCachedApplicants = false;
+      if (userId) {
+        try {
+          const cachedAppsJson = sessionStorage.getItem(`fs_cache_applicants_${userId}`);
+          if (cachedAppsJson) {
+            const cachedApps = JSON.parse(cachedAppsJson);
+            if (Array.isArray(cachedApps) && cachedApps.length > 0) {
+              setApplicants(cachedApps);
+              setApplicantsLoaded(true);
+              hasCachedApplicants = true;
+            }
+          }
+          const cachedLogsJson = sessionStorage.getItem(`fs_cache_logs_${userId}`);
+          if (cachedLogsJson) {
+            const cachedLogs = JSON.parse(cachedLogsJson);
+            if (Array.isArray(cachedLogs)) setActivityLogs(cachedLogs);
+          }
+          const cachedExpJson = sessionStorage.getItem(`fs_cache_expenses_${userId}`);
+          if (cachedExpJson) {
+            const cachedExp = JSON.parse(cachedExpJson);
+            if (Array.isArray(cachedExp)) setExpenses(cachedExp);
+          }
+          const cachedJoJson = sessionStorage.getItem(`fs_cache_jos_${userId}`);
+          if (cachedJoJson) {
+            const cachedJo = JSON.parse(cachedJoJson);
+            if (Array.isArray(cachedJo)) setGlobalJobOrders(cachedJo);
+          }
+          const cachedEmpJson = sessionStorage.getItem(`fs_cache_emps_${userId}`);
+          if (cachedEmpJson) {
+            const cachedEmp = JSON.parse(cachedEmpJson);
+            if (Array.isArray(cachedEmp)) setGlobalEmployers(cachedEmp);
+          }
+        } catch (e) {
+          // Ignore cache parse errors
+        }
+      }
+
+      if (!hasCachedApplicants) {
+        setApplicants([]);
+        setApplicantsLoaded(false);
+        setActivityLogs([]);
+        setExpenses([]);
+        setGlobalJobOrders(null);
+        setGlobalEmployers(null);
+      }
       setGlobalStaff(null);
       setGlobalRoles(null);
       setGlobalPipelineForecast(null);
@@ -1151,6 +1192,7 @@ export default function App() {
   const fetchLiveBackendData = async () => {
     if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current) return;
     const generation = liveSession.current.generation;
+    const currentUserId = liveSession.current.userId;
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
@@ -1161,6 +1203,13 @@ export default function App() {
         if (!isCurrent()) return;
         if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
           const liveMapped: ApplicantRecord[] = applicantsRes.data.map(mapApplicantFromApi);
+          // Persist to session cache for instant future loads
+          try {
+            if (currentUserId) {
+              sessionStorage.setItem(`fs_cache_applicants_${currentUserId}`, JSON.stringify(liveMapped));
+            }
+          } catch (e) {}
+
           // Merge: preserve locally-set currentHandler if backend returns Unassigned Pool
           // This handles the case where the handler is a superadmin / non-app_user account
           // whose name can't be resolved from current_handler_user_id FK join.
@@ -1237,6 +1286,11 @@ export default function App() {
             timestamp: l.occurred_at || l.created_at || new Date().toISOString(),
           }));
           setActivityLogs(liveLogs);
+          try {
+            if (currentUserId) {
+              sessionStorage.setItem(`fs_cache_logs_${currentUserId}`, JSON.stringify(liveLogs));
+            }
+          } catch (e) {}
         }
       } else if (logsRes.status === 'rejected') {
         console.warn('Backend audit logs unavailable:', logsRes.reason);
@@ -1261,6 +1315,11 @@ export default function App() {
           timestamp: r.created_at || new Date().toISOString(),
         }));
         setExpenses(liveExpenses);
+        try {
+          if (currentUserId) {
+            sessionStorage.setItem(`fs_cache_expenses_${currentUserId}`, JSON.stringify(liveExpenses));
+          }
+        } catch (e) {}
       } else if (expRes.status === 'rejected') {
         console.warn('Backend financial records unavailable:', expRes.reason);
       }
@@ -1268,8 +1327,18 @@ export default function App() {
       if (!isCurrent()) return;
 
       // Populate global shared context to prevent duplicate fetches in child views
-      if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
-      if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
+      if (joRes.status === 'fulfilled' && joRes.value.data) {
+        setGlobalJobOrders(joRes.value.data);
+        try {
+          if (currentUserId) sessionStorage.setItem(`fs_cache_jos_${currentUserId}`, JSON.stringify(joRes.value.data));
+        } catch (e) {}
+      }
+      if (empRes.status === 'fulfilled' && empRes.value.data) {
+        setGlobalEmployers(empRes.value.data);
+        try {
+          if (currentUserId) sessionStorage.setItem(`fs_cache_emps_${currentUserId}`, JSON.stringify(empRes.value.data));
+        } catch (e) {}
+      }
       if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
       if (rolesRes.status === 'fulfilled' && rolesRes.value.data) setGlobalRoles(rolesRes.value.data);
       if (forecastRes.status === 'fulfilled' && forecastRes.value.data) setGlobalPipelineForecast(forecastRes.value.data);
@@ -1552,6 +1621,11 @@ export default function App() {
     sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
     try {
+      Object.keys(sessionStorage).forEach((k) => {
+        if (k.startsWith('fs_cache_')) sessionStorage.removeItem(k);
+      });
+    } catch (e) {}
+    try {
       await supabase.auth.signOut();
     } catch (err) {
       console.error("Sign out error:", err);
@@ -1604,6 +1678,22 @@ export default function App() {
     } catch (err) {
       console.warn('Could not persist expense to backend:', err);
     }
+  };
+
+  const handleJobOrdersChange = (jos: any[]) => {
+    setGlobalJobOrders(jos);
+    try {
+      const userId = liveSession.current.userId;
+      if (userId) sessionStorage.setItem(`fs_cache_jos_${userId}`, JSON.stringify(jos));
+    } catch (e) {}
+  };
+
+  const handleEmployersChange = (emps: any[]) => {
+    setGlobalEmployers(emps);
+    try {
+      const userId = liveSession.current.userId;
+      if (userId) sessionStorage.setItem(`fs_cache_emps_${userId}`, JSON.stringify(emps));
+    } catch (e) {}
   };
 
   // ── Inactivity / Idle Session Security Timeout (30 min) ───────────────────
@@ -1751,6 +1841,8 @@ export default function App() {
               onSuperAdminDashboard={() => showAppView('super-admin')}
               globalJobOrders={globalJobOrders || undefined}
               globalEmployers={globalEmployers || undefined}
+              onJobOrdersChange={handleJobOrdersChange}
+              onEmployersChange={handleEmployersChange}
               globalStaff={globalStaff || undefined}
               globalRoles={globalRoles || undefined}
               globalPipelineForecast={globalPipelineForecast || undefined}
