@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Star, StarOff,
   Building2, Globe, Phone, Mail, Link, ShieldCheck, ShieldX,
@@ -35,6 +35,7 @@ interface Props {
   showToast: (msg: string) => void;
   currentUserName: string;
   globalEmployers?: any[];
+  onEmployersChange?: (employers: any[]) => void;
 }
 
 const mapEmployerFromApi = (e: any): EmployerProfile => ({
@@ -56,7 +57,7 @@ const mapEmployerFromApi = (e: any): EmployerProfile => ({
   createdAt: e.created_at || '',
 });
 
-export default function EmployerProfiles({ showToast, currentUserName, globalEmployers }: Props) {
+export default function EmployerProfiles({ showToast, currentUserName, globalEmployers, onEmployersChange }: Props) {
   const [employers, setEmployers] = useState<EmployerProfile[]>(() => {
     return (globalEmployers && Array.isArray(globalEmployers) && globalEmployers.length > 0)
       ? globalEmployers.map(mapEmployerFromApi)
@@ -80,26 +81,28 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
     }
   }, [globalEmployers]);
 
-  // ── Fetch Live Employers on Mount ─────────────────────────────────────────
-  useEffect(() => {
-    const fetchEmployers = async () => {
-      try {
-        if (!globalEmployers || globalEmployers.length === 0) {
-          setIsLoading(true);
-        }
-        const res = (globalEmployers && globalEmployers.length > 0) ? { data: globalEmployers } : await api.get('/employers');
-        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const liveEmps: EmployerProfile[] = res.data.map(mapEmployerFromApi);
-          setEmployers(liveEmps);
-        }
-      } catch (err) {
-        console.warn('Could not fetch employers from Supabase:', err);
-      } finally {
-        setIsLoading(false);
+  // ── Fetch Live Employers on Mount & Refresh ───────────────────────────────
+  const fetchLiveEmployers = useCallback(async (force = false) => {
+    try {
+      if (!globalEmployers || globalEmployers.length === 0 || force) {
+        setIsLoading(true);
       }
-    };
-    fetchEmployers();
-  }, [globalEmployers]);
+      const res = (!force && globalEmployers && globalEmployers.length > 0) ? { data: globalEmployers } : await api.get('/employers');
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const liveEmps: EmployerProfile[] = res.data.map(mapEmployerFromApi);
+        setEmployers(liveEmps);
+        if (force && onEmployersChange) onEmployersChange(res.data);
+      }
+    } catch (err) {
+      console.warn('Could not fetch employers from Supabase:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [globalEmployers, onEmployersChange]);
+
+  useEffect(() => {
+    fetchLiveEmployers();
+  }, [fetchLiveEmployers]);
 
   const filtered = employers.filter(e => {
     const q = search.toLowerCase();
@@ -121,6 +124,7 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
     setIsSaving(true);
     const payload = {
       company_name: editing.companyName,
+      country: editing.country,
       industry: editing.industry,
       contact_person: editing.contactPerson,
       contact_email: editing.contactEmail,
@@ -141,19 +145,20 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
       if (isNew) {
         const res = await api.post('/employers', payload);
         const createdId = res.data?.employer_id ? String(res.data.employer_id) : editing.id;
-        setEmployers(p => [...p, { ...editing, id: createdId }]);
+        const newEmp = res.data ? mapEmployerFromApi(res.data) : { ...editing, id: createdId };
+        setEmployers(p => [...p, newEmp]);
       } else {
-        await api.put(`/employers/${editing.id}`, payload);
-        setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
+        const res = await api.put(`/employers/${editing.id}`, payload);
+        const updatedEmp = res.data ? mapEmployerFromApi(res.data) : editing;
+        setEmployers(p => p.map(e => e.id === editing.id ? updatedEmp : e));
       }
       showToast(`"${editing.companyName}" ${isNew ? 'added' : 'updated'}`);
       setEditing(null);
-    } catch (err) {
-      console.warn('Backend save error, updating locally:', err);
-      if (isNew) setEmployers(p => [...p, editing]);
-      else setEmployers(p => p.map(e => e.id === editing.id ? editing : e));
-      showToast(`Saved locally: "${editing.companyName}"`);
-      setEditing(null);
+      await fetchLiveEmployers(true);
+    } catch (err: any) {
+      console.warn('Backend save error:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error occurred';
+      showToast(`Error saving employer: ${errorMsg}`);
     } finally {
       setIsSaving(false);
     }
@@ -165,6 +170,7 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
     try {
       await api.delete(`/employers/${id}`);
       showToast(`"${e?.companyName}" removed from database`);
+      await fetchLiveEmployers(true);
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
       showToast(`"${e?.companyName}" removed`);
@@ -184,6 +190,7 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
 
     try {
       await api.put(`/employers/${addingRemark.employerId}`, { remarks: updatedRemarks });
+      await fetchLiveEmployers(true);
     } catch (err) {
       console.warn('Could not persist remark to backend:', err);
     } finally {

@@ -1294,7 +1294,7 @@ export default function SmartProfiling({
     const targetStatus = isReturningToMedical ? 'Medical Clearance' : 'Initial Screening';
     const targetPhase = isReturningToMedical ? 2 : 1;
     const targetDepartment = isReturningToMedical ? 'Admin' : 'Recruitment';
-    const targetHandler = 'Unassigned Pool';
+    const targetHandler = 'Unassigned';
     const phaseDesc = isReturningToMedical
       ? `Returned from Profiling to Medical Clearance by ${currentUserName}. Note: ${reasonText}`
       : `Returned from Profiling to Initial Screening by ${currentUserName}. Note: ${reasonText}`;

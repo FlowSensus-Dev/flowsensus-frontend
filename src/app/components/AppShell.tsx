@@ -58,6 +58,8 @@ interface AppShellProps {
   globalStaff?: any[];
   globalRoles?: any[];
   globalPipelineForecast?: any;
+  onJobOrdersChange?: (orders: any[]) => void;
+  onEmployersChange?: (employers: any[]) => void;
 }
 
 export default function AppShell({
@@ -82,6 +84,8 @@ export default function AppShell({
   globalStaff,
   globalRoles,
   globalPipelineForecast,
+  onJobOrdersChange,
+  onEmployersChange,
 }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -606,6 +610,8 @@ export default function AppShell({
             currentUserName={currentUserName}
             globalJobOrders={globalJobOrders}
             globalEmployers={globalEmployers}
+            onJobOrdersChange={onJobOrdersChange}
+            onEmployersChange={onEmployersChange}
           />
         );
       case 'employers':
@@ -614,6 +620,7 @@ export default function AppShell({
             showToast={showToastNotification}
             currentUserName={currentUserName}
             globalEmployers={globalEmployers}
+            onEmployersChange={onEmployersChange}
           />
         );
       default:

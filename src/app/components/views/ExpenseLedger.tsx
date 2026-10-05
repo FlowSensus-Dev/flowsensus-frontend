@@ -39,8 +39,8 @@ export default function ExpenseLedger({
 
   const selectedApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
   const applicantDisplayName = selectedApplicant
-    ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || 'Juan Dela Cruz')
-    : 'Juan Dela Cruz';
+    ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || `Candidate #${selectedApplicantId}`)
+    : 'Selected Candidate';
 
   const handleAddExpense = async () => {
     if (isSubmitting) return;

@@ -55,7 +55,7 @@ const SECTIONS = [
   { id: 'ids',         label: 'IDs & Docs',     icon: <IdCard size={13} /> },
   { id: 'scores',      label: 'Test Scores',    icon: <BarChart3 size={13} /> },
   { id: 'finances',    label: 'Financials',     icon: <DollarSign size={13} /> },
-  { id: 'activity',    label: 'Activity',       icon: <Clock size={13} /> },
+  { id: 'activity',    label: 'Activity History', icon: <Clock size={13} /> },
 ];
 
 function monthsBetween(a: string, b: string) {
@@ -135,6 +135,27 @@ export default function ApplicantProfile({
   const applicant = enrichedData
     ? { ...applicantProp, ...enrichedData }
     : applicantProp;
+
+  // ── Per-Applicant Activity History Timeline ─────────────────────────────
+  const [applicantTimeline, setApplicantTimeline] = useState<any[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+
+  useEffect(() => {
+    if (!applicantProp?.id) return;
+    setIsTimelineLoading(true);
+    api.get(`/audit-logs/applicant/${applicantProp.id}`)
+      .then(res => {
+        if (res.data && Array.isArray(res.data)) {
+          setApplicantTimeline(res.data);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load applicant activity history:', err);
+      })
+      .finally(() => {
+        setIsTimelineLoading(false);
+      });
+  }, [applicantProp?.id]);
 
   useEffect(() => {
     api.get('/evaluations/templates')
@@ -1161,7 +1182,7 @@ export default function ApplicantProfile({
                   serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
                   noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
                   competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
-                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'No expiry') : 'No expiry',
+                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
                   proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
                 }))
               : [];
@@ -1186,7 +1207,7 @@ export default function ApplicantProfile({
                   <div className="grid grid-cols-3 gap-3 mt-2.5 text-xs text-slate-500">
                     <div><span className="text-slate-400">Hours: </span>{row.noOfHours || '—'}</div>
                     <div><span className="text-slate-400">Issued: </span>{row.competencyDateIssued || '—'}</div>
-                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate || 'No expiry'}</div>
+                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate && row.expiryDate !== 'No expiry' ? row.expiryDate : 'N/A'}</div>
                   </div>
                 </div>
               ))}
@@ -1360,20 +1381,19 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{row.type}</p>
-                        {row.proofDocumentUrl
-                          ? <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
-                          : <span className="flex items-center gap-1 text-xs text-amber-500"><FileX size={11} /> No scan</span>
-                        }
+                        {row.proofDocumentUrl && (
+                          <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
+                        )}
                       </div>
                       <code className="text-xs text-[#0EA5E9] font-mono">{row.identificationNo || '—'}</code>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      {row.expiryDate ? (
+                      {row.expiryDate && row.expiryDate !== 'No expiry' && row.expiryDate !== 'N/A' ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
                           {isExpired ? '⚠ Expired: ' : 'Exp: '}{row.expiryDate}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-400">No expiry</span>
+                        <span className="text-xs text-slate-400 font-medium">N/A</span>
                       )}
                     </div>
                   </div>
@@ -1395,8 +1415,11 @@ export default function ApplicantProfile({
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
               {(applicant.requirements || []).map((req, idx) => {
-                const isVerified = (req.status || '').toUpperCase() === 'VERIFIED' || (req.ocr_validation_status || '').toUpperCase() === 'PASSED';
-                const isExpired = req.expiration_date && new Date(req.expiration_date) < new Date();
+                const statusNormalized = (req.status || 'PENDING').toUpperCase();
+                const isVerified = statusNormalized === 'VERIFIED';
+                const isSubmitted = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
+                const hasValidExpiry = Boolean(req.expiration_date && req.expiration_date !== 'No expiry' && req.expiration_date !== 'N/A');
+                const isExpired = Boolean(hasValidExpiry && req.expiration_date && new Date(req.expiration_date) < new Date());
                 return (
                   <div key={req.applicant_req_id || `req-${idx}`} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isVerified ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
@@ -1408,30 +1431,32 @@ export default function ApplicantProfile({
                         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
                           {req.category}
                         </span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          isVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {req.status}
-                        </span>
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                         {req.issue_date && <span>Issued: {req.issue_date}</span>}
-                        {req.expiration_date && (
-                          <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
-                            Expires: {req.expiration_date} {isExpired && '(Expired)'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {req.ocr_validation_status && (
-                      <div className="text-right flex-shrink-0">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          req.ocr_validation_status.toUpperCase() === 'PASSED' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          OCR: {req.ocr_validation_status}
+                        <span>
+                          Expires:{' '}
+                          {hasValidExpiry ? (
+                            <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
+                              {req.expiration_date} {isExpired && '(Expired)'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-medium">N/A</span>
+                          )}
                         </span>
                       </div>
-                    )}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                        isVerified
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : isSubmitted
+                          ? 'bg-amber-100 text-amber-800 border-amber-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {req.status || 'PENDING'}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -1645,35 +1670,126 @@ export default function ApplicantProfile({
         )}
       </div>
 
-      {/* ── Activity ──────────────────────────────────────────────────────────── */}
+      {/* ── Activity History ──────────────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-24 pt-6 space-y-4 pb-8">
-        <div className="flex items-center gap-2">
-          <Clock size={16} className="text-[#0EA5E9]" />
-          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity Log</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock size={16} className="text-[#0EA5E9]" />
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity History</h3>
+          </div>
+          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+            {applicantTimeline.length > 0 ? `${applicantTimeline.length} Events` : `${activityLogs.length} Events`}
+          </span>
         </div>
-        {activityLogs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No activity logs</div>
+
+        {isTimelineLoading ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-8 text-center space-y-2">
+            <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">Loading applicant audit timeline...</p>
+          </div>
+        ) : (applicantTimeline.length === 0 && activityLogs.length === 0) ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">
+            No activity history recorded for this applicant
+          </div>
         ) : (
           <div className="relative pl-6">
             <div className="absolute left-[11px] top-3 bottom-3 w-px bg-slate-200" />
             <div className="space-y-4">
-              {activityLogs.map(log => (
-                <div key={log.id} className="relative">
-                  <div className="absolute -left-6 top-2.5 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white" />
-                  <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide">{log.action}</p>
-                        <p className="text-sm font-semibold text-[#0F172A] mt-0.5">{log.performedBy}</p>
+              {(applicantTimeline.length > 0 ? applicantTimeline : activityLogs.map(l => ({
+                audit_log_id: l.audit_log_id || 0,
+                occurred_at: l.timestamp,
+                actor_name: l.performedBy || 'Staff User',
+                actor_role: 'Staff',
+                action: l.action,
+                module: l.department || 'Operations',
+                description: l.details || '',
+              }))).map((log: any, idx: number) => {
+                const act = (log.action || '').toUpperCase();
+                const isClaim = act.includes('CLAIM') || act.includes('REASSIGN') || act.includes('POOL');
+                const isStatus = act.includes('STATUS') || act.includes('APPROV') || act.includes('PASS');
+                const isAlert = act.includes('RETURN') || act.includes('REJECT') || act.includes('FLAG');
+
+                let badgeColor = 'bg-sky-50 text-sky-700 border-sky-200';
+                if (isStatus || act.includes('VERIF')) badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (isClaim) badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                if (isAlert) badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+
+                return (
+                  <div key={log.audit_log_id || idx} className="relative">
+                    <div className="absolute -left-6 top-3 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white shadow-xs" />
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2 hover:border-slate-300 transition-colors shadow-2xs">
+                      {/* Top Header */}
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded border ${badgeColor}`}>
+                            {log.action?.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-xs font-bold text-[#0F172A]">
+                            {log.actor_name || log.performedBy || 'Staff User'}
+                          </span>
+                          {log.actor_role && (
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {log.actor_role}
+                            </span>
+                          )}
+                          {log.module && (
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              • {log.module}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1 flex-shrink-0">
+                          <Clock size={11} /> {new Date(log.occurred_at || log.timestamp).toLocaleString('en-PH')}
+                        </span>
                       </div>
-                      <span className="text-xs text-slate-400 flex items-center gap-1 flex-shrink-0">
-                        <Clock size={11} /> {new Date(log.timestamp).toLocaleString('en-PH')}
-                      </span>
+
+                      {/* Description Sentence */}
+                      <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                        {log.description || log.details}
+                      </p>
+
+                      {/* Handler Handoff Line */}
+                      {(log.prev_handler_name || log.new_handler_name) && (
+                        <div className="p-2 bg-slate-50 border border-slate-200/80 rounded-lg text-xs flex items-center gap-2">
+                          <span className="font-bold text-slate-600">Handler:</span>
+                          <span className="text-slate-500">
+                            {(log.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.prev_handler_name) || 'Unassigned'} → <strong className="text-slate-800">{(log.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.new_handler_name) || 'Unassigned'}</strong>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Reason / Remarks if present */}
+                      {log.reason && (
+                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">Reason / Remarks:</span> {log.reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Changes Diff if present */}
+                      {log.changes && Object.keys(log.changes).length > 0 && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                            Fields Changed:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                            {Object.entries(log.changes).map(([f, d]: [string, any]) => (
+                              <div key={f} className="p-1.5 bg-slate-50 rounded border border-slate-200 flex items-center justify-between font-mono">
+                                <span className="text-slate-600 font-semibold">{f}:</span>
+                                <span className="text-slate-800">
+                                  <span className="text-rose-600">{String(d?.old ?? 'null')}</span> → <span className="text-emerald-600 font-bold">{String(d?.new ?? 'null')}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{log.details}</p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

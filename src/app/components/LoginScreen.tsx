@@ -106,6 +106,7 @@ export default function LoginScreen({
     isSuper: boolean;
     roles?: UserRole[];
     rememberMe?: boolean;
+    applicantId?: string;
   } | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
@@ -125,91 +126,188 @@ export default function LoginScreen({
     setErrorMessage('');
 
     const trimmedUser = username.trim();
+    let targetEmail = trimmedUser;
+    let resolvedApplicantData: any = null;
 
-    // Check if authenticating via Supabase
-    if (trimmedUser.includes('@')) {
+    // ── STEP 1: RESOLVE APPLICANT CODE → EMAIL (applicant portal only, code required) ──
+    // Staff/employer logins skip this round trip; post-auth role checks still enforce portal isolation.
+    if (portal === 'applicant') {
+      if (trimmedUser.includes('@')) {
+        setErrorMessage('Applicants must sign in with their Applicant Code (e.g. APP-2026-FPT-00028), not an email address.');
+        setLoading(false);
+        return;
+      }
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: trimmedUser,
-          password: password,
-        });
+        const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`);
+        resolvedApplicantData = resolveRes.data;
+      } catch {
+        resolvedApplicantData = null;
+      }
+    }
 
-        if (error) {
-          // If Supabase authentication fails, inform the user
-          setErrorMessage(error.message);
+    // ── STRICT PORTAL ISOLATION CHECK 1: APPLICANT ATTEMPTING TO SIGN IN TO STAFF PORTAL ──
+    if (portal === 'staff' && resolvedApplicantData) {
+      setErrorMessage(
+        `Access Denied: The identifier '${trimmedUser}' belongs to an Overseas Applicant account. Applicants cannot log into the Agency Staff portal. Please switch to the 'Applicant' portal tab.`
+      );
+      setLoading(false);
+      return;
+    }
+
+    // In Applicant portal: verify resolved applicant data or check valid format
+    if (portal === 'applicant') {
+      if (resolvedApplicantData) {
+        if (resolvedApplicantData.is_blocked || !resolvedApplicantData.is_active) {
+          const reason = resolvedApplicantData.blocked_reason
+            ? ` Reason: ${resolvedApplicantData.blocked_reason}`
+            : '';
+          setErrorMessage(
+            `Account Suspended: Your applicant portal access has been deactivated or blocked by your agency administrator.${reason} Please contact your agency handler for assistance.`
+          );
           setLoading(false);
           return;
         }
-
-        const user = data.user;
-        // SECURITY FIX: Never trust client-writable user_metadata for is_super_admin.
-        // Only trust server-managed app_metadata.
-        const isSuper = Boolean(user?.app_metadata?.is_super_admin);
-
-        if (portal === 'employer') {
-          onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
-        } else if (portal === 'applicant') {
-          onLogin('Applicant', user?.user_metadata?.full_name || trimmedUser, selectedApplicantId || undefined, isSuper, ['Applicant'], rememberMe);
-        } else {
-          // Parse all assigned roles from metadata
-          let assignedRoles: UserRole[] = [];
-          if (Array.isArray(user?.user_metadata?.roles) && user.user_metadata.roles.length > 0) {
-            assignedRoles = user.user_metadata.roles;
-          } else if (typeof user?.user_metadata?.role === 'string') {
-            assignedRoles = user.user_metadata.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
-          } else if (Array.isArray(user?.app_metadata?.roles) && user.app_metadata.roles.length > 0) {
-            assignedRoles = user.app_metadata.roles;
-          }
-
-          const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
-          const role = isSuper ? 'Management' : dynamicRole;
-          const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
-          const roles = isSuper
-            ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
-            : (assignedRoles.length > 0 ? assignedRoles : [role]);
-
-          // Check if user is required to change password on first login
-          const mustChange = Boolean(
-            user?.user_metadata?.must_change_password ??
-            user?.app_metadata?.must_change_password
-          );
-
-          if (mustChange) {
-            setForcePasswordChangeUser({ user, role, name, isSuper, roles, rememberMe });
-            setLoading(false);
-            return;
-          }
-
-          // Record login in app_user to update last_login_at and broadcast realtime update
-          api.post('/users/record-login', {}).catch(e => console.warn('Could not record login timestamp:', e));
-
-          onLogin(role, name, undefined, isSuper, roles, rememberMe);
+        if (resolvedApplicantData.email) {
+          targetEmail = resolvedApplicantData.email;
         }
-        return;
-      } catch (err: any) {
-        console.error('Login error:', err);
-        setErrorMessage(err.message || 'Login failed. Please try again.');
+      } else if (!trimmedUser.includes('@')) {
+        setErrorMessage('No registered applicant found with this Applicant Code. Please verify your code or contact your agency handler.');
         setLoading(false);
         return;
       }
     }
 
-    // Fallback for offline demo usernames (e.g. sarah, maria, mark)
-    if (portal === 'employer') {
-      onLogin('Employer', trimmedUser || 'Employer Representative', undefined, false, ['Employer'], rememberMe);
-    } else if (portal === 'applicant') {
-      onLogin('Applicant', trimmedUser || 'Applicant', selectedApplicantId || undefined, false, ['Applicant'], rememberMe);
-    } else {
-      const role = resolveStaffRole(trimmedUser);
-      const name = resolveStaffName(trimmedUser);
-      let demoRoles: UserRole[] = [role];
-      if (trimmedUser.toLowerCase().includes('jose') || trimmedUser.toLowerCase() === 'admin@flowsensus.com') {
-        demoRoles = ['Admin', 'Recruitment'];
-      }
-      onLogin(role, name, undefined, false, demoRoles, rememberMe);
+    // In Staff portal: username must be an email
+    if (portal === 'staff' && !targetEmail.includes('@')) {
+      setErrorMessage('Please enter your valid agency staff email address (e.g., admin@flowsensus.com).');
+      setLoading(false);
+      return;
     }
 
-    setLoading(false);
+    // ── STEP 2: AUTHENTICATE WITH SUPABASE ──
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: targetEmail,
+        password: password,
+      });
+
+      if (error) {
+        setErrorMessage(error.message || 'Invalid email or password. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      const user = data.user;
+      const isSuper = Boolean(user?.app_metadata?.is_super_admin);
+      const userRoleMeta = (user?.app_metadata?.role || user?.user_metadata?.role || '').toLowerCase();
+      const userRolesMeta: string[] = (user?.app_metadata?.roles || user?.user_metadata?.roles || []).map((r: any) => String(r).toLowerCase());
+      const isApplicantAccount =
+        userRoleMeta === 'applicant' ||
+        userRolesMeta.includes('applicant') ||
+        Boolean(user?.app_metadata?.applicant_code) ||
+        Boolean(user?.user_metadata?.applicant_code) ||
+        Boolean(resolvedApplicantData);
+
+      // ── STRICT PORTAL ISOLATION CHECK 2 (POST-AUTH) ──────────────────────────
+      // 1. Applicant attempting to sign in to Agency Staff portal
+      if (portal === 'staff' && isApplicantAccount) {
+        await supabase.auth.signOut();
+        setErrorMessage("Access Denied: This account is registered as an Overseas Applicant. Applicants cannot log into the Agency Staff portal. Please switch to the 'Applicant' portal.");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Agency Staff attempting to sign in to Applicant portal
+      if (portal === 'applicant' && !isApplicantAccount) {
+        await supabase.auth.signOut();
+        setErrorMessage("Access Denied: This account is an Agency Staff account. Staff members cannot log into the Applicant Portal. Please switch to the 'Agency Staff' portal.");
+        setLoading(false);
+        return;
+      }
+
+      // 3. Deactivated / Blocked Applicant Check
+      if (portal === 'applicant') {
+        const isBlocked = user?.app_metadata?.is_blocked || resolvedApplicantData?.is_blocked;
+        const isActive = user?.app_metadata?.is_active ?? resolvedApplicantData?.is_active ?? true;
+        if (isBlocked || !isActive) {
+          await supabase.auth.signOut();
+          setErrorMessage("Account Suspended: Your applicant portal access has been deactivated or blocked by your agency administrator. Please contact your agency handler for assistance.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (portal === 'employer') {
+        onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
+      } else if (portal === 'applicant') {
+        const applicantName = user?.user_metadata?.full_name || resolvedApplicantData?.full_name || trimmedUser;
+        const applicantId = resolvedApplicantData?.applicant_id || user?.user_metadata?.applicant_id || user?.app_metadata?.applicant_id || selectedApplicantId;
+
+        // Check if applicant is required to change password on first login or after credentials resend
+        const isDefaultPass = password.trim() === 'Flowsensu$2026';
+        const mustChange = Boolean(
+          user?.user_metadata?.must_change_password ??
+          user?.app_metadata?.must_change_password ??
+          isDefaultPass
+        );
+
+        if (mustChange) {
+          setForcePasswordChangeUser({
+            user,
+            role: 'Applicant',
+            name: applicantName,
+            isSuper: false,
+            roles: ['Applicant'],
+            rememberMe,
+            applicantId: applicantId ? String(applicantId) : undefined,
+          });
+          setLoading(false);
+          return;
+        }
+
+        onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
+      } else {
+        // Parse all assigned roles from metadata
+        let assignedRoles: UserRole[] = [];
+        if (Array.isArray(user?.user_metadata?.roles) && user.user_metadata.roles.length > 0) {
+          assignedRoles = user.user_metadata.roles;
+        } else if (typeof user?.user_metadata?.role === 'string') {
+          assignedRoles = user.user_metadata.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
+        } else if (Array.isArray(user?.app_metadata?.roles) && user.app_metadata.roles.length > 0) {
+          assignedRoles = user.app_metadata.roles;
+        }
+
+        const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
+        const role = isSuper ? 'Management' : dynamicRole;
+        const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
+        const roles = isSuper
+          ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
+          : (assignedRoles.length > 0 ? assignedRoles : [role]);
+
+        // Check if user is required to change password on first login
+        const mustChange = Boolean(
+          user?.user_metadata?.must_change_password ??
+          user?.app_metadata?.must_change_password
+        );
+
+        if (mustChange) {
+          setForcePasswordChangeUser({ user, role, name, isSuper, roles, rememberMe });
+          setLoading(false);
+          return;
+        }
+
+        // Record login in app_user to update last_login_at and broadcast realtime update
+        api.post('/users/record-login', {}).catch(e => console.warn('Could not record login timestamp:', e));
+
+        onLogin(role, name, undefined, isSuper, roles, rememberMe);
+      }
+      return;
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setErrorMessage(err.message || 'Login failed. Please check your credentials.');
+      setLoading(false);
+      return;
+    }
   };
 
   const handleForcePasswordSubmit = async (e: FormEvent) => {
@@ -237,19 +335,36 @@ export default function LoginScreen({
       });
       if (authError) throw authError;
 
-      // 2. Synchronize password hash in backend USER table
+      // 2. Synchronize password hash and clear must_change_password flag in server app_metadata
       try {
-        await api.post('/users/change-password', {
-          new_password: newPasswordInput,
-        });
+        if (forcePasswordChangeUser.role === 'Applicant') {
+          await api.post('/applicants/me/change-password', {
+            new_password: newPasswordInput,
+          });
+        } else {
+          await api.post('/users/change-password', {
+            new_password: newPasswordInput,
+          });
+        }
       } catch (backendErr) {
         console.warn('Backend password sync warning:', backendErr);
       }
 
-      // 3. Complete login into workspace
-      const { role, name, isSuper, roles, rememberMe: userRememberMe } = forcePasswordChangeUser;
+      // 3. The password change invalidates the current session, so sign in again
+      //    with the new password to obtain a fresh, valid token.
+      const accountEmail = forcePasswordChangeUser.user?.email;
+      if (accountEmail) {
+        const { error: reAuthError } = await supabase.auth.signInWithPassword({
+          email: accountEmail,
+          password: newPasswordInput,
+        });
+        if (reAuthError) throw reAuthError;
+      }
+
+      // 4. Complete login into workspace or applicant portal
+      const { role, name, isSuper, roles, rememberMe: userRememberMe, applicantId } = forcePasswordChangeUser;
       setForcePasswordChangeUser(null);
-      onLogin(role, name, undefined, isSuper, roles, userRememberMe);
+      onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
     } catch (err: any) {
       setPasswordChangeError(err.message || 'Failed to update password. Please try again.');
     } finally {
@@ -403,10 +518,10 @@ export default function LoginScreen({
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Email / Username */}
+                {/* Email / Username / Applicant Code */}
                 <div>
                   <label className="text-sm font-bold text-[#0F172A] block mb-1.5">
-                    Email / Username
+                    {portal === 'applicant' ? 'Applicant Code' : 'Email / Username'}
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 absolute left-3 top-3.5 text-[#94A3B8]" />
@@ -420,7 +535,11 @@ export default function LoginScreen({
                       }}
                       onFocus={(e) => (e.currentTarget.style.borderColor = selectedPortal.accent)}
                       onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                      placeholder="Enter your email address"
+                      placeholder={
+                        portal === 'applicant'
+                          ? 'e.g. APP-2026-FPT-00028'
+                          : 'Enter your email address'
+                      }
                       required
                     />
                   </div>
@@ -428,7 +547,14 @@ export default function LoginScreen({
 
                 {/* Password */}
                 <div>
-                  <label className="text-sm font-bold text-[#0F172A] block mb-1.5">Password</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-sm font-bold text-[#0F172A]">Password</label>
+                    {portal === 'applicant' && (
+                      <span className="text-[11px] text-sky-700 font-medium bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
+                        Temporary password sent via email
+                      </span>
+                    )}
+                  </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 absolute left-3 top-3.5 text-[#94A3B8]" />
                     <input
@@ -450,29 +576,6 @@ export default function LoginScreen({
                     </button>
                   </div>
                 </div>
-
-                {/* Applicant profile selector */}
-                {portal === 'applicant' && applicants.length > 0 && (
-                  <div>
-                    <label className="text-sm font-bold text-[#0F172A] block mb-1.5">
-                      Select Your Profile
-                    </label>
-                    <select
-                      value={selectedApplicantId}
-                      onChange={(e) => setSelectedApplicantId(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition-all bg-[#F8FAFC]"
-                      onFocus={(e) => (e.currentTarget.style.borderColor = selectedPortal.accent)}
-                      onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                    >
-                      <option value="">Select your applicant profile</option>
-                      {applicants.map((app) => (
-                        <option key={app.id} value={app.id}>
-                          {app.name} — {app.applicantCode || `ID: ${app.id}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 {/* Remember me */}
                 <div className="flex items-center justify-between text-xs">
@@ -532,7 +635,9 @@ export default function LoginScreen({
             </div>
             <h2 className="text-xl font-extrabold text-center text-[#0F172A]">Set Your Private Password</h2>
             <p className="text-xs text-slate-500 text-center mt-2 mb-6 leading-relaxed">
-              Welcome to the team! Your account was initialized with a temporary password. Please set a new private password before entering the workspace.
+              {forcePasswordChangeUser.role === 'Applicant'
+                ? 'Welcome! Your applicant portal account was initialized with a temporary password. Please set a new private password before accessing your applicant portal.'
+                : 'Welcome to the team! Your account was initialized with a temporary password. Please set a new private password before entering the workspace.'}
             </p>
 
             {passwordChangeError && (
@@ -668,7 +773,9 @@ export default function LoginScreen({
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    Save Password & Enter Workspace
+                    {forcePasswordChangeUser.role === 'Applicant'
+                      ? 'Save Password & Enter Portal'
+                      : 'Save Password & Enter Workspace'}
                   </>
                 )}
               </button>
