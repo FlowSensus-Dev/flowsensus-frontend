@@ -293,8 +293,8 @@ export default function CVEncoding({
     const nowIso = new Date().toISOString();
 
     const updates: Partial<ApplicantRecord> = {
-      currentHandler: 'Unassigned Pool',
-      phaseDescription: `Returned to unassigned CV Encoding queue pool by ${currentUserName}`
+      currentHandler: 'Unassigned',
+      phaseDescription: `Returned to unassigned CV Encoding queue by ${currentUserName}`
     };
 
     updateApplicant(applicantId, updates);
@@ -302,9 +302,9 @@ export default function CVEncoding({
     if (!isNaN(numericId)) {
       await api.put(`/applicants/${numericId}`, {
         application_id: app.applicationId,
-        current_handler: 'Unassigned Pool',
+        current_handler: 'Unassigned',
         phase_description: updates.phaseDescription,
-        statusChangeReason: `Returned to unassigned pool by ${currentUserName}`,
+        statusChangeReason: `Returned to unassigned by ${currentUserName}`,
         statusChangeSource: 'STAFF_ACTION',
         updated_at: nowIso
       }).catch(console.error);
@@ -318,7 +318,7 @@ export default function CVEncoding({
       details: `${currentUserName} returned applicant ${app.name} to the unassigned queue.`
     });
 
-    showToast(`Applicant ${app.name} returned to unassigned pool.`);
+    showToast(`Applicant ${app.name} returned to unassigned.`);
   };
 
   // ─── Load CV record whenever applicant changes ──────────────────────────────
@@ -443,7 +443,7 @@ export default function CVEncoding({
       // Update applicant workflow status
       updateApplicant(selectedApplicantId, {
         status: 'Pending Manager Approval',
-        currentHandler: 'Management',
+        currentHandler: currentUserName,
         currentDepartment: 'Management',
         phaseDescription: 'CV submitted and awaiting management review',
       });
@@ -455,7 +455,7 @@ export default function CVEncoding({
           application_id: currentApplicant.applicationId,
           application_status: 'Pending Manager Approval',
           current_phase: 3,
-          current_handler: 'Management',
+          current_handler: currentUserName,
           current_department: 'Management',
           phase_description: 'CV submitted and awaiting management review',
           statusChangeReason: 'CV encoded and submitted for manager approval',
@@ -500,8 +500,8 @@ export default function CVEncoding({
       // 1. Update applicant state locally
       updateApplicant(applicantId, {
         status: 'Applicant Profiling',
-        phase: 2,
-        currentHandler: 'Unassigned Pool',
+        phase: 3,
+        currentHandler: 'Unassigned',
         currentDepartment: 'Recruitment',
         phaseDescription: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
       });
@@ -511,8 +511,8 @@ export default function CVEncoding({
         await api.put(`/applicants/${numericId}`, {
           application_id: currentApplicant.applicationId,
           application_status: 'Applicant Profiling',
-          current_phase: 2,
-          current_handler: 'Unassigned Pool',
+          current_phase: 3,
+          current_handler: 'Unassigned',
           current_department: 'Recruitment',
           phase_description: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
           statusChangeReason: `Returned from CV Encoding: ${reasonText}`,
@@ -673,7 +673,7 @@ export default function CVEncoding({
                     <span className="text-xs text-slate-500 font-medium">({currentApplicant.role || currentApplicant.appliedRole || 'Candidate'})</span>
                   </div>
                   <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
-                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned Pool'}</strong></span>
+                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned'}</strong></span>
                     <span>•</span>
                     <span>Status: <strong className="text-slate-700 font-semibold">{currentApplicant.status || 'CV Encoding'}</strong></span>
                     <span>•</span>
@@ -686,7 +686,7 @@ export default function CVEncoding({
               <div className="flex items-center gap-2">
                 {(() => {
                   const isAssignedToMe = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
-                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
+                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned' || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
 
                   if (isAssignedToMe) {
                     return (
@@ -698,10 +698,10 @@ export default function CVEncoding({
                           type="button"
                           onClick={() => handleReleaseApplicant(currentApplicant)}
                           className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer font-medium"
-                          title="Release candidate back to unassigned pool"
+                          title="Release candidate back to unassigned"
                         >
                           <Undo2 className="w-3 h-3 inline mr-1" />
-                          Return to Pool
+                          Return to Unassigned
                         </button>
                       </div>
                     );

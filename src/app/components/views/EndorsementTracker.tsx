@@ -164,7 +164,7 @@ export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
     key: 'cv_encoding',
     name: 'CV Encoding',
     status: 'CV Encoding',
-    phase: 4,
+    phase: 3,
     department: 'Recruitment',
     desc: 'Exit tracker and return to CV Encoding for revisions or correction',
   },
@@ -188,7 +188,7 @@ export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
     key: 'initial_screening',
     name: 'Initial Screening',
     status: 'Initial Screening',
-    phase: 2,
+    phase: 1,
     department: 'Recruitment',
     desc: 'Return to Initial Screening for re-assessment or re-evaluation',
   },
@@ -853,6 +853,7 @@ export default function EndorsementTracker({
 
     updateApplicant(String(card.applicant_id), {
       status: 'Endorse to Employer',
+      currentHandler: currentUserName,
       phaseDescription: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
     });
 
@@ -874,6 +875,7 @@ export default function EndorsementTracker({
         tasks.push(
           api.put(`/applicants/${numId}`, {
             application_status: 'Endorse to Employer',
+            current_handler: currentUserName,
             phase_description: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
             statusChangeReason: 'Confirmed portal upload in Endorsement Tracker',
             statusChangeSource: 'ENDORSEMENT_TRACKER',
@@ -926,6 +928,7 @@ export default function EndorsementTracker({
 
     updateApplicant(String(card.applicant_id), {
       status: 'Under Employer Review',
+      currentHandler: currentUserName,
       phaseDescription: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
     });
 
@@ -944,6 +947,7 @@ export default function EndorsementTracker({
         tasks.push(
           api.put(`/applicants/${numId}`, {
             application_status: 'Under Employer Review',
+            current_handler: currentUserName,
             phase_description: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
             statusChangeReason: 'Confirmed portal encoding complete; under employer review',
             statusChangeSource: 'ENDORSEMENT_TRACKER',
@@ -1008,9 +1012,9 @@ export default function EndorsementTracker({
     setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? optimisticCard : s));
 
     updateApplicant(String(card.applicant_id), {
-      phase: 5,
+      phase: 4,
       status: 'Pre-Deployment Processing',
-      currentHandler: 'Admin',
+      currentHandler: currentUserName,
       currentDepartment: 'Admin',
       phaseDescription: `Candidate selected by ${empName}. In Pre-Deployment Processing. Ready for document validation.`,
     });
@@ -1031,9 +1035,9 @@ export default function EndorsementTracker({
       if (!isNaN(numId)) {
         tasks.push(
           api.put(`/applicants/${numId}`, {
-            current_phase: 5,
+            current_phase: 4,
             application_status: 'Pre-Deployment Processing',
-            current_handler: 'Admin',
+            current_handler: currentUserName,
             current_department: 'Admin',
             phase_description: `Candidate selected by ${empName}. In Pre-Deployment Processing. Ready for document validation.`,
             statusChangeReason: `Employer selection confirmed: ${remarks || 'Selected by foreign employer'}`,
@@ -1098,6 +1102,8 @@ export default function EndorsementTracker({
       if (mode === 'POOL') {
         updateApplicant(String(card.applicant_id), {
           status: 'Waiting Selection',
+          currentHandler: 'Unassigned',
+          currentDepartment: 'Recruitment',
           phaseDescription: 'Candidate awaiting new job order endorsement (previous slot filled/not selected).',
         });
         notify(`ℹ️ ${card.applicant_name}: Status updated to "Waiting Selection" (Retained in pool)`);
@@ -1109,6 +1115,8 @@ export default function EndorsementTracker({
           tasks.push(
             api.put(`/applicants/${numId}`, {
               application_status: 'Waiting Selection',
+              current_handler: 'Unassigned',
+              current_department: 'Recruitment',
               phase_description: 'Candidate awaiting new job order endorsement (previous slot filled/not selected).',
               statusChangeReason: 'Employer slot filled / not selected; retained in Waiting Selection pool',
               statusChangeSource: 'ENDORSEMENT_TRACKER',
@@ -1132,12 +1140,12 @@ export default function EndorsementTracker({
 
         if (needsTest) {
           updateApplicant(String(card.applicant_id), {
-            phase: 2,
+            phase: 1,
             status: 'Initial Screening',
             jobOrder: newJoCode,
             selectedJobOrderId: String(newJoId),
             role: newPosition,
-            currentHandler: 'Recruitment',
+            currentHandler: 'Unassigned',
             currentDepartment: 'Recruitment',
             phaseDescription: `Re-endorsed to ${newJoCode}. Returned to Screening Panel for additional assessment.`,
           });
@@ -1149,10 +1157,10 @@ export default function EndorsementTracker({
           if (!isNaN(numId)) {
             tasks.push(
               api.put(`/applicants/${numId}`, {
-                current_phase: 2,
+                current_phase: 1,
                 application_status: 'Initial Screening',
                 job_order_id: Number(newJoId),
-                current_handler: 'Recruitment',
+                current_handler: 'Unassigned',
                 current_department: 'Recruitment',
                 phase_description: `Re-endorsed to ${newJoCode}. Returned to Screening Panel for additional assessment.`,
                 statusChangeReason: `Re-endorsed to ${newJoCode}; returned to screening for required evaluations`,
@@ -1176,6 +1184,8 @@ export default function EndorsementTracker({
             jobOrder: newJoCode,
             selectedJobOrderId: String(newJoId),
             role: newPosition,
+            currentHandler: currentUserName,
+            currentDepartment: 'Recruitment',
             phaseDescription: `Assigned to ${newJoCode}. Waiting for endorsement package submission.`,
           });
           notify(`✓ ${card.applicant_name}: Reassigned to ${newJoCode} (Waiting Selection)`);
@@ -1188,6 +1198,8 @@ export default function EndorsementTracker({
               api.put(`/applicants/${numId}`, {
                 application_status: 'Waiting Selection',
                 job_order_id: Number(newJoId),
+                current_handler: currentUserName,
+                current_department: 'Recruitment',
                 phase_description: `Assigned to ${newJoCode}. Waiting for endorsement package submission.`,
                 statusChangeReason: `Assigned to new Job Order ${newJoCode}`,
                 statusChangeSource: 'ENDORSEMENT_TRACKER',
@@ -1242,7 +1254,7 @@ export default function EndorsementTracker({
 
       updateApplicant(String(card.applicant_id), {
         status: 'Provisional',
-        currentHandler: 'Recruitment',
+        currentHandler: currentUserName,
         currentDepartment: 'Recruitment',
         phaseDescription: reasonText,
       });
@@ -1253,7 +1265,7 @@ export default function EndorsementTracker({
         if (!isNaN(numId)) {
           await api.put(`/applicants/${numId}`, {
             application_status: 'Provisional',
-            current_handler: 'Recruitment',
+            current_handler: currentUserName,
             current_department: 'Recruitment',
             phase_description: reasonText,
             statusChangeReason: reasonText,
@@ -1297,7 +1309,7 @@ export default function EndorsementTracker({
       updateApplicant(String(card.applicant_id), {
         phase: 5,
         status: 'Endorse for Administrative Processing',
-        currentHandler: 'Admin',
+        currentHandler: currentUserName,
         currentDepartment: 'Admin',
         phaseDescription: 'Deployment eligibility records complete. Endorsed for Administrative Processing. Document Validation & Expense Ledger unlocked.',
       });
@@ -1320,7 +1332,7 @@ export default function EndorsementTracker({
             api.put(`/applicants/${numId}`, {
               current_phase: 5,
               application_status: 'Endorse for Administrative Processing',
-              current_handler: 'Admin',
+              current_handler: currentUserName,
               current_department: 'Admin',
               phase_description: 'Deployment eligibility records complete. Endorsed for Administrative Processing. Document Validation & Expense Ledger unlocked.',
               statusChangeReason: 'Deployment records verified complete from Endorsement Tracker',
@@ -1382,6 +1394,7 @@ export default function EndorsementTracker({
     updateApplicant(String(card.applicant_id), {
       phase: prevInfo.phase,
       status: prevInfo.applicantStatus,
+      currentHandler: currentUserName,
       phaseDescription: prevInfo.description,
     });
 
@@ -1402,6 +1415,7 @@ export default function EndorsementTracker({
           api.put(`/applicants/${numId}`, {
             current_phase: prevInfo.phase,
             application_status: prevInfo.applicantStatus,
+            current_handler: currentUserName,
             phase_description: prevInfo.description,
             statusChangeReason: customReason || `Returned to previous step (${prevInfo.prevStageLabel}) in Endorsement Tracker`,
             statusChangeSource: 'ENDORSEMENT_STAGE_ROLLBACK',
@@ -1465,12 +1479,12 @@ export default function EndorsementTracker({
     updateApplicant(String(card.applicant_id), {
       phase: target.phase,
       status: target.status,
-      currentHandler: target.department === 'Admin' ? 'Admin' : 'Recruitment',
+      currentHandler: 'Unassigned',
       currentDepartment: target.department,
       phaseDescription: `${target.desc} Reason: ${reason}`,
     });
 
-    notify(`✓ ${card.applicant_name} returned to ${target.name}`);
+    notify(`✓ ${card.applicant_name} returned to ${target.name} (Unassigned)`);
 
     // 2. Parallel Background API Requests
     setActingId(card.submission_id);
@@ -1485,7 +1499,7 @@ export default function EndorsementTracker({
           api.put(`/applicants/${numId}`, {
             current_phase: target.phase,
             application_status: target.status,
-            current_handler: target.department === 'Admin' ? 'Admin' : 'Recruitment',
+            current_handler: 'Unassigned',
             current_department: target.department,
             phase_description: `${target.desc} Reason: ${reason}`,
             statusChangeReason: reason,
@@ -2273,7 +2287,7 @@ export default function EndorsementTracker({
                   <AlertCircle className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
                   <p>
                     Confirming this acceptance will update applicant status to{' '}
-                    <strong className="font-extrabold text-sky-950">"Pre-Deployment Processing"</strong> (Phase 5). Next, Admin staff will verify mandatory deployment clearance records.
+                    <strong className="font-extrabold text-sky-950">"Pre-Deployment Processing"</strong> (Phase 4). Next, Admin staff will verify mandatory deployment clearance records.
                   </p>
                 </div>
               </div>

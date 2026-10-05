@@ -310,11 +310,11 @@ export default function InlineApplicantSelector({
                                 )}
                                 <span>•</span>
                                 <span className={`text-[11px] font-semibold ${
-                                  !applicant.currentHandler || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent'
+                                  !applicant.currentHandler || applicant.currentHandler === 'Unassigned' || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent'
                                     ? 'text-amber-600'
                                     : 'text-slate-600'
                                 }`}>
-                                  Handler: {applicant.currentHandler || 'Unassigned Pool'}
+                                  Handler: {(!applicant.currentHandler || applicant.currentHandler === 'Unassigned Pool') ? 'Unassigned' : applicant.currentHandler}
                                 </span>
                               </div>
                             </div>

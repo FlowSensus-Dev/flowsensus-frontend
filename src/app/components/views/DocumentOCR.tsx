@@ -377,7 +377,7 @@ export default function DocumentOCR({
               <div className="text-xs">
                 <span className="block text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Assigned Handler</span>
                 <span className="font-semibold text-slate-700">
-                  {activeApp.currentHandler || 'Unassigned Pool'}
+                  {(!activeApp.currentHandler || activeApp.currentHandler === 'Unassigned Pool') ? 'Unassigned' : activeApp.currentHandler}
                 </span>
               </div>
             </div>

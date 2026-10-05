@@ -566,6 +566,8 @@ export default function ManagerHub({
       if (app) {
         updateApplicant(String(app.id), {
           status: 'CV Encoding',
+          currentHandler: currentUserName,
+          currentDepartment: 'Recruitment',
           phaseDescription: 'CV rejected by management — requires revision.',
         });
 
@@ -575,7 +577,7 @@ export default function ManagerHub({
             application_id: app.applicationId,
             application_status: 'CV Encoding',
             current_phase: 3,
-            current_handler: 'Recruitment',
+            current_handler: currentUserName,
             current_department: 'Recruitment',
             phase_description: `CV rejected by management: ${reason}`,
             statusChangeReason: `Manager rejected CV: ${reason}`,
@@ -631,7 +633,7 @@ export default function ManagerHub({
         updateApplicant(String(app.id), {
           phase: 4,
           status: 'CV Approved - Sending to Employer',
-          currentHandler: 'Recruitment',
+          currentHandler: currentUserName,
           currentDepartment: 'Recruitment',
           phaseDescription: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
         });
@@ -642,7 +644,7 @@ export default function ManagerHub({
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
-            current_handler: 'Recruitment',
+            current_handler: currentUserName,
             current_department: 'Recruitment',
             phase_description: 'CV approved by management and endorsed to Tracker. Ready for employer submission.',
             statusChangeReason: 'CV endorsed to Employer Tracker',

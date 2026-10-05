@@ -30,6 +30,8 @@ interface Props {
   currentUserName: string;
   globalJobOrders?: any[];
   globalEmployers?: any[];
+  onJobOrdersChange?: (orders: any[]) => void;
+  onEmployersChange?: (employers: any[]) => void;
 }
 
 const mapJobOrderFromApi = (jo: any): JobOrder => ({
@@ -70,7 +72,7 @@ const mapJobOrderFromApi = (jo: any): JobOrder => ({
   notes: jo.clean_notes || jo.notes || '',
 });
 
-export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers }: Props) {
+export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers, onJobOrdersChange, onEmployersChange }: Props) {
   const [orders, setOrders] = useState<JobOrder[]>(() => {
     return (globalJobOrders && Array.isArray(globalJobOrders) && globalJobOrders.length > 0)
       ? globalJobOrders.map(mapJobOrderFromApi)
@@ -100,21 +102,21 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   }, [globalJobOrders]);
 
   // ── Fetch Live Data on Mount & Refresh ────────────────────────────────────
-  const fetchLiveJobOrders = useCallback(async () => {
+  const fetchLiveJobOrders = useCallback(async (force = false) => {
       try {
-        if (!globalJobOrders || globalJobOrders.length === 0) {
+        if (!globalJobOrders || globalJobOrders.length === 0 || force) {
           setIsLoading(true);
         }
         const [ordersRes, empRes] = await Promise.allSettled([
-          globalJobOrders && globalJobOrders.length > 0 ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
-          globalEmployers && globalEmployers.length > 0 ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
+          (!force && globalJobOrders && globalJobOrders.length > 0) ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
+          (!force && globalEmployers && globalEmployers.length > 0) ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
         ]);
 
         if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
           const liveEmps: EmployerProfile[] = empRes.value.data.map((e: any) => ({
             id: String(e.employer_id),
             companyName: e.company_name,
-            country: e.country?.country_name || (typeof e.country === 'string' ? e.country : '') || 'International',
+            country: e.country?.country_name || (typeof e.country === 'string' ? e.country : '') || e.country_name || 'International',
             industry: e.industry || 'General',
             contactPerson: e.contact_person || '',
             contactEmail: e.contact_email || '',
@@ -130,11 +132,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             createdAt: e.created_at || '',
           }));
           setEmployers(liveEmps);
+          if (force && onEmployersChange) onEmployersChange(empRes.value.data);
         }
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
           const mapped: JobOrder[] = ordersRes.value.data.map(mapJobOrderFromApi);
           setOrders(mapped);
+          if (force && onJobOrdersChange) onJobOrdersChange(ordersRes.value.data);
         }
       } catch (err) {
         console.warn('Could not fetch live job orders, retaining default orders:', err);
@@ -155,7 +159,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         }
       } catch (err) {}
     },
-    [globalJobOrders, globalEmployers]
+    [globalJobOrders, globalEmployers, onJobOrdersChange, onEmployersChange]
   );
 
   useEffect(() => {
@@ -238,14 +242,16 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       if (isNew) {
         const res = await api.post('/job-orders', payload);
         const createdId = res.data?.job_order_id ? String(res.data.job_order_id) : updatedEditing.id;
-        setOrders(p => [...p, { ...updatedEditing, id: createdId }]);
+        const newOrder = res.data ? mapJobOrderFromApi(res.data) : { ...updatedEditing, id: createdId };
+        setOrders(p => [...p, newOrder]);
       } else {
-        await api.put(`/job-orders/${editing.id}`, payload);
-        setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
+        const res = await api.put(`/job-orders/${editing.id}`, payload);
+        const updatedOrder = res.data ? mapJobOrderFromApi(res.data) : updatedEditing;
+        setOrders(p => p.map(o => o.id === editing.id ? updatedOrder : o));
       }
       showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
       setEditing(null);
-      fetchLiveJobOrders();
+      await fetchLiveJobOrders(true);
     } catch (err: any) {
       console.warn('Backend save error:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Unknown error occurred';
@@ -266,7 +272,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     try {
       await api.delete(`/job-orders/${id}`);
       showToast(`"${o?.code} ${o?.position}" deleted from database`);
-      fetchLiveJobOrders();
+      await fetchLiveJobOrders(true);
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
       showToast(`"${o?.code} ${o?.position}" removed`);

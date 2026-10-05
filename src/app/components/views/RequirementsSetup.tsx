@@ -1,13 +1,23 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, GripVertical, CheckCircle2, XCircle,
   Save, X, ToggleLeft, ToggleRight, AlertCircle, Loader2,
-  Check, Filter, ShieldCheck, Tag
+  Check, Filter, ShieldCheck, Tag, Briefcase, Search,
+  ChevronDown, RotateCcw, Layers, Building2
 } from 'lucide-react';
-import { DocumentRequirement, ApplicantTypeLookup, JobCategoryLookup } from '../../types';
+import { DocumentRequirement, ApplicantTypeLookup } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
+
+interface JobOrderSummary {
+  id: number;
+  job_order_id: number;
+  job_code: string;
+  position: string;
+  employer_name?: string;
+  company_name?: string;
+}
 
 const BADGE_PALETTE = [
   { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' }, // Blue
@@ -20,10 +30,11 @@ const BADGE_PALETTE = [
   { bg: '#FFF7ED', text: '#EA580C', border: '#FED7AA' }, // Orange
 ];
 
-function getBadgeColor(key: string) {
+function getBadgeColor(key: string | number) {
+  const strKey = String(key);
   let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = (hash << 5) - hash + key.charCodeAt(i);
+  for (let i = 0; i < strKey.length; i++) {
+    hash = (hash << 5) - hash + strKey.charCodeAt(i);
   }
   const idx = Math.abs(hash) % BADGE_PALETTE.length;
   return BADGE_PALETTE[idx];
@@ -39,7 +50,7 @@ const BLANK_REQ: Omit<DocumentRequirement, 'id' | 'sortOrder'> = {
   description: '',
   isRequired: true,
   applicantTypes: [],
-  jobCategories: [],
+  jobOrders: [],
   expiryTracked: false,
   validityMonths: 12,
   isActive: true,
@@ -48,43 +59,64 @@ const BLANK_REQ: Omit<DocumentRequirement, 'id' | 'sortOrder'> = {
 export default function RequirementsSetup({ showToast, currentUserName }: Props) {
   const [requirements, setRequirements] = useState<DocumentRequirement[]>([]);
   const [applicantTypes, setApplicantTypes] = useState<ApplicantTypeLookup[]>([]);
-  const [jobCategories, setJobCategories] = useState<JobCategoryLookup[]>([]);
+  const [jobOrders, setJobOrders] = useState<JobOrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
   const [applicantTypeFilter, setApplicantTypeFilter] = useState<string>('all');
-  const [jobCategoryFilter, setJobCategoryFilter] = useState<string>('all');
+  const [jobOrderFilter, setJobOrderFilter] = useState<string>('all');
+  const [searchFilter, setSearchFilter] = useState<string>('');
+
+  // Searchable Job Order Dropdown State
+  const [isJobOrderDropdownOpen, setIsJobOrderDropdownOpen] = useState(false);
+  const [jobOrderDropdownSearch, setJobOrderDropdownSearch] = useState('');
+  const [jobOrderDropdownTab, setJobOrderDropdownTab] = useState<'positions' | 'orders'>('positions');
+  const jobOrderDropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Modal State
   const [editing, setEditing] = useState<DocumentRequirement | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [modalJobOrderSearch, setModalJobOrderSearch] = useState<string>('');
 
   // Drag and Drop
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  // ── Fetch Requirements and Lookups ─────────────────────────────────────────
+  // ── Fetch Requirements, Applicant Types, and Job Orders ────────────────────
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [reqsRes, appTypesRes, jobCatsRes] = await Promise.allSettled([
+      const [reqsRes, appTypesRes, jobOrdersRes] = await Promise.allSettled([
         api.get('/requirements'),
         api.get('/lookups/applicant-types'),
-        api.get('/lookups/job-categories'),
+        api.get('/job-orders'),
       ]);
 
       if (appTypesRes.status === 'fulfilled' && Array.isArray(appTypesRes.value.data)) {
         setApplicantTypes(appTypesRes.value.data);
       }
 
-      if (jobCatsRes.status === 'fulfilled' && Array.isArray(jobCatsRes.value.data)) {
-        setJobCategories(jobCatsRes.value.data);
+      if (jobOrdersRes.status === 'fulfilled' && Array.isArray(jobOrdersRes.value.data)) {
+        const rawOrders = jobOrdersRes.value.data;
+        const mappedOrders: JobOrderSummary[] = rawOrders.map((jo: any) => {
+          const numId = Number(jo.job_order_id || jo.id || 0);
+          return {
+            id: numId,
+            job_order_id: numId,
+            job_code: jo.job_code || `JO-${numId}`,
+            position: jo.position || 'General Worker',
+            employer_name: jo.employer?.company_name || jo.company_name || jo.employer_name || '',
+          };
+        });
+        setJobOrders(mappedOrders);
       }
 
       if (reqsRes.status === 'fulfilled' && Array.isArray(reqsRes.value.data)) {
         const mapped: DocumentRequirement[] = reqsRes.value.data.map((r: any) => {
           const validityDays = r.validity_days || r.validity_period || 365;
+          const rawJobOrders = r.job_orders || r.jobOrders || [];
           return {
             id: String(r.requirement_id || r.id),
             name: r.requirement_name || r.name || '',
@@ -95,10 +127,8 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               : Array.isArray(r.applicantTypes)
               ? r.applicantTypes
               : [],
-            jobCategories: Array.isArray(r.job_categories)
-              ? r.job_categories
-              : Array.isArray(r.jobCategories)
-              ? r.jobCategories
+            jobOrders: Array.isArray(rawJobOrders)
+              ? rawJobOrders.map((x: any) => Number(x)).filter((n: number) => !isNaN(n) && n > 0)
               : [],
             expiryTracked: Boolean(r.expiry_tracked ?? (validityDays !== 0 && validityDays !== 36500)),
             validityMonths: Math.max(1, Math.round(validityDays / 30)),
@@ -131,6 +161,14 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
           fetchData();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'job_order_requirement' },
+        (payload: any) => {
+          console.log('[RequirementsSetup] Realtime job_order_requirement update:', payload.eventType);
+          fetchData();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -145,34 +183,128 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     return map;
   }, [applicantTypes]);
 
-  const jobCategoryNames = useMemo(() => {
-    const map = new Map<string, string>();
-    jobCategories.forEach(c => map.set(c.job_category_code, c.category_name));
+  const jobOrderMap = useMemo(() => {
+    const map = new Map<number, JobOrderSummary>();
+    jobOrders.forEach(jo => map.set(jo.job_order_id, jo));
     return map;
-  }, [jobCategories]);
+  }, [jobOrders]);
+
+  // Position Statistics and Grouping
+  const positionStats = useMemo(() => {
+    const map = new Map<string, { count: number; ids: number[] }>();
+    jobOrders.forEach(jo => {
+      const pos = (jo.position || 'General Worker').trim();
+      const existing = map.get(pos) || { count: 0, ids: [] };
+      existing.count += 1;
+      existing.ids.push(jo.job_order_id);
+      map.set(pos, existing);
+    });
+    return map;
+  }, [jobOrders]);
+
+  const uniquePositions = useMemo(() => {
+    return Array.from(positionStats.keys()).sort((a, b) => a.localeCompare(b));
+  }, [positionStats]);
+
+  const filteredPositionsForDropdown = useMemo(() => {
+    const q = jobOrderDropdownSearch.trim().toLowerCase();
+    if (!q) return uniquePositions;
+    return uniquePositions.filter(pos => pos.toLowerCase().includes(q));
+  }, [uniquePositions, jobOrderDropdownSearch]);
+
+  const filteredJobOrdersForDropdown = useMemo(() => {
+    const q = jobOrderDropdownSearch.trim().toLowerCase();
+    if (!q) return jobOrders;
+    return jobOrders.filter(jo => {
+      const matchPos = (jo.position || '').toLowerCase().includes(q);
+      const matchCode = (jo.job_code || '').toLowerCase().includes(q);
+      const matchEmp = (jo.employer_name || jo.company_name || '').toLowerCase().includes(q);
+      return matchPos || matchCode || matchEmp;
+    });
+  }, [jobOrders, jobOrderDropdownSearch]);
+
+  const selectedJobOrderDisplay = useMemo(() => {
+    if (jobOrderFilter === 'all') return 'All Job Orders';
+    const filterNum = Number(jobOrderFilter);
+    if (!isNaN(filterNum) && filterNum > 0) {
+      const jo = jobOrderMap.get(filterNum);
+      if (jo) {
+        return `${jo.position} (${jo.job_code})`;
+      }
+      return `Job Order #${filterNum}`;
+    }
+    return `Position: ${jobOrderFilter}`;
+  }, [jobOrderFilter, jobOrderMap]);
+
+  // Click outside to close Job Order dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        jobOrderDropdownRef.current &&
+        !jobOrderDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsJobOrderDropdownOpen(false);
+      }
+    }
+    if (isJobOrderDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isJobOrderDropdownOpen]);
+
+  const handleResetFilters = () => {
+    setSearchFilter('');
+    setApplicantTypeFilter('all');
+    setJobOrderFilter('all');
+    setJobOrderDropdownSearch('');
+  };
+
+  const hasActiveFilters = searchFilter.trim() !== '' || applicantTypeFilter !== 'all' || jobOrderFilter !== 'all';
 
   // ── Filtered Requirements ──────────────────────────────────────────────────
   const filtered = useMemo(() => {
     return requirements
       .filter(r => {
-        // Applicant Type filter:
-        // 'all' matches everything. Otherwise matches if requirement has NO targeting (all) or includes code.
+        // Search text filter
+        if (searchFilter.trim()) {
+          const q = searchFilter.toLowerCase();
+          const matchName = r.name.toLowerCase().includes(q);
+          const matchDesc = (r.description || '').toLowerCase().includes(q);
+          if (!matchName && !matchDesc) return false;
+        }
+
+        // Applicant Type filter
         const matchApplicantType =
           applicantTypeFilter === 'all' ||
           r.applicantTypes.length === 0 ||
           r.applicantTypes.includes(applicantTypeFilter);
 
-        // Job Category filter:
-        // 'all' matches everything. Otherwise matches if requirement has NO targeting (all) or includes code.
-        const matchJobCategory =
-          jobCategoryFilter === 'all' ||
-          r.jobCategories.length === 0 ||
-          r.jobCategories.includes(jobCategoryFilter);
+        // Job Order filter
+        let matchJobOrder = true;
+        if (jobOrderFilter !== 'all') {
+          const filterNum = Number(jobOrderFilter);
+          if (!isNaN(filterNum) && filterNum > 0) {
+            matchJobOrder = r.jobOrders.length === 0 || r.jobOrders.includes(filterNum);
+          } else {
+            // Position filter string
+            const posOrders = jobOrders
+              .filter(jo => jo.position.toLowerCase() === jobOrderFilter.toLowerCase())
+              .map(jo => jo.job_order_id);
+            matchJobOrder =
+              r.jobOrders.length === 0 ||
+              r.jobOrders.some(id => posOrders.includes(id));
+          }
+        }
 
-        return matchApplicantType && matchJobCategory;
+        return matchApplicantType && matchJobOrder;
       })
       .sort((a, b) => a.sortOrder - b.sortOrder || Number(a.id) - Number(b.id));
-  }, [requirements, applicantTypeFilter, jobCategoryFilter]);
+  }, [requirements, applicantTypeFilter, jobOrderFilter, searchFilter, jobOrders]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const totalCount = requirements.length;
@@ -187,6 +319,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
       id: `new-${Date.now()}`,
       sortOrder: requirements.length + 1,
     });
+    setModalJobOrderSearch('');
     setIsNew(true);
   };
 
@@ -194,8 +327,9 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     setEditing({
       ...r,
       applicantTypes: [...(r.applicantTypes || [])],
-      jobCategories: [...(r.jobCategories || [])],
+      jobOrders: [...(r.jobOrders || [])],
     });
+    setModalJobOrderSearch('');
     setIsNew(false);
   };
 
@@ -216,7 +350,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
         isActive: editing.isActive,
         sortOrder: editing.sortOrder,
         applicantTypes: editing.applicantTypes,
-        jobCategories: editing.jobCategories,
+        jobOrders: editing.jobOrders,
       };
 
       if (isNew) {
@@ -227,7 +361,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
           id: String(created.requirement_id || created.id),
           sortOrder: created.sort_order ?? editing.sortOrder,
           applicantTypes: created.applicant_types || editing.applicantTypes,
-          jobCategories: created.job_categories || editing.jobCategories,
+          jobOrders: created.job_orders || editing.jobOrders,
         };
         setRequirements(prev => [...prev, newReq]);
         showToast(`"${editing.name}" added successfully`);
@@ -242,7 +376,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 ? {
                     ...editing,
                     applicantTypes: updated.applicant_types || editing.applicantTypes,
-                    jobCategories: updated.job_categories || editing.jobCategories,
+                    jobOrders: updated.job_orders || editing.jobOrders,
                   }
                 : r
             )
@@ -299,7 +433,6 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
         showToast(`Requirement "${current.name}" marked as ${nextStatus ? 'Active' : 'Inactive'}`);
       } catch (err) {
         console.warn('Failed to update status on server:', err);
-        // revert on failure
         setRequirements(prev => prev.map(r => (r.id === id ? { ...r, isActive: current.isActive } : r)));
         showToast('Failed to update status on server');
       }
@@ -348,62 +481,344 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     setEditing({ ...editing, applicantTypes: updated });
   };
 
-  const toggleJobCategory = (code: string) => {
+  const toggleJobOrder = (jobOrderId: number) => {
     if (!editing) return;
-    const current = editing.jobCategories || [];
-    const exists = current.includes(code);
-    const updated = exists ? current.filter(c => c !== code) : [...current, code];
-    setEditing({ ...editing, jobCategories: updated });
+    const current = editing.jobOrders || [];
+    const exists = current.includes(jobOrderId);
+    const updated = exists ? current.filter(id => id !== jobOrderId) : [...current, jobOrderId];
+    setEditing({ ...editing, jobOrders: updated });
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="w-full max-w-full space-y-6 pb-12 transition-all duration-300">
+      {/* ── Page Header (Flowsensus Consistent Style) ────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Document Requirements Setup</h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Configure dynamic regulatory and agency document requirements targeted by applicant type and job category.
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0F172A]">
+              Document Requirements Setup
+            </h1>
+            <span className="px-2.5 py-0.5 bg-sky-50 text-[#0EA5E9] text-xs font-bold rounded border border-sky-200 uppercase tracking-wider">
+              Compliance Rules
+            </span>
+          </div>
+          <p className="text-sm text-[#64748B] mt-1 font-medium">
+            Configure dynamic regulatory and agency document requirements targeted by applicant type and job order.
           </p>
         </div>
+
         <button
           onClick={openNew}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#0EA5E9]/20"
+          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm cursor-pointer self-start sm:self-auto"
         >
           <Plus size={16} /> Add Requirement
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Requirements', val: totalCount, color: '#0F172A' },
-          { label: 'Active', val: activeCount, color: '#10B981' },
-          { label: 'Mandatory', val: mandatoryCount, color: '#EF4444' },
-          { label: 'Optional', val: optionalCount, color: '#F59E0B' },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-200 px-5 py-4 shadow-xs">
-            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.val}</div>
-            <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
-          </div>
-        ))}
+      {/* ── KPI Metric Summary Cards (Signature Flowsensus Card Layout) ───── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        {/* Total Requirements */}
+        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#0F172A] shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#0F172A]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
+          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
+            Total Requirements
+          </p>
+          <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-2">
+            {totalCount}
+          </p>
+        </div>
+
+        {/* Active Requirements */}
+        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#10B981] shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#10B981]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
+          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
+            Active in Workflows
+          </p>
+          <p className="text-3xl sm:text-4xl font-black text-[#10B981] mt-2">
+            {activeCount}
+          </p>
+        </div>
+
+        {/* Mandatory Requirements */}
+        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#EF4444] shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#EF4444]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
+          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
+            Mandatory Documents
+          </p>
+          <p className="text-3xl sm:text-4xl font-black text-[#EF4444] mt-2">
+            {mandatoryCount}
+          </p>
+        </div>
+
+        {/* Optional Requirements */}
+        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#F59E0B]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
+          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
+            Optional / Supporting
+          </p>
+          <p className="text-3xl sm:text-4xl font-black text-[#F59E0B] mt-2">
+            {optionalCount}
+          </p>
+        </div>
       </div>
 
-      {/* Dynamic Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4 shadow-xs">
-        {/* Applicant Type Filter */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <Filter size={13} />
-            <span>By Applicant Type</span>
+      {/* ── Dynamic Filter Toolbar ────────────────────────────────────────── */}
+      <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-5 space-y-3.5 shadow-sm">
+        {/* Row 1: Search Input + Searchable Job Order Dropdown Combobox */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Requirement Search Input */}
+          <div className="relative flex-1 min-w-[240px]">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={e => setSearchFilter(e.target.value)}
+              placeholder="Search requirement name or instructions..."
+              className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] bg-white text-slate-800 placeholder-slate-400 transition-all"
+            />
+            {searchFilter && (
+              <button
+                onClick={() => setSearchFilter('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                title="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          {/* Searchable Job Order Dropdown Combobox */}
+          <div ref={jobOrderDropdownRef} className="relative sm:w-80 lg:w-96 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsJobOrderDropdownOpen(prev => !prev)}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded text-sm transition-all cursor-pointer ${
+                jobOrderFilter !== 'all'
+                  ? 'border-[#0EA5E9] bg-sky-50/70 text-[#0F172A] font-medium shadow-xs'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0 truncate">
+                <Briefcase
+                  size={15}
+                  className={`flex-shrink-0 ${
+                    jobOrderFilter !== 'all' ? 'text-[#0EA5E9]' : 'text-slate-400'
+                  }`}
+                />
+                <span className="truncate">
+                  {selectedJobOrderDisplay}
+                </span>
+                {jobOrderFilter === 'all' && (
+                  <span className="text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-semibold flex-shrink-0">
+                    {jobOrders.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {jobOrderFilter !== 'all' && (
+                  <span
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setJobOrderFilter('all');
+                    }}
+                    className="p-0.5 hover:bg-sky-200/60 rounded text-slate-500 hover:text-slate-700 transition-colors"
+                    title="Clear Job Order filter"
+                  >
+                    <X size={13} />
+                  </span>
+                )}
+                <ChevronDown
+                  size={15}
+                  className={`text-slate-400 transition-transform duration-200 ${
+                    isJobOrderDropdownOpen ? 'rotate-180 text-[#0EA5E9]' : ''
+                  }`}
+                />
+              </div>
+            </button>
+
+            {/* Popover Dropdown Panel */}
+            {isJobOrderDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-full sm:w-96 bg-white rounded-lg shadow-xl border border-slate-200 py-2.5 z-50 animate-in fade-in-50 zoom-in-95 duration-100">
+                {/* Search Box inside Dropdown */}
+                <div className="px-3 pb-2 border-b border-slate-100">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={jobOrderDropdownSearch}
+                      onChange={e => setJobOrderDropdownSearch(e.target.value)}
+                      placeholder="Search position, job code, employer..."
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] transition-all"
+                    />
+                    {jobOrderDropdownSearch && (
+                      <button
+                        onClick={() => setJobOrderDropdownSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dropdown Tabs: By Position vs By Job Order */}
+                <div className="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setJobOrderDropdownTab('positions')}
+                    className={`flex-1 py-1 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
+                      jobOrderDropdownTab === 'positions'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Positions ({filteredPositionsForDropdown.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJobOrderDropdownTab('orders')}
+                    className={`flex-1 py-1 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
+                      jobOrderDropdownTab === 'orders'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Specific Orders ({filteredJobOrdersForDropdown.length})
+                  </button>
+                </div>
+
+                {/* Scrollable Options List */}
+                <div className="max-h-64 overflow-y-auto px-1 py-1 space-y-0.5 text-xs">
+                  {/* All Job Orders Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobOrderFilter('all');
+                      setIsJobOrderDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
+                      jobOrderFilter === 'all'
+                        ? 'bg-sky-50 text-[#0284C7] font-bold'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Briefcase size={14} className={jobOrderFilter === 'all' ? 'text-[#0EA5E9]' : 'text-slate-400'} />
+                      <span>All Job Orders (Baseline Requirements)</span>
+                    </div>
+                    {jobOrderFilter === 'all' && <Check size={14} className="text-[#0EA5E9] stroke-[2.5]" />}
+                  </button>
+
+                  {/* Tab 1: Positions */}
+                  {jobOrderDropdownTab === 'positions' && (
+                    <>
+                      {filteredPositionsForDropdown.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          No positions match &quot;{jobOrderDropdownSearch}&quot;
+                        </div>
+                      ) : (
+                        filteredPositionsForDropdown.map(pos => {
+                          const isSelected = jobOrderFilter.toLowerCase() === pos.toLowerCase();
+                          const stats = positionStats.get(pos);
+                          return (
+                            <button
+                              key={pos}
+                              type="button"
+                              onClick={() => {
+                                setJobOrderFilter(pos);
+                                setIsJobOrderDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-sky-50 text-[#0284C7] font-bold'
+                                  : 'text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Layers size={13} className={isSelected ? 'text-[#0EA5E9]' : 'text-slate-400'} />
+                                <span className="truncate">{pos}</span>
+                                {stats && (
+                                  <span className="text-[10px] text-slate-400 font-normal">
+                                    ({stats.count} {stats.count === 1 ? 'order' : 'orders'})
+                                  </span>
+                                )}
+                              </div>
+                              {isSelected && <Check size={14} className="text-[#0EA5E9] stroke-[2.5]" />}
+                            </button>
+                          );
+                        })
+                      )}
+                    </>
+                  )}
+
+                  {/* Tab 2: Specific Job Orders */}
+                  {jobOrderDropdownTab === 'orders' && (
+                    <>
+                      {filteredJobOrdersForDropdown.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          No job orders match &quot;{jobOrderDropdownSearch}&quot;
+                        </div>
+                      ) : (
+                        filteredJobOrdersForDropdown.map(jo => {
+                          const isSelected = jobOrderFilter === String(jo.job_order_id);
+                          return (
+                            <button
+                              key={jo.job_order_id}
+                              type="button"
+                              onClick={() => {
+                                setJobOrderFilter(String(jo.job_order_id));
+                                setIsJobOrderDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-sky-50 text-[#0284C7] font-bold'
+                                  : 'text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex flex-col min-w-0 pr-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold truncate text-slate-800">{jo.position}</span>
+                                  <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] font-mono rounded border border-slate-200">
+                                    {jo.job_code}
+                                  </span>
+                                </div>
+                                {(jo.employer_name || jo.company_name) && (
+                                  <div className="flex items-center gap-1 text-[11px] text-slate-400 truncate mt-0.5">
+                                    <Building2 size={11} className="flex-shrink-0" />
+                                    <span className="truncate">{jo.employer_name || jo.company_name}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {isSelected && <Check size={14} className="text-[#0EA5E9] stroke-[2.5] flex-shrink-0" />}
+                            </button>
+                          );
+                        })
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Applicant Type Pills + Clear Controls */}
+        <div className="pt-2 border-t border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+              <Filter size={13} />
+              <span>By Applicant Type:</span>
+            </span>
+
             <button
               onClick={() => setApplicantTypeFilter('all')}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
                 applicantTypeFilter === 'all'
                   ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'bg-slate-50 border border-slate-200 text-slate-600 hover:border-slate-300'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
               }`}
             >
               All Applicant Types
@@ -415,7 +830,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 <button
                   key={t.applicant_type_code}
                   onClick={() => setApplicantTypeFilter(t.applicant_type_code)}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium transition-all border"
+                  className="px-3 py-1.5 rounded text-xs font-bold transition-all border cursor-pointer"
                   style={
                     active
                       ? { background: '#0F172A', color: '#fff', borderColor: '#0F172A' }
@@ -427,74 +842,96 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               );
             })}
           </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={handleResetFilters}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 font-semibold transition-colors cursor-pointer self-start md:self-auto"
+            >
+              <RotateCcw size={12} />
+              <span>Reset All Filters</span>
+            </button>
+          )}
         </div>
 
-        {/* Job Category Filter */}
-        <div className="space-y-2 pt-2 border-t border-slate-100">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <Tag size={13} />
-            <span>By Job Category</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setJobCategoryFilter('all')}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                jobCategoryFilter === 'all'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'bg-slate-50 border border-slate-200 text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              All Job Categories
-            </button>
-            {jobCategories.map(c => {
-              const active = jobCategoryFilter === c.job_category_code;
-              const palette = getBadgeColor(c.job_category_code);
-              return (
-                <button
-                  key={c.job_category_code}
-                  onClick={() => setJobCategoryFilter(c.job_category_code)}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium transition-all border"
-                  style={
-                    active
-                      ? { background: '#0F172A', color: '#fff', borderColor: '#0F172A' }
-                      : { background: palette.bg, color: palette.text, borderColor: palette.border }
-                  }
-                >
-                  {c.category_name}
+        {/* Active Filters Summary Strip (Shown when any filter is on) */}
+        {hasActiveFilters && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-slate-500 font-medium">
+              Showing <strong className="text-slate-800">{filtered.length}</strong> of {totalCount} requirements
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-400 font-semibold uppercase text-[10px] tracking-wider">Filtered by:</span>
+
+            {searchFilter && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs border border-slate-200">
+                <span>Keyword: &quot;{searchFilter}&quot;</span>
+                <button onClick={() => setSearchFilter('')} className="hover:text-rose-600 cursor-pointer">
+                  <X size={12} />
                 </button>
-              );
-            })}
+              </span>
+            )}
+
+            {applicantTypeFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-50 text-sky-700 rounded text-xs border border-sky-200">
+                <span>Type: {applicantTypeNames.get(applicantTypeFilter) || applicantTypeFilter}</span>
+                <button onClick={() => setApplicantTypeFilter('all')} className="hover:text-rose-600 cursor-pointer">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+
+            {jobOrderFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs border border-indigo-200">
+                <span>Job Order: {selectedJobOrderDisplay}</span>
+                <button onClick={() => setJobOrderFilter('all')} className="hover:text-rose-600 cursor-pointer">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Info notice */}
+      {/* Dynamic Targeting Rule Banner */}
       <div className="bg-sky-50 border border-sky-200 rounded-lg px-4 py-3 flex items-start gap-3 text-sm text-sky-800">
         <AlertCircle size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs leading-relaxed">
-          <strong>Dynamic Targeting Rule:</strong> Requirements with no specific applicant types or job categories selected apply to <em>All Applicants</em> (baseline).
+          <strong>Dynamic Targeting Rule:</strong> Requirements with no specific applicant types or job orders selected apply to <em>All Job Orders & All Applicants</em> (baseline compliance).
           Drag and drop rows to customize checklist ordering across staff workflows.
         </div>
       </div>
 
-      {/* Requirements Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
+      {/* ── Requirements Table ────────────────────────────────────────────── */}
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        {/* Table Subheader */}
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h3 className="font-black text-[#0F172A] text-sm uppercase tracking-wider">
+              Document Requirements Catalog
+            </h3>
+            <span className="px-2 py-0.5 bg-slate-200 text-slate-800 font-bold rounded text-xs">
+              {filtered.length} {filtered.length === 1 ? 'Item' : 'Items'}
+            </span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto min-w-full">
+          <table className="w-full text-sm text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider font-semibold">
-                <th className="w-8 px-3 py-3" />
-                <th className="px-3 py-3 w-12 text-slate-400">#</th>
-                <th className="px-4 py-3 min-w-[200px]">Requirement</th>
-                <th className="px-4 py-3 min-w-[180px]">Applicant Types</th>
-                <th className="px-4 py-3 min-w-[180px]">Job Categories</th>
-                <th className="px-3 py-3 text-center w-24">Mandatory</th>
-                <th className="px-3 py-3 text-center w-28">Expiry Track</th>
-                <th className="px-3 py-3 text-center w-20">Status</th>
-                <th className="px-4 py-3 text-center w-24">Actions</th>
+              <tr className="bg-slate-50/90 border-b border-slate-200 text-xs text-[#0F172A] uppercase tracking-wider font-black">
+                <th className="w-8 px-3 py-3.5" />
+                <th className="px-3 py-3.5 w-12 text-slate-400">#</th>
+                <th className="px-4 py-3.5 min-w-[200px]">Requirement</th>
+                <th className="px-4 py-3.5 min-w-[170px]">Applicant Types</th>
+                <th className="px-4 py-3.5 min-w-[200px]">Targeted Job Orders</th>
+                <th className="px-3 py-3.5 text-center w-28">Mandatory</th>
+                <th className="px-3 py-3.5 text-center w-28">Expiry Track</th>
+                <th className="px-3 py-3.5 text-center w-20">Status</th>
+                <th className="px-4 py-3.5 text-center w-24">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 font-medium text-xs">
               {loading ? (
                 <>
                   {[...Array(5)].map((_, i) => (
@@ -509,10 +946,10 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                       </td>
                       <td className="px-4 py-3"><SkeletonBadge className="w-20" /></td>
                       <td className="px-4 py-3 min-w-[180px]"><SkeletonBadge className="w-28" /></td>
-                      <td className="px-4 py-3 min-w-[180px]"><SkeletonBadge className="w-24" /></td>
-                      <td className="px-3 py-3 w-24 text-center"><Skeleton className="h-4 w-4 rounded mx-auto" /></td>
+                      <td className="px-3 py-3 w-28 text-center"><Skeleton className="h-4 w-4 rounded mx-auto" /></td>
                       <td className="px-3 py-3 w-28 text-center"><SkeletonBadge className="w-16 mx-auto" /></td>
                       <td className="px-3 py-3 w-20 text-center"><SkeletonBadge className="w-14 mx-auto" /></td>
+                      <td className="px-4 py-3 w-24 text-center"><Skeleton className="h-7 w-16 mx-auto" /></td>
                     </tr>
                   ))}
                 </>
@@ -559,14 +996,14 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
 
                     {/* Name & Description */}
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-800">{req.name}</div>
+                      <div className="font-bold text-[#0F172A] text-sm">{req.name}</div>
                       {req.description && (
                         <div className="text-xs text-slate-500 mt-0.5 line-clamp-2 max-w-sm">
                           {req.description}
                         </div>
                       )}
                       {req.expiryTracked && req.validityMonths && (
-                        <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full mt-1.5 inline-block font-medium">
+                        <span className="text-[10px] bg-sky-50 text-[#0284C7] border border-sky-200 px-2 py-0.5 rounded mt-1.5 inline-block font-semibold">
                           Valid for {req.validityMonths} mo ({req.validityMonths * 30} days)
                         </span>
                       )}
@@ -575,7 +1012,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                     {/* Applicant Type Badges */}
                     <td className="px-4 py-3">
                       {req.applicantTypes.length === 0 ? (
-                        <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                        <span className="inline-flex items-center text-[11px] px-2.5 py-0.5 rounded font-bold bg-sky-50 text-sky-700 border border-sky-200">
                           All Applicants
                         </span>
                       ) : (
@@ -586,7 +1023,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                             return (
                               <span
                                 key={code}
-                                className="text-[11px] px-2 py-0.5 rounded-full font-medium border"
+                                className="text-[10px] px-2 py-0.5 rounded font-bold border"
                                 style={{
                                   background: palette.bg,
                                   color: palette.text,
@@ -601,31 +1038,38 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                       )}
                     </td>
 
-                    {/* Job Category Badges */}
+                    {/* Job Order Badges */}
                     <td className="px-4 py-3">
-                      {req.jobCategories.length === 0 ? (
-                        <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                          All Jobs
+                      {req.jobOrders.length === 0 ? (
+                        <span className="inline-flex items-center text-[11px] px-2.5 py-0.5 rounded font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          All Job Orders (Baseline)
                         </span>
                       ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {req.jobCategories.map(code => {
-                            const label = jobCategoryNames.get(code) || code;
-                            const palette = getBadgeColor(code);
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {req.jobOrders.slice(0, 3).map(id => {
+                            const jo = jobOrderMap.get(id);
+                            const label = jo ? `${jo.position} (${jo.job_code})` : `Job Order #${id}`;
+                            const palette = getBadgeColor(id);
                             return (
                               <span
-                                key={code}
-                                className="text-[11px] px-2 py-0.5 rounded-full font-medium border"
+                                key={id}
+                                className="text-[10px] px-2 py-0.5 rounded font-semibold border truncate max-w-[170px]"
                                 style={{
                                   background: palette.bg,
                                   color: palette.text,
                                   borderColor: palette.border,
                                 }}
+                                title={label}
                               >
                                 {label}
                               </span>
                             );
                           })}
+                          {req.jobOrders.length > 3 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              +{req.jobOrders.length - 3} more
+                            </span>
+                          )}
                         </div>
                       )}
                     </td>
@@ -633,11 +1077,11 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                     {/* Mandatory */}
                     <td className="px-3 py-3 text-center">
                       {req.isRequired ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
                           <CheckCircle2 size={12} /> Mandatory
                         </span>
                       ) : (
-                        <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                           Optional
                         </span>
                       )}
@@ -646,7 +1090,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                     {/* Expiry Track */}
                     <td className="px-3 py-3 text-center">
                       {req.expiryTracked ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
                           <CheckCircle2 size={12} /> Tracked
                         </span>
                       ) : (
@@ -675,14 +1119,14 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                         <button
                           onClick={() => openEdit(req)}
                           title="Edit requirement"
-                          className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-md transition-colors text-slate-400"
+                          className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-md transition-colors text-slate-400 cursor-pointer"
                         >
                           <Pencil size={15} />
                         </button>
                         <button
                           onClick={() => remove(req.id)}
                           title="Delete requirement"
-                          className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-md transition-colors text-slate-400"
+                          className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-md transition-colors text-slate-400 cursor-pointer"
                         >
                           <Trash2 size={15} />
                         </button>
@@ -696,23 +1140,23 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
         </div>
       </div>
 
-      {/* Edit / Add Modal */}
+      {/* ── Edit / Add Modal ──────────────────────────────────────────────── */}
       {editing && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl my-8 overflow-hidden border border-slate-200">
+        <div className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl my-8 overflow-hidden border border-slate-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/50">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
               <div>
-                <h2 className="font-bold text-lg text-slate-900">
+                <h2 className="font-extrabold text-lg text-[#0F172A]">
                   {isNew ? 'Add Document Requirement' : 'Edit Document Requirement'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Configure checklist rules and targeting across overseas applicant workflows.
+                  Configure checklist rules, validity, and targeting across overseas job orders.
                 </p>
               </div>
               <button
                 onClick={() => setEditing(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -728,8 +1172,8 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 <input
                   value={editing.name}
                   onChange={e => setEditing(p => (p ? { ...p, name: e.target.value } : p))}
-                  placeholder="e.g. Passport, NBI Clearance, PEOS Certificate"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9]"
+                  placeholder="e.g. Passport, NBI Clearance, PEOS Certificate, Trade Test"
+                  className="w-full px-3.5 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9]"
                 />
               </div>
 
@@ -743,11 +1187,11 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                   onChange={e => setEditing(p => (p ? { ...p, description: e.target.value } : p))}
                   rows={2}
                   placeholder="Specific requirements, validity guidelines, or notes for recruitment staff..."
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] resize-none"
+                  className="w-full px-3.5 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] resize-none"
                 />
               </div>
 
-              {/* Requirement Level (Mandatory vs Optional) */}
+              {/* Compliance & Status Level */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -756,7 +1200,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                   <select
                     value={editing.isRequired ? 'required' : 'optional'}
                     onChange={e => setEditing(p => (p ? { ...p, isRequired: e.target.value === 'required' } : p))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 bg-white"
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
                   >
                     <option value="required">Mandatory (Required for deployment)</option>
                     <option value="optional">Optional (Supporting document)</option>
@@ -770,7 +1214,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                   <select
                     value={editing.isActive ? 'active' : 'inactive'}
                     onChange={e => setEditing(p => (p ? { ...p, isActive: e.target.value === 'active' } : p))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 bg-white"
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
                   >
                     <option value="active">Active (Visible to staff)</option>
                     <option value="inactive">Inactive (Hidden)</option>
@@ -778,7 +1222,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 </div>
               </div>
 
-              {/* Applicant Type Targeting */}
+              {/* Target Applicant Types */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
@@ -787,7 +1231,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                   <button
                     type="button"
                     onClick={() => setEditing(p => (p ? { ...p, applicantTypes: [] } : p))}
-                    className="text-[11px] text-[#0EA5E9] hover:underline font-medium"
+                    className="text-[11px] text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
                   >
                     Apply to All (Baseline)
                   </button>
@@ -795,11 +1239,11 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 <p className="text-xs text-slate-500">
                   Select which applicant types require this document. If none are selected, it applies to <strong>All Applicants</strong>.
                 </p>
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   <button
                     type="button"
                     onClick={() => setEditing(p => (p ? { ...p, applicantTypes: [] } : p))}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${
+                    className={`text-xs px-3 py-1.5 rounded border font-semibold transition-all cursor-pointer ${
                       editing.applicantTypes.length === 0
                         ? 'bg-[#0F172A] text-white border-[#0F172A]'
                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -815,7 +1259,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                         key={t.applicant_type_code}
                         type="button"
                         onClick={() => toggleApplicantType(t.applicant_type_code)}
-                        className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex items-center gap-1.5"
+                        className="text-xs px-3 py-1.5 rounded border font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                         style={
                           selected
                             ? { background: palette.text, color: '#fff', borderColor: palette.text }
@@ -830,60 +1274,88 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 </div>
               </div>
 
-              {/* Job Category Targeting */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
+              {/* Target Job Orders (Replacing Job Category) */}
+              <div className="space-y-2 pt-3 border-t border-slate-100">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Target Job Categories
+                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                    <Briefcase size={12} className="text-[#0EA5E9]" />
+                    <span>Target Job Orders</span>
                   </label>
                   <button
                     type="button"
-                    onClick={() => setEditing(p => (p ? { ...p, jobCategories: [] } : p))}
-                    className="text-[11px] text-[#0EA5E9] hover:underline font-medium"
+                    onClick={() => setEditing(p => (p ? { ...p, jobOrders: [] } : p))}
+                    className="text-[11px] text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
                   >
-                    Apply to All Jobs
+                    Apply to All Job Orders (Baseline)
                   </button>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Select which job categories require this document. If none are selected, it applies to <strong>All Job Categories</strong>.
+                  Select which specific job orders require this document. If none are selected, it applies as a baseline requirement to <strong>All Job Orders</strong>.
                 </p>
-                <div className="flex flex-wrap gap-2 pt-1">
+
+                {/* Job Order Search inside Modal */}
+                <div className="pt-1">
+                  <input
+                    type="text"
+                    value={modalJobOrderSearch}
+                    onChange={e => setModalJobOrderSearch(e.target.value)}
+                    placeholder="Search job orders by position, job code, or employer..."
+                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                  />
+                </div>
+
+                {/* Job Order Toggle Buttons */}
+                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pt-1 pr-1">
                   <button
                     type="button"
-                    onClick={() => setEditing(p => (p ? { ...p, jobCategories: [] } : p))}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${
-                      editing.jobCategories.length === 0
+                    onClick={() => setEditing(p => (p ? { ...p, jobOrders: [] } : p))}
+                    className={`text-xs px-3 py-1.5 rounded border font-semibold transition-all cursor-pointer ${
+                      editing.jobOrders.length === 0
                         ? 'bg-[#0F172A] text-white border-[#0F172A]'
                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    All Jobs
+                    All Job Orders (Baseline)
                   </button>
-                  {jobCategories.map(c => {
-                    const selected = editing.jobCategories.includes(c.job_category_code);
-                    const palette = getBadgeColor(c.job_category_code);
-                    return (
-                      <button
-                        key={c.job_category_code}
-                        type="button"
-                        onClick={() => toggleJobCategory(c.job_category_code)}
-                        className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex items-center gap-1.5"
-                        style={
-                          selected
-                            ? { background: palette.text, color: '#fff', borderColor: palette.text }
-                            : { background: palette.bg, color: palette.text, borderColor: palette.border }
-                        }
-                      >
-                        {selected && <Check size={12} className="stroke-[3]" />}
-                        <span>{c.category_name}</span>
-                      </button>
-                    );
-                  })}
+
+                  {jobOrders
+                    .filter(jo => {
+                      if (!modalJobOrderSearch.trim()) return true;
+                      const q = modalJobOrderSearch.toLowerCase();
+                      return (
+                        jo.position.toLowerCase().includes(q) ||
+                        jo.job_code.toLowerCase().includes(q) ||
+                        (jo.employer_name || '').toLowerCase().includes(q)
+                      );
+                    })
+                    .map(jo => {
+                      const selected = editing.jobOrders.includes(jo.job_order_id);
+                      const palette = getBadgeColor(jo.job_order_id);
+                      return (
+                        <button
+                          key={jo.job_order_id}
+                          type="button"
+                          onClick={() => toggleJobOrder(jo.job_order_id)}
+                          className="text-xs px-2.5 py-1.5 rounded border font-medium transition-all flex items-center gap-1.5 cursor-pointer max-w-xs truncate"
+                          style={
+                            selected
+                              ? { background: '#0F172A', color: '#fff', borderColor: '#0F172A' }
+                              : { background: palette.bg, color: palette.text, borderColor: palette.border }
+                          }
+                          title={`${jo.position} (${jo.job_code}) - ${jo.employer_name || ''}`}
+                        >
+                          {selected && <Check size={12} className="stroke-[3]" />}
+                          <span className="truncate">
+                            {jo.position} ({jo.job_code})
+                          </span>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 
               {/* Expiry Tracking */}
-              <div className="pt-2 border-t border-slate-100 space-y-3">
+              <div className="pt-3 border-t border-slate-100 space-y-3">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -897,25 +1369,21 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 </label>
 
                 {editing.expiryTracked && (
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <div className="bg-slate-50 p-3 rounded border border-slate-200 flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-semibold text-slate-700">Validity Period</div>
-                      <div className="text-xs text-slate-500">How long is this document typically valid?</div>
+                      <div className="text-xs font-bold text-slate-800">Default Document Validity</div>
+                      <div className="text-[11px] text-slate-500">How many months this document remains valid</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
                         min={1}
                         max={120}
-                        value={editing.validityMonths || ''}
-                        onChange={e =>
-                          setEditing(p =>
-                            p ? { ...p, validityMonths: Math.max(1, parseInt(e.target.value) || 1) } : p
-                          )
-                        }
-                        className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 bg-white"
+                        value={editing.validityMonths || 12}
+                        onChange={e => setEditing(p => (p ? { ...p, validityMonths: Math.max(1, parseInt(e.target.value) || 1) } : p))}
+                        className="w-16 px-2 py-1 border border-slate-300 rounded text-sm text-center font-bold bg-white"
                       />
-                      <span className="text-xs text-slate-500">months</span>
+                      <span className="text-xs font-semibold text-slate-600">months</span>
                     </div>
                   </div>
                 )}
@@ -923,12 +1391,11 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
             </div>
 
             {/* Modal Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200">
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                disabled={isSaving}
-                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors"
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs font-semibold cursor-pointer transition-colors"
               >
                 Cancel
               </button>
@@ -936,19 +1403,10 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 type="button"
                 onClick={save}
                 disabled={isSaving}
-                className="flex items-center gap-2 px-5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-[#0EA5E9]/20"
+                className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
               >
-                {isSaving ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>{isNew ? 'Adding...' : 'Saving...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    <span>{isNew ? 'Add Requirement' : 'Save Changes'}</span>
-                  </>
-                )}
+                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                <span>{isNew ? 'Create Requirement' : 'Save Changes'}</span>
               </button>
             </div>
           </div>
