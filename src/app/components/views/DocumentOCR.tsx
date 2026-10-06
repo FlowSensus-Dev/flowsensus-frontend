@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ScanText, FileCheck, CheckCircle2, AlertTriangle, Eye, Upload,
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
-  Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle,
+  Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle, Info,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
   ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck
 } from 'lucide-react';
@@ -245,6 +245,28 @@ function checkDocumentTypeMismatch(
   return null;
 }
 
+export function isNonExpiringDocument(name?: string): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return (
+    n.includes('birth certificate') ||
+    n.includes('diploma') ||
+    n.includes('transcript of record') ||
+    n.includes('transcript') ||
+    n.includes('tor') ||
+    n.includes('peos') ||
+    n.includes('resume') ||
+    n.includes('bio-data') ||
+    n.includes('biodata') ||
+    n.includes('marriage certificate') ||
+    n.includes('cenomar') ||
+    n.includes('photo') ||
+    n.includes('picture') ||
+    n.includes('information sheet') ||
+    n.includes('e-registration')
+  );
+}
+
 export default function DocumentOCR({
   workflow,
   currentUserName,
@@ -482,7 +504,11 @@ export default function DocumentOCR({
 
     // Initialize typed expiration date from requirement or candidate profile
     const targetApplicant = appOverride || modalApplicant || modalApplicantRef.current;
-    const initialExp = req.expiration_date || (targetApplicant ? getRegisteredExpirationDate(targetApplicant, req) : '') || '';
+    const reqName = req.requirement?.requirement_name || '';
+    const isNonExpiring = isNonExpiringDocument(reqName);
+    const registeredExp = (!isNonExpiring && targetApplicant) ? getRegisteredExpirationDate(targetApplicant, req) : '';
+    const docSavedExp = (!isNonExpiring && req.expiration_date) ? req.expiration_date : '';
+    const initialExp = docSavedExp || registeredExp || '';
     setTypedExpirationDate(initialExp);
 
     // 1. Check local session preview map first (instant 0ms preview for files uploaded in current session)
@@ -591,19 +617,19 @@ export default function DocumentOCR({
   }, [modalApplicant?.id]);
 
   // ── Helper: Registered Expiration Date Lookup ─────────────────────────────
-  const getRegisteredExpirationDate = (app: ApplicantRecord, req: RequirementRecord | null): string | null => {
-    if (!req) return null;
+  const getRegisteredExpirationDate = (app: ApplicantRecord | null, req: RequirementRecord | null): string | null => {
+    if (!app || !req) return null;
     const reqName = (req.requirement?.requirement_name || '').toLowerCase();
 
-    // 1. Check direct requirement's expiration_date if already saved
-    if (req.expiration_date) {
-      return req.expiration_date;
+    // 1. Non-expiring documents never have an expiration date
+    if (isNonExpiringDocument(reqName)) {
+      return null;
     }
 
     // 2. Check passport fields if passport
     if (reqName.includes('passport')) {
       const pExp = app.passportExpirationDate || (app as any).passport_expiration_date || (app as any).passportExpiry || (app as any).passport_expiry;
-      if (pExp) return String(pExp).split('T')[0];
+      if (pExp && pExp !== 'N/A' && pExp !== 'No expiry') return String(pExp).split('T')[0];
     }
 
     // 3. Look in identifications enriched on applicant profile
@@ -611,18 +637,51 @@ export default function DocumentOCR({
     for (const idRecord of idList) {
       const typeStr = (idRecord.type || idRecord.identification_type || '').toLowerCase();
       const exp = idRecord.expiryDate || idRecord.expiry_date || idRecord.expiration_date;
-      if (reqName.includes('passport') && typeStr.includes('passport') && exp) {
-        return String(exp).split('T')[0];
+      if (exp && exp !== 'N/A' && exp !== 'No expiry') {
+        const clean = String(exp).split('T')[0];
+        if (reqName.includes('passport') && typeStr.includes('passport')) {
+          return clean;
+        }
+        if (
+          (reqName.includes('nbi') || reqName.includes('clearance') || reqName.includes('police')) &&
+          (typeStr.includes('nbi') || typeStr.includes('clearance') || typeStr.includes('police'))
+        ) {
+          return clean;
+        }
+        if (reqName.includes('driver') && typeStr.includes('driver')) {
+          return clean;
+        }
       }
-      if (
-        (reqName.includes('nbi') || reqName.includes('clearance') || reqName.includes('police')) &&
-        (typeStr.includes('nbi') || typeStr.includes('clearance') || typeStr.includes('police')) &&
-        exp
-      ) {
-        return String(exp).split('T')[0];
+    }
+
+    // 4. Look in candidate's registered certifications (e.g. TESDA, STCW, PRC, etc.)
+    const certList = app.certificateRecords || (app as any).applicant_certification || (app as any).certifications || [];
+    for (const cert of certList) {
+      const title = (typeof cert === 'string' ? cert : (cert.title || cert.name || '')).toLowerCase();
+      const exp = typeof cert === 'object' ? (cert.expiryDate || cert.expiry_date || cert.expiration_date) : null;
+      if (exp && exp !== 'N/A' && exp !== 'No expiry') {
+        const clean = String(exp).split('T')[0];
+        if (
+          (title && reqName.includes(title)) ||
+          (reqName && title.includes(reqName)) ||
+          (reqName.includes('tesda') && title.includes('tesda')) ||
+          (reqName.includes('stcw') && title.includes('stcw')) ||
+          (reqName.includes('prc') && title.includes('prc'))
+        ) {
+          return clean;
+        }
       }
-      if (reqName.includes('driver') && typeStr.includes('driver') && exp) {
-        return String(exp).split('T')[0];
+    }
+
+    // 5. Look in candidate's registered requirements on profile
+    const profileReqs = app.requirements || [];
+    for (const pr of profileReqs) {
+      const pName = (pr.name || (pr as any).requirement_name || '').toLowerCase();
+      const exp = pr.expiration_date || (pr as any).expiryDate;
+      if (exp && exp !== 'N/A' && exp !== 'No expiry') {
+        if (pName && (reqName.includes(pName) || pName.includes(reqName))) {
+          return String(exp).split('T')[0];
+        }
       }
     }
 
@@ -632,12 +691,15 @@ export default function DocumentOCR({
   const isExpirationTrackedRequirement = (req: RequirementRecord | null): boolean => {
     if (!req) return false;
     const name = (req.requirement?.requirement_name || '').toLowerCase();
+    if (isNonExpiringDocument(name)) return false;
+
     const cat = (req.requirement?.category || '').toUpperCase();
     const ruleCat = (req.requirement?.rule_category || '').toUpperCase();
 
     return (
       ruleCat.includes('EXPIR') ||
-      ruleCat === 'MEDICAL_SUPPORTING' ||
+      ruleCat === 'PASSPORT_CLEARANCE' ||
+      (ruleCat === 'MEDICAL_SUPPORTING' && (cat === 'MEDICAL' || cat === 'CERTIFICATION')) ||
       cat === 'IDENTITY' ||
       name.includes('passport') ||
       name.includes('nbi') ||
@@ -646,7 +708,9 @@ export default function DocumentOCR({
       name.includes('owwa') ||
       name.includes('pdos') ||
       name.includes('visa') ||
-      name.includes('license')
+      name.includes('license') ||
+      name.includes('tesda') ||
+      name.includes('stcw')
     );
   };
 
@@ -2433,7 +2497,9 @@ export default function DocumentOCR({
                                   <div>
                                     <span className="text-slate-400 block font-medium">Registered Expiration:</span>
                                     <span className="font-mono font-bold text-slate-800 mt-0.5 block">
-                                      {getRegisteredExpirationDate(modalApplicant, selectedReq) || 'No registered date'}
+                                      {isNonExpiringDocument(selectedReq.requirement?.requirement_name)
+                                        ? 'N/A (Lifetime Document)'
+                                        : (getRegisteredExpirationDate(modalApplicant, selectedReq) || 'No registered date')}
                                     </span>
                                   </div>
                                   <div>
@@ -2570,14 +2636,16 @@ export default function DocumentOCR({
                                 />
 
                                 {/* Cross-check comparison against registration */}
-                                {registeredDate && (
-                                  <div className="pt-1 space-y-2">
-                                    <div className="flex justify-between items-center text-[11px]">
-                                      <span className="text-slate-500 font-medium">Registered in profile:</span>
-                                      <span className="font-bold text-slate-800 font-mono">{registeredDate}</span>
-                                    </div>
+                                <div className="pt-1 space-y-2">
+                                  <div className="flex justify-between items-center text-[11px]">
+                                    <span className="text-slate-500 font-medium">Registered in profile:</span>
+                                    <span className={`font-mono ${registeredDate ? 'font-bold text-slate-800' : 'text-slate-400 font-normal italic'}`}>
+                                      {registeredDate || 'Not specified in profile'}
+                                    </span>
+                                  </div>
 
-                                    {hasMismatch ? (
+                                  {registeredDate ? (
+                                    hasMismatch ? (
                                       <div className="rounded-xl bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-900 space-y-2">
                                         <div className="flex items-start gap-1.5 font-bold text-[11px]">
                                           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -2615,16 +2683,26 @@ export default function DocumentOCR({
                                         <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                                         <span>Expiration date matches registration record!</span>
                                       </div>
-                                    ) : null}
+                                    ) : null
+                                  ) : typedExpirationDate ? (
+                                    <div className="rounded-xl bg-sky-50 border border-sky-200 p-2 text-[11px] font-medium text-sky-800 flex items-center gap-1.5">
+                                      <Info className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                                      <span>Verified expiration date will be saved to document record.</span>
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-xl bg-slate-100 border border-slate-200 p-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                                      <span>Enter verified expiration date above if applicable.</span>
+                                    </div>
+                                  )}
 
-                                    {officialDateUpdated && (
-                                      <div className="rounded-xl bg-sky-50 border border-sky-200 p-2 text-[10px] font-bold text-sky-800 flex items-center gap-1.5">
-                                        <CheckCircle className="w-3.5 h-3.5 text-sky-600" />
-                                        <span>Official profile record successfully updated with document date.</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                  {officialDateUpdated && (
+                                    <div className="rounded-xl bg-sky-50 border border-sky-200 p-2 text-[10px] font-bold text-sky-800 flex items-center gap-1.5">
+                                      <CheckCircle className="w-3.5 h-3.5 text-sky-600" />
+                                      <span>Official profile record successfully updated with document date.</span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })()}
