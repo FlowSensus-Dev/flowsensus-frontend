@@ -384,14 +384,10 @@ export default function DocumentOCR({
     return null;
   };
 
-  // Auto-open modal if selectedApplicantId passed from navigation
+  // Auto-open modal disabled: Do not aggressively open modal when switching sidebar tabs
+  // just because a selectedApplicantId exists in global context.
   useEffect(() => {
-    if (selectedApplicantId && selectedApplicantId !== 'new' && !isNaN(Number(selectedApplicantId))) {
-      const found = phaseQualifiedApplicants.find(a => String(a.id) === String(selectedApplicantId));
-      if (found) {
-        handleOpenApplicantModal(found);
-      }
-    }
+    // Intentionally left blank to prevent auto-opening. Users will click the list to open.
   }, [selectedApplicantId, phaseQualifiedApplicants]);
 
   // Keep modal applicant synchronized if parent applicants list updates
@@ -1898,18 +1894,7 @@ export default function DocumentOCR({
                         </button>
                       </div>
 
-                      {/* Revert to Pre-Deployment Processing Button */}
-                      {app.status !== 'Ready for Deployment' && app.status !== 'Deployed' && (
-                        <button
-                          type="button"
-                          onClick={e => handleOpenRevertToPreDeployment(app, e)}
-                          className="w-full justify-center px-2.5 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
-                          title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
-                        >
-                          <Undo2 className="w-3 h-3 text-amber-600" />
-                          <span>Revert to Pre-Deployment</span>
-                        </button>
-                      )}
+
 
                       {/* If Ready for Deployment, show a quick Revert button */}
                       {app.status === 'Ready for Deployment' && (

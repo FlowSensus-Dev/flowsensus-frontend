@@ -1506,7 +1506,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       liveIsApplicant.current = isApplicantUser(session?.user);
       syncLiveSession(session?.user?.id ?? null);
-      if (session?.user) {
+      if (session?.user && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
         if (event === 'SIGNED_IN' && !liveIsApplicant.current) {
           api.post('/users/record-login', {}).catch(() => { });
         }
@@ -1535,58 +1535,38 @@ export default function App() {
   }, [view]);
 
   // ── Global Supabase Realtime Subscriptions (Live Candidate & Audit Sync) ──
-  useEffect(() => {
-    if (view !== "app" || !liveSession.current.userId) return;
+  // Removed global postgres_changes subscription to prevent massive request loops (11.6k requests) 
+  // triggered by background jobs or other users continuously updating tables.
 
-    let debounceTimer: any = null;
-    const triggerDebouncedRefresh = () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        if (liveMounted.current) {
-          fetchLiveBackendData();
-        }
-      }, 1200);
-    };
-
-    const channel = supabase
-      .channel('realtime:global_candidate_operations')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'job_application' },
-        () => {
-          triggerDebouncedRefresh();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'applicant' },
-        () => {
-          triggerDebouncedRefresh();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'clinic_referral' },
-        () => {
-          triggerDebouncedRefresh();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'applicant_requirement' },
-        () => {
-          triggerDebouncedRefresh();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
-    };
-  }, [view === "app", liveSession.current.userId]);
+  const dedupeWindow = useRef<Record<string, number>>({});
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
+    const actionLower = log.action.toLowerCase();
+    
+    // Explicit allowlist of important event keywords
+    const allowedEvents = [
+      "login", "logout", "create", "update", "delete", "upload", "submit", "approve", "reject", "resolve", "dismiss",
+      "assign", "register", "encode", "add", "remove", "change", "proceed", "return", "review", "generate",
+      "endorse", "mark", "draft", "clear", "stop", "turnover", "claim", "release", "re-endorse", "block",
+      "provision", "restore", "revoke", "deactivate", "unblock", "download", "revert", "recorded", "saved", "passed", "completed"
+    ];
+    
+    const isSensitiveView = ["passport", "medical", "contract", "oec"].some(doc => actionLower.includes(doc)) && 
+                            ["view", "open", "preview"].some(verb => actionLower.includes(verb));
+
+    const isAllowed = allowedEvents.some(term => actionLower.includes(term)) || isSensitiveView;
+
+    if (!isAllowed) return;
+
+    // Deduplication window (e.g. 10 seconds)
+    const dedupeKey = `${log.performedBy}-${log.action}-${log.applicantId || 'global'}`;
+    const now = Date.now();
+    if (dedupeWindow.current[dedupeKey] && now - dedupeWindow.current[dedupeKey] < 10000) {
+      return; // Skip if logged within the last 10s
+    }
+    dedupeWindow.current[dedupeKey] = now;
+
+
     const timestamp = new Date().toISOString();
     const tempId = `LOG-${Date.now()}`;
     setActivityLogs((prev) => [{ ...log, id: tempId, timestamp }, ...prev]);
