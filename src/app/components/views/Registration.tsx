@@ -1857,16 +1857,42 @@ export default function Registration({
               </p>
               {selectedJobOrderId && (() => {
                 const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
-                const joReqs: string[] = (jo?.requirements || []).concat(
-                  (jo?.detailedRequirements || []).map((dr: any) => typeof dr === 'string' ? dr : dr.name)
-                ).filter(Boolean);
-                const missingReqs = joReqs.filter(r => !applicantRequirements.some(ar => ar.name.toLowerCase() === r.toLowerCase()));
+                const detailed = jo?.detailedRequirements || [];
+                const certList = jo?.certifications || [];
+                const joReqs: { name: string; category: string }[] = [];
+                const seen = new Set<string>();
+
+                detailed.forEach((dr: any) => {
+                  const n = (typeof dr === 'string' ? dr : dr?.name || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: dr?.category || 'DOCUMENT' });
+                  }
+                });
+
+                (jo?.requirements || []).forEach((r: string) => {
+                  const n = (r || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: 'DOCUMENT' });
+                  }
+                });
+
+                certList.forEach((c: string) => {
+                  const n = (c || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: 'CERTIFICATION' });
+                  }
+                });
+
+                const missingReqs = joReqs.filter(r => !applicantRequirements.some(ar => ar.name.toLowerCase() === r.name.toLowerCase()));
                 if (missingReqs.length === 0) return null;
                 return (
                   <button
                     type="button"
                     onClick={() => {
-                      missingReqs.forEach(r => addApplicantRequirement(r, 'DOCUMENT', 'PENDING', true));
+                      missingReqs.forEach(r => addApplicantRequirement(r.name, r.category as any, 'PENDING', true));
                       showToast(`Added ${missingReqs.length} requirement(s) from Job Order ${jo?.code}.`);
                     }}
                     className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-blue-50 text-[#0EA5E9] hover:bg-blue-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
@@ -1961,8 +1987,16 @@ export default function Registration({
                           <span className="font-semibold text-slate-800">{row.name}</span>
                         </td>
                         <td className={td}>
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                            {row.category}
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                            row.category === 'CERTIFICATION'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
+                              : row.category === 'MEDICAL'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : row.category === 'OTHER'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}>
+                            {row.category || 'DOCUMENT'}
                           </span>
                         </td>
                         <td className={td}>

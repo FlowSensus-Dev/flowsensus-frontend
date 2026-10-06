@@ -507,7 +507,7 @@ export default function FitToWork({
         };
 
         setClinics(prev => [...prev, createdClinic]);
-        showToast(`✓ Accredited clinic "${createdClinic.clinicName}" added to database.`);
+        showToast(`✓ Accredited clinic "${createdClinic.clinicName}" added successfully.`);
 
         // If opened for a specific applicant, auto-assign this new clinic immediately!
         if (targetApplicantForClinic) {
@@ -523,7 +523,7 @@ export default function FitToWork({
       }
     } catch (err) {
       console.error('Failed to create clinic:', err);
-      showToast('Error creating accredited clinic in database.');
+      showToast('Error creating accredited clinic.');
     } finally {
       setIsSavingClinic(false);
     }
@@ -670,7 +670,7 @@ export default function FitToWork({
       }
     } catch (err) {
       console.error('Failed to delete clinic:', err);
-      showToast('Error deleting clinic from database.');
+      showToast('Error deleting clinic.');
     } finally {
       setIsDeletingClinic(false);
     }
