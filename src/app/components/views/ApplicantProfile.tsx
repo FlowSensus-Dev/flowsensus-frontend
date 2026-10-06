@@ -1172,20 +1172,59 @@ export default function ApplicantProfile({
 
         {/* Certificates */}
         {(() => {
-          const certs = (applicant.certificateRecords && applicant.certificateRecords.length > 0)
-            ? applicant.certificateRecords
-            : (Array.isArray(applicant.certifications) && applicant.certifications.length > 0)
-              ? applicant.certifications.map((c: any, idx: number) => ({
-                  id: `cert-fallback-${idx}`,
-                  title: typeof c === 'string' ? c : (c.title || c.name || 'Certificate'),
-                  issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || 'Accredited Issuer') : 'Accredited Issuer',
-                  serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
-                  noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
-                  competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
-                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
-                  proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
-                }))
-              : [];
+          const seenTitles = new Set<string>();
+          const certs: any[] = [];
+
+          // 1. Certificate records from applicant_certification
+          (applicant.certificateRecords || []).forEach((c: any) => {
+            const title = c.title || c.name || 'Certificate';
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push(c);
+            }
+          });
+
+          // 2. Direct certifications from CV encoding / profiling
+          (Array.isArray(applicant.certifications) ? applicant.certifications : []).forEach((c: any, idx: number) => {
+            const title = typeof c === 'string' ? c : (c.title || c.name || 'Certificate');
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-fallback-${idx}`,
+                title,
+                issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer')) : (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
+                noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
+                competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
+                expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
+                proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
+              });
+            }
+          });
+
+          // 3. Certifications from Document & Regulatory Requirements
+          (applicant.requirements || []).forEach((r: any, idx: number) => {
+            const cat = String(r.category || '').toUpperCase();
+            const title = String(r.name || r.requirement_name || '').trim();
+            const clean = title.toLowerCase();
+            if (title && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE') && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-req-${r.applicant_req_id || idx}`,
+                title,
+                issuedBy: title.includes('TESDA') ? 'TESDA' : (title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: r.applicant_req_id ? `REQ-${r.applicant_req_id}` : '—',
+                noOfHours: '—',
+                competencyDateIssued: r.issue_date || '—',
+                expiryDate: r.expiration_date && r.expiration_date !== 'No expiry' ? r.expiration_date : 'N/A',
+                proofDocumentUrl: r.file_url || r.document_url || r.proof_url,
+                verificationStatus: r.status || 'PENDING'
+              });
+            }
+          });
+
           if (certs.length === 0) return null;
           return (
             <div className="space-y-2">
@@ -1196,6 +1235,15 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
+                        {row.verificationStatus && (
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                            String(row.verificationStatus).toUpperCase() === 'VERIFIED'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {row.verificationStatus}
+                          </span>
+                        )}
                         {row.proofDocumentUrl && (
                           <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
                         )}
@@ -1428,9 +1476,19 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{req.name}</p>
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                          {req.category}
-                        </span>
+                        {(() => {
+                          const cat = String(req.category || 'DOCUMENT').toUpperCase();
+                          const badgeCls =
+                            cat === 'CERTIFICATION' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            cat === 'MEDICAL' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            cat === 'OTHER' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            'bg-blue-50 text-blue-700 border-blue-200';
+                          return (
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${badgeCls}`}>
+                              {cat}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                         {req.issue_date && <span>Issued: {req.issue_date}</span>}

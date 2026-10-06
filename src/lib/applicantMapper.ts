@@ -16,9 +16,23 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     ? item.skills.map((s: any) => typeof s === 'string' ? s : (s.name || s.title || '')).filter(Boolean)
     : (typeof item.skills === 'string' ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
 
-  const parsedCerts: string[] = Array.isArray(item.certifications)
+  const parsedCertsSet = new Set<string>();
+  (Array.isArray(item.certifications)
     ? item.certifications.map((c: any) => typeof c === 'string' ? c : (c.title || c.name || '')).filter(Boolean)
-    : (typeof item.certifications === 'string' ? item.certifications.split(',').map((c: string) => c.trim()).filter(Boolean) : []);
+    : (typeof item.certifications === 'string' ? item.certifications.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+  ).forEach((c: string) => parsedCertsSet.add(c));
+
+  // Also include any certifications from applicant requirements
+  const reqItems = Array.isArray(item.requirements) ? item.requirements : [];
+  reqItems.forEach((r: any) => {
+    const cat = String(r.category || '').toUpperCase();
+    const name = String(r.name || r.requirement_name || '').trim();
+    if (name && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE')) {
+      parsedCertsSet.add(name);
+    }
+  });
+
+  const parsedCerts: string[] = Array.from(parsedCertsSet);
 
   const rawCertList = (Array.isArray(item.certificateRecords) && item.certificateRecords.length > 0)
     ? item.certificateRecords
@@ -45,6 +59,27 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
       expiryDate: c.expiryDate || c.expiry_date || c.expiry || 'N/A',
       proofDocumentUrl: c.proofDocumentUrl || c.proof_url
     };
+  });
+
+  // Append any requirements with category CERTIFICATION not already in parsedCertificateRecords
+  reqItems.forEach((r: any, idx: number) => {
+    const cat = String(r.category || '').toUpperCase();
+    const name = String(r.name || r.requirement_name || '').trim();
+    if (name && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE')) {
+      const alreadyInList = parsedCertificateRecords.some(cr => cr.title?.toLowerCase() === name.toLowerCase());
+      if (!alreadyInList) {
+        parsedCertificateRecords.push({
+          id: `cert-req-${r.applicant_req_id || item.applicant_id}-${idx}`,
+          title: name,
+          serialNo: r.applicant_req_id ? `REQ-${r.applicant_req_id}` : '—',
+          issuedBy: name.includes('TESDA') ? 'TESDA' : (name.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+          noOfHours: '—',
+          competencyDateIssued: r.issue_date || '—',
+          expiryDate: r.expiration_date && r.expiration_date !== 'No expiry' ? r.expiration_date : 'N/A',
+          proofDocumentUrl: r.file_url || r.document_url || r.proof_url
+        });
+      }
+    }
   });
 
   const parsedTrainings: TrainingRecord[] = (Array.isArray(item.trainings) ? item.trainings : []).map((t: any, idx: number) => ({
