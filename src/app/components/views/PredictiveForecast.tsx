@@ -710,7 +710,7 @@ export default function PredictiveForecast({
 
         <div className="flex items-center gap-2 text-xs font-semibold">
           <span className="bg-white/80 border border-slate-200 px-3 py-1 rounded-full shadow-sm text-slate-600">
-            Agency Baseline Total: <strong>{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
+            Current Pipeline Forecast: <strong>{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
           </span>
         </div>
       </div>
@@ -884,7 +884,7 @@ export default function PredictiveForecast({
               Agency Stage-by-Stage Baseline (PERT & SES Reference)
             </h4>
             <span className="text-[11px] text-slate-500 font-medium">
-              Baseline Pipeline Total: <strong className="text-slate-800">{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
+              Current Pipeline Forecast Total: <strong className="text-slate-800">{(totalDays != null ? `${totalDays.toFixed(1)} days` : 'Unavailable')}</strong>
             </span>
           </div>
 

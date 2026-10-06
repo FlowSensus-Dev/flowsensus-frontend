@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
+import type { ApplicationForecastResponse } from '../types';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -113,6 +114,113 @@ const PHASES = [
     description: 'Final administrative clearances, contract verification, visa stamping, and travel coordination.',
   },
 ];
+
+function formatDeploymentDate(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) || !Number.isFinite(Date.parse(value))) return null;
+  const calendarDate = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== value.slice(0, 10)) return null;
+  return calendarDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+}
+
+function ApplicantDeploymentCard({ application, agencyId }: { application: PortalApplication | null; agencyId?: number }) {
+  const applicationId = application?.application_id;
+  const applicantId = application?.applicant_id;
+  const confirmedDate = formatDeploymentDate(application?.actual_deployment_at);
+  const validApplication = typeof applicationId === 'number' && Number.isSafeInteger(applicationId) && applicationId > 0;
+  const basis = JSON.stringify([applicationId, applicantId, agencyId, application?.actual_deployment_at,
+    application?.current_phase, application?.status_code, application?.updated_at]);
+  const [forecast, setForecast] = useState<{ basis: string; loading: boolean; data: ApplicationForecastResponse | null } | null>(null);
+
+  useEffect(() => {
+    if (confirmedDate || !validApplication) {
+      setForecast(null);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    setForecast({ basis, loading: true, data: null });
+    const loadForecast = async () => {
+      try {
+        const { data } = await api.get<ApplicationForecastResponse>(`/forecasting/application/${applicationId}`, { signal: controller.signal });
+        if (cancelled) return;
+        const matchesIdentity = (value: ApplicationForecastResponse | NonNullable<ApplicationForecastResponse['record']>) =>
+          value.application_id === applicationId &&
+          (agencyId == null || value.agency_id === agencyId) &&
+          (value.applicant_id == null || value.applicant_id === applicantId);
+        if (!data || !matchesIdentity(data) || (data.record && !matchesIdentity(data.record))) {
+          throw new Error('Forecast response does not match this application.');
+        }
+        setForecast({ basis, loading: false, data });
+      } catch {
+        if (!cancelled) setForecast({ basis, loading: false, data: null });
+      }
+    };
+    void loadForecast();
+    return () => { cancelled = true; controller.abort(); };
+  }, [application, basis, confirmedDate, validApplication, applicationId, applicantId, agencyId]);
+
+  // Guard the render as well as the request: old application data never flashes during a change.
+  const response = forecast?.basis === basis ? forecast.data : null;
+  const loadingForecast = !confirmedDate && validApplication && (forecast?.basis !== basis || forecast.loading);
+  const estimatedDate = formatDeploymentDate(response?.record?.estimated_deployment_date);
+  const timingUnavailable = (Array.isArray(response?.limitations) ? response.limitations : []).some((limitation) =>
+    /active-stage start timestamp is unavailable|remaining eta cannot be calculated/i.test(limitation));
+  const remainingDays = response?.record?.estimated_remaining_days;
+  const hasRemainingDays = typeof remainingDays === 'number' && Number.isFinite(remainingDays) && remainingDays >= 0;
+  const hasEstimate = Boolean(response?.record && !timingUnavailable && (estimatedDate || hasRemainingDays));
+  const pipelineRemainingDays = response?.pipeline_estimated_remaining_days;
+  const hasPipelineEstimate = typeof pipelineRemainingDays === 'number' && Number.isFinite(pipelineRemainingDays) && pipelineRemainingDays >= 0;
+  const phase = response?.current_stage || application?.stage_name ||
+    PHASES.find((item) => item.phase === application?.current_phase)?.title || application?.status_code;
+
+  return (
+    <div className="bg-white border border-sky-100 rounded-2xl p-4 sm:p-5 space-y-3" aria-live="polite">
+      <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+        <div className="w-7 h-7 rounded-lg bg-sky-50 text-[#0EA5E9] flex items-center justify-center">
+          <Calendar size={15} />
+        </div>
+        <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+          {confirmedDate ? 'Deployment' : 'Deployment Forecast'}
+        </h3>
+      </div>
+      {confirmedDate ? (
+        <div>
+          <p className="text-xs font-semibold text-emerald-700">Confirmed Deployment Date</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">{confirmedDate}</p>
+        </div>
+      ) : loadingForecast ? (
+        <p className="text-xs text-slate-500 flex items-center gap-2">
+          <RefreshCw size={13} className="animate-spin" /> Loading deployment estimate...
+        </p>
+      ) : hasEstimate ? (
+        <div>
+          <p className="text-xs font-semibold text-sky-700">{estimatedDate ? 'Estimated Deployment Date' : 'Estimated Remaining Time'}</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">{estimatedDate || `${remainingDays} days`}</p>
+          {estimatedDate && hasRemainingDays && (
+            <p className="text-xs text-slate-600 mt-2">Estimated Remaining Time: {remainingDays} days</p>
+          )}
+          <p className="text-[11px] text-slate-500 mt-2">This is an estimate. Your agency will confirm your deployment date.</p>
+        </div>
+      ) : hasPipelineEstimate ? (
+        <div>
+          <p className="text-xs font-semibold text-sky-700">Estimated Remaining Time</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">~{pipelineRemainingDays.toFixed(1)} days</p>
+          <p className="text-[11px] text-slate-500 mt-2">Estimate based on the current recruitment pipeline.</p>
+        </div>
+      ) : (
+        <div>
+          <p className="text-sm font-bold text-slate-800">Deployment estimate unavailable yet</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {application
+              ? 'Your deployment forecast will become available once timing for your current phase has been recorded.'
+              : 'Your deployment forecast will become available once an application is available.'}
+          </p>
+        </div>
+      )}
+      {phase && <p className="text-xs text-slate-600">Current Phase: <span className="font-semibold text-slate-800">{phase}</span></p>}
+    </div>
+  );
+}
 
 export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   const [profile, setProfile] = useState<PortalProfile | null>(null);
@@ -545,6 +653,8 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
 
         {/* ── 3. Single Card Inner Body ───────────────────────────────────── */}
         <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
+          <ApplicantDeploymentCard application={activeApp} agencyId={profile?.agency_id} />
+
           {/* ═══════════════════════════════════════════════════════════════════ */}
           {/* ── SECTION: 5-Phase Recruitment Roadmap ─────────────────────────── */}
           {/* ═══════════════════════════════════════════════════════════════════ */}

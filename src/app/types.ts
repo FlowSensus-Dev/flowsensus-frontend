@@ -525,5 +525,7 @@ export interface ApplicationForecastResponse {
   days_spent_in_current_stage?: number | null;
   stage_breakdown: Record<string, number>;
   record?: ApplicationForecastRecord | null;
+  pipeline_estimated_remaining_days?: number | null;
+  estimate_basis?: 'pipeline_forecast' | null;
   limitations: string[];
 }
