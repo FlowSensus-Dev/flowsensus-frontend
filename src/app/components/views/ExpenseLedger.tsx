@@ -56,14 +56,13 @@ export default function ExpenseLedger({
 
   // Modals & form state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [expenseCategory, setExpenseCategory] = useState('Visa Fees');
+  const [expenseCategory, setExpenseCategory] = useState('VISA Processing');
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isReimbursable, setIsReimbursable] = useState(true);
 
   const [newExpense, setNewExpense] = useState<Omit<ExpenseRecord, 'id'>>({
     applicantId: selectedApplicantId,
-    purpose: 'Visa Fees',
+    purpose: 'VISA Processing',
     amount: 0,
     currency: 'PESO',
     type: 'expense',
@@ -77,18 +76,6 @@ export default function ExpenseLedger({
     : 'Selected Candidate';
 
   const jobOrderDetails = selectedApplicant?.jobOrder || selectedApplicant?.employerName || '';
-  const { targetCurrency, exchangeRateToPhp } = useMemo(() => {
-    const text = jobOrderDetails.toLowerCase();
-    if (text.includes('uae') || text.includes('dubai')) return { targetCurrency: 'AED', exchangeRateToPhp: 15.39 };
-    if (text.includes('saudi') || text.includes('ksa')) return { targetCurrency: 'SAR', exchangeRateToPhp: 15.06 };
-    if (text.includes('qatar')) return { targetCurrency: 'QAR', exchangeRateToPhp: 15.51 };
-    if (text.includes('kuwait')) return { targetCurrency: 'KWD', exchangeRateToPhp: 184.23 };
-    if (text.includes('bahrain')) return { targetCurrency: 'BHD', exchangeRateToPhp: 150.15 };
-    if (text.includes('oman')) return { targetCurrency: 'OMR', exchangeRateToPhp: 146.99 };
-    if (text.includes('europe') || text.includes('italy') || text.includes('germany') || text.includes('poland')) return { targetCurrency: 'EUR', exchangeRateToPhp: 61.20 };
-    if (text.includes('uk') || text.includes('kingdom')) return { targetCurrency: 'GBP', exchangeRateToPhp: 72.10 };
-    return { targetCurrency: 'USD', exchangeRateToPhp: 56.50 };
-  }, [jobOrderDetails]);
 
 
 
@@ -103,56 +90,48 @@ export default function ExpenseLedger({
   const reimbursableExpensesList = currentExpenses.filter(e => (e.remarks || '').includes('[REIMBURSABLE]'));
   const personalExpensesList = currentExpenses.filter(e => !(e.remarks || '').includes('[REIMBURSABLE]'));
 
-  const reimbursablePHP = reimbursableExpensesList.reduce((sum, e) => sum + (e.currency === 'DOLLAR' ? e.amount * 56.5 : e.amount), 0);
-  const personalPHP = personalExpensesList.reduce((sum, e) => sum + (e.currency === 'DOLLAR' ? e.amount * 56.5 : e.amount), 0);
-  
-  const reimbursableTarget = reimbursablePHP / exchangeRateToPhp;
+  const reimbursablePHP = reimbursableExpensesList.reduce((sum, e) => sum + e.amount, 0);
+  const personalPHP = personalExpensesList.reduce((sum, e) => sum + e.amount, 0);
 
-  const handleAddSubmit = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      let finalRemarks = newExpense.remarks.replace('[REIMBURSABLE]', '').trim();
-      if (isReimbursable) finalRemarks = finalRemarks ? `${finalRemarks} [REIMBURSABLE]` : '[REIMBURSABLE]';
+  const handleAddSubmit = () => {
+    let finalRemarks = newExpense.remarks.replace('[REIMBURSABLE]', '').trim();
+    if (isReimbursable) finalRemarks = finalRemarks ? `${finalRemarks} [REIMBURSABLE]` : '[REIMBURSABLE]';
 
-      const expense: Omit<ExpenseRecord, 'id'> = {
-        applicantId: selectedApplicantId,
-        purpose: newExpense.purpose || expenseCategory,
-        amount: newExpense.amount,
-        currency: newExpense.currency,
-        type: newExpense.type,
-        remarks: finalRemarks,
-        status: 'approved',
-        date: new Date().toISOString().split('T')[0],
-        recordedBy: currentUserName,
-      };
+    const expense: Omit<ExpenseRecord, 'id'> = {
+      applicantId: selectedApplicantId,
+      purpose: newExpense.purpose || expenseCategory,
+      amount: newExpense.amount,
+      currency: 'PESO',
+      type: newExpense.type,
+      remarks: finalRemarks,
+      status: 'approved',
+      date: new Date().toISOString().split('T')[0],
+      recordedBy: currentUserName,
+    };
 
-      if (editingExpenseId && updateExpense) {
-        await Promise.resolve(updateExpense(editingExpenseId, expense));
-        showToast(`✓ Expense updated: ${expense.purpose}`);
-      } else {
-        await Promise.resolve(addExpense(expense));
-        showToast(`✓ Expense recorded: ${expense.purpose}`);
-      }
-
-      addActivityLog({
-        applicantId: selectedApplicantId,
-        action: editingExpenseId ? 'Financial Transaction Updated' : 'Financial Transaction Recorded',
-        performedBy: currentUserName,
-        department: 'Accounting',
-        details: `${expense.type}: ₱${expense.amount.toLocaleString()} - ${expense.purpose}`,
-      });
-
-      setShowAddModal(false);
-      setEditingExpenseId(null);
-      setIsReimbursable(false);
-      setNewExpense({
-        applicantId: selectedApplicantId, purpose: 'Visa Fees', amount: 0, currency: 'PESO', type: 'expense', remarks: '', status: 'approved',
-      });
-      setExpenseCategory('Visa Fees');
-    } finally {
-      setIsSubmitting(false);
+    if (editingExpenseId && updateExpense) {
+      updateExpense(editingExpenseId, expense);
+      showToast(`✓ Expense updated: ${expense.purpose}`);
+    } else {
+      addExpense(expense);
+      showToast(`✓ Expense recorded: ${expense.purpose}`);
     }
+
+    addActivityLog({
+      applicantId: selectedApplicantId,
+      action: editingExpenseId ? 'Financial Transaction Updated' : 'Financial Transaction Recorded',
+      performedBy: currentUserName,
+      department: 'Accounting',
+      details: `${expense.type}: ₱${expense.amount.toLocaleString()} - ${expense.purpose}`,
+    });
+
+    setShowAddModal(false);
+    setEditingExpenseId(null);
+    setIsReimbursable(false);
+    setNewExpense({
+      applicantId: selectedApplicantId, purpose: 'VISA Processing', amount: 0, currency: 'PESO', type: 'expense', remarks: '', status: 'approved',
+    });
+    setExpenseCategory('VISA Processing');
   };
 
   const handleEditExpense = (expense: ExpenseRecord) => {
@@ -168,7 +147,7 @@ export default function ExpenseLedger({
       status: expense.status,
     });
     const predefined = [
-      'Visa Fees', 'Airfare / International Ticket', 'POEA Processing Fee', 'OWWA Membership Fee', 'Trade Test / Skills Assessment', 'Comprehensive Insurance',
+      'VISA Processing', 'Airfare / International Ticket', 'POEA Processing Fee', 'OWWA Membership Fee', 'Trade Test / Skills Assessment', 'Comprehensive Insurance',
       'Passport Processing (DFA)', 'NBI & Police Clearances', 'Medical Exam (Fit-to-Work)', 'Birth Certificate / PSA', 'PhilHealth / Pag-IBIG / SSS', 'Cash Advance', 'Salary Deduction'
     ];
     if (predefined.includes(expense.purpose)) {
@@ -200,8 +179,8 @@ export default function ExpenseLedger({
     const reimbursableExpenses = currentExpenses.filter(e => (e.remarks || '').includes('[REIMBURSABLE]'));
     const personalExpenses = currentExpenses.filter(e => !(e.remarks || '').includes('[REIMBURSABLE]'));
 
-    const reimbursableTotal = reimbursableExpenses.reduce((sum, e) => sum + (e.currency === 'DOLLAR' ? e.amount * 56.5 : e.amount), 0);
-    const personalTotal = personalExpenses.reduce((sum, e) => sum + (e.currency === 'DOLLAR' ? e.amount * 56.5 : e.amount), 0);
+    const reimbursableTotal = reimbursableExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const personalTotal = personalExpenses.reduce((sum, e) => sum + e.amount, 0);
     
     let currentY = 60;
 
@@ -214,7 +193,7 @@ export default function ExpenseLedger({
       const rTableData = reimbursableExpenses.map((exp) => [
         new Date(exp.date || Date.now()).toLocaleDateString(),
         exp.purpose || 'General',
-        `${exp.currency === 'DOLLAR' ? '$' : 'PHP'} ${exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+        `PHP ${exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
         exp.status === 'draft' ? 'Draft' : 'Advanced'
       ]);
       // @ts-ignore
@@ -247,7 +226,7 @@ export default function ExpenseLedger({
       const pTableData = personalExpenses.map((exp) => [
         new Date(exp.date || Date.now()).toLocaleDateString(),
         exp.purpose || 'General',
-        `${exp.currency === 'DOLLAR' ? '$' : 'PHP'} ${exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+        `PHP ${exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
         exp.status === 'draft' ? 'Draft' : 'Advanced'
       ]);
       // @ts-ignore
@@ -282,8 +261,7 @@ export default function ExpenseLedger({
     
     doc.setFontSize(10);
     doc.setTextColor(22, 163, 74); // green
-    const billedTarget = reimbursableTotal / exchangeRateToPhp;
-    doc.text(`Total Employer Billable: PHP ${reimbursableTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}  (${targetCurrency} ${billedTarget.toLocaleString(undefined, { minimumFractionDigits: 2 })})`, 18, currentY + 9);
+    doc.text(`Total Employer Billable: PHP ${reimbursableTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 18, currentY + 9);
     
     doc.setTextColor(220, 38, 38); // red
     doc.text(`Total Applicant Liability: PHP ${personalTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 18, currentY + 16);
@@ -385,9 +363,7 @@ export default function ExpenseLedger({
               <h3 className="text-xl font-black text-white">Processing: {applicantDisplayName}</h3>
             </div>
             <p className="text-sm font-medium text-slate-300 ml-8">
-              Employer: <span className="text-white font-bold">{jobOrderDetails || 'Not Assigned'}</span> • 
-              Billing Currency: <span className="text-emerald-400 font-bold">{targetCurrency}</span> 
-              <span className="text-slate-500 text-xs ml-1">(1 {targetCurrency} = ₱{exchangeRateToPhp})</span>
+              Employer: <span className="text-white font-bold">{jobOrderDetails || 'Not Assigned'}</span>
             </p>
           </div>
           <div className="flex gap-3">
@@ -397,7 +373,7 @@ export default function ExpenseLedger({
                 setIsReimbursable(false);
                 setNewExpense({
                   applicantId: selectedApplicantId,
-                  purpose: 'Visa Fees',
+                  purpose: 'VISA Processing',
                   amount: 0,
                   currency: 'PESO',
                   type: 'expense',
@@ -423,7 +399,7 @@ export default function ExpenseLedger({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-xl shadow-sm">
                 <p className="text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">Total Employer Billable</p>
-                <p className="text-2xl font-black text-indigo-900">₱ {reimbursablePHP.toLocaleString(undefined, {minimumFractionDigits: 2})} <span className="text-sm font-bold text-indigo-500">/ {targetCurrency} {reimbursableTarget.toLocaleString(undefined, {minimumFractionDigits: 2})}</span></p>
+                <p className="text-2xl font-black text-indigo-900">₱ {reimbursablePHP.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
               </div>
               <div className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Total Applicant Liability</p>
@@ -445,7 +421,6 @@ export default function ExpenseLedger({
                   <tr>
                     <th className="px-4 py-3">PURPOSE</th>
                     <th className="px-4 py-3 text-right">AMOUNT</th>
-                    <th className="px-4 py-3 text-center">CURRENCY</th>
                     <th className="px-4 py-3">REMARKS</th>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
@@ -457,13 +432,8 @@ export default function ExpenseLedger({
                         {exp.purpose || 'General'}
                         {exp.status === 'draft' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase">Draft</span>}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${exp.currency === 'PESO' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                          {exp.currency}
-                        </span>
+                      <td className="px-4 py-3 text-right font-medium text-slate-800">
+                        ₱ {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').replace('[REIMBURSABLE]', '').trim()}</td>
                       <td className="px-4 py-3">
@@ -492,7 +462,6 @@ export default function ExpenseLedger({
                   <tr>
                     <th className="px-4 py-3">PURPOSE</th>
                     <th className="px-4 py-3 text-right">AMOUNT</th>
-                    <th className="px-4 py-3 text-center">CURRENCY</th>
                     <th className="px-4 py-3">REMARKS</th>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
@@ -504,13 +473,8 @@ export default function ExpenseLedger({
                         {exp.purpose || 'General'}
                         {exp.status === 'draft' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase">Draft</span>}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${exp.currency === 'PESO' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                          {exp.currency}
-                        </span>
+                      <td className="px-4 py-3 text-right font-medium text-slate-800">
+                        ₱ {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').trim()}</td>
                       <td className="px-4 py-3">
@@ -550,7 +514,7 @@ export default function ExpenseLedger({
                       const val = e.target.value;
                       setExpenseCategory(val);
                       
-                      const reimbursableList = ['Visa Fees', 'Airfare / International Ticket', 'POEA Processing Fee', 'OWWA Membership Fee', 'Trade Test / Skills Assessment', 'Comprehensive Insurance'];
+                      const reimbursableList = ['VISA Processing', 'Airfare / International Ticket', 'POEA Processing Fee', 'OWWA Membership Fee', 'Trade Test / Skills Assessment', 'Comprehensive Insurance'];
                       const isReimbursableCat = reimbursableList.includes(val);
                       setIsReimbursable(isReimbursableCat);
 
@@ -563,7 +527,7 @@ export default function ExpenseLedger({
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
                   >
                     <optgroup label="Reimbursable (Billed to Employer)">
-                      <option value="Visa Fees">Visa Fees</option>
+                      <option value="VISA Processing">VISA Processing</option>
                       <option value="Airfare / International Ticket">Airfare / International Ticket</option>
                       <option value="POEA Processing Fee">POEA Processing Fee</option>
                       <option value="OWWA Membership Fee">OWWA Membership Fee</option>
@@ -588,45 +552,25 @@ export default function ExpenseLedger({
                     <input type="text" value={newExpense.purpose} onChange={e => setNewExpense({ ...newExpense, purpose: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Extra Luggage" />
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">Amount</label>
-                    <input type="number" value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: parseFloat(e.target.value) || 0 })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">Currency</label>
-                    <select value={newExpense.currency} onChange={e => setNewExpense({ ...newExpense, currency: e.target.value as any })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
-                      <option value="PESO">PESO</option>
-                      <option value="DOLLAR">DOLLAR</option>
-                    </select>
-                  </div>
+
+                {/* Helper info block */}
+                <div className={`p-3 rounded-lg text-sm border flex items-start gap-2 ${isReimbursable ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-800'}`}>
+                  <span className="text-lg leading-none mt-0.5">💡</span>
+                  <p>
+                    <strong className="block mb-0.5">{isReimbursable ? 'Reimbursable Expense' : 'Personal Deduction'}</strong>
+                    {isReimbursable ? 'This entry will be billed directly to the Foreign Employer and will appear on their SOA.' : 'This entry is an applicant liability and will be deducted from their personal accounts/salary.'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">Amount (₱ PHP)</label>
+                  <input type="number" value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: parseFloat(e.target.value) || 0 })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Accounting Type</label>
-                  <select value={newExpense.type} onChange={e => setNewExpense({ ...newExpense, type: e.target.value as any })} disabled className="w-full border border-slate-300 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-600">
-                    <option value="expense">Standard Expense</option>
-                    <option value="cash_advance">Cash Advance</option>
-                    <option value="deduction">Deduction</option>
-                  </select>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">Remarks / Details</label>
+                  <input type="text" value={newExpense.remarks} onChange={e => setNewExpense({ ...newExpense, remarks: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Optional details..." />
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Remarks</label>
-                  <input type="text" value={newExpense.remarks} onChange={e => setNewExpense({ ...newExpense, remarks: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <input 
-                    type="checkbox" 
-                    id="reimbursable" 
-                    checked={isReimbursable} 
-                    onChange={e => setIsReimbursable(e.target.checked)} 
-                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                  />
-                  <label htmlFor="reimbursable" className="text-sm font-bold text-slate-700 cursor-pointer">
-                    Billable / Reimbursable by Employer
-                  </label>
-                </div>
-                <button onClick={handleAddSubmit} disabled={isSubmitting} className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 mt-2">
-                  {isSubmitting && <Loader2 size={16} className="animate-spin" />}
+                <button onClick={handleAddSubmit} className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 mt-2 transition-colors">
                   {editingExpenseId ? 'Update Entry' : 'Save Entry'}
                 </button>
               </div>
