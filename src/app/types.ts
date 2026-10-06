@@ -294,6 +294,7 @@ export interface ExpenseRecord {
   currency: 'PESO' | 'DOLLAR';
   type: 'expense' | 'cash_advance' | 'deduction';
   remarks?: string;
+  description?: string;
   status: 'draft' | 'approved';
   date?: string;
   recordedBy?: string;

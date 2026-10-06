@@ -265,24 +265,9 @@ export default function AppShell({
 
   useEffect(() => {
     fetchEvaluationTemplates();
-
-    const evalChannel = supabase
-      .channel('realtime:evaluation_templates_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'evaluation_template' },
-        () => {
-          fetchEvaluationTemplates();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(evalChannel);
-    };
   }, []);
 
-  // Fetch live workflow module permissions from backend & subscribe in real time
+  // Fetch live workflow module permissions from backend
   useEffect(() => {
     const fetchWorkflowPerms = async () => {
       try {
@@ -301,22 +286,6 @@ export default function AppShell({
       }
     };
     fetchWorkflowPerms();
-
-    const permChannel = supabase
-      .channel('realtime:workflow_module_access_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'workflow_module_access' },
-        (payload: any) => {
-          console.log('[AppShell] Realtime module access change received:', payload.eventType);
-          fetchWorkflowPerms();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(permChannel);
-    };
   }, []);
 
   const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
@@ -637,7 +606,7 @@ export default function AppShell({
       case 'accounting-settings':
         return (
           <AccountingSettings
-            onBack={() => handleNavigate('accounting')}
+            onBack={() => handleNavigate('dashboard')}
             showToast={showToastNotification}
           />
         );

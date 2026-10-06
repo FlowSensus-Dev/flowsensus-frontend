@@ -4,7 +4,7 @@ import {
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
   Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
-  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw
+  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck
 } from 'lucide-react';
 import { ApplicantRecord, WorkflowState, ActivityLog, ApplicationForecastResponse } from '../../types';
 import { api } from '../../../lib/api';
@@ -39,7 +39,7 @@ interface RequirementRecord {
   };
 }
 
-export interface ReturnStageOption {
+interface ReturnStageOption {
   key: string;
   name: string;
   status: string;
@@ -48,10 +48,18 @@ export interface ReturnStageOption {
   desc: string;
 }
 
-export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
+const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
+  {
+    key: 'pre_deployment',
+    name: 'Pre-Deployment Processing',
+    status: 'Pre-Deployment Processing',
+    phase: 4,
+    department: 'Admin',
+    desc: 'Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker',
+  },
   {
     key: 'endorsement_tracker',
-    name: 'Endorsement Tracker',
+    name: 'Endorsement Tracker (Employer Review)',
     status: 'Endorse to Employer',
     phase: 4,
     department: 'Recruitment',
@@ -90,6 +98,152 @@ export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
     desc: 'Return to Initial Screening for basic qualification re-assessment',
   },
 ];
+
+interface DocumentMismatchAlert {
+  isMismatch: boolean;
+  detectedName: string;
+  expectedName: string;
+  detail: string;
+}
+
+function checkDocumentTypeMismatch(
+  reqName: string,
+  detectedType: string = '',
+  detectedTitle: string = '',
+  rawText: string = ''
+): DocumentMismatchAlert | null {
+  const normReq = reqName.toLowerCase().trim();
+  const normType = (detectedType || '').toLowerCase().trim();
+  const normTitle = (detectedTitle || '').toLowerCase().trim();
+  const text = (rawText || '').toLowerCase();
+
+  // Helper flags for what was detected
+  const isPassportDetected =
+    normType === 'passport' ||
+    normTitle.includes('passport') ||
+    (text.includes('republic of the philippines') && (text.includes('passport') || text.includes('pasaporte'))) ||
+    text.includes('passport no') ||
+    text.includes('type/uri p');
+
+  const isBirthCertDetected =
+    normType === 'birth_certificate' ||
+    normTitle.includes('birth') ||
+    normTitle.includes('live birth') ||
+    text.includes('certificate of live birth') ||
+    text.includes('office of the civil registrar') ||
+    (text.includes('philippine statistics authority') && text.includes('birth'));
+
+  const isNbiDetected =
+    normType === 'nbi_clearance' ||
+    normTitle.includes('nbi') ||
+    normTitle.includes('national bureau of investigation') ||
+    text.includes('national bureau of investigation') ||
+    text.includes('nbi clearance');
+
+  const isMedicalDetected =
+    normType === 'medical_certificate' ||
+    normTitle.includes('medical') ||
+    normTitle.includes('clinic') ||
+    text.includes('medical examination') ||
+    text.includes('fit to work') ||
+    text.includes('physician') ||
+    text.includes('doh-accredited');
+
+  const isTesdaDetected =
+    normType === 'tesda_certificate' ||
+    normTitle.includes('tesda') ||
+    text.includes('technical education and skills development authority') ||
+    text.includes('national certificate ii') ||
+    text.includes('national certificate iii');
+
+  const isDiplomaDetected =
+    normType === 'diploma' ||
+    normType === 'tor' ||
+    normTitle.includes('diploma') ||
+    normTitle.includes('transcript') ||
+    text.includes('transcript of records') ||
+    text.includes('diploma') ||
+    text.includes('commission on higher education');
+
+  const isStcwDetected =
+    normType === 'stcw_certificate' ||
+    normTitle.includes('stcw') ||
+    text.includes('standards of training, certification and watchkeeping') ||
+    text.includes('stcw');
+
+  const isPeosDetected =
+    normType === 'peos_certificate' ||
+    normTitle.includes('peos') ||
+    text.includes('pre-employment orientation seminar');
+
+  // Identify detected document name
+  let actualDocName = '';
+  if (isPassportDetected) actualDocName = 'Passport';
+  else if (isBirthCertDetected) actualDocName = 'Birth Certificate (PSA)';
+  else if (isNbiDetected) actualDocName = 'NBI Clearance';
+  else if (isMedicalDetected) actualDocName = 'Medical Certificate';
+  else if (isTesdaDetected) actualDocName = 'TESDA National Certificate';
+  else if (isDiplomaDetected) actualDocName = 'Transcript of Records / Diploma';
+  else if (isStcwDetected) actualDocName = 'STCW Certificate';
+  else if (isPeosDetected) actualDocName = 'PEOS Certificate';
+
+  // Compare against expected requirement
+  let expectedDocName = '';
+  let mismatch = false;
+
+  if (normReq.includes('passport')) {
+    expectedDocName = 'Passport';
+    if (actualDocName && actualDocName !== 'Passport') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('birth') || normReq.includes('psa')) {
+    expectedDocName = 'Birth Certificate (PSA)';
+    if (actualDocName && actualDocName !== 'Birth Certificate (PSA)') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('nbi')) {
+    expectedDocName = 'NBI Clearance';
+    if (actualDocName && actualDocName !== 'NBI Clearance') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('medical') || normReq.includes('fit-to-work')) {
+    expectedDocName = 'Medical Certificate';
+    if (actualDocName && actualDocName !== 'Medical Certificate') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('tesda') || normReq.includes('national certificate')) {
+    expectedDocName = 'TESDA Certificate';
+    if (actualDocName && actualDocName !== 'TESDA National Certificate') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('transcript') || normReq.includes('diploma') || normReq.includes('tor')) {
+    expectedDocName = 'Transcript of Records / Diploma';
+    if (actualDocName && actualDocName !== 'Transcript of Records / Diploma') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('stcw')) {
+    expectedDocName = 'STCW Certificate';
+    if (actualDocName && actualDocName !== 'STCW Certificate') {
+      mismatch = true;
+    }
+  } else if (normReq.includes('peos')) {
+    expectedDocName = 'PEOS Certificate';
+    if (actualDocName && actualDocName !== 'PEOS Certificate') {
+      mismatch = true;
+    }
+  }
+
+  if (mismatch && actualDocName && expectedDocName) {
+    return {
+      isMismatch: true,
+      detectedName: actualDocName,
+      expectedName: expectedDocName,
+      detail: `You are validating "${expectedDocName}", but the uploaded document was detected as a "${actualDocName}". Please recheck and upload the correct document.`
+    };
+  }
+
+  return null;
+}
 
 export default function DocumentOCR({
   workflow,
@@ -153,6 +307,7 @@ export default function DocumentOCR({
     extracted_data?: Record<string, any>;
     discrepancies?: Array<{ field: string; issue: string; severity?: string }>;
     match_status?: string;
+    mismatchAlert?: DocumentMismatchAlert | null;
   } | null>(null);
 
   // ── Return Stage Modal State ──────────────────────────────────────────────
@@ -544,8 +699,15 @@ export default function DocumentOCR({
   const handleOpenReturnModal = (app: ApplicantRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setReturnModalApplicant(app);
-    setReturnTargetKey('endorsement_tracker');
+    setReturnTargetKey('pre_deployment');
     setReturnReason('');
+  };
+
+  const handleOpenRevertToPreDeployment = (app: ApplicantRecord, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setReturnModalApplicant(app);
+    setReturnTargetKey('pre_deployment');
+    setReturnReason('Reverted to Pre-Deployment Processing for document revision or requirement update.');
   };
 
   const handleConfirmReturnStage = async () => {
@@ -570,7 +732,9 @@ export default function DocumentOCR({
           status: target.status,
           currentHandler: 'Unassigned',
           currentDepartment: target.department,
-          phaseDescription: `Returned to ${target.name} due to invalid document requirements. Reason: ${reason}`,
+          phaseDescription: target.key === 'pre_deployment'
+            ? `Candidate returned to Pre-Deployment Processing. Ready for document validation. Reason: ${reason}`
+            : `Returned to ${target.name} due to invalid document requirements. Reason: ${reason}`,
         });
       }
 
@@ -580,7 +744,9 @@ export default function DocumentOCR({
           application_status: target.status,
           current_handler: 'Unassigned',
           current_department: target.department,
-          phase_description: `Returned to ${target.name} from Document Validation. Reason: ${reason}`,
+          phase_description: target.key === 'pre_deployment'
+            ? `Candidate returned to Pre-Deployment Processing. Ready for document validation. Reason: ${reason}`
+            : `Returned to ${target.name} from Document Validation. Reason: ${reason}`,
           statusChangeReason: reason,
           statusChangeSource: 'DOCUMENT_VALIDATION_RETURN',
           updated_at: nowIso,
@@ -590,17 +756,35 @@ export default function DocumentOCR({
           new_status: target.status,
           reason,
         }).catch(console.error);
+
+        // If reverting to Pre-Deployment Processing, reset admin_notes on cv_employer_submission
+        if (target.key === 'pre_deployment') {
+          api.get('/cv-submissions').then(res => {
+            const match = (res.data || []).find((s: any) => String(s.applicant_id) === applicantId);
+            if (match) {
+              api.patch(`/cv-submissions/${match.submission_id}`, {
+                adminNotes: '',
+                updatedBy: currentUserName,
+              }).catch(console.error);
+            }
+          }).catch(console.error);
+        }
       }
 
       addActivityLog({
         applicantId,
-        action: `Returned to ${target.name}`,
+        action: target.key === 'pre_deployment' ? 'Reverted to Pre-Deployment Processing' : `Returned to ${target.name}`,
         performedBy: currentUserName,
         department: 'Admin',
-        details: `Returned from Document Validation to ${target.name}. Justification: ${reason}`,
+        details: target.key === 'pre_deployment'
+          ? `Reverted from Document Validation to Pre-Deployment Processing. Justification: ${reason}`
+          : `Returned from Document Validation to ${target.name}. Justification: ${reason}`,
       });
 
-      showToast(`✓ ${app.name} returned to ${target.name} (Unassigned).`);
+      showToast(target.key === 'pre_deployment'
+        ? `↩ ${app.name} reverted to Pre-Deployment Processing.`
+        : `✓ ${app.name} returned to ${target.name} (Unassigned).`
+      );
       setReturnModalApplicant(null);
       if (modalApplicant?.id === app.id) {
         handleCloseApplicantModal();
@@ -900,18 +1084,38 @@ export default function DocumentOCR({
           }
         }
 
+        // Check document type mismatch against selected requirement
+        const currentReqName = selectedReq?.requirement?.requirement_name || '';
+        const detectedType = extracted.document_type || resData.document_type || '';
+        const detectedTitle = extracted.document_title || resData.document_title || '';
+        const rawText = resData.raw_text || '';
+        const mismatchAlert = checkDocumentTypeMismatch(currentReqName, detectedType, detectedTitle, rawText);
+
+        if (mismatchAlert) {
+          discrepancies.unshift({
+            field: 'Document Type Mismatch',
+            issue: mismatchAlert.detail,
+            severity: 'CRITICAL',
+          });
+        }
+
         setOcrEphemeralResult({
           extracted_data: extracted,
           discrepancies,
           match_status: discrepancies.length > 0 ? 'DISCREPANCY' : 'MATCH',
+          mismatchAlert,
         });
 
-        // If expiration date extracted, offer review
-        const extractedExp = extracted.expiration_date || extracted.expiry_date || extracted.date_of_expiry;
-        if (extractedExp) {
-          showToast(`✓ Gemini Vision detected date ${extractedExp}. Review and choose whether to accept.`);
+        if (mismatchAlert) {
+          showToast(`⚠️ DOCUMENT MISMATCH: Uploaded file is a ${mismatchAlert.detectedName}, not a ${mismatchAlert.expectedName}! Please recheck.`);
         } else {
-          showToast('✓ Gemini Vision scan complete (ephemeral preview, file not stored).');
+          // If expiration date extracted, offer review
+          const extractedExp = extracted.expiration_date || extracted.expiry_date || extracted.date_of_expiry;
+          if (extractedExp) {
+            showToast(`✓ Gemini Vision detected date ${extractedExp}. Review and choose whether to accept.`);
+          } else {
+            showToast('✓ Gemini Vision scan complete (ephemeral preview, file not stored).');
+          }
         }
 
         addActivityLog({
@@ -1580,41 +1784,55 @@ export default function DocumentOCR({
                     </div>
 
                     {/* Quick Card Action Buttons */}
-                    <div className="flex items-center gap-1.5">
-                      {isUnassigned ? (
-                        <button
-                          type="button"
-                          onClick={e => handleClaim(app, e)}
-                          className="flex-1 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs"
-                          title="Claim applicant into your active queue"
-                        >
-                          <UserCheck className="w-3.5 h-3.5" />
-                          <span>Claim</span>
-                        </button>
-                      ) : isClaimedByMe ? (
-                        <button
-                          type="button"
-                          onClick={e => handleRelease(app, e)}
-                          className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                          title="Release claim back to pool"
-                        >
-                          <span>Release</span>
-                        </button>
-                      ) : (
-                        <div className="flex-1 py-1 text-center text-[10px] text-slate-400 font-medium">
-                          In staff queue
-                        </div>
-                      )}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between gap-2">
+                        {isUnassigned ? (
+                          <button
+                            type="button"
+                            onClick={e => handleClaim(app, e)}
+                            className="bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            title="Claim applicant into your active queue"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>Claim</span>
+                          </button>
+                        ) : isClaimedByMe ? (
+                          <button
+                            type="button"
+                            onClick={e => handleRelease(app, e)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                            title="Release claim back to pool"
+                          >
+                            <span>Release</span>
+                          </button>
+                        ) : (
+                          <div className="text-[11px] text-slate-400 font-medium whitespace-nowrap px-1">
+                            In staff queue
+                          </div>
+                        )}
 
-                      {/* Return Stage Button */}
-                      <button
-                        type="button"
-                        onClick={e => handleOpenReturnModal(app, e)}
-                        className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors cursor-pointer"
-                        title="Return to previous workflow stage (e.g. Endorsement, Screening)"
-                      >
-                        <Undo2 className="w-3.5 h-3.5" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenApplicantModal(app)}
+                          className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs whitespace-nowrap ml-auto"
+                        >
+                          <span>Verify</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Revert to Pre-Deployment Processing Button */}
+                      {app.status !== 'Ready for Deployment' && app.status !== 'Deployed' && (
+                        <button
+                          type="button"
+                          onClick={e => handleOpenRevertToPreDeployment(app, e)}
+                          className="w-full justify-center px-2.5 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                          title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
+                        >
+                          <Undo2 className="w-3 h-3 text-amber-600" />
+                          <span>Revert to Pre-Deployment</span>
+                        </button>
+                      )}
 
                       {/* If Ready for Deployment, show a quick Revert button */}
                       {app.status === 'Ready for Deployment' && (
@@ -1625,22 +1843,13 @@ export default function DocumentOCR({
                             handleRevertReadyForDeployment(app);
                           }}
                           disabled={isSavingDeployment}
-                          className="px-2 py-1.5 text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                          className="w-full justify-center px-2.5 py-1 text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
                           title="Revert candidate status from Ready for Deployment to Administrative Processing"
                         >
                           <Undo2 className="w-3 h-3 text-amber-600" />
-                          <span>Revert</span>
+                          <span>Revert Ready Status</span>
                         </button>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenApplicantModal(app)}
-                        className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
-                      >
-                        <span>Verify</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1704,12 +1913,12 @@ export default function DocumentOCR({
               </div>
 
               {/* Header Right Actions */}
-              <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+              <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
                 {/* Handler Claim/Release */}
                 {(!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
                   <button
                     onClick={() => handleClaim(modalApplicant)}
-                    className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                    className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     <UserCheck className="w-3.5 h-3.5" />
                     <span>Claim Candidate</span>
@@ -1717,12 +1926,12 @@ export default function DocumentOCR({
                 ) : modalApplicant.currentHandler === currentUserName ? (
                   <button
                     onClick={() => handleRelease(modalApplicant)}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     <span>Release Claim</span>
                   </button>
                 ) : (
-                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-xl font-bold">
+                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
                     Handler: {modalApplicant.currentHandler}
                   </span>
                 )}
@@ -1733,23 +1942,26 @@ export default function DocumentOCR({
                     type="button"
                     onClick={() => handleRevertReadyForDeployment()}
                     disabled={isSavingDeployment}
-                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50"
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                     title="Revert candidate status from Ready for Deployment to Administrative Processing"
                   >
                     <Undo2 className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Revert Deployment Status</span>
+                    <span>Revert Deployment</span>
                   </button>
                 )}
 
-                {/* Return Stage */}
-                <button
-                  onClick={() => handleOpenReturnModal(modalApplicant)}
-                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  title="Return to previous workflow stage"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                  <span>Return Stage</span>
-                </button>
+                {/* Revert to Pre-Deployment Processing */}
+                {modalApplicant.status !== 'Deployed' && modalApplicant.status !== 'Ready for Deployment' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenRevertToPreDeployment(modalApplicant)}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex-shrink-0"
+                    title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
+                  >
+                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Revert to Pre-Deployment</span>
+                  </button>
+                )}
 
                 {/* Close Modal */}
                 <button
@@ -1998,18 +2210,6 @@ export default function DocumentOCR({
                           </div>
                         )}
 
-                        {/* File Upload / Replace */}
-                        <label className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>{previewUrl ? 'Replace File' : 'Upload File'}</span>
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept="image/*,application/pdf"
-                            onChange={handleRequirementFileUpload}
-                            disabled={isProcessing}
-                          />
-                        </label>
 
                         {/* Remove File */}
                         {previewUrl && (
@@ -2107,12 +2307,157 @@ export default function DocumentOCR({
                             </div>
                           )
                         ) : (
-                          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2 p-6 text-center">
-                            <FileText className="w-10 h-10 text-slate-300" />
-                            <span className="text-xs font-bold text-slate-600">No Document File Uploaded</span>
-                            <span className="text-[11px] text-slate-400 max-w-xs">
-                              Staff can inspect physical documents or upload a digital scan above.
-                            </span>
+                          <div className="w-full h-full overflow-y-auto p-4 sm:p-5 bg-slate-50/70">
+                            <div className="max-w-xl mx-auto space-y-3.5">
+                              {/* Manual Physical Inspection Banner */}
+                              <div className="bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200 rounded-2xl p-3.5 shadow-2xs">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+                                    <ClipboardCheck className="w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <h3 className="text-sm font-black text-slate-900">
+                                        Manual Physical Document Cross-Check
+                                      </h3>
+                                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                                        Paper Inspection
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                      No digital scan uploaded. Inspect the physical document in hand and cross-check against the applicant's official records below.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Target Requirement Being Verified */}
+                              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-2.5">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                    <FileText className="w-3.5 h-3.5 text-sky-600" />
+                                    Target Requirement
+                                  </span>
+                                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                                    selectedReq.verification_status === 'VERIFIED'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : selectedReq.verification_status === 'REJECTED'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}>
+                                    Status: {selectedReq.verification_status || 'PENDING'}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Requirement Name:</span>
+                                    <span className="font-extrabold text-slate-900 text-sm mt-0.5 block">
+                                      {selectedReq.requirement.requirement_name}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Category:</span>
+                                    <span className="font-bold text-slate-700 mt-0.5 block">
+                                      {selectedReq.requirement.category || 'REGULATORY / DEPLOYMENT'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Registered Expiration:</span>
+                                    <span className="font-mono font-bold text-slate-800 mt-0.5 block">
+                                      {getRegisteredExpirationDate(modalApplicant, selectedReq) || 'No registered date'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Audit Guidance:</span>
+                                    <span className="text-slate-600 font-medium mt-0.5 block">
+                                      Inspect physical seal, printed name & validity
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Candidate Official Registration Profile */}
+                              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                    <User className="w-3.5 h-3.5 text-slate-500" />
+                                    Candidate Registration Profile
+                                  </span>
+                                  <span className="text-[11px] font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                                    {modalApplicant.applicantCode || `APP-${modalApplicant.id}`}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div className="col-span-2 sm:col-span-1">
+                                    <span className="text-slate-400 block font-medium">Full Legal Name:</span>
+                                    <span className="font-black text-slate-900 text-sm mt-0.5 block">
+                                      {modalApplicant.name}
+                                    </span>
+                                  </div>
+                                  <div className="col-span-2 sm:col-span-1">
+                                    <span className="text-slate-400 block font-medium">Applied Job Role:</span>
+                                    <span className="font-bold text-slate-800 mt-0.5 block">
+                                      {modalApplicant.role || (modalApplicant as any).applied_role || 'General Overseas Worker'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Date of Birth:</span>
+                                    <span className="font-semibold text-slate-800 font-mono mt-0.5 block">
+                                      {(modalApplicant as any).birthDate || (modalApplicant as any).birth_date || 'Not recorded'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Gender / Sex:</span>
+                                    <span className="font-semibold text-slate-800 mt-0.5 block">
+                                      {modalApplicant.sex || (modalApplicant as any).gender || 'Not specified'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Civil Status:</span>
+                                    <span className="font-semibold text-slate-800 mt-0.5 block">
+                                      {(modalApplicant as any).civilStatus || (modalApplicant as any).civil_status || 'Single / Not specified'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Contact Number:</span>
+                                    <span className="font-mono font-semibold text-slate-800 mt-0.5 block">
+                                      {modalApplicant.contact || (modalApplicant as any).phone || 'N/A'}
+                                    </span>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <span className="text-slate-400 block font-medium">Registered Address:</span>
+                                    <span className="font-semibold text-slate-800 mt-0.5 block">
+                                      {(modalApplicant as any).address || (modalApplicant as any).permanentAddress || 'Philippine Registered Address'}
+                                    </span>
+                                  </div>
+                                  {((modalApplicant as any).passportNumber || (modalApplicant as any).passport_number) && (
+                                    <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                                      <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
+                                        Passport Number on File:
+                                      </span>
+                                      <span className="font-mono font-black text-sky-800 text-xs mt-0.5 block">
+                                        {(modalApplicant as any).passportNumber || (modalApplicant as any).passport_number}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Manual Inspection Audit Steps */}
+                              <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-950 space-y-1.5">
+                                <p className="font-extrabold flex items-center gap-1.5 text-amber-900">
+                                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                                  Manual Physical Verification Steps
+                                </p>
+                                <ol className="list-decimal pl-4 space-y-1 text-[11px] text-amber-900">
+                                  <li>Check that candidate name and birth date match the physical document in hand.</li>
+                                  <li>Inspect issuing authority, dry seal, and expiration validity.</li>
+                                  <li>Enter the verified expiration date and remarks in the right panel and click <strong>Approve & Verify</strong>.</li>
+                                </ol>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2241,6 +2586,31 @@ export default function DocumentOCR({
                             {/* OCR Ephemeral Result Display */}
                             {ocrEphemeralResult && (
                               <div className="pt-2 space-y-2 border-t border-slate-200">
+                                {/* Document Type Mismatch Alert */}
+                                {ocrEphemeralResult.mismatchAlert && (
+                                  <div className="bg-red-50 border-2 border-red-300 rounded-xl p-3 text-red-900 space-y-2 animate-in fade-in">
+                                    <div className="flex items-center gap-1.5 font-black text-xs text-red-700">
+                                      <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 animate-bounce" />
+                                      <span>DOCUMENT MISMATCH DETECTED</span>
+                                    </div>
+                                    <p className="text-[11px] text-red-800 leading-relaxed font-semibold">
+                                      {ocrEphemeralResult.mismatchAlert.detail}
+                                    </p>
+                                    <div className="bg-white/90 border border-red-200 rounded-lg p-2 text-[10.5px] space-y-1">
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-slate-500 font-medium">Expected Requirement:</span>
+                                        <span className="font-extrabold text-slate-800">{ocrEphemeralResult.mismatchAlert.expectedName}</span>
+                                      </div>
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-slate-500 font-medium">Uploaded Document Type:</span>
+                                        <span className="font-extrabold text-red-700">{ocrEphemeralResult.mismatchAlert.detectedName}</span>
+                                      </div>
+                                    </div>
+                                    <p className="text-[10px] text-red-600 italic">
+                                      Please recheck physical document or scan the matching file for this requirement.
+                                    </p>
+                                  </div>
+                                )}
                                 {ocrEphemeralResult.discrepancies && ocrEphemeralResult.discrepancies.length > 0 ? (
                                   <div className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-xs text-rose-800 space-y-1">
                                     <p className="font-extrabold flex items-center gap-1 text-[11px]">
@@ -2403,8 +2773,8 @@ export default function DocumentOCR({
                         </div>
 
                         {/* Actual Deployment Date Encoding from DMW */}
-                        <div className="flex items-center gap-2 w-full lg:w-auto">
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full lg:w-auto">
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
                             <Plane className="w-4 h-4 text-[#0EA5E9]" />
                             <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
                               Actual Deployment Date:
@@ -2420,7 +2790,7 @@ export default function DocumentOCR({
                             type="button"
                             onClick={handleSaveActualDeploymentDate}
                             disabled={isSavingDeployment || !actualDeploymentInput}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                           >
                             {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                             <span>Save Actual Date</span>
@@ -2445,13 +2815,15 @@ export default function DocumentOCR({
       {returnModalApplicant && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-rose-50/70">
+            <div className={`p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between ${returnTargetKey === 'pre_deployment' ? 'bg-amber-50/70' : 'bg-rose-50/70'}`}>
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${returnTargetKey === 'pre_deployment' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-600'}`}>
                   <Undo2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Return to Workflow Stage</h3>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {returnTargetKey === 'pre_deployment' ? 'Revert to Pre-Deployment Processing' : 'Return to Workflow Stage'}
+                  </h3>
                   <p className="text-[11px] text-slate-500">Applicant: {returnModalApplicant.name}</p>
                 </div>
               </div>
@@ -2474,7 +2846,7 @@ export default function DocumentOCR({
                 >
                   {RETURN_STAGE_OPTIONS.map(opt => (
                     <option key={opt.key} value={opt.key}>
-                      Phase {opt.phase}: {opt.name}
+                      {opt.name}
                     </option>
                   ))}
                 </select>
@@ -2516,10 +2888,10 @@ export default function DocumentOCR({
                 type="button"
                 onClick={handleConfirmReturnStage}
                 disabled={isReturning || returnReason.trim().length < 5}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                className={`px-4 py-2 text-xs font-bold text-white rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 ${returnTargetKey === 'pre_deployment' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'}`}
               >
                 {isReturning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
-                <span>Confirm Return</span>
+                <span>{returnTargetKey === 'pre_deployment' ? 'Confirm Revert' : 'Confirm Return'}</span>
               </button>
             </div>
           </div>

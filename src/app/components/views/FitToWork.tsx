@@ -24,7 +24,7 @@ import {
   Pencil,
   Trash2
 } from 'lucide-react';
-import { WorkflowState, ActivityLog, ApplicantRecord, Clinic, ClinicReferral } from '../../types';
+import { WorkflowState, ActivityLog, ApplicantRecord, Clinic, ClinicReferral, ExpenseRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
 

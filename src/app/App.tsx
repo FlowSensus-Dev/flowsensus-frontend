@@ -1391,12 +1391,6 @@ export default function App() {
           return true;
         });
 
-        // Delete all bad ones and duplicates from the database
-        [...badExpenses, ...duplicates].forEach(badExp => {
-          const dbId = badExp.id.replace('EXP-', '');
-          api.delete(`/financial/records/${dbId}`).catch(() => {}); // Fire and forget
-        });
-
         const liveExpenses = validExpenses;
         setExpenses(liveExpenses);
         setExpensesLoaded(true);
@@ -1551,7 +1545,7 @@ export default function App() {
         if (liveMounted.current) {
           fetchLiveBackendData();
         }
-      }, 400);
+      }, 1200);
     };
 
     const channel = supabase
@@ -1584,39 +1578,13 @@ export default function App() {
           triggerDebouncedRefresh();
         }
       )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'audit_log' },
-        (payload: any) => {
-          if (payload?.new) {
-            const raw = payload.new;
-            const newLog: ActivityLog = {
-              audit_log_id: raw.audit_log_id || raw.id,
-              applicant_id: raw.applicant_id,
-              performed_by: raw.actor_name || raw.performed_by || 'Staff User',
-              created_at: raw.occurred_at || raw.created_at,
-              id: `LOG-${raw.audit_log_id || raw.id || Date.now()}`,
-              applicantId: raw.applicant_id ? String(raw.applicant_id) : '',
-              action: raw.action || 'System Action',
-              performedBy: raw.actor_name || raw.performed_by || 'Staff User',
-              department: raw.module || raw.department || 'Operations',
-              details: raw.description || raw.details || '',
-              timestamp: raw.occurred_at || raw.created_at || new Date().toISOString(),
-            };
-            setActivityLogs((prev) => {
-              if (prev.some((l) => l.audit_log_id === raw.audit_log_id)) return prev;
-              return [newLog, ...prev];
-            });
-          }
-        }
-      )
       .subscribe();
 
     return () => {
       clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [view, liveSession.current.userId]);
+  }, [view === "app", liveSession.current.userId]);
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
     const timestamp = new Date().toISOString();

@@ -598,7 +598,7 @@ export default function ApplicantProfile({
             <div className="flex flex-wrap gap-2 mt-3">
               {/* Phase Badge */}
               <span className="text-xs px-3 py-1 bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/40 font-bold flex items-center gap-1.5">
-                <span>Phase {applicant.phase} - {PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
+                <span>{PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
               </span>
 
               {/* Status Badge */}
@@ -712,18 +712,6 @@ export default function ApplicantProfile({
               );
             })}
           </div>
-
-          {onEdit && (
-            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-              <button 
-                onClick={onEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-              >
-                <Edit2 size={13} />
-                <span>Update Details</span>
-              </button>
-            </div>
-          )}
         </div>
       </nav>
 
@@ -1726,7 +1714,7 @@ export default function ApplicantProfile({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-[#0F172A]">{exp.type}</p>
-                  <p className="text-xs text-slate-500">{exp.description} · {exp.recordedBy}</p>
+                  <p className="text-xs text-slate-500">{exp.description || exp.purpose || exp.remarks} · {exp.recordedBy}</p>
                 </div>
                 <p className="text-base font-black text-[#0F172A] flex-shrink-0">₱{exp.amount.toLocaleString()}</p>
               </div>

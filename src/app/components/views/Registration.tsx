@@ -9,7 +9,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import {
-  ActivityLog, ApplicantRecord,
+  ActivityLog, ApplicantRecord, ExpenseRecord,
   IdentificationRecord, EducationRecord, CertificateRecord,
   TrainingRecord, LanguageRecord, EmploymentRecord, EmploymentFlag, EmploymentFlagType
 } from '../../types';

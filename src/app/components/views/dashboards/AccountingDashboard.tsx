@@ -2,13 +2,13 @@ import { useState, useMemo } from 'react';
 import {
   DollarSign, FileText, User, Search, Filter, Activity, CheckCircle2, TrendingUp, AlertCircle, Settings
 } from 'lucide-react';
-import { ApplicantRecord, ExpenseRecord } from '../../../types';
+import { ApplicantRecord, ExpenseRecord, ViewType } from '../../../types';
 
 interface AccountingDashboardProps {
   applicants?: ApplicantRecord[];
   expenses?: ExpenseRecord[];
   onAddExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
-  onNavigate?: (view: string) => void;
+  onNavigate?: (view: ViewType) => void;
   onViewApplicant?: (id: string) => void;
   onSelectApplicant?: (id: string) => void;
   isLoading?: boolean;
