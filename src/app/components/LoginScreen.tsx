@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { validatePassword } from '../../lib/passwordPolicy';
 
-type PortalType = 'staff' | 'applicant' | 'employer';
+type PortalType = 'staff' | 'applicant';
 
 interface LoginScreenProps {
   onLogin: (
@@ -63,14 +63,6 @@ const PORTALS: {
       icon: <User size={22} />,
       accent: '#10B981',
       gradient: 'from-[#10B981] to-[#059669]',
-    },
-    {
-      key: 'employer',
-      title: 'Employer',
-      subtitle: 'Evaluate deployed workers and manage workforce records',
-      icon: <Building2 size={22} />,
-      accent: '#1D4ED8',
-      gradient: 'from-[#1D4ED8] to-[#1E40AF]',
     },
   ];
 
@@ -237,9 +229,7 @@ export default function LoginScreen({
         }
       }
 
-      if (portal === 'employer') {
-        onLogin('Employer', user?.user_metadata?.full_name || trimmedUser, undefined, isSuper, ['Employer'], rememberMe);
-      } else if (portal === 'applicant') {
+      if (portal === 'applicant') {
         const applicantName = user?.user_metadata?.full_name || resolvedApplicantData?.full_name || trimmedUser;
         const applicantId = resolvedApplicantData?.applicant_id || user?.user_metadata?.applicant_id || user?.app_metadata?.applicant_id || selectedApplicantId;
 
@@ -431,7 +421,7 @@ export default function LoginScreen({
               <div className="relative flex py-1 items-center">
                 <div className="flex-grow border-t border-slate-200" />
                 <span className="flex-shrink mx-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Or choose a portal
+                  Select a portal to sign in
                 </span>
                 <div className="flex-grow border-t border-slate-200" />
               </div>
@@ -470,10 +460,10 @@ export default function LoginScreen({
               <p className="text-xs text-[#64748B]">
                 {tenantName ? (
                   <>
-                    <span className="font-bold">{tenantName}</span> · Powered by FlowSensus
+                    <span className="font-bold">{tenantName}</span> · Powered by FLOWSENSUS
                   </>
                 ) : (
-                  <span className="font-bold">FlowSensus Multi-Tenant Placement</span>
+                  <span className="font-bold">FLOWSENSUS Multi-Tenant Placement</span>
                 )}
               </p>
             </div>

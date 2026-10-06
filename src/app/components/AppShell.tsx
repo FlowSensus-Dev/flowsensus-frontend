@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
 import { UserRole, ViewType, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
@@ -152,6 +152,59 @@ export default function AppShell({
       localStorage.setItem('flowsensus_selected_applicant', fallbackId);
     }
   }, [applicants, selectedApplicantId]);
+
+  // Global Auto-Sync for Phase-based Expenses
+  const processedPhases = useRef<Set<string>>(new Set());
+  
+  useEffect(() => {
+    if (!applicantsLoaded || !expenses) return;
+    
+    applicants.forEach(app => {
+      // Phase 3 (Medical Cleared) -> Medical Package
+      if (app.phase >= 3) {
+        const medicalKey = `${app.id}-medical`;
+        if (!processedPhases.current.has(medicalKey)) {
+          const hasMedicalExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Medical'));
+          if (!hasMedicalExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Medical Package (Fit-to-Work)',
+              amount: 1500,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated medical fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(medicalKey);
+        }
+      }
+      
+      // Phase 5 (Processing - Passporting, OEC) -> Document Processing
+      if (app.phase >= 5) {
+        const docKey = `${app.id}-doc`;
+        if (!processedPhases.current.has(docKey)) {
+          const hasDocExpense = expenses.some(e => String(e.applicantId) === String(app.id) && (e.purpose.includes('OEC') || e.purpose.includes('Passport')));
+          if (!hasDocExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'OEC & Passporting',
+              amount: 8000,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(docKey);
+        }
+      }
+    });
+  }, [applicants, expenses, addExpense, applicantsLoaded]);
 
   const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
@@ -389,6 +442,7 @@ export default function AppShell({
                 applicants={applicants}
                 expenses={expenses}
                 onNavigate={handleNavigate}
+                onViewApplicant={handleViewApplicant}
                 onAddExpense={addExpense}
                 isLoading={isApplicantsLoading}
               />
@@ -430,6 +484,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             onEditApplicant={() => setCurrentView('registration')}
+            currentUserRole={currentUserRole}
           />
         );
       case 'registration':
@@ -443,6 +498,7 @@ export default function AppShell({
             addApplicant={addApplicant}
             applicants={applicants}
             globalJobOrders={globalJobOrders}
+            addExpense={addExpense}
           />
         );
       case 'screening':
@@ -516,6 +572,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            addExpense={addExpense}
           />
         );
       case 'ocr':
@@ -542,6 +599,7 @@ export default function AppShell({
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            onViewApplicant={handleViewApplicant}
           />
         );
       case 'manager':

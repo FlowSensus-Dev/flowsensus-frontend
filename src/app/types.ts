@@ -283,18 +283,25 @@ export interface DocumentRecord {
 export interface ExpenseRecord {
   id: string;
   applicantId: string;
-  type?: string;
+  purpose: string;
   amount: number;
-  description?: string;
+  currency: 'PESO' | 'DOLLAR';
+  type: 'expense' | 'cash_advance' | 'deduction';
+  remarks?: string;
+  status: 'draft' | 'approved';
   date?: string;
   recordedBy?: string;
-  category?: 'processing_fee' | 'visa' | 'medical' | 'cash_advance' | 'other' | string;
-  paymentMethod?: string;
-  paidBy?: 'Agency' | 'Applicant' | 'Employer' | string;
-  notes?: string;
   timestamp?: string;
 }
 
+export interface ApplicantLedgerSummary {
+  applicantId: string;
+  targetCurrency: string;
+  exchangeRateUsdToPhp: number;
+  accommodationPerDay: number;
+  accommodationDays: number;
+  remittance: number;
+}
 export interface DynamicTestScore {
   id?: string;
   templateId?: string;

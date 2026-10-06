@@ -85,6 +85,7 @@ interface ApplicantProfileProps {
   hasNext?: boolean;
   applicantIndexText?: string;
   onEdit?: () => void;
+  currentUserRole?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -102,7 +103,10 @@ export default function ApplicantProfile({
   hasNext,
   applicantIndexText,
   onEdit,
+  currentUserRole,
 }: ApplicantProfileProps) {
+  const isAccounting = currentUserRole === 'Accounting';
+
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -658,7 +662,7 @@ export default function ApplicantProfile({
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
             <div className="flex gap-2">
-              {applicant.status === 'Processing Stopped' && (
+              {!isAccounting && applicant.status === 'Processing Stopped' && (
                 <button
                   onClick={() => setShowDeleteModal(true)}
                   disabled={isDeleting}
@@ -667,7 +671,7 @@ export default function ApplicantProfile({
                   <Trash2 size={13} /> {isDeleting ? 'Deleting...' : 'Delete'}
                 </button>
               )}
-              {!(applicant.status === 'Processing Stopped') && updateApplicant && (
+              {!isAccounting && !(applicant.status === 'Processing Stopped') && updateApplicant && (
                 <button
                   onClick={() => setShowStopModal(true)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
@@ -1404,7 +1408,10 @@ export default function ApplicantProfile({
         </div>
 
         {/* Regulatory & Compliance Requirements from Supabase */}
-        <div className="space-y-2">
+        <div className="space-y-2 relative">
+          {isAccounting && (
+            <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed pointer-events-auto" title="Read-only access"></div>
+          )}
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-1.5">
             <FileCheck size={13} className="text-[#0EA5E9]" /> Regulatory &amp; Compliance Clearances ({applicant.requirements?.length || 0})
           </p>

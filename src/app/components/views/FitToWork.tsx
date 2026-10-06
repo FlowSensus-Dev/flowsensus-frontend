@@ -37,6 +37,7 @@ interface FitToWorkProps {
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   selectedApplicantId?: string;
   applicants?: ApplicantRecord[];
+  addExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
 }
 
 export default function FitToWork({
@@ -47,7 +48,8 @@ export default function FitToWork({
   addActivityLog,
   updateApplicant,
   selectedApplicantId: initialApplicantId,
-  applicants = []
+  applicants = [],
+  addExpense
 }: FitToWorkProps) {
   // ── Database state for clinics and clinic referrals from Supabase ─────────
   const [clinics, setClinics] = useState<Clinic[]>([]);
@@ -1030,6 +1032,21 @@ export default function FitToWork({
 
       updateApplicant(applicantId, updates);
       updateWorkflow({ medicalCleared: true });
+
+      // Trigger automatic expense for Medical Package (Draft)
+      if (addExpense) {
+        addExpense({
+          applicantId: applicantId,
+          purpose: 'Medical Package (Fit-to-Work)',
+          amount: 1500, // standard base rate
+          currency: 'PESO',
+          type: 'expense',
+          remarks: `Automated medical fee from ${clinicName}. Edit if actual rate differs.`,
+          status: 'draft',
+          date: nowIso.split('T')[0],
+          recordedBy: 'System Auto-Trigger'
+        });
+      }
 
       // 3. Persist to Backend with audit trail (triggers application_status_history insert!)
       if (!isNaN(numericId)) {

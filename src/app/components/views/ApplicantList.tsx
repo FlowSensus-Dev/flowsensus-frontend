@@ -31,6 +31,7 @@ interface ApplicantListProps {
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast?: (msg: string) => void;
   onEditApplicant?: () => void;
+  currentUserRole?: string;
 }
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
@@ -57,6 +58,7 @@ export default function ApplicantList({
   addActivityLog,
   showToast,
   onEditApplicant,
+  currentUserRole,
 }: ApplicantListProps) {
   const [search, setSearch] = useState('');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
@@ -261,6 +263,7 @@ export default function ApplicantList({
           hasNext={hasNext}
           applicantIndexText={applicantIndexText}
           onEdit={onEditApplicant}
+          currentUserRole={currentUserRole}
         />
       </div>
     );

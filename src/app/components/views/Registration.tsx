@@ -165,6 +165,7 @@ interface RegistrationProps {
   addApplicant?: (newApplicant: ApplicantRecord) => void;
   applicants?: ApplicantRecord[];
   globalJobOrders?: any[];
+  addExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
 }
 
 const BLANK_PERSONAL = {
@@ -202,6 +203,7 @@ export default function Registration({
   selectedApplicantId: initialId = 'new',
   updateApplicant, addApplicant, applicants = [],
   globalJobOrders,
+  addExpense,
 }: RegistrationProps) {
   const [selectedApplicantId, setSelectedApplicantId] = useState(initialId);
   const currentApplicant = applicants.find((a) => String(a.id) === String(selectedApplicantId));
@@ -432,7 +434,47 @@ export default function Registration({
   };
 
   const setApplicantReqField = (name: string, field: string, value: any) => {
-    setApplicantRequirements(prev => prev.map(r => r.name === name ? { ...r, [field]: value } : r));
+    setApplicantRequirements(prev => prev.map(r => {
+      if (r.name === name) {
+        if (field === 'status' && (value === 'SUBMITTED' || value === 'VERIFIED') && r.status !== 'SUBMITTED' && r.status !== 'VERIFIED') {
+          // Trigger automated expense when a document is submitted
+          if (addExpense && selectedApplicantId && selectedApplicantId !== 'new') {
+            const expenseMap: Record<string, number> = {
+              'OEC': 2500,
+              'TESDA': 500,
+              'Medical': 1500,
+              'PDOS': 500,
+              'OWWA': 1500,
+              'Visa': 2000,
+            };
+            
+            // Only trigger expense if the document name is in the deployment whitelist
+            let amount = 0;
+            Object.keys(expenseMap).forEach(key => {
+              if (name.toLowerCase().includes(key.toLowerCase())) {
+                amount = expenseMap[key];
+              }
+            });
+
+            if (amount > 0) {
+              addExpense({
+                applicantId: selectedApplicantId,
+                purpose: `Processing Fee: ${name}`,
+                amount: amount,
+                currency: 'PESO',
+                type: 'expense',
+                remarks: `Automated processing fee for deployment requirement.`,
+                status: 'draft',
+                date: new Date().toISOString().split('T')[0],
+                recordedBy: 'System Auto-Trigger'
+              });
+            }
+          }
+        }
+        return { ...r, [field]: value };
+      }
+      return r;
+    }));
   };
 
   // ── Education ─────────────────────────────────────────────────────────────
