@@ -435,7 +435,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} />
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} globalEmployers={globalEmployers} />
                 </div>
               </div>
             </div>
@@ -473,6 +473,7 @@ export default function AppShell({
                 onSelectApplicant={setSelectedApplicantId}
                 onAddExpense={addExpense}
                 isLoading={isApplicantsLoading}
+                globalEmployers={globalEmployers}
               />
             );
           case 'Management':

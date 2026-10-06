@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  DollarSign, FileText, User, Search, Filter, Activity, CheckCircle2, TrendingUp, AlertCircle, Settings
+  DollarSign, FileText, User, Search, Filter, Activity, CheckCircle2, TrendingUp, AlertCircle, Settings, Building2, Download, ChevronRight
 } from 'lucide-react';
 import { ApplicantRecord, ExpenseRecord } from '../../../types';
 
@@ -12,6 +12,7 @@ interface AccountingDashboardProps {
   onViewApplicant?: (id: string) => void;
   onSelectApplicant?: (id: string) => void;
   isLoading?: boolean;
+  globalEmployers?: any[];
 }
 
 export default function AccountingDashboard({
@@ -21,6 +22,7 @@ export default function AccountingDashboard({
   onViewApplicant,
   onSelectApplicant,
   isLoading,
+  globalEmployers = [],
 }: AccountingDashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('All');
@@ -97,6 +99,8 @@ export default function AccountingDashboard({
     }
   };
 
+
+
   return (
     <div className="space-y-6 w-full">
       <div className="mb-6 flex justify-between items-center">
@@ -116,8 +120,9 @@ export default function AccountingDashboard({
         </button>
       </div>
 
-      {/* Global Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        {/* Global Metrics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Active Ledgers</p>
