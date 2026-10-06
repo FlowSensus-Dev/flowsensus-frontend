@@ -149,20 +149,24 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       if (!silent) setLoading(true);
       setErrorMsg(null);
 
-      const [resProfile, resApps, resDocs] = await Promise.all([
+      const [resProfile, resApps, resDocs] = await Promise.allSettled([
         api.get('/applicants/me'),
         api.get('/applicants/me/applications'),
         api.get('/applicants/me/documents'),
       ]);
 
-      if (resProfile.data) {
-        setProfile(resProfile.data);
+      if (resProfile.status === 'fulfilled' && resProfile.value.data) {
+        setProfile(resProfile.value.data);
+      } else if (resProfile.status === 'rejected') {
+        throw resProfile.reason; // Required data, must fail
       }
-      if (Array.isArray(resApps.data)) {
-        setApplications(resApps.data);
+      
+      if (resApps.status === 'fulfilled' && Array.isArray(resApps.value.data)) {
+        setApplications(resApps.value.data);
       }
-      if (Array.isArray(resDocs.data)) {
-        setDocuments(resDocs.data);
+      
+      if (resDocs.status === 'fulfilled' && Array.isArray(resDocs.value.data)) {
+        setDocuments(resDocs.value.data);
       } else {
         setDocuments([]);
       }
@@ -170,9 +174,9 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       // Persist to session cache for instant future loads
       try {
         sessionStorage.setItem('fs_cache_applicant_portal', JSON.stringify({
-          profile: resProfile.data,
-          applications: Array.isArray(resApps.data) ? resApps.data : [],
-          documents: Array.isArray(resDocs.data) ? resDocs.data : [],
+          profile: resProfile.status === 'fulfilled' ? resProfile.value.data : null,
+          applications: resApps.status === 'fulfilled' && Array.isArray(resApps.value.data) ? resApps.value.data : [],
+          documents: resDocs.status === 'fulfilled' && Array.isArray(resDocs.value.data) ? resDocs.value.data : [],
         }));
       } catch (e) {}
     } catch (err: any) {

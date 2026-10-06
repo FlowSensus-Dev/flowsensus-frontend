@@ -21,7 +21,8 @@ export type ViewType =
   | 'requirements'
   | 'evaluation'
   | 'joborders'
-  | 'employers';
+  | 'employers'
+  | 'accounting-settings';
 
 export interface WorkflowState {
   screeningPassed: boolean;

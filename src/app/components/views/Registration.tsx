@@ -437,39 +437,7 @@ export default function Registration({
     setApplicantRequirements(prev => prev.map(r => {
       if (r.name === name) {
         if (field === 'status' && (value === 'SUBMITTED' || value === 'VERIFIED') && r.status !== 'SUBMITTED' && r.status !== 'VERIFIED') {
-          // Trigger automated expense when a document is submitted
-          if (addExpense && selectedApplicantId && selectedApplicantId !== 'new') {
-            const expenseMap: Record<string, number> = {
-              'OEC': 2500,
-              'TESDA': 500,
-              'Medical': 1500,
-              'PDOS': 500,
-              'OWWA': 1500,
-              'Visa': 2000,
-            };
-            
-            // Only trigger expense if the document name is in the deployment whitelist
-            let amount = 0;
-            Object.keys(expenseMap).forEach(key => {
-              if (name.toLowerCase().includes(key.toLowerCase())) {
-                amount = expenseMap[key];
-              }
-            });
-
-            if (amount > 0) {
-              addExpense({
-                applicantId: selectedApplicantId,
-                purpose: `Processing Fee: ${name}`,
-                amount: amount,
-                currency: 'PESO',
-                type: 'expense',
-                remarks: `Automated processing fee for deployment requirement.`,
-                status: 'draft',
-                date: new Date().toISOString().split('T')[0],
-                recordedBy: 'System Auto-Trigger'
-              });
-            }
-          }
+          // Auto-sync for document processing fees is handled globally in AppShell.tsx
         }
         return { ...r, [field]: value };
       }

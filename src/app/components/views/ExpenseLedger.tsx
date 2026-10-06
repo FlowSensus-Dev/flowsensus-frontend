@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Lock, DollarSign, Plus, Receipt, Loader2, Download, Building2, ArrowLeft, Search, Filter, User, X } from 'lucide-react';
+import { Lock, DollarSign, Plus, Receipt, Loader2, Download, Building2, ArrowLeft, Search, Filter, User, X, Edit2 } from 'lucide-react';
 import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord, ApplicantLedgerSummary } from '../../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -8,24 +8,28 @@ interface ExpenseLedgerProps {
   workflow: WorkflowState;
   expenses?: ExpenseRecord[];
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
   currentUserName: string;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast: (message: string) => void;
   selectedApplicantId?: string;
   applicants?: ApplicantRecord[];
   onViewApplicant?: (id: string) => void;
+  onSelectApplicant?: (id: string) => void;
 }
 
 export default function ExpenseLedger({
   workflow,
   expenses = [],
   addExpense,
+  updateExpense,
   currentUserName,
   addActivityLog,
   showToast,
   selectedApplicantId,
   applicants = [],
   onViewApplicant,
+  onSelectApplicant,
 }: ExpenseLedgerProps) {
   // For the Applicant Directory view
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +58,7 @@ export default function ExpenseLedger({
   const [showAddModal, setShowAddModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expenseCategory, setExpenseCategory] = useState('Document Processing');
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
 
   const [newExpense, setNewExpense] = useState<Omit<ExpenseRecord, 'id'>>({
     applicantId: selectedApplicantId,
@@ -117,18 +122,24 @@ export default function ExpenseLedger({
         recordedBy: currentUserName,
       };
 
-      await Promise.resolve(addExpense(expense));
+      if (editingExpenseId && updateExpense) {
+        await Promise.resolve(updateExpense(editingExpenseId, expense));
+        showToast(`✓ Expense updated: ${expense.purpose}`);
+      } else {
+        await Promise.resolve(addExpense(expense));
+        showToast(`✓ Expense recorded: ${expense.purpose}`);
+      }
 
       addActivityLog({
         applicantId: selectedApplicantId,
-        action: 'Financial Transaction Recorded',
+        action: editingExpenseId ? 'Financial Transaction Updated' : 'Financial Transaction Recorded',
         performedBy: currentUserName,
         department: 'Accounting',
         details: `${expense.type}: ₱${expense.amount.toLocaleString()} - ${expense.purpose}`,
       });
 
-      showToast(`✓ Expense recorded: ${expense.purpose}`);
       setShowAddModal(false);
+      setEditingExpenseId(null);
       setNewExpense({
         applicantId: selectedApplicantId, purpose: 'Document Processing', amount: 0, currency: 'PESO', type: 'expense', remarks: '', status: 'approved',
       });
@@ -136,6 +147,26 @@ export default function ExpenseLedger({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEditExpense = (expense: ExpenseRecord) => {
+    setEditingExpenseId(expense.id);
+    setNewExpense({
+      applicantId: expense.applicantId,
+      purpose: expense.purpose,
+      amount: expense.amount,
+      currency: expense.currency,
+      type: expense.type,
+      remarks: expense.remarks || '',
+      status: expense.status,
+    });
+    if (expense.type === 'deduction') setExpenseCategory('Salary Deduction');
+    else if (expense.type === 'cash_advance') setExpenseCategory('Cash Advance');
+    else if (expense.purpose.includes('Medical')) setExpenseCategory('Medical Fee');
+    else if (expense.purpose.includes('Training') || expense.purpose.includes('Seminar')) setExpenseCategory('Training & Seminar');
+    else setExpenseCategory('Document Processing');
+    
+    setShowAddModal(true);
   };
 
   const generatePDF = () => {
@@ -248,7 +279,7 @@ export default function ExpenseLedger({
           </div>
           <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
             {applicantLedgers.map(app => (
-              <div key={app.id} onClick={() => onViewApplicant && onViewApplicant(String(app.id))} className="p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between transition-colors">
+              <div key={app.id} onClick={() => onSelectApplicant ? onSelectApplicant(String(app.id)) : (onViewApplicant && onViewApplicant(String(app.id)))} className="p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center">
                     <User className="w-5 h-5 text-indigo-600" />
@@ -275,13 +306,28 @@ export default function ExpenseLedger({
       <div className="relative">
         <div className="mb-4 flex items-center justify-between">
           <button 
-            onClick={() => onViewApplicant && onViewApplicant('')}
+            onClick={() => onSelectApplicant ? onSelectApplicant('') : (onViewApplicant && onViewApplicant(''))}
             className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
           >
             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Directory
           </button>
           <div className="flex gap-3">
-            <button onClick={() => setShowAddModal(true)} className="px-4 py-2 bg-[#10B981] text-white text-sm font-bold rounded-lg hover:bg-[#059669] flex items-center gap-2 disabled:opacity-50">
+            <button 
+              onClick={() => {
+                setEditingExpenseId(null);
+                setNewExpense({
+                  applicantId: selectedApplicantId,
+                  purpose: 'Document Processing',
+                  amount: 0,
+                  currency: 'PESO',
+                  type: 'expense',
+                  remarks: '',
+                  status: 'approved',
+                });
+                setShowAddModal(true);
+              }} 
+              className="px-4 py-2 bg-[#10B981] text-white text-sm font-bold rounded-lg hover:bg-[#059669] flex items-center gap-2 disabled:opacity-50"
+            >
               <Plus className="w-4 h-4" /> Add Entry
             </button>
             <button onClick={generatePDF} className="px-4 py-2 bg-slate-800 text-white text-sm font-bold rounded-lg hover:bg-slate-700 flex items-center gap-2">
@@ -301,6 +347,7 @@ export default function ExpenseLedger({
                   <th className="px-4 py-3 text-right">AMOUNT</th>
                   <th className="px-4 py-3 text-center">CURRENCY</th>
                   <th className="px-4 py-3">REMARKS</th>
+                  <th className="px-4 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -320,46 +367,54 @@ export default function ExpenseLedger({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{exp.remarks}</td>
+                    <td className="px-4 py-3">
+                      <button 
+                        onClick={() => handleEditExpense(exp)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        title="Edit Entry"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {currentExpenses.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">No recorded expenses for this applicant.</td>
+                    <td colSpan={6} className="py-8 text-center text-slate-400">No recorded expenses for this applicant.</td>
                   </tr>
                 )}
 
-                {/* Totals Section */}
                 <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
                   <td colSpan={2} className="px-4 py-3 text-right">TOTAL OF PESO</td>
                   <td className="px-4 py-3 text-right">{totalPeso.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td colSpan={2}></td>
+                  <td colSpan={3}></td>
                 </tr>
                 <tr className="bg-slate-50 font-bold">
                   <td colSpan={2} className="px-4 py-3 text-right">Total Converting PESO to {currentSummary.targetCurrency}</td>
                   <td className="px-4 py-3 text-right">{convertedToDollar.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td colSpan={2}></td>
+                  <td colSpan={3}></td>
                 </tr>
                 <tr className="bg-slate-50 font-bold">
                   <td colSpan={2} className="px-4 py-3 text-right">Total Of {currentSummary.targetCurrency}</td>
                   <td className="px-4 py-3 text-right">{totalDollar.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 text-center">{currentSummary.targetCurrency}</td>
-                  <td></td>
+                  <td colSpan={2}></td>
                 </tr>
                 <tr className="bg-slate-100 font-black text-slate-900 border-t border-slate-200">
                   <td colSpan={2} className="px-4 py-3 text-right uppercase">Total Of expenses</td>
                   <td className="px-4 py-3 text-right">{totalExpensesDollar.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 text-center">{currentSummary.targetCurrency}</td>
-                  <td></td>
+                  <td colSpan={2}></td>
                 </tr>
 
                 {/* Separator */}
-                <tr><td colSpan={5} className="py-2"></td></tr>
+                <tr><td colSpan={6} className="py-2"></td></tr>
 
                 <tr className="bg-emerald-50 font-black text-emerald-900 border-t border-emerald-200">
                   <td colSpan={2} className="px-4 py-3 text-right uppercase">total remaining to pay to agent</td>
                   <td className="px-4 py-3 text-right">{remainingToPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 text-center">{currentSummary.targetCurrency}</td>
-                  <td></td>
+                  <td colSpan={2}></td>
                 </tr>
               </tbody>
             </table>
@@ -445,7 +500,7 @@ export default function ExpenseLedger({
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="font-bold text-[#0F172A] text-lg">Add Manual Entry</h3>
+                <h3 className="font-bold text-[#0F172A] text-lg">{editingExpenseId ? 'Edit Entry' : 'Add Manual Entry'}</h3>
                 <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="w-5 h-5" />
                 </button>
@@ -506,7 +561,7 @@ export default function ExpenseLedger({
                 </div>
                 <button onClick={handleAddSubmit} disabled={isSubmitting} className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 mt-2">
                   {isSubmitting && <Loader2 size={16} className="animate-spin" />}
-                  Save Entry
+                  {editingExpenseId ? 'Update Entry' : 'Save Entry'}
                 </button>
               </div>
             </div>

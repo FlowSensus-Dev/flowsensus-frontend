@@ -31,6 +31,7 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
+import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
 import { hasAccessToView } from '../../lib/accessControl';
 
@@ -49,7 +50,9 @@ interface AppShellProps {
   activityLogs: ActivityLog[];
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   expenses: ExpenseRecord[];
+  expensesLoaded?: boolean;
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
@@ -75,7 +78,9 @@ export default function AppShell({
   activityLogs,
   addActivityLog,
   expenses,
+  expensesLoaded,
   addExpense,
+  updateExpense,
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
@@ -157,7 +162,10 @@ export default function AppShell({
   const processedPhases = useRef<Set<string>>(new Set());
   
   useEffect(() => {
-    if (!applicantsLoaded || !expenses) return;
+    if (!applicantsLoaded || !expensesLoaded || !expenses) return;
+    
+    // Fetch current rates to use when logging
+    const rates = getStoredRates();
     
     applicants.forEach(app => {
       // Phase 3 (Medical Cleared) -> Medical Package
@@ -169,7 +177,7 @@ export default function AppShell({
             addExpense({
               applicantId: app.id,
               purpose: 'Medical Package (Fit-to-Work)',
-              amount: 1500,
+              amount: rates.medical,
               currency: 'PESO',
               type: 'expense',
               remarks: 'Automated medical fee from phase change.',
@@ -184,14 +192,14 @@ export default function AppShell({
       
       // Phase 5 (Processing - Passporting, OEC) -> Document Processing
       if (app.phase >= 5) {
-        const docKey = `${app.id}-doc`;
-        if (!processedPhases.current.has(docKey)) {
-          const hasDocExpense = expenses.some(e => String(e.applicantId) === String(app.id) && (e.purpose.includes('OEC') || e.purpose.includes('Passport')));
-          if (!hasDocExpense) {
+        const oecKey = `${app.id}-oec`;
+        if (!processedPhases.current.has(oecKey)) {
+          const hasOecExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('OEC'));
+          if (!hasOecExpense) {
             addExpense({
               applicantId: app.id,
-              purpose: 'OEC & Passporting',
-              amount: 8000,
+              purpose: 'OEC Processing',
+              amount: rates.oec,
               currency: 'PESO',
               type: 'expense',
               remarks: 'Automated processing fee from phase change.',
@@ -200,7 +208,26 @@ export default function AppShell({
               recordedBy: 'System Auto-Trigger'
             });
           }
-          processedPhases.current.add(docKey);
+          processedPhases.current.add(oecKey);
+        }
+
+        const passportKey = `${app.id}-passport`;
+        if (!processedPhases.current.has(passportKey)) {
+          const hasPassportExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Passport'));
+          if (!hasPassportExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Passport Processing',
+              amount: rates.passport,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(passportKey);
         }
       }
     });
@@ -408,7 +435,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} />
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} />
                 </div>
               </div>
             </div>
@@ -443,6 +470,7 @@ export default function AppShell({
                 expenses={expenses}
                 onNavigate={handleNavigate}
                 onViewApplicant={handleViewApplicant}
+                onSelectApplicant={setSelectedApplicantId}
                 onAddExpense={addExpense}
                 isLoading={isApplicantsLoading}
               />
@@ -594,12 +622,21 @@ export default function AppShell({
             workflow={workflow}
             expenses={expenses}
             addExpense={addExpense}
+            updateExpense={updateExpense}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
             onViewApplicant={handleViewApplicant}
+            onSelectApplicant={setSelectedApplicantId}
+          />
+        );
+      case 'accounting-settings':
+        return (
+          <AccountingSettings
+            onBack={() => handleNavigate('accounting')}
+            showToast={showToastNotification}
           />
         );
       case 'manager':

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  DollarSign, FileText, User, Search, Filter, Activity, CheckCircle2, TrendingUp, AlertCircle
+  DollarSign, FileText, User, Search, Filter, Activity, CheckCircle2, TrendingUp, AlertCircle, Settings
 } from 'lucide-react';
 import { ApplicantRecord, ExpenseRecord } from '../../../types';
 
@@ -10,6 +10,7 @@ interface AccountingDashboardProps {
   onAddExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
   onNavigate?: (view: string) => void;
   onViewApplicant?: (id: string) => void;
+  onSelectApplicant?: (id: string) => void;
   isLoading?: boolean;
 }
 
@@ -18,6 +19,7 @@ export default function AccountingDashboard({
   expenses = [],
   onNavigate,
   onViewApplicant,
+  onSelectApplicant,
   isLoading,
 }: AccountingDashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,23 +28,22 @@ export default function AccountingDashboard({
   // Compute Global Financial Metrics
   const globalMetrics = useMemo(() => {
     let totalExpensesPHP = 0;
-    let activeFinancialProfiles = 0;
+    
+    // Active processing applicants (not deployed, not stopped, actively in phase 1-5)
+    const activeFinancialProfiles = (applicants || []).filter(
+      a => !a.isStopped && a.status !== 'Deployed' && a.phase >= 1 && a.phase < 6
+    ).length;
+    
     const applicantExpenseCount: Record<string, number> = {};
 
     expenses.forEach(exp => {
       if (exp.currency === 'PESO') totalExpensesPHP += exp.amount;
-      // In a real app, convert USD to PHP properly based on exchange rate.
-      // For dashboard global metric, we'll rough estimate USD to PHP (e.g. * 56) just for a broad view, 
-      // or we just separate them. Let's just track PHP for simplicity on the dashboard, 
-      // or we can track both.
       
       if (!applicantExpenseCount[exp.applicantId]) {
         applicantExpenseCount[exp.applicantId] = 0;
       }
       applicantExpenseCount[exp.applicantId]++;
     });
-
-    activeFinancialProfiles = Object.keys(applicantExpenseCount).length;
 
     // Latest 5 expenses
     const recentActivity = [...expenses].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 5);
@@ -53,7 +54,7 @@ export default function AccountingDashboard({
       recentActivity,
       applicantExpenseCount,
     };
-  }, [expenses]);
+  }, [expenses, applicants]);
 
   const applicantLedgers = useMemo(() => {
     return applicants.filter(app => {
@@ -88,37 +89,35 @@ export default function AccountingDashboard({
   }, [applicants, expenses, searchTerm, phaseFilter]);
 
   const handleSelectApplicant = (app: any) => {
-    if (onViewApplicant) {
-      onViewApplicant(String(app.id));
-      // Transition to Expense Ledger inside Applicant Profile
-      if (onNavigate) {
-        // We'll tell AppShell to go to expense view directly
-        onNavigate('expense');
-      }
+    if (onSelectApplicant) {
+      onSelectApplicant(String(app.id));
+    }
+    if (onNavigate) {
+      onNavigate('expense');
     }
   };
 
   return (
     <div className="space-y-6 w-full">
-      <div className="mb-6">
-        <h2 className="text-3xl font-extrabold tracking-tight">
-          <DollarSign className="w-8 h-8 inline-block mr-2 text-[#10B981]" />
-          Accounting Dashboard
-        </h2>
-        <p className="text-sm text-[#64748B] mt-1 font-medium">Global overview of agency financial processing & deployment ledgers.</p>
+      <div className="mb-6 flex justify-between items-center">
+        <div>
+          <h2 className="text-3xl font-extrabold tracking-tight">
+            <DollarSign className="w-8 h-8 inline-block mr-2 text-[#10B981]" />
+            Accounting Dashboard
+          </h2>
+          <p className="text-sm text-[#64748B] mt-1 font-medium">Global overview of agency financial processing & deployment ledgers.</p>
+        </div>
+        <button
+          onClick={() => onNavigate && onNavigate('accounting-settings')}
+          className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold hover:bg-slate-50 transition-colors shadow-sm"
+        >
+          <Settings className="w-4 h-4" />
+          Settings
+        </button>
       </div>
 
       {/* Global Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total Global Expenses (PHP)</p>
-            <p className="text-3xl font-black text-[#10B981]">₱{globalMetrics.totalExpensesPHP.toLocaleString()}</p>
-          </div>
-          <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center">
-            <TrendingUp className="w-6 h-6 text-[#10B981]" />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Active Ledgers</p>

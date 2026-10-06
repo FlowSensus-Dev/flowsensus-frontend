@@ -39,6 +39,7 @@ export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
   joborders: ['Admin'],
   employers: ['Admin'],
   expense: ['Accounting'],
+  'accounting-settings': ['Accounting'],
 };
 
 /**

@@ -1142,6 +1142,7 @@ export default function App() {
   const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [expensesLoaded, setExpensesLoaded] = useState(false);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -1193,7 +1194,10 @@ export default function App() {
           const cachedExpJson = sessionStorage.getItem(`fs_cache_expenses_${userId}`);
           if (cachedExpJson) {
             const cachedExp = JSON.parse(cachedExpJson);
-            if (Array.isArray(cachedExp)) setExpenses(cachedExp);
+            if (Array.isArray(cachedExp)) {
+              setExpenses(cachedExp);
+              setExpensesLoaded(true);
+            }
           }
           const cachedJoJson = sessionStorage.getItem(`fs_cache_jos_${userId}`);
           if (cachedJoJson) {
@@ -1349,17 +1353,53 @@ export default function App() {
           timestamp: r.created_at || new Date().toISOString(),
         }));
 
-        // Self-correcting logic: Filter and delete corrupted auto-sync records
-        const validExpenses = rawLiveExpenses.filter(e => e.purpose !== 'expense');
+        // Self-correcting logic: Filter and delete corrupted auto-sync records and duplicates
         const badExpenses = rawLiveExpenses.filter(e => e.purpose === 'expense');
         
-        badExpenses.forEach(badExp => {
+        const seenMedical = new Set<string>();
+        const seenOec = new Set<string>();
+        const seenPassport = new Set<string>();
+        const duplicates: ExpenseRecord[] = [];
+        
+        const validExpenses = rawLiveExpenses.filter(e => {
+          if (e.purpose === 'expense') return false; // Handled by badExpenses
+          
+          if (e.purpose.includes('Medical')) {
+            if (seenMedical.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenMedical.add(e.applicantId);
+          }
+          
+          if (e.purpose.includes('OEC')) {
+            if (seenOec.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenOec.add(e.applicantId);
+          }
+          
+          if (e.purpose.includes('Passport')) {
+            if (seenPassport.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenPassport.add(e.applicantId);
+          }
+          
+          return true;
+        });
+
+        // Delete all bad ones and duplicates from the database
+        [...badExpenses, ...duplicates].forEach(badExp => {
           const dbId = badExp.id.replace('EXP-', '');
           api.delete(`/financial/records/${dbId}`).catch(() => {}); // Fire and forget
         });
 
         const liveExpenses = validExpenses;
         setExpenses(liveExpenses);
+        setExpensesLoaded(true);
         try {
           if (currentUserId) {
             sessionStorage.setItem(`fs_cache_expenses_${currentUserId}`, JSON.stringify(liveExpenses));
@@ -1367,6 +1407,7 @@ export default function App() {
         } catch (e) { }
       } else if (expRes.status === 'rejected') {
         console.warn('Backend financial records unavailable:', expRes.reason);
+        setExpensesLoaded(true); // Fallback to allow app to proceed even if fetch fails
       }
 
       if (!isCurrent()) return;
@@ -1677,8 +1718,10 @@ export default function App() {
     }
 
     setApplicants([]);
+    setApplicantsLoaded(false);
     setActivityLogs([]);
     setExpenses([]);
+    setExpensesLoaded(false);
     setLoggedInApplicantId("");
     setIsSuperAdmin(false);
     setCurrentUserRole("");
@@ -1723,6 +1766,23 @@ export default function App() {
       });
     } catch (err) {
       console.warn('Could not persist expense to backend:', err);
+    }
+  };
+
+  const updateExpense = async (id: string, updates: Partial<ExpenseRecord>) => {
+    setExpenses((prev) => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    try {
+      if (!id.startsWith('EXP-new-')) {
+        const dbId = id.replace('EXP-', '');
+        await api.put(`/financial/records/${dbId}`, {
+          payment_type: updates.purpose,
+          amount: updates.amount,
+          currency: updates.currency === 'DOLLAR' ? 'USD' : 'PHP',
+          description: updates.remarks,
+        });
+      }
+    } catch (err) {
+      console.warn('Could not update expense on backend:', err);
     }
   };
 
@@ -1878,7 +1938,9 @@ export default function App() {
             activityLogs={activityLogs}
             addActivityLog={addActivityLog}
             expenses={expenses}
+            expensesLoaded={expensesLoaded}
             addExpense={addExpense}
+            updateExpense={updateExpense}
             onLogout={handleLogout}
             isSuperAdmin={isSuperAdmin}
             onSuperAdminDashboard={() => showAppView('super-admin')}

@@ -1033,20 +1033,7 @@ export default function FitToWork({
       updateApplicant(applicantId, updates);
       updateWorkflow({ medicalCleared: true });
 
-      // Trigger automatic expense for Medical Package (Draft)
-      if (addExpense) {
-        addExpense({
-          applicantId: applicantId,
-          purpose: 'Medical Package (Fit-to-Work)',
-          amount: 1500, // standard base rate
-          currency: 'PESO',
-          type: 'expense',
-          remarks: `Automated medical fee from ${clinicName}. Edit if actual rate differs.`,
-          status: 'draft',
-          date: nowIso.split('T')[0],
-          recordedBy: 'System Auto-Trigger'
-        });
-      }
+      // Auto-sync for Medical Package is now handled globally in AppShell.tsx
 
       // 3. Persist to Backend with audit trail (triggers application_status_history insert!)
       if (!isNaN(numericId)) {
