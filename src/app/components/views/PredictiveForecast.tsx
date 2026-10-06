@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Clock,
   Layers,
-  Sparkles,
   ChevronDown,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
@@ -88,6 +87,12 @@ interface ExceptionOption {
   weight: number | undefined;
 }
 
+// Pipeline responses expose the effective live duration as current_forecast.
+function getLiveStageForecast(stage: StageForecast): number | undefined {
+  return [stage.current_forecast, stage.current_ses_forecast_days, stage.pert_baseline]
+    .find((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+}
+
 function getStageExceptions(pipeline: PipelineForecastData, stageName: string): ExceptionOption[] {
   const rows = (pipeline.dynamic_exceptions ?? []).filter((exception) =>
     exception.reason_name && exception.reason_name !== 'Normal Process' &&
@@ -105,9 +110,7 @@ function getStageExceptions(pipeline: PipelineForecastData, stageName: string): 
 }
 
 function getStageLiveBasis(pipeline: PipelineForecastData, stage: StageForecast): string {
-  return JSON.stringify([pipeline.agency_id, pipeline.alpha_used,
-    stage.current_ses_forecast_days != null ? 'ses' : 'pert',
-    stage.current_ses_forecast_days ?? stage.pert_baseline]);
+  return JSON.stringify([pipeline.agency_id, pipeline.alpha_used, getLiveStageForecast(stage)]);
 }
 
 function getExceptionBasis(reason: string, exceptions: ExceptionOption[]): string {
@@ -138,7 +141,7 @@ function getWhatIfPipelineForecast(pipeline: PipelineForecastData | null, chains
     const latest = history[history.length - 1]?.data;
     const contribution = latest
       ? latest.actual_penalty_days > 0 ? latest.adjusted_stage_forecast_days : latest.new_stage_forecast
-      : stage.current_ses_forecast_days ?? stage.pert_baseline;
+      : getLiveStageForecast(stage);
     if (typeof contribution !== 'number' || !Number.isFinite(contribution)) return null;
     total += contribution;
   }
@@ -164,7 +167,7 @@ function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, e
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const requestId = useRef(0);
-  const livePrior = stage.current_ses_forecast_days ?? stage.pert_baseline;
+  const livePrior = getLiveStageForecast(stage);
   const prior = history[history.length - 1]?.data.new_stage_forecast ?? livePrior;
   const selectedReason = exceptions.length
     ? exceptions.find((option) => option.reason === reason)?.reason ?? exceptions[0].reason
@@ -207,7 +210,7 @@ function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, e
       applicant_id: applicantId,
       workflow_stage: stage.stage_name,
       days_passed: Number(baseDuration),
-      prior_forecast_days: prior,
+      prior_forecast_days: prior!,
       alpha: alpha!,
       actual_penalty: includePenalty ? Number(penaltyDays) : 0,
       reason: includePenalty ? selectedReason : 'Normal Process',
@@ -574,23 +577,14 @@ export default function PredictiveForecast({
 
     const currentIndex = forecastResponse?.current_stage_index ?? 0;
 
-    return stages
-      .slice(currentIndex)
-      .reduce((total: number, stage: any) => {
-        const stageForecast =
-          stage.current_ses_forecast_days ??
-          stage.pert_baseline ??
-          0;
-
-        return total + Number(stageForecast);
-      }, 0);
+    let total = 0;
+    for (const stage of stages.slice(currentIndex)) {
+      const stageForecast = getLiveStageForecast(stage);
+      if (stageForecast == null) return null;
+      total += stageForecast;
+    }
+    return total;
   }, [pipelineData, forecastResponse?.current_stage_index]);
-
-  const displayedDays =
-    remainingDays ??
-    (baselineRemainingDays !== null
-      ? `${baselineRemainingDays.toFixed(1)} d`
-      : null);
 
   const usingBaselineFallback = !remainingDays && baselineRemainingDays !== null;
 
@@ -838,13 +832,6 @@ export default function PredictiveForecast({
               <span className="font-black text-slate-900 text-2xl">
                 {selectedApplicant.name}
               </span>
-              <span className="bg-sky-50 text-sky-700 text-xs font-bold px-2 py-0.5 rounded border border-sky-200">
-                {forecastResponse?.current_stage
-                  ? `Stage: ${forecastResponse.current_stage}`
-                  : selectedApplicationRecord?.status
-                    ? `Status: ${selectedApplicationRecord.status}`
-                    : 'Active Applicant'}
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
               Applicant {selectedApplicant.applicantCode || `#${activeApplicantId}`}
@@ -858,76 +845,35 @@ export default function PredictiveForecast({
           </div>
         </div>
 
-        {/* Dynamic Estimated Date / Output Card */}
+        {/* Authoritative application phase and separate live/preview pipeline metrics */}
         <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white rounded-xl p-6 mb-8 relative overflow-hidden shadow-inner">
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.15),transparent)] pointer-events-none" />
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-widest mb-1">
-                <Calendar className="w-4 h-4" />
-                {isDeployed ? 'Deployment Status' : 'Algorithm Deployment Forecast'}
-              </div>
-              <h3 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                {isDeployed
-                  ? 'Deployed'
-                  : formattedEstimate
-                    ? formattedEstimate
-                    : usingBaselineFallback
-                      ? `Baseline Forecast: ${displayedDays}`
-                      : forecastError
-                        ? 'Forecast Unavailable'
-                        : 'Forecast Unavailable'}
-              </h3>
-              <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
-                <Sparkles size={13} className="text-amber-400 flex-shrink-0" />
-                {isDeployed ? (
-                  'Actual deployment date unavailable'
-                ) : usingBaselineFallback ? (
-                  'PERT/SES baseline from the current stage onward. Exact deployment date becomes available once the active-stage start time is recorded.'
-                ) : hasRecord ? (
-                  `Backend timeline estimate using PERT and available SES state (${remainingDays} remaining)`
-                ) : forecastResponse?.limitations && forecastResponse.limitations.length > 0 ? (
-                  `Limitation: ${forecastResponse.limitations.join('; ')}`
-                ) : forecastError ? (
-                  `Notice: ${forecastError}`
-                ) : matchingApplications.length === 0 ? (
-                  'No job application available for this applicant'
-                ) : matchingApplications.length > 1 && !activeApplicationId ? (
-                  'Select a job application above to view estimated deployment'
-                ) : (
-                  'Reliable timeline forecast unavailable for this application'
-                )}
+          <div className="relative z-10">
+            <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight break-words">
+              Current Phase: {forecastResponse?.current_stage || (loadingApplicant ? 'Loading...' : 'Unavailable')}
+            </h3>
+            {formattedEstimate && (
+              <p className="text-xs text-slate-300 mt-2 flex items-center gap-1.5">
+                <Calendar size={14} className="text-amber-400 shrink-0" />
+                Estimated Deployment: {formattedEstimate}
               </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 md:border-l md:border-slate-700 md:pl-6 text-center">
+            )}
+            <p className="text-[10px] uppercase font-bold text-slate-400 mt-4 mb-2">Pipeline Forecast &middot; All Stages</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
               <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                <p className="text-[10px] uppercase font-bold text-slate-400">
-                  {usingBaselineFallback ? 'Baseline Days' : 'Remaining Days'}
-                </p>
-                <p className="text-2xl font-black text-sky-400 mt-0.5">
-                  {displayedDays || 'N/A'}
-                </p>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Current Forecast</p>
+                <p className="text-2xl font-black text-white mt-0.5">{totalDays != null ? `${totalDays.toFixed(1)} d` : 'Unavailable'}</p>
               </div>
               <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                <p className="text-[10px] uppercase font-bold text-slate-400">Agency SES Alpha (α)</p>
-                <p className="text-2xl font-black text-amber-400 mt-0.5">
-                  {forecastResponse?.record?.ses_alpha_used ?? (pipelineData?.alpha_used ?? 'N/A')}
-                </p>
+                <p className="text-[10px] uppercase font-bold text-slate-400">What-if Forecast {whatIfPipelineForecast != null && <span className="ml-1 text-sky-300">Preview</span>}</p>
+                <p className="text-2xl font-black text-sky-400 mt-0.5">{whatIfPipelineForecast != null ? `${whatIfPipelineForecast.toFixed(1)} d` : 'Not run'}</p>
+              </div>
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
+                <p className="text-[10px] uppercase font-bold text-slate-400">Agency SES Alpha</p>
+                <p className="text-2xl font-black text-amber-400 mt-0.5">{pipelineData?.alpha_used ?? 'Unavailable'}</p>
               </div>
             </div>
           </div>
-          {whatIfPipelineForecast != null && (
-            <div className="relative z-10 mt-4 pt-3 border-t border-slate-700">
-              <p className="text-[10px] uppercase font-bold text-slate-400 mb-2">Pipeline Forecast &middot; All Stages</p>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-slate-400">Current Forecast</p>
-                  <p className="font-mono font-bold text-white mt-1">{totalDays != null ? `${totalDays.toFixed(1)} d` : 'Unavailable'}</p></div>
-                <div><p className="text-xs text-sky-300">What-if Forecast <span className="ml-1 text-[10px] border border-sky-500/50 rounded px-1">Preview</span></p>
-                  <p className="font-mono font-bold text-sky-400 mt-1">{whatIfPipelineForecast.toFixed(1)} d</p></div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Agency Stage Baseline Table (Clearly presented as agency reference, not fake individual forecast) */}
@@ -955,16 +901,16 @@ export default function PredictiveForecast({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pipelineData?.stages?.map((stage, idx) => {
-                  // Prefer explicit persisted state; legacy current_forecast can include a PERT prior.
-                  const ses = stage.current_ses_forecast_days !== undefined
-                    ? stage.current_ses_forecast_days
-                    : stage.current_forecast;
+                  // current_forecast is the pipeline's effective duration; counts distinguish learned SES from PERT.
+                  const ses = stage.current_forecast ?? stage.current_ses_forecast_days;
                   const learned = stage.observation_count > 0 && ses != null && (stage.current_ses_forecast_days !== undefined || !stage.is_fallback);
                   const coldStart = stage.observation_count === 0;
                   const expanded = expandedStages.has(stage.stage_name);
                   const detailsId = `forecast-stage-details-${idx}`;
                   const exceptions = getStageExceptions(pipelineData!, stage.stage_name);
                   const liveBasis = getStageLiveBasis(pipelineData!, stage);
+                  const stageHistory = activePreviewChains[stage.stage_name] ?? [];
+                  const latestPreview = stageHistory[stageHistory.length - 1]?.data;
                   const days = (value: number | null | undefined) =>
                     value != null ? `${value.toFixed(2)} d` : 'Unavailable';
                   return (
@@ -988,6 +934,13 @@ export default function PredictiveForecast({
                             <span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-mono">{idx + 1}</span>
                             <span>{stage.stage_name}</span>
                           </button>
+                          {latestPreview && (
+                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-normal text-slate-600">
+                              <span>Live: <strong className="font-mono">{days(getLiveStageForecast(stage))}</strong></span>
+                              <span>Normal What-if: <strong className="font-mono text-sky-700">{days(latestPreview.new_stage_forecast)}</strong></span>
+                              {latestPreview.actual_penalty_days > 0 && <span>Adjusted What-if: <strong className="font-mono text-amber-700">{days(latestPreview.adjusted_stage_forecast_days)}</strong></span>}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center font-mono text-slate-600">{stage.observation_count ?? 'Unavailable'}</td>
                         <td className="py-3 px-4 text-right font-mono text-slate-600">{days(stage.pert_baseline)}</td>
@@ -1023,7 +976,7 @@ export default function PredictiveForecast({
                               applicantId={activeApplicantId}
                               alpha={pipelineData?.alpha_used}
                               inputId={`stage-what-if-${idx}`}
-                              history={activePreviewChains[stage.stage_name] ?? []}
+                              history={stageHistory}
                               liveBasis={liveBasis}
                               exceptions={exceptions}
                               onSuccess={(observation) => setPreviewChains((previous) => ({
