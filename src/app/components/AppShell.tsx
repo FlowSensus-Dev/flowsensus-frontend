@@ -527,6 +527,8 @@ export default function AppShell({
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            updateApplicant={updateApplicant}
+            onNavigate={(view: string) => setCurrentView(view as any)}
           />
         );
       case 'alerts':
