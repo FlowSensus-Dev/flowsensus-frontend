@@ -48,6 +48,7 @@ interface Props {
 const BLANK_REQ: Omit<DocumentRequirement, 'id' | 'sortOrder'> = {
   name: '',
   description: '',
+  category: 'DOCUMENT',
   isRequired: true,
   applicantTypes: [],
   jobOrders: [],
@@ -117,10 +118,15 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
         const mapped: DocumentRequirement[] = reqsRes.value.data.map((r: any) => {
           const validityDays = r.validity_days || r.validity_period || 365;
           const rawJobOrders = r.job_orders || r.jobOrders || [];
+          const rawCat = String(r.category || 'DOCUMENT').toUpperCase();
+          const category = ['DOCUMENT', 'CERTIFICATION', 'MEDICAL', 'OTHER'].includes(rawCat)
+            ? (rawCat as 'DOCUMENT' | 'CERTIFICATION' | 'MEDICAL' | 'OTHER')
+            : 'DOCUMENT';
           return {
             id: String(r.requirement_id || r.id),
             name: r.requirement_name || r.name || '',
             description: r.description || '',
+            category,
             isRequired: Boolean(r.default_is_mandatory ?? r.is_required ?? r.isRequired ?? true),
             applicantTypes: Array.isArray(r.applicant_types)
               ? r.applicant_types
@@ -317,6 +323,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     setEditing({
       ...BLANK_REQ,
       id: `new-${Date.now()}`,
+      category: 'DOCUMENT',
       sortOrder: requirements.length + 1,
     });
     setModalJobOrderSearch('');
@@ -326,6 +333,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
   const openEdit = (r: DocumentRequirement) => {
     setEditing({
       ...r,
+      category: r.category || 'DOCUMENT',
       applicantTypes: [...(r.applicantTypes || [])],
       jobOrders: [...(r.jobOrders || [])],
     });
@@ -345,6 +353,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
       const payload = {
         name: editing.name.trim(),
         description: editing.description.trim(),
+        category: (editing.category || 'DOCUMENT').toUpperCase(),
         isRequired: editing.isRequired,
         validityDays: editing.expiryTracked && editing.validityMonths ? editing.validityMonths * 30 : 365,
         isActive: editing.isActive,
@@ -359,6 +368,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
         const newReq: DocumentRequirement = {
           ...editing,
           id: String(created.requirement_id || created.id),
+          category: (created.category || editing.category || 'DOCUMENT').toUpperCase() as any,
           sortOrder: created.sort_order ?? editing.sortOrder,
           applicantTypes: created.applicant_types || editing.applicantTypes,
           jobOrders: created.job_orders || editing.jobOrders,
@@ -375,6 +385,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
               r.id === editing.id
                 ? {
                     ...editing,
+                    category: (updated.category || editing.category || 'DOCUMENT').toUpperCase() as any,
                     applicantTypes: updated.applicant_types || editing.applicantTypes,
                     jobOrders: updated.job_orders || editing.jobOrders,
                   }
@@ -996,7 +1007,20 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
 
                     {/* Name & Description */}
                     <td className="px-4 py-3">
-                      <div className="font-bold text-[#0F172A] text-sm">{req.name}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-[#0F172A] text-sm">{req.name}</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                          req.category === 'CERTIFICATION'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : req.category === 'MEDICAL'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : req.category === 'OTHER'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                        }`}>
+                          {req.category || 'DOCUMENT'}
+                        </span>
+                      </div>
                       {req.description && (
                         <div className="text-xs text-slate-500 mt-0.5 line-clamp-2 max-w-sm">
                           {req.description}
@@ -1191,8 +1215,24 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 />
               </div>
 
-              {/* Compliance & Status Level */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Category, Compliance & Status Level */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Category *
+                  </label>
+                  <select
+                    value={editing.category || 'DOCUMENT'}
+                    onChange={e => setEditing(p => (p ? { ...p, category: e.target.value as any } : p))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
+                  >
+                    <option value="DOCUMENT">Document</option>
+                    <option value="CERTIFICATION">Certification</option>
+                    <option value="MEDICAL">Medical</option>
+                    <option value="OTHER">Other / Clearance</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
                     Compliance Requirement

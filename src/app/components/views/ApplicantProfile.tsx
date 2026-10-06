@@ -1861,7 +1861,7 @@ export default function ApplicantProfile({
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700 space-y-1">
                 <p className="font-semibold text-sm mb-1">Warning:</p>
                 <p>Are you sure you want to permanently delete the applicant <strong>{applicant?.name}</strong>?</p>
-                <p className="mt-2">Note: This is a soft-delete in the system. The record and associated photo are retained in the cloud database for compliance and audit trail purposes but will no longer appear in your active agency lists.</p>
+                <p className="mt-2">Note: The record and associated files are safely archived for regulatory compliance and audit trail purposes, but will no longer appear in active agency lists.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">

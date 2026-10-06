@@ -412,6 +412,7 @@ export interface DocumentRequirement {
   id: string;
   name: string;
   description: string;
+  category?: 'DOCUMENT' | 'CERTIFICATION' | 'MEDICAL' | 'OTHER';
   isRequired: boolean;
   applicantTypes: string[];
   jobOrders: number[];
@@ -455,8 +456,9 @@ export interface WorkflowModuleAccess {
   id?: number | string;
   moduleKey: string;
   moduleName: string;
-  phaseNumber: number;
-  phaseName: string;
+  phaseNumber?: number;
+  phaseName?: string;
+  category?: string;
   assignedRoles: UserRole[];
   isActive: boolean;
   description: string;

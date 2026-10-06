@@ -3233,7 +3233,7 @@ export default function Screening({
                     })
                   ) : (
                     <option value="" disabled>
-                      Loading accredited partner clinics from database...
+                      Loading accredited partner clinics...
                     </option>
                   )}
                 </select>
