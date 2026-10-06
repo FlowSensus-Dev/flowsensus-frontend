@@ -4,7 +4,7 @@ import {
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
   Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
-  ChevronDown, Layers, CheckCircle
+  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw
 } from 'lucide-react';
 import { ApplicantRecord, WorkflowState, ActivityLog, ApplicationForecastResponse } from '../../types';
 import { api } from '../../../lib/api';
@@ -112,13 +112,14 @@ export default function DocumentOCR({
         st === 'Pre-Deployment & Admin' ||
         st === 'Ready for Deployment' ||
         st === 'Deployed' ||
+        (st === 'Provisional' && (phaseNum >= 5 || (a as any).current_phase >= 5)) ||
         phaseNum >= 5
       );
     });
   }, [applicants]);
 
   // ── Filters & Search State ────────────────────────────────────────────────
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'ready' | 'deployed' | 'mine' | 'unassigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'provisional' | 'ready' | 'deployed' | 'mine' | 'unassigned'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'newest' | 'progress'>('newest');
 
@@ -136,6 +137,15 @@ export default function DocumentOCR({
   const [typedExpirationDate, setTypedExpirationDate] = useState('');
   const [officialDateUpdated, setOfficialDateUpdated] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageRotation, setImageRotation] = useState(0);
+  const [imageError, setImageError] = useState(false);
+
+  // Local object URL map for instant 0ms preview when staff uploads files in this session
+  const [localPreviewMap, setLocalPreviewMap] = useState<Record<number, { url: string; mime: string }>>({});
+  const localPreviewMapRef = useRef<Record<number, { url: string; mime: string }>>({});
+  const modalApplicantRef = useRef<ApplicantRecord | null>(null);
+  const [ocrScannedFileName, setOcrScannedFileName] = useState<string | null>(null);
 
   // ── Optional OCR State (Ephemeral, Non-Storing) ───────────────────────────
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
@@ -156,6 +166,68 @@ export default function DocumentOCR({
   const [isLoadingForecast, setIsLoadingForecast] = useState(false);
   const [actualDeploymentInput, setActualDeploymentInput] = useState('');
   const [isSavingDeployment, setIsSavingDeployment] = useState(false);
+
+  // Helper: Normalize Supabase storage paths to absolute URLs
+  const resolveStorageUrl = (urlOrPath: string | null | undefined): string | null => {
+    if (!urlOrPath) return null;
+    const trimmed = urlOrPath.trim();
+    if (!trimmed) return null;
+    if (
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('data:')
+    ) {
+      return trimmed;
+    }
+    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://qhsbimvykfbxglkjcqmo.supabase.co';
+    const clean = trimmed.replace(/^\/+/, '');
+    if (clean.startsWith('applicant-documents/') || clean.startsWith('applicant-photos/')) {
+      return `${supabaseUrl}/storage/v1/object/public/${clean}`;
+    }
+    if (clean.startsWith('photos/')) {
+      return `${supabaseUrl}/storage/v1/object/public/applicant-photos/${clean}`;
+    }
+    return `${supabaseUrl}/storage/v1/object/public/applicant-documents/${clean}`;
+  };
+
+  // Helper: Retrieve registered document proof URL from candidate registration record
+  const getRegisteredProofUrl = (app: ApplicantRecord | null, req: RequirementRecord | null): string | null => {
+    if (!app || !req) return null;
+    const reqName = (req.requirement?.requirement_name || '').toLowerCase();
+
+    // 1. Identifications proof (Passport, NBI, etc.)
+    for (const idDoc of app.identifications || []) {
+      const typeStr = (idDoc.type || '').toLowerCase();
+      if (
+        (reqName.includes('passport') && typeStr.includes('passport')) ||
+        (reqName.includes('nbi') && (typeStr.includes('nbi') || typeStr.includes('clearance'))) ||
+        (reqName.includes('id') && typeStr.includes('id'))
+      ) {
+        if (idDoc.proofDocumentUrl) return resolveStorageUrl(idDoc.proofDocumentUrl);
+      }
+    }
+
+    // 2. Applicant documents collection
+    for (const doc of (app as any).documents || []) {
+      const docName = (doc.name || doc.documentType || doc.title || '').toLowerCase();
+      if (docName && (reqName.includes(docName) || docName.includes(reqName))) {
+        const u = doc.fileUrl || doc.url || doc.file_url;
+        if (u) return resolveStorageUrl(u);
+      }
+    }
+
+    // 3. Enriched requirements
+    for (const r of (app as any).requirements || []) {
+      const rName = (r.name || '').toLowerCase();
+      if (rName && (reqName.includes(rName) || rName.includes(reqName))) {
+        const u = r.file_url || r.fileUrl || r.proofDocumentUrl;
+        if (u) return resolveStorageUrl(u);
+      }
+    }
+
+    return null;
+  };
 
   // Auto-open modal if selectedApplicantId passed from navigation
   useEffect(() => {
@@ -178,7 +250,7 @@ export default function DocumentOCR({
   }, [applicants]);
 
   // ── Load Requirements for Modal Applicant ─────────────────────────────────
-  const loadRequirements = async (appId: string) => {
+  const loadRequirements = async (appId: string, appOverride?: ApplicantRecord) => {
     if (!appId || appId === 'new' || isNaN(Number(appId))) return;
     setIsLoadingReqs(true);
     try {
@@ -186,11 +258,38 @@ export default function DocumentOCR({
       const list: RequirementRecord[] = res.data || [];
       setRequirements(list);
 
+      // Check if applicant has any rejected document
+      const hasRejected = list.some(
+        r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid'
+      );
+      const targetApp = appOverride || modalApplicant || modalApplicantRef.current;
+      if (hasRejected && targetApp && (targetApp.status === 'Ready for Deployment')) {
+        const numericId = parseInt(appId, 10);
+        const reasonText = 'Candidate has rejected document(s). Reverted from Ready for Deployment to Provisional status.';
+        const updates: Partial<ApplicantRecord> = {
+          status: 'Provisional',
+          phase: 5,
+          phaseDescription: reasonText,
+        };
+        if (updateApplicant) updateApplicant(appId, updates);
+        setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+        if (!isNaN(numericId)) {
+          api.put(`/applicants/${numericId}`, {
+            application_status: 'Provisional',
+            current_phase: 5,
+            phase_description: reasonText,
+            statusChangeReason: 'Rejected requirement found; placed in Provisional status',
+            statusChangeSource: 'DOCUMENT_VALIDATION',
+            updated_at: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
+
       // Auto-select first requirement if none selected
       if (list.length > 0) {
         const currentId = selectedReq?.applicant_req_id;
         const matching = currentId ? list.find(r => r.applicant_req_id === currentId) : null;
-        handleSelectRequirement(matching || list[0]);
+        handleSelectRequirement(matching || list[0], appOverride);
       } else {
         setSelectedReq(null);
         setPreviewUrl(null);
@@ -203,49 +302,79 @@ export default function DocumentOCR({
   };
 
   // ── Select Requirement to Inspect ─────────────────────────────────────────
-  const handleSelectRequirement = async (req: RequirementRecord) => {
+  const handleSelectRequirement = async (req: RequirementRecord, appOverride?: ApplicantRecord) => {
     setSelectedReq(req);
     setManualRemarks('');
     setOcrEphemeralResult(null);
     setOfficialDateUpdated(false);
+    setImageZoom(1);
+    setImageRotation(0);
+    setImageError(false);
 
     // Initialize typed expiration date from requirement if exists
     setTypedExpirationDate(req.expiration_date || '');
 
+    // 1. Check local session preview map first (instant 0ms preview for files uploaded in current session)
+    const localCached = localPreviewMapRef.current[req.applicant_req_id] || localPreviewMap[req.applicant_req_id];
+    if (localCached) {
+      setPreviewUrl(localCached.url);
+      setPreviewMime(localCached.mime);
+      return;
+    }
+
+    // 2. Direct public / signed file_url if available
     if (req.file_url) {
       setPreviewUrl(req.file_url);
       setPreviewMime(req.mime_type || null);
-    } else if (req.file_path) {
+      return;
+    }
+
+    // 3. Backend signed URL if file_path exists in private bucket
+    if (req.file_path) {
       try {
         const previewRes = await api.get(`/documents/${req.applicant_req_id}/preview`);
         if (previewRes.data?.signed_url) {
           setPreviewUrl(previewRes.data.signed_url);
           setPreviewMime(previewRes.data.mime_type || req.mime_type || null);
+          return;
         }
-      } catch {
-        setPreviewUrl(null);
-        setPreviewMime(null);
+      } catch (e) {
+        console.warn('Could not load signed preview URL:', e);
       }
-    } else {
-      setPreviewUrl(null);
-      setPreviewMime(null);
     }
+
+    // 4. Fallback to registered candidate documents from profile / registration
+    const targetApplicant = appOverride || modalApplicant || modalApplicantRef.current;
+    const registeredProof = targetApplicant ? getRegisteredProofUrl(targetApplicant, req) : null;
+    if (registeredProof) {
+      setPreviewUrl(registeredProof);
+      const isPdfProof = registeredProof.toLowerCase().includes('.pdf') || registeredProof.includes('application/pdf');
+      setPreviewMime(isPdfProof ? 'application/pdf' : 'image/jpeg');
+      return;
+    }
+
+    // No document file available
+    setPreviewUrl(null);
+    setPreviewMime(null);
   };
 
   // ── Open Applicant Modal ──────────────────────────────────────────────────
   const handleOpenApplicantModal = (applicant: ApplicantRecord) => {
+    modalApplicantRef.current = applicant;
     setModalApplicant(applicant);
     setForecastData(null);
     setActualDeploymentInput(applicant.actualDeploymentDate || '');
-    loadRequirements(String(applicant.id));
+    loadRequirements(String(applicant.id), applicant);
     loadForecast(applicant);
   };
 
   const handleCloseApplicantModal = () => {
+    modalApplicantRef.current = null;
     setModalApplicant(null);
     setSelectedReq(null);
     setPreviewUrl(null);
     setOcrEphemeralResult(null);
+    setImageError(false);
   };
 
   // ── Load Predictive Forecast for Candidate ────────────────────────────────
@@ -514,14 +643,126 @@ export default function DocumentOCR({
       // 3. Trigger alert evaluation scan in background
       api.post('/documents/alerts/scan').catch(() => {});
 
-      showToast(`✓ Document ${selectedReq.requirement.requirement_name} marked as ${status === 'VERIFIED' ? 'Approved & Verified' : 'Rejected'}.`);
+      const applicantId = String(modalApplicant.id);
+      const numericId = parseInt(applicantId, 10);
+      const nowIso = new Date().toISOString();
+      const reqName = selectedReq.requirement?.requirement_name || 'Document';
+
+      if (status === 'REJECTED') {
+        // Enforce Provisional status on rejection
+        const reasonText = `Requirement "${reqName}" was rejected${manualRemarks ? `: ${manualRemarks}` : ''}. Candidate placed in Provisional status.`;
+        const updates: Partial<ApplicantRecord> = {
+          status: 'Provisional',
+          phase: 5,
+          phaseDescription: reasonText,
+        };
+
+        if (updateApplicant) {
+          updateApplicant(applicantId, updates);
+        }
+        setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+
+        if (!isNaN(numericId)) {
+          await api.put(`/applicants/${numericId}`, {
+            application_status: 'Provisional',
+            current_phase: 5,
+            phase_description: reasonText,
+            statusChangeReason: `Document rejected: ${reqName}`,
+            statusChangeSource: 'DOCUMENT_VALIDATION',
+            updated_at: nowIso,
+          }).catch(console.error);
+        }
+
+        addActivityLog({
+          applicantId,
+          action: 'Candidate Marked as Provisional',
+          performedBy: currentUserName,
+          department: 'Admin',
+          details: reasonText,
+        });
+
+        showToast(`Document "${reqName}" rejected. Candidate moved to Provisional status.`);
+      } else {
+        // status === 'VERIFIED'
+        // Check if candidate still has any other rejected requirement
+        const otherRejected = requirements.filter(
+          r => r.applicant_req_id !== applicantReqId &&
+          ((r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid')
+        );
+
+        if (otherRejected.length > 0) {
+          const rejectedNames = otherRejected.map(r => r.requirement?.requirement_name || 'Requirement').join(', ');
+          const reasonText = `Document approved, but candidate remains in Provisional status due to remaining rejected document(s): ${rejectedNames}.`;
+          const updates: Partial<ApplicantRecord> = {
+            status: 'Provisional',
+            phase: 5,
+            phaseDescription: reasonText,
+          };
+
+          if (updateApplicant) {
+            updateApplicant(applicantId, updates);
+          }
+          setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+
+          if (!isNaN(numericId)) {
+            await api.put(`/applicants/${numericId}`, {
+              application_status: 'Provisional',
+              current_phase: 5,
+              phase_description: reasonText,
+              statusChangeReason: `Document verified, but candidate has rejected document(s): ${rejectedNames}`,
+              statusChangeSource: 'DOCUMENT_VALIDATION',
+              updated_at: nowIso,
+            }).catch(console.error);
+          }
+
+          showToast(`✓ Document approved. Candidate remains in Provisional status (rejected: ${rejectedNames}).`);
+        } else {
+          // No remaining rejected documents
+          if (modalApplicant.status === 'Provisional') {
+            const reasonText = 'All document rejections resolved. Candidate returned to Administrative Processing.';
+            const updates: Partial<ApplicantRecord> = {
+              status: 'Endorse for Administrative Processing',
+              phase: 5,
+              phaseDescription: reasonText,
+            };
+
+            if (updateApplicant) {
+              updateApplicant(applicantId, updates);
+            }
+            setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+
+            if (!isNaN(numericId)) {
+              await api.put(`/applicants/${numericId}`, {
+                application_status: 'Endorse for Administrative Processing',
+                current_phase: 5,
+                phase_description: reasonText,
+                statusChangeReason: 'Document rejections resolved',
+                statusChangeSource: 'DOCUMENT_VALIDATION',
+                updated_at: nowIso,
+              }).catch(console.error);
+            }
+
+            addActivityLog({
+              applicantId,
+              action: 'Restored from Provisional',
+              performedBy: currentUserName,
+              department: 'Admin',
+              details: reasonText,
+            });
+
+            showToast(`✓ Document approved. All rejections cleared; candidate returned to Administrative Processing.`);
+          } else {
+            showToast(`✓ Document ${reqName} marked as Approved & Verified.`);
+          }
+        }
+      }
 
       addActivityLog({
         applicantId: String(modalApplicant.id),
         action: `Document ${status === 'VERIFIED' ? 'Approved' : 'Rejected'}`,
         performedBy: currentUserName,
         department: 'Admin',
-        details: `${selectedReq.requirement.requirement_name}: ${status}${typedExpirationDate ? ` (Expires: ${typedExpirationDate})` : ''}`,
+        details: `${reqName}: ${status}${typedExpirationDate ? ` (Expires: ${typedExpirationDate})` : ''}`,
       });
 
       await loadRequirements(String(modalApplicant.id));
@@ -593,6 +834,15 @@ export default function DocumentOCR({
     const file = e.target.files?.[0];
     if (!file || !modalApplicant) return;
 
+    // Immediately preview the file in the left document viewer (0ms latency)
+    const localUrl = URL.createObjectURL(file);
+    const mime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+    setPreviewUrl(localUrl);
+    setPreviewMime(mime);
+    setOcrScannedFileName(file.name);
+    setImageZoom(1);
+    setImageRotation(0);
+
     setIsOcrProcessing(true);
     setOcrEphemeralResult(null);
 
@@ -603,7 +853,7 @@ export default function DocumentOCR({
       const numericId = parseInt(String(modalApplicant.id), 10);
       let resData: any = null;
 
-      // Call non-storing verify endpoint if applicant id is valid
+      // Call non-storing verify endpoint powered by Gemini Vision AI
       if (!isNaN(numericId)) {
         try {
           const res = await api.post(`/ocr/verify/${numericId}`, formData, {
@@ -656,12 +906,12 @@ export default function DocumentOCR({
           match_status: discrepancies.length > 0 ? 'DISCREPANCY' : 'MATCH',
         });
 
-        // If expiration date extracted, offer autofill
+        // If expiration date extracted, offer review
         const extractedExp = extracted.expiration_date || extracted.expiry_date || extracted.date_of_expiry;
         if (extractedExp) {
-          showToast(`AI OCR extracted expiration date: ${extractedExp}. Click 'Apply' to populate.`);
+          showToast(`✓ Gemini Vision detected date ${extractedExp}. Review and choose whether to accept.`);
         } else {
-          showToast('AI OCR scan completed (temporary preview, file not stored).');
+          showToast('✓ Gemini Vision scan complete (ephemeral preview, file not stored).');
         }
 
         addActivityLog({
@@ -669,11 +919,11 @@ export default function DocumentOCR({
           action: 'Ephemeral AI OCR Scan',
           performedBy: currentUserName,
           department: 'Admin',
-          details: `Scanned temporary document for verification check (non-storing). Discrepancies: ${discrepancies.length}`,
+          details: `Scanned temporary document via Google Gemini Vision AI. Discrepancies: ${discrepancies.length}`,
         });
       }
     } catch (err: any) {
-      showToast(`OCR scan error: ${err.response?.data?.detail || err.message}`);
+      showToast(`Gemini OCR scan error: ${err.response?.data?.detail || err.message}`);
     } finally {
       setIsOcrProcessing(false);
       e.target.value = '';
@@ -684,6 +934,20 @@ export default function DocumentOCR({
   const handleRequirementFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedReq || !modalApplicant) return;
+
+    // Immediately display local preview (0ms latency)
+    const localUrl = URL.createObjectURL(file);
+    const mime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+    setPreviewUrl(localUrl);
+    setPreviewMime(mime);
+    setImageZoom(1);
+    setImageRotation(0);
+    setImageError(false);
+    localPreviewMapRef.current[selectedReq.applicant_req_id] = { url: localUrl, mime };
+    setLocalPreviewMap(prev => ({
+      ...prev,
+      [selectedReq.applicant_req_id]: { url: localUrl, mime }
+    }));
 
     setIsProcessing(true);
     const formData = new FormData();
@@ -717,7 +981,7 @@ export default function DocumentOCR({
       }
 
       showToast('Document uploaded successfully.');
-      await loadRequirements(String(modalApplicant.id));
+      await loadRequirements(String(modalApplicant.id), modalApplicant);
     } catch (err: any) {
       showToast(`Upload failed: ${err.message}`);
     } finally {
@@ -732,11 +996,18 @@ export default function DocumentOCR({
     setIsProcessing(true);
     try {
       await api.delete(`/documents/${selectedReq.applicant_req_id}/file`);
+      delete localPreviewMapRef.current[selectedReq.applicant_req_id];
+      setLocalPreviewMap(prev => {
+        const next = { ...prev };
+        delete next[selectedReq.applicant_req_id];
+        return next;
+      });
       showToast('File removed successfully.');
       setShowDeleteModal(false);
       setPreviewUrl(null);
       setPreviewMime(null);
-      await loadRequirements(String(modalApplicant.id));
+      setImageError(false);
+      await loadRequirements(String(modalApplicant.id), modalApplicant);
 
       addActivityLog({
         applicantId: String(modalApplicant.id),
@@ -759,6 +1030,49 @@ export default function DocumentOCR({
     const numericId = parseInt(applicantId, 10);
     const nowIso = new Date().toISOString();
 
+    // Check if the candidate has any rejected documents
+    const rejectedReqs = requirements.filter(
+      r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid'
+    );
+
+    if (rejectedReqs.length > 0) {
+      const rejectedNames = rejectedReqs.map(r => r.requirement?.requirement_name || 'Requirement').join(', ');
+      const reasonText = `Deployment blocked: Candidate has ${rejectedReqs.length} rejected document(s) (${rejectedNames}). Placed in Provisional status.`;
+
+      const updates: Partial<ApplicantRecord> = {
+        status: 'Provisional',
+        phase: 5,
+        phaseDescription: reasonText,
+      };
+
+      if (updateApplicant) {
+        updateApplicant(applicantId, updates);
+      }
+      setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          application_status: 'Provisional',
+          current_phase: 5,
+          phase_description: reasonText,
+          statusChangeReason: `Deployment blocked: Rejected requirements (${rejectedNames})`,
+          statusChangeSource: 'DOCUMENT_VALIDATION',
+          updated_at: nowIso,
+        }).catch(console.error);
+      }
+
+      addActivityLog({
+        applicantId,
+        action: 'Deployment Blocked (Provisional)',
+        performedBy: currentUserName,
+        department: 'Admin',
+        details: reasonText,
+      });
+
+      showToast(`⚠️ Cannot promote to Ready for Deployment: Candidate has rejected document(s) (${rejectedNames}) and is marked as Provisional.`);
+      return;
+    }
+
     setIsSavingDeployment(true);
     try {
       const updates: Partial<ApplicantRecord> = {
@@ -770,6 +1084,7 @@ export default function DocumentOCR({
       if (updateApplicant) {
         updateApplicant(applicantId, updates);
       }
+      setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
 
       if (!isNaN(numericId)) {
         await api.put(`/applicants/${numericId}`, {
@@ -794,6 +1109,60 @@ export default function DocumentOCR({
       loadForecast(modalApplicant);
     } catch (err: any) {
       showToast(`Failed to update status: ${err.message}`);
+    } finally {
+      setIsSavingDeployment(false);
+    }
+  };
+
+  // ── Revert from Ready for Deployment ─────────────────────────────────────
+  const handleRevertReadyForDeployment = async (appOverride?: ApplicantRecord) => {
+    const target = appOverride || modalApplicant;
+    if (!target) return;
+    const applicantId = String(target.id);
+    const numericId = parseInt(applicantId, 10);
+    const nowIso = new Date().toISOString();
+
+    setIsSavingDeployment(true);
+    try {
+      const updates: Partial<ApplicantRecord> = {
+        phase: 5,
+        status: 'Endorse for Administrative Processing',
+        phaseDescription: 'Reverted from Ready for Deployment back to Administrative Processing for further requirement review.',
+      };
+
+      if (updateApplicant) {
+        updateApplicant(applicantId, updates);
+      }
+
+      if (modalApplicant && modalApplicant.id === target.id) {
+        setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+      }
+
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          current_phase: 5,
+          application_status: 'Endorse for Administrative Processing',
+          phase_description: updates.phaseDescription,
+          statusChangeReason: 'Reverted from Ready for Deployment back to Administrative Processing',
+          statusChangeSource: 'STAFF_ACTION',
+          updated_at: nowIso,
+        });
+      }
+
+      addActivityLog({
+        applicantId,
+        action: 'Reverted from Ready for Deployment',
+        performedBy: currentUserName,
+        department: 'Admin',
+        details: `${target.name} status reverted back to Administrative Processing for further document validation.`,
+      });
+
+      showToast(`↩ ${target.name} reverted back to Administrative Processing.`);
+      if (modalApplicant && modalApplicant.id === target.id) {
+        loadForecast(target);
+      }
+    } catch (err: any) {
+      showToast(`Failed to revert status: ${err.message}`);
     } finally {
       setIsSavingDeployment(false);
     }
@@ -876,8 +1245,9 @@ export default function DocumentOCR({
       if (statusFilter === 'unassigned' && app.currentHandler && app.currentHandler !== 'Unassigned' && app.currentHandler !== 'Unassigned Pool') return false;
       if (statusFilter === 'ready' && app.status !== 'Ready for Deployment') return false;
       if (statusFilter === 'deployed' && app.status !== 'Deployed' && app.phase !== 6) return false;
+      if (statusFilter === 'provisional' && app.status !== 'Provisional') return false;
       if (statusFilter === 'pending') {
-        if (app.status === 'Ready for Deployment' || app.status === 'Deployed' || app.phase === 6) return false;
+        if (app.status === 'Ready for Deployment' || app.status === 'Deployed' || app.status === 'Provisional' || app.phase === 6) return false;
       }
 
       // Search query filter
@@ -903,9 +1273,10 @@ export default function DocumentOCR({
     const total = phaseQualifiedApplicants.length;
     const ready = phaseQualifiedApplicants.filter(a => a.status === 'Ready for Deployment').length;
     const deployed = phaseQualifiedApplicants.filter(a => a.status === 'Deployed' || a.phase === 6).length;
-    const pending = total - ready - deployed;
+    const provisional = phaseQualifiedApplicants.filter(a => a.status === 'Provisional').length;
+    const pending = total - ready - deployed - provisional;
     const myQueue = phaseQualifiedApplicants.filter(a => a.currentHandler === currentUserName).length;
-    return { total, ready, deployed, pending, myQueue };
+    return { total, ready, deployed, provisional, pending, myQueue };
   }, [phaseQualifiedApplicants, currentUserName]);
 
   const isPdf = previewUrl && (
@@ -960,7 +1331,7 @@ export default function DocumentOCR({
       </div>
 
       {/* ── 2. Summary KPI Metric Counters ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Endorsed Candidates</p>
           <p className="text-2xl font-black text-slate-900 mt-1">{metrics.total}</p>
@@ -971,6 +1342,14 @@ export default function DocumentOCR({
           <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Pending Verification</p>
           <p className="text-2xl font-black text-amber-600 mt-1">{metrics.pending}</p>
           <p className="text-[11px] text-amber-700 mt-0.5">Documents need review</p>
+        </div>
+
+        <div className="bg-white border border-rose-200 rounded-2xl p-4 shadow-xs bg-gradient-to-br from-white to-rose-50/40">
+          <p className="text-[11px] font-bold text-rose-700 uppercase tracking-wider flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3 text-rose-600" /> Provisional
+          </p>
+          <p className="text-2xl font-black text-rose-600 mt-1">{metrics.provisional}</p>
+          <p className="text-[11px] text-rose-700 mt-0.5">Rejected document hold</p>
         </div>
 
         <div className="bg-white border border-sky-200 rounded-2xl p-4 shadow-xs bg-gradient-to-br from-white to-sky-50/40">
@@ -1000,6 +1379,7 @@ export default function DocumentOCR({
             {[
               { key: 'all', label: `All (${metrics.total})` },
               { key: 'pending', label: `Pending Validation (${metrics.pending})` },
+              { key: 'provisional', label: `Provisional (${metrics.provisional})` },
               { key: 'ready', label: `Ready for Deployment (${metrics.ready})` },
               { key: 'deployed', label: `Deployed (${metrics.deployed})` },
               { key: 'mine', label: `My Queue (${metrics.myQueue})` },
@@ -1083,6 +1463,8 @@ export default function DocumentOCR({
                       ? 'bg-emerald-500'
                       : isReady
                       ? 'bg-[#0EA5E9]'
+                      : app.status === 'Provisional'
+                      ? 'bg-rose-500'
                       : 'bg-amber-400'
                   }`}
                 />
@@ -1138,9 +1520,12 @@ export default function DocumentOCR({
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : isReady
                             ? 'bg-sky-50 text-sky-700 border-sky-200'
+                            : app.status === 'Provisional'
+                            ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
                             : 'bg-amber-50 text-amber-800 border-amber-200'
                         }`}
                       >
+                        {app.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
                         {app.status || 'Endorsed for Admin'}
                       </span>
 
@@ -1231,6 +1616,23 @@ export default function DocumentOCR({
                         <Undo2 className="w-3.5 h-3.5" />
                       </button>
 
+                      {/* If Ready for Deployment, show a quick Revert button */}
+                      {app.status === 'Ready for Deployment' && (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleRevertReadyForDeployment(app);
+                          }}
+                          disabled={isSavingDeployment}
+                          className="px-2 py-1.5 text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                          title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                        >
+                          <Undo2 className="w-3 h-3 text-amber-600" />
+                          <span>Revert</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleOpenApplicantModal(app)}
@@ -1281,9 +1683,12 @@ export default function DocumentOCR({
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                           : modalApplicant.status === 'Ready for Deployment'
                           ? 'bg-sky-50 text-sky-700 border-sky-200'
+                          : modalApplicant.status === 'Provisional'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
                           : 'bg-amber-50 text-amber-800 border-amber-200'
                       }`}
                     >
+                      {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
                       {modalApplicant.status || 'Endorsed for Admin'}
                     </span>
                   </div>
@@ -1320,6 +1725,20 @@ export default function DocumentOCR({
                   <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-xl font-bold">
                     Handler: {modalApplicant.currentHandler}
                   </span>
+                )}
+
+                {/* Revert Deployment Status if Ready for Deployment */}
+                {modalApplicant.status === 'Ready for Deployment' && (
+                  <button
+                    type="button"
+                    onClick={() => handleRevertReadyForDeployment()}
+                    disabled={isSavingDeployment}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50"
+                    title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                  >
+                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Revert Deployment Status</span>
+                  </button>
                 )}
 
                 {/* Return Stage */}
@@ -1434,19 +1853,67 @@ export default function DocumentOCR({
                 <div className="p-3.5 border-t border-slate-200 bg-slate-50/80 space-y-2">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-extrabold text-slate-700">Deployment Status:</span>
-                    <span className="font-bold text-[#0EA5E9]">{modalApplicant.status || 'Admin Processing'}</span>
+                    <span
+                      className={`font-bold ${
+                        modalApplicant.status === 'Ready for Deployment'
+                          ? 'text-emerald-700 font-extrabold'
+                          : modalApplicant.status === 'Provisional'
+                          ? 'text-rose-700 font-extrabold flex items-center gap-1'
+                          : 'text-[#0EA5E9]'
+                      }`}
+                    >
+                      {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-3.5 h-3.5 text-rose-600 inline" />}
+                      {modalApplicant.status || 'Admin Processing'}
+                    </span>
                   </div>
 
-                  {modalApplicant.status !== 'Ready for Deployment' && modalApplicant.status !== 'Deployed' && (
+                  {/* If candidate has rejected documents, show Provisional warning card */}
+                  {requirements.some(r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid') && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] space-y-1">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                        <span>Provisional Hold Active</span>
+                      </div>
+                      <p className="text-rose-700 leading-snug">
+                        One or more requirements are rejected. Candidate is in Provisional status and cannot be deployed until documents are replaced and approved.
+                      </p>
+                    </div>
+                  )}
+
+                  {modalApplicant.status === 'Ready for Deployment' ? (
+                    <button
+                      onClick={() => handleRevertReadyForDeployment()}
+                      disabled={isSavingDeployment}
+                      className="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
+                      title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                    >
+                      {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5 text-amber-700" />}
+                      <span>Revert from Ready for Deployment</span>
+                    </button>
+                  ) : modalApplicant.status !== 'Deployed' ? (
                     <button
                       onClick={handlePromoteToReadyForDeployment}
                       disabled={isSavingDeployment}
-                      className="w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 ${
+                        requirements.some(r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid')
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                          : 'bg-[#0EA5E9] hover:bg-[#0284C7] text-white'
+                      }`}
                     >
-                      {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                      <span>Mark Ready for Deployment</span>
+                      {isSavingDeployment ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : requirements.some(r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid') ? (
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      ) : (
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {requirements.some(r => (r.status || '').toUpperCase() === 'REJECTED' || (r.ocr_validation_status || '').toLowerCase() === 'invalid')
+                          ? 'Enforce Provisional Status'
+                          : 'Mark Ready for Deployment'}
+                      </span>
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -1455,11 +1922,30 @@ export default function DocumentOCR({
                 {selectedReq ? (
                   <div className="flex-1 flex flex-col h-full overflow-hidden">
                     {/* Sub-header for selected document */}
-                    <div className="p-3.5 px-5 border-b border-slate-200 bg-white flex justify-between items-center gap-3 flex-wrap">
+                    <div className="p-3 px-5 border-b border-slate-200 bg-white flex justify-between items-center gap-3 flex-wrap">
                       <div>
-                        <h3 className="font-extrabold text-sm text-slate-900">
-                          {selectedReq.requirement.requirement_name}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-sm text-slate-900">
+                            {selectedReq.requirement.requirement_name}
+                          </h3>
+                          {ocrScannedFileName && (
+                            <span className="text-[10px] bg-sky-100 text-sky-800 border border-sky-300 font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Sparkles className="w-2.5 h-2.5 text-[#0EA5E9]" />
+                              Gemini Preview: {ocrScannedFileName}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOcrScannedFileName(null);
+                                  handleSelectRequirement(selectedReq);
+                                }}
+                                className="ml-1 hover:text-rose-600 cursor-pointer font-bold"
+                                title="Clear ephemeral scan preview"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-slate-500">
                           Category: {selectedReq.requirement.category || 'Regulatory'} • Status:{' '}
                           <span className="font-bold text-slate-700">{selectedReq.status || 'PENDING'}</span>
@@ -1467,6 +1953,51 @@ export default function DocumentOCR({
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
+                        {/* Zoom & Rotation controls for image preview */}
+                        {previewUrl && !isPdf && (
+                          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setImageZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+                              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                              title="Zoom In"
+                            >
+                              <ZoomIn className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-[10px] font-mono font-bold text-slate-600 px-1">
+                              {Math.round(imageZoom * 100)}%
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setImageZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))}
+                              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                              title="Zoom Out"
+                            >
+                              <ZoomOut className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setImageRotation(r => (r + 90) % 360)}
+                              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ml-1"
+                              title="Rotate 90°"
+                            >
+                              <RotateCw className="w-3.5 h-3.5" />
+                            </button>
+                            {(imageZoom !== 1 || imageRotation !== 0) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImageZoom(1);
+                                  setImageRotation(0);
+                                }}
+                                className="text-[10px] font-bold text-sky-600 hover:text-sky-800 px-1.5 py-0.5 rounded hover:bg-white transition-colors cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         {/* File Upload / Replace */}
                         <label className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors">
                           <Upload className="w-3.5 h-3.5" />
@@ -1510,7 +2041,7 @@ export default function DocumentOCR({
                     {/* Split content: Document Viewer & Decision Form */}
                     <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-12">
                       {/* Left: Document Viewer (7 cols) */}
-                      <div className="md:col-span-7 border-r border-slate-200 bg-slate-100 p-3 flex items-center justify-center overflow-hidden">
+                      <div className="md:col-span-7 border-r border-slate-200 bg-slate-100 p-3 flex items-center justify-center overflow-hidden relative">
                         {isProcessing ? (
                           <div className="flex flex-col items-center justify-center text-slate-500 gap-2">
                             <Loader2 className="w-6 h-6 animate-spin text-[#0EA5E9]" />
@@ -1518,16 +2049,59 @@ export default function DocumentOCR({
                           </div>
                         ) : previewUrl ? (
                           isPdf ? (
-                            <iframe
-                              src={`${previewUrl}#toolbar=0&navpanes=0`}
-                              className="w-full h-full border-0 rounded-xl bg-white shadow-xs"
-                              title="Document PDF Preview"
-                            />
+                            <div className="w-full h-full flex flex-col rounded-xl overflow-hidden bg-white shadow-xs">
+                              <object
+                                data={`${previewUrl}#toolbar=0&navpanes=0`}
+                                type="application/pdf"
+                                className="w-full flex-1 border-0"
+                              >
+                                <iframe
+                                  src={`${previewUrl}#toolbar=0&navpanes=0`}
+                                  className="w-full h-full border-0"
+                                  title="Document PDF Preview"
+                                />
+                              </object>
+                              <div className="p-2 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-[11px] px-3">
+                                <span className="text-slate-500 font-medium">PDF Document Preview</span>
+                                <a
+                                  href={previewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[#0EA5E9] hover:underline font-bold flex items-center gap-1"
+                                >
+                                  <ExternalLink className="w-3 h-3" /> Open in full window
+                                </a>
+                              </div>
+                            </div>
+                          ) : imageError ? (
+                            <div className="flex flex-col items-center justify-center p-6 text-center gap-3 bg-white rounded-2xl border border-slate-200 max-w-sm shadow-xs">
+                              <AlertTriangle className="w-8 h-8 text-amber-500" />
+                              <div>
+                                <p className="text-xs font-bold text-slate-800">Inline Preview Blocked</p>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  The document image cannot be rendered directly in the iframe sandbox. You can open it securely in a new browser window.
+                                </p>
+                              </div>
+                              <a
+                                href={previewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" /> Open Document in New Tab
+                              </a>
+                            </div>
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center overflow-auto">
+                            <div className="w-full h-full flex items-center justify-center overflow-auto p-2">
                               <img
                                 src={previewUrl}
                                 alt="Preview"
+                                onError={() => setImageError(true)}
+                                style={{
+                                  transform: `scale(${imageZoom}) rotate(${imageRotation}deg)`,
+                                  transformOrigin: 'center center',
+                                  transition: 'transform 0.15s ease',
+                                }}
                                 className="max-w-full max-h-full object-contain rounded-xl shadow-xs"
                               />
                             </div>
@@ -1589,26 +2163,32 @@ export default function DocumentOCR({
                                       <div className="rounded-xl bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-900 space-y-2">
                                         <div className="flex items-start gap-1.5 font-bold text-[11px]">
                                           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                                          <span>Date Mismatch Detected: Document date differs from registered date.</span>
+                                          <span>Date Mismatch: Document ({typedExpirationDate}) vs Profile ({registeredDate})</span>
                                         </div>
+                                        <p className="text-[11px] text-amber-800">
+                                          Do you want to override the candidate's official profile record with this verified date?
+                                        </p>
 
-                                        <div className="flex flex-col gap-1.5 pt-1">
+                                        <div className="flex gap-1.5 pt-0.5">
                                           <button
                                             type="button"
                                             onClick={handleUpdateOfficialRegistrationDate}
                                             disabled={isProcessing}
-                                            className="w-full bg-amber-600 hover:bg-amber-700 text-white py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs"
+                                            className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-1.5 px-2 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs"
                                           >
-                                            <Check className="w-3 h-3" />
-                                            <span>Update Official Registration with this Date</span>
+                                            <Check className="w-3.5 h-3.5" />
+                                            <span>Override Profile</span>
                                           </button>
 
                                           <button
                                             type="button"
-                                            onClick={() => setTypedExpirationDate(registeredDate)}
-                                            className="w-full bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 py-1 px-2 rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                                            onClick={() => {
+                                              setTypedExpirationDate(registeredDate);
+                                              showToast(`Kept registered profile date (${registeredDate}).`);
+                                            }}
+                                            className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 py-1.5 px-2 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                                           >
-                                            Keep & Use Registered Date ({registeredDate})
+                                            <span>Keep Profile Date</span>
                                           </button>
                                         </div>
                                       </div>
@@ -1632,23 +2212,22 @@ export default function DocumentOCR({
                           })()}
 
                           {/* ── Optional Ephemeral AI OCR Assistant ── */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
-                            <div className="flex items-center justify-between">
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
                               <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                                 <Sparkles className="w-4 h-4 text-[#0EA5E9]" />
-                                <span>Optional AI OCR Assistant</span>
+                                <span>AI OCR Assistant</span>
                               </h4>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">Non-Storing Helper</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                ⚡ Powered by Google Gemini Vision AI
+                              </span>
                             </div>
-
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                              Optional: scan a document image to extract details on-the-fly and flag mismatches. The file is not saved permanently.
-                            </p>
 
                             <label className="w-full border-2 border-dashed border-slate-300 hover:border-sky-400 bg-white rounded-xl p-2.5 text-center flex items-center justify-center gap-2 cursor-pointer transition-colors group">
                               <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#0EA5E9]" />
                               <span className="text-xs font-bold text-slate-600 group-hover:text-[#0EA5E9]">
-                                {isOcrProcessing ? 'Scanning with Gemini Vision...' : 'Scan Document (Temporary)'}
+                                {isOcrProcessing ? 'Extracting with Gemini Vision...' : 'Scan Document (Temporary)'}
                               </span>
                               <input
                                 type="file"
@@ -1687,16 +2266,59 @@ export default function DocumentOCR({
                                     ocrEphemeralResult.extracted_data.expiry_date ||
                                     ocrEphemeralResult.extracted_data.date_of_expiry;
 
-                                  return exp ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setTypedExpirationDate(exp)}
-                                      className="w-full bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-                                    >
-                                      <Check className="w-3.5 h-3.5 text-[#0EA5E9]" />
-                                      <span>Apply Extracted Date: {exp}</span>
-                                    </button>
-                                  ) : null;
+                                  if (!exp) return null;
+
+                                  const hasCurrentValue = Boolean(typedExpirationDate);
+                                  const isDifferent = typedExpirationDate && typedExpirationDate !== exp;
+
+                                  return (
+                                    <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                          <Calendar className="w-3.5 h-3.5 text-[#0EA5E9]" />
+                                          <span>Extracted Expiration Date</span>
+                                        </span>
+                                        <span className="text-xs font-mono font-black text-sky-800 bg-white px-2 py-0.5 rounded border border-sky-200">
+                                          {exp}
+                                        </span>
+                                      </div>
+
+                                      <p className="text-[11px] text-slate-600 leading-snug">
+                                        {isDifferent
+                                          ? `Current entered date is "${typedExpirationDate}". Would you like to accept and override it with "${exp}"?`
+                                          : hasCurrentValue
+                                          ? `Extracted date matches currently entered date (${exp}).`
+                                          : `Would you like to accept "${exp}" as the verified expiration date?`}
+                                      </p>
+
+                                      {(!hasCurrentValue || isDifferent) && (
+                                        <div className="flex gap-1.5 pt-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setTypedExpirationDate(exp);
+                                              setOfficialDateUpdated(false);
+                                              showToast(`✓ Accepted & populated expiration date (${exp}).`);
+                                            }}
+                                            className="flex-1 bg-[#0EA5E9] hover:bg-[#0284C7] text-white py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
+                                          >
+                                            <Check className="w-3.5 h-3.5" />
+                                            <span>{isDifferent ? 'Accept & Override' : 'Accept Date'}</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              showToast('Extracted date declined. Kept current value.');
+                                            }}
+                                            className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                            <span>Decline / Keep</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
                                 })()}
                               </div>
                             )}
@@ -1852,7 +2474,7 @@ export default function DocumentOCR({
                 >
                   {RETURN_STAGE_OPTIONS.map(opt => (
                     <option key={opt.key} value={opt.key}>
-                      Phase {opt.phase}: {opt.name} ({opt.department})
+                      Phase {opt.phase}: {opt.name}
                     </option>
                   ))}
                 </select>
