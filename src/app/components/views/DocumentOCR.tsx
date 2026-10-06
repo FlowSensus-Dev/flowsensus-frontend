@@ -440,6 +440,24 @@ export default function DocumentOCR({
         }
       }
 
+      // If applicant record is missing dateOfBirth, enrich from backend
+      if (targetApp && !targetApp.dateOfBirth) {
+        api.get(`/applicants/${appId}`).then(appRes => {
+          if (appRes.data) {
+            const raw = appRes.data;
+            const dob = raw.birth_date || raw.dateOfBirth || raw.birthDate || '';
+            if (dob) {
+              setModalApplicant(prev => prev ? ({
+                ...prev,
+                dateOfBirth: dob,
+                age: prev.age || raw.age,
+                sex: prev.sex || raw.sex || raw.gender,
+              }) : null);
+            }
+          }
+        }).catch(() => {});
+      }
+
       // Auto-select first requirement if none selected
       if (list.length > 0) {
         const currentId = selectedReq?.applicant_req_id;
@@ -466,8 +484,10 @@ export default function DocumentOCR({
     setImageRotation(0);
     setImageError(false);
 
-    // Initialize typed expiration date from requirement if exists
-    setTypedExpirationDate(req.expiration_date || '');
+    // Initialize typed expiration date from requirement or candidate profile
+    const targetApplicant = appOverride || modalApplicant || modalApplicantRef.current;
+    const initialExp = req.expiration_date || (targetApplicant ? getRegisteredExpirationDate(targetApplicant, req) : '') || '';
+    setTypedExpirationDate(initialExp);
 
     // 1. Check local session preview map first (instant 0ms preview for files uploaded in current session)
     const localCached = localPreviewMapRef.current[req.applicant_req_id] || localPreviewMap[req.applicant_req_id];
@@ -499,7 +519,6 @@ export default function DocumentOCR({
     }
 
     // 4. Fallback to registered candidate documents from profile / registration
-    const targetApplicant = appOverride || modalApplicant || modalApplicantRef.current;
     const registeredProof = targetApplicant ? getRegisteredProofUrl(targetApplicant, req) : null;
     if (registeredProof) {
       setPreviewUrl(registeredProof);
@@ -515,12 +534,16 @@ export default function DocumentOCR({
 
   // ── Open Applicant Modal ──────────────────────────────────────────────────
   const handleOpenApplicantModal = (applicant: ApplicantRecord) => {
-    modalApplicantRef.current = applicant;
-    setModalApplicant(applicant);
+    const normalizedApplicant: ApplicantRecord = {
+      ...applicant,
+      dateOfBirth: applicant.dateOfBirth || (applicant as any).birth_date || (applicant as any).birthDate || (applicant as any).date_of_birth || '',
+    };
+    modalApplicantRef.current = normalizedApplicant;
+    setModalApplicant(normalizedApplicant);
     setForecastData(null);
-    setActualDeploymentInput(applicant.actualDeploymentDate || '');
-    loadRequirements(String(applicant.id), applicant);
-    loadForecast(applicant);
+    setActualDeploymentInput(normalizedApplicant.actualDeploymentDate || '');
+    loadRequirements(String(normalizedApplicant.id), normalizedApplicant);
+    loadForecast(normalizedApplicant);
   };
 
   const handleCloseApplicantModal = () => {
@@ -576,25 +599,38 @@ export default function DocumentOCR({
     if (!req) return null;
     const reqName = (req.requirement?.requirement_name || '').toLowerCase();
 
-    // 1. Look in identifications enriched on applicant profile
-    const idList = app.identifications || [];
+    // 1. Check direct requirement's expiration_date if already saved
+    if (req.expiration_date) {
+      return req.expiration_date;
+    }
+
+    // 2. Check passport fields if passport
+    if (reqName.includes('passport')) {
+      const pExp = app.passportExpirationDate || (app as any).passport_expiration_date || (app as any).passportExpiry || (app as any).passport_expiry;
+      if (pExp) return String(pExp).split('T')[0];
+    }
+
+    // 3. Look in identifications enriched on applicant profile
+    const idList = app.identifications || (app as any).applicant_identification || [];
     for (const idRecord of idList) {
-      const typeStr = (idRecord.type || '').toLowerCase();
-      if (reqName.includes('passport') && typeStr.includes('passport') && idRecord.expiryDate) {
-        return idRecord.expiryDate;
+      const typeStr = (idRecord.type || idRecord.identification_type || '').toLowerCase();
+      const exp = idRecord.expiryDate || idRecord.expiry_date || idRecord.expiration_date;
+      if (reqName.includes('passport') && typeStr.includes('passport') && exp) {
+        return String(exp).split('T')[0];
       }
-      if (reqName.includes('nbi') && (typeStr.includes('nbi') || typeStr.includes('clearance')) && idRecord.expiryDate) {
-        return idRecord.expiryDate;
+      if (
+        (reqName.includes('nbi') || reqName.includes('clearance') || reqName.includes('police')) &&
+        (typeStr.includes('nbi') || typeStr.includes('clearance') || typeStr.includes('police')) &&
+        exp
+      ) {
+        return String(exp).split('T')[0];
+      }
+      if (reqName.includes('driver') && typeStr.includes('driver') && exp) {
+        return String(exp).split('T')[0];
       }
     }
 
-    // 2. Check passportExpirationDate if passport requirement
-    if (reqName.includes('passport') && app.passportExpirationDate) {
-      return app.passportExpirationDate;
-    }
-
-    // 3. Fallback to existing requirement's expiration_date
-    return req.expiration_date || null;
+    return null;
   };
 
   const isExpirationTrackedRequirement = (req: RequirementRecord | null): boolean => {
@@ -822,15 +858,45 @@ export default function DocumentOCR({
       await api.patch(`/documents/${applicantReqId}/status`, {
         new_status: status,
         reason: manualRemarks || undefined,
+        expiration_date: typedExpirationDate || undefined,
       });
 
-      // 3. Trigger alert evaluation scan in background
+      // 3. Immediately update local requirements and selectedReq state
+      setRequirements(prev => prev.map(r => r.applicant_req_id === applicantReqId ? {
+        ...r,
+        status,
+        ocr_validation_status: status === 'VERIFIED' ? 'Verified' : 'Invalid',
+        expiration_date: typedExpirationDate || r.expiration_date,
+      } : r));
+
+      setSelectedReq(prev => prev && prev.applicant_req_id === applicantReqId ? {
+        ...prev,
+        status,
+        ocr_validation_status: status === 'VERIFIED' ? 'Verified' : 'Invalid',
+        expiration_date: typedExpirationDate || prev.expiration_date,
+      } : prev);
+
+      // 4. Trigger alert evaluation scan in background
       api.post('/documents/alerts/scan').catch(() => {});
 
       const applicantId = String(modalApplicant.id);
       const numericId = parseInt(applicantId, 10);
       const nowIso = new Date().toISOString();
       const reqName = selectedReq.requirement?.requirement_name || 'Document';
+
+      // If verifying passport and expiration date is entered, sync to applicant profile
+      if (typedExpirationDate && reqName.toLowerCase().includes('passport')) {
+        if (!isNaN(numericId)) {
+          api.put(`/applicants/${numericId}`, {
+            passport_expiration_date: typedExpirationDate,
+            updated_at: nowIso,
+          }).catch(console.error);
+        }
+        setModalApplicant(prev => prev ? ({ ...prev, passportExpirationDate: typedExpirationDate }) : null);
+        if (updateApplicant) {
+          updateApplicant(applicantId, { passportExpirationDate: typedExpirationDate });
+        }
+      }
 
       if (status === 'REJECTED') {
         // Enforce Provisional status on rejection
@@ -965,7 +1031,13 @@ export default function DocumentOCR({
 
     setIsProcessing(true);
     try {
-      // Update applicant identifications list
+      // 1. Update applicant requirement in database so document requirement record also has it
+      await api.patch(`/documents/${selectedReq.applicant_req_id}/fields`, {
+        fields: { expiration_date: typedExpirationDate },
+        reason: 'Staff synced official expiration date',
+      });
+
+      // 2. Update applicant identifications list
       const updatedIdentifications = (modalApplicant.identifications || []).map(id => {
         const typeStr = (id.type || '').toLowerCase();
         if (reqName.includes('passport') && typeStr.includes('passport')) {
@@ -987,6 +1059,11 @@ export default function DocumentOCR({
       if (updateApplicant) {
         updateApplicant(String(modalApplicant.id), updates);
       }
+      setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+
+      // Also update selectedReq and requirements list
+      setSelectedReq(prev => prev ? ({ ...prev, expiration_date: typedExpirationDate }) : null);
+      setRequirements(prev => prev.map(r => r.applicant_req_id === selectedReq.applicant_req_id ? ({ ...r, expiration_date: typedExpirationDate }) : r));
 
       if (!isNaN(numericId)) {
         await api.put(`/applicants/${numericId}`, {
@@ -997,7 +1074,7 @@ export default function DocumentOCR({
       }
 
       setOfficialDateUpdated(true);
-      showToast(`✓ Official registration record updated to ${typedExpirationDate}.`);
+      showToast(`✓ Official registration and requirement records updated to ${typedExpirationDate}.`);
 
       addActivityLog({
         applicantId: String(modalApplicant.id),
@@ -1059,7 +1136,7 @@ export default function DocumentOCR({
 
       if (resData) {
         const extracted = resData.extracted_data || {};
-        const discrepancies: Array<{ field: string; issue: string }> = resData.discrepancies || [];
+        const discrepancies: Array<{ field: string; issue: string; severity?: string }> = resData.discrepancies || [];
 
         // In-memory cross-check against profile
         const profileName = (modalApplicant.name || '').toLowerCase().trim();
@@ -1905,6 +1982,8 @@ export default function DocumentOCR({
                   <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
                     <span>Role: <strong>{modalApplicant.role || 'N/A'}</strong></span>
                     <span>•</span>
+                    <span>DOB: <strong>{modalApplicant.dateOfBirth ? String(modalApplicant.dateOfBirth).split('T')[0] : ((modalApplicant as any).birth_date ? String((modalApplicant as any).birth_date).split('T')[0] : ((modalApplicant as any).birthDate ? String((modalApplicant as any).birthDate).split('T')[0] : 'N/A'))}</strong></span>
+                    <span>•</span>
                     <span>Gender: <strong>{modalApplicant.sex || 'Not Specified'}</strong></span>
                     <span>•</span>
                     <span>Contact: <strong>{modalApplicant.contact || modalApplicant.email || 'N/A'}</strong></span>
@@ -2045,7 +2124,11 @@ export default function DocumentOCR({
 
                             {isExpiry && (
                               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                                {req.expiration_date ? `Exp: ${req.expiration_date}` : 'Needs Expiration'}
+                                {req.expiration_date
+                                  ? `Exp: ${req.expiration_date}`
+                                  : (getRegisteredExpirationDate(modalApplicant, req)
+                                    ? `Exp: ${getRegisteredExpirationDate(modalApplicant, req)}`
+                                    : 'Needs Expiration')}
                               </span>
                             )}
 
@@ -2339,13 +2422,13 @@ export default function DocumentOCR({
                                     Target Requirement
                                   </span>
                                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
-                                    selectedReq.verification_status === 'VERIFIED'
+                                    selectedReq.status === 'VERIFIED'
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : selectedReq.verification_status === 'REJECTED'
+                                      : selectedReq.status === 'REJECTED'
                                       ? 'bg-rose-50 text-rose-700 border-rose-200'
                                       : 'bg-amber-50 text-amber-700 border-amber-200'
                                   }`}>
-                                    Status: {selectedReq.verification_status || 'PENDING'}
+                                    Status: {selectedReq.status || 'PENDING'}
                                   </span>
                                 </div>
 
@@ -2405,7 +2488,12 @@ export default function DocumentOCR({
                                   <div>
                                     <span className="text-slate-400 block font-medium">Date of Birth:</span>
                                     <span className="font-semibold text-slate-800 font-mono mt-0.5 block">
-                                      {(modalApplicant as any).birthDate || (modalApplicant as any).birth_date || 'Not recorded'}
+                                      {(() => {
+                                        const dobRaw = modalApplicant.dateOfBirth || (modalApplicant as any).birth_date || (modalApplicant as any).birthDate || (modalApplicant as any).date_of_birth;
+                                        if (!dobRaw) return 'Not recorded';
+                                        return String(dobRaw).split('T')[0];
+                                      })()}
+                                      {modalApplicant.age ? ` (${modalApplicant.age} yrs)` : ''}
                                     </span>
                                   </div>
                                   <div>
