@@ -636,7 +636,7 @@ export default function AppShell({
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
-        return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
+        return <OperationalReports />;
       case 'users':
         return (
           <UserManagement
