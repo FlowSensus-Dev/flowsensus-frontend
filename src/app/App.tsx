@@ -1346,7 +1346,7 @@ export default function App() {
           amount: r.amount || 0,
           currency: (r.currency === 'USD' ? 'DOLLAR' : 'PESO') as 'PESO' | 'DOLLAR',
           type: (r.category === 'cash_advance' ? 'cash_advance' : (r.category === 'deduction' ? 'deduction' : 'expense')) as 'expense' | 'cash_advance' | 'deduction',
-          remarks: r.description || '',
+          remarks: r.reference_no || r.description || '',
           status: (r.status || 'approved') as 'draft' | 'approved',
           date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
           recordedBy: r.recorded_by_name || 'Mark Tan',
@@ -1762,6 +1762,7 @@ export default function App() {
         payment_type: expense.purpose || 'Processing Fee',
         amount: expense.amount,
         currency: expense.currency === 'DOLLAR' ? 'USD' : 'PHP',
+        reference_no: expense.remarks,
         recorded_by: 1,
       });
     } catch (err) {
