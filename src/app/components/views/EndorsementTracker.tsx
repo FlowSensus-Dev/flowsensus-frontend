@@ -419,6 +419,7 @@ interface KanbanCardProps {
   onOpenNotSelected: (card: CvSubmission) => void;
   onOpenVerificationModal: (card: CvSubmission) => void;
   onPromptRollback: (card: CvSubmission) => void;
+  onRevertAdminEndorsement?: (card: CvSubmission) => void;
   isActing: boolean;
 }
 
@@ -438,6 +439,7 @@ function KanbanCard({
   onOpenNotSelected,
   onOpenVerificationModal,
   onPromptRollback,
+  onRevertAdminEndorsement,
   isActing,
 }: KanbanCardProps) {
   const [expanded, setExpanded] = useState(isExpandedDefault);
@@ -464,7 +466,6 @@ function KanbanCard({
   const isEndorsedForAdmin = Boolean(
     stage.code === 'ENDORSED_TO_ADMIN' && (
       appStatus === 'Endorse for Administrative Processing' ||
-      appStatus === 'Pre-Deployment Processing' ||
       (typeof applicant?.phase === 'number' && applicant.phase >= 5) ||
       (card.admin_notes && card.admin_notes.includes('Endorsed for Administrative Processing'))
     )
@@ -493,6 +494,10 @@ function KanbanCard({
               {isEndorsedForAdmin ? (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 border border-violet-200">
                   Admin Endorsed
+                </span>
+              ) : appStatus === 'Pre-Deployment Processing' ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200">
+                  Pre-Deployment Processing
                 </span>
               ) : applicant?.status ? (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
@@ -565,7 +570,7 @@ function KanbanCard({
             </div>
 
             {/* Administrative Endorsement Confirmed Banner */}
-            {isEndorsedForAdmin && (
+            {isEndorsedForAdmin ? (
               <div className="mt-2 px-2.5 py-1.5 bg-violet-50/90 border border-violet-200 rounded-lg text-[11px] space-y-0.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-violet-900 font-bold truncate">
@@ -580,7 +585,24 @@ function KanbanCard({
                   Confirmed by <span className="font-semibold text-violet-900">{endorserName}</span>
                 </p>
               </div>
-            )}
+            ) : stage.code === 'ENDORSED_TO_ADMIN' ? (
+              <div className="mt-2 px-2.5 py-1.5 bg-sky-50/80 border border-sky-200 rounded-lg text-[11px] space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-sky-900 font-bold truncate">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-600 flex-shrink-0" />
+                    <span className="truncate">Selected by Employer</span>
+                  </div>
+                  {card.selection_date && (
+                    <span className="text-[10px] text-sky-600 font-mono whitespace-nowrap ml-1">
+                      {new Date(card.selection_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-sky-700 pl-5">
+                  In Pre-Deployment Processing · Ready for eligibility review & Admin endorsement
+                </p>
+              </div>
+            ) : null}
 
             {/* Quick Actions: Preview & Download Approved CV */}
             <div className="flex items-center gap-1.5 mt-2.5">
@@ -709,6 +731,17 @@ function KanbanCard({
                         <Eye className="w-3 h-3 text-violet-500" />
                         View Verification Checklist
                       </button>
+                      {onRevertAdminEndorsement && (
+                        <button
+                          onClick={() => onRevertAdminEndorsement(card)}
+                          disabled={isActing}
+                          className="w-full mt-1 flex items-center justify-center gap-1 py-1 px-2 text-[10.5px] font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100/70 border border-amber-200 rounded-md transition-colors"
+                          title="Revert endorsement back to Pre-Deployment Processing"
+                        >
+                          <Undo2 className="w-3 h-3 text-amber-600" />
+                          Revert to Pre-Deployment Processing
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <button
@@ -1372,6 +1405,81 @@ export default function EndorsementTracker({
     }
   };
 
+  // ── Revert Admin Endorsement (Step back from Admin Endorsed to Pre-Deployment) ──
+  const handleRevertAdminEndorsement = async (card: CvSubmission) => {
+    const previousSubmissions = submissions;
+    const previousApp = getApplicantForCard(card);
+    const nowIso = new Date().toISOString();
+    const numId = parseInt(String(card.applicant_id), 10);
+
+    // 1. Optimistic Update (0ms UI latency)
+    setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? {
+      ...s,
+      admin_notes: '',
+      stage_updated_by: currentUserName,
+      stage_updated_at: nowIso,
+    } : s));
+
+    updateApplicant(String(card.applicant_id), {
+      phase: 4,
+      status: 'Pre-Deployment Processing',
+      currentHandler: currentUserName,
+      currentDepartment: 'Admin',
+      phaseDescription: 'Candidate returned to Pre-Deployment Processing. Ready for document validation.',
+    });
+
+    notify(`↩ ${card.applicant_name}: Reverted Admin Endorsement. Status is now "Pre-Deployment Processing".`);
+
+    // 2. Parallel Background API Requests
+    setActingId(card.submission_id);
+    try {
+      const tasks: Promise<any>[] = [
+        api.patch(`/cv-submissions/${card.submission_id}`, {
+          adminNotes: '',
+          stageUpdatedBy: currentUserName,
+          updatedBy: currentUserName,
+        }),
+      ];
+      if (!isNaN(numId)) {
+        tasks.push(
+          api.put(`/applicants/${numId}`, {
+            current_phase: 4,
+            application_status: 'Pre-Deployment Processing',
+            current_handler: currentUserName,
+            current_department: 'Admin',
+            phase_description: 'Candidate returned to Pre-Deployment Processing. Ready for document validation.',
+            statusChangeReason: 'Admin endorsement reverted to Pre-Deployment Processing',
+            statusChangeSource: 'ENDORSEMENT_STAGE_ROLLBACK',
+            updated_at: nowIso,
+          })
+        );
+      }
+      await Promise.all(tasks);
+
+      addActivityLog({
+        applicantId: String(card.applicant_id),
+        action: 'Reverted Admin Endorsement',
+        performedBy: currentUserName,
+        department: 'Admin',
+        details: 'Admin endorsement reverted to Pre-Deployment Processing.',
+      });
+    } catch (err: any) {
+      setSubmissions(previousSubmissions);
+      if (previousApp) {
+        updateApplicant(String(card.applicant_id), {
+          phase: previousApp.phase,
+          status: previousApp.status,
+          currentHandler: previousApp.currentHandler,
+          currentDepartment: previousApp.currentDepartment,
+          phaseDescription: previousApp.phaseDescription,
+        });
+      }
+      notify(`Failed to revert endorsement: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setActingId(null);
+    }
+  };
+
   // ── Rollback Stage Handler (Return card to previous step in Tracker) ────────
   const handleRollbackStage = async (card: CvSubmission, customReason?: string) => {
     const prevInfo = PREVIOUS_STAGE_MAP[card.board_stage_code];
@@ -1767,6 +1875,7 @@ export default function EndorsementTracker({
                             setConfirmRollbackCard(c);
                             setRollbackReason('Accidentally advanced phase');
                           }}
+                          onRevertAdminEndorsement={handleRevertAdminEndorsement}
                           isActing={actingId === card.submission_id}
                         />
                       ))
@@ -2545,7 +2654,6 @@ export default function EndorsementTracker({
 
                 const isAlreadyEndorsed = Boolean(
                   app?.status === 'Endorse for Administrative Processing' ||
-                  app?.status === 'Pre-Deployment Processing' ||
                   (typeof app?.phase === 'number' && app.phase >= 5) ||
                   (verificationCard.board_stage_code === 'ENDORSED_TO_ADMIN' && verificationCard.admin_notes && verificationCard.admin_notes.includes('Endorsed for Administrative Processing'))
                 );

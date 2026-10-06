@@ -90,23 +90,23 @@ const PHASES = [
   },
   {
     phase: 3,
-    title: 'CV Encoding & Management Vetting',
-    shortTitle: 'CV Vetting',
+    title: 'CV Encoding & Management Approval',
+    shortTitle: 'CV Encoding & Approval',
     subtitle: 'Standardized international format encoding and agency manager sign-off',
     icon: FileText,
     description: 'Skills matrix and professional bio-data verified and approved by the agency operations team.',
   },
   {
     phase: 4,
-    title: 'Employer Endorsement & Pre-Deployment',
-    shortTitle: 'Pre-Deployment',
+    title: 'Employer Endorsement',
+    shortTitle: 'Employer Review',
     subtitle: 'Principal submission, candidate selection & pre-deployment processing',
     icon: Building2,
     description: 'Candidate profile forwarded directly to the accredited overseas employer for final selection and pre-deployment processing.',
   },
   {
     phase: 5,
-    title: 'Deployment & Visa Processing',
+    title: 'Deployment',
     shortTitle: 'Deployment',
     subtitle: 'POEA/DMW clearance, work visa issuance, PDOS seminar, and flight departure',
     icon: PlaneTakeoff,
@@ -174,7 +174,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
           applications: Array.isArray(resApps.data) ? resApps.data : [],
           documents: Array.isArray(resDocs.data) ? resDocs.data : [],
         }));
-      } catch (e) {}
+      } catch (e) { }
     } catch (err: any) {
       console.error('Failed to load applicant portal data:', err);
       const detail = err?.response?.data?.detail;
@@ -203,7 +203,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
         setLoading(false);
         hasCache = true;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Fetch fresh data in background (silent if already rendered from cache)
     fetchPortalData(hasCache);
