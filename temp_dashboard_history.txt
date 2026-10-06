@@ -1,0 +1,144 @@
+﻿commit e4e29bd8a10e539b9b643d39c94feea7ddf03018
+Author: John Carlo Jamolo <johncarlorjamolo@iskolarngbayan.pup.edu.ph>
+Date:   Fri Oct 2 17:34:14 2026 +0800
+
+    latency 2
+
+diff --git a/src/app/components/views/dashboards/AccountingDashboard.tsx b/src/app/components/views/dashboards/AccountingDashboard.tsx
+index e795e17..367650e 100644
+--- a/src/app/components/views/dashboards/AccountingDashboard.tsx
++++ b/src/app/components/views/dashboards/AccountingDashboard.tsx
+@@ -20,6 +20,7 @@ interface AccountingDashboardProps {
+   expenses?: ExpenseRecord[];
+   onNavigate: (view: ViewType) => void;
+   onAddExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
++  isLoading?: boolean;
+ }
+ 
+ export default function AccountingDashboard({
+@@ -27,6 +28,7 @@ export default function AccountingDashboard({
+   expenses = [],
+   onNavigate,
+   onAddExpense,
++  isLoading = false,
+ }: AccountingDashboardProps) {
+   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter'>('month');
+   const [quickExpense, setQuickExpense] = useState({
+
+commit 29ef089d89123e64be5fc960bc767f132e47b601
+Author: John Carlo Jamolo <johncarlorjamolo@iskolarngbayan.pup.edu.ph>
+Date:   Tue Sep 15 16:03:10 2026 +0800
+
+    feat: implement mandatory password change on first login and migrate to phone_number field
+
+diff --git a/src/app/components/views/dashboards/AccountingDashboard.tsx b/src/app/components/views/dashboards/AccountingDashboard.tsx
+index fa5e1c6..e795e17 100644
+--- a/src/app/components/views/dashboards/AccountingDashboard.tsx
++++ b/src/app/components/views/dashboards/AccountingDashboard.tsx
+@@ -81,11 +81,14 @@ export default function AccountingDashboard({
+   }, {} as Record<string, number>);
+ 
+   const topSpenders = Object.entries(expensePerApplicant)
+-    .map(([id, amount]) => ({
+-      applicantId: id,
+-      applicantName: applicants.find((a) => a.id === id)?.name || `Applicant #${id}`,
+-      amount,
+-    }))
++    .map(([id, amount]) => {
++      const found = applicants.find((a) => a.id === id);
++      return {
++        applicantId: id,
++        applicantName: found?.name || (found?.applicantCode ? `Applicant ${found.applicantCode}` : `Applicant #${id}`),
++        amount,
++      };
++    })
+     .sort((a, b) => b.amount - a.amount)
+     .slice(0, 5);
+ 
+@@ -101,9 +104,17 @@ export default function AccountingDashboard({
+     const amountNum = parseFloat(quickExpense.amount);
+     if (isNaN(amountNum) || amountNum <= 0) return;
+ 
++    const trimmedInput = quickExpense.applicantId.trim();
++    const matchedApp = applicants.find(
++      (a) =>
++        (a.applicantCode && a.applicantCode.toLowerCase() === trimmedInput.toLowerCase()) ||
++        String(a.id) === trimmedInput
++    );
++    const resolvedApplicantId = matchedApp ? String(matchedApp.id) : trimmedInput;
++
+     const nowIso = new Date().toISOString();
+     const expenseRecord: Omit<ExpenseRecord, 'id'> = {
+-      applicantId: quickExpense.applicantId,
++      applicantId: resolvedApplicantId,
+       category: quickExpense.category,
+       type: quickExpense.category,
+       amount: amountNum,
+@@ -139,7 +150,7 @@ export default function AccountingDashboard({
+       return;
+     }
+ 
+-    const headers = ['Date', 'Applicant ID', 'Category', 'Amount (PHP)', 'Payment Method', 'Paid By', 'Notes / Description'];
++    const headers = ['Date', 'Applicant Code / ID', 'Category', 'Amount (PHP)', 'Payment Method', 'Paid By', 'Notes / Description'];
+     const clean = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+ 
+     const rows = expenses.map((exp: any) => {
+@@ -150,9 +161,12 @@ export default function AccountingDashboard({
+         formattedDate = isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString();
+       }
+ 
++      const matchedApplicant = applicants.find((a) => String(a.id) === String(exp.applicantId));
++      const displayAppCode = matchedApplicant?.applicantCode || exp.applicantId || 'N/A';
++
+       return [
+         clean(formattedDate),
+-        clean(exp.applicantId || 'N/A'),
++        clean(displayAppCode),
+         clean(exp.category || exp.type || 'General Fee'),
+         clean(exp.amount || 0),
+         clean(exp.paymentMethod || exp.type || 'N/A'),
+@@ -209,11 +223,11 @@ export default function AccountingDashboard({
+           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+             <div>
+               <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
+-                Applicant ID
++                Applicant Code / ID
+               </label>
+               <input
+                 type="text"
+-                placeholder="e.g. 1, 2, 3"
++                placeholder="e.g. APP-2026-FP-00002 or 2"
+                 value={quickExpense.applicantId}
+                 onChange={(e) => setQuickExpense({ ...quickExpense, applicantId: e.target.value })}
+                 className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#10B981] outline-none"
+@@ -515,7 +529,7 @@ export default function AccountingDashboard({
+                       {initials}
+                     </div>
+                     <div>
+-                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.applicantCode || applicant.id}`}</p>
++                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant ${applicant.applicantCode || applicant.id}`}</p>
+                       <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} ΓÇó Ready for pre-departure cash advance</p>
+                     </div>
+                   </div>
+
+commit e3ae8c018de68521884eabe618d023ab2c16cf14
+Author: John Carlo Jamolo <johncarlorjamolo@iskolarngbayan.pup.edu.ph>
+Date:   Tue Sep 15 04:23:28 2026 +0800
+
+    fixed bugs
+
+diff --git a/src/app/components/views/dashboards/AccountingDashboard.tsx b/src/app/components/views/dashboards/AccountingDashboard.tsx
+index 729f6e5..fa5e1c6 100644
+--- a/src/app/components/views/dashboards/AccountingDashboard.tsx
++++ b/src/app/components/views/dashboards/AccountingDashboard.tsx
+@@ -515,8 +515,8 @@ export default function AccountingDashboard({
+                       {initials}
+                     </div>
+                     <div>
+-                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.id}`}</p>
+-                      <p className="text-xs text-[#64748B]">{applicant.id} ΓÇó Ready for pre-departure cash advance</p>
++                      <p className="font-bold text-[#0F172A]">{applicant.name || `Applicant #${applicant.applicantCode || applicant.id}`}</p>
++                      <p className="text-xs text-[#64748B]">{applicant.applicantCode || applicant.id} ΓÇó Ready for pre-departure cash advance</p>
+                     </div>
+                   </div>
+                   <button

@@ -53,6 +53,7 @@ interface AppShellProps {
   expensesLoaded?: boolean;
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
   updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
+  deleteExpense?: (id: string) => void;
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
@@ -81,6 +82,7 @@ export default function AppShell({
   expensesLoaded,
   addExpense,
   updateExpense,
+  deleteExpense,
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
@@ -624,6 +626,7 @@ export default function AppShell({
             expenses={expenses}
             addExpense={addExpense}
             updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}

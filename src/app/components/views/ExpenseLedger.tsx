@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Lock, DollarSign, Plus, Receipt, Loader2, Download, Building2, ArrowLeft, Search, Filter, User, X, Edit2 } from 'lucide-react';
+import { Lock, DollarSign, Plus, Receipt, Loader2, Download, Building2, ArrowLeft, Search, Filter, User, X, Edit2, Trash2, CheckSquare, Calendar, History, FileText } from 'lucide-react';
 import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord, ApplicantLedgerSummary } from '../../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -9,6 +9,7 @@ interface ExpenseLedgerProps {
   expenses?: ExpenseRecord[];
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
   updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
+  deleteExpense?: (id: string) => void;
   currentUserName: string;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast: (message: string) => void;
@@ -23,6 +24,7 @@ export default function ExpenseLedger({
   expenses = [],
   addExpense,
   updateExpense,
+  deleteExpense,
   currentUserName,
   addActivityLog,
   showToast,
@@ -49,7 +51,7 @@ export default function ExpenseLedger({
     }).filter(app => {
       const matchesSearch = (app.name || `${app.firstName || ''} ${app.lastName || ''}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
                             (app.applicantCode || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesPhase = phaseFilter === 'All' || app.workflowPhase === phaseFilter;
+      const matchesPhase = phaseFilter === 'All' || app.phaseDescription === phaseFilter;
       return matchesSearch && matchesPhase;
     }).sort((a, b) => b.totalPeso - a.totalPeso);
   }, [applicants, expenses, searchTerm, phaseFilter]);
@@ -60,8 +62,16 @@ export default function ExpenseLedger({
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isReimbursable, setIsReimbursable] = useState(true);
 
+  // Batch Actions & Filters
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState<string[]>([]);
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [activeTab, setActiveTab] = useState<'ledger' | 'soa-history'>('ledger');
+
+
   const [newExpense, setNewExpense] = useState<Omit<ExpenseRecord, 'id'>>({
-    applicantId: selectedApplicantId,
+    applicantId: selectedApplicantId || '',
     purpose: 'VISA Processing',
     amount: 0,
     currency: 'PESO',
@@ -75,14 +85,55 @@ export default function ExpenseLedger({
     ? (selectedApplicant.name || `${selectedApplicant.firstName || ''} ${selectedApplicant.lastName || ''}`.trim() || `Candidate #${selectedApplicantId}`)
     : 'Selected Candidate';
 
-  const jobOrderDetails = selectedApplicant?.jobOrder || selectedApplicant?.employerName || '';
+  const jobOrderDetails = selectedApplicant?.jobOrder || '';
 
 
 
   // Calculations
+
   const currentExpenses = useMemo(() => {
-    return expenses.filter(e => String(e.applicantId) === String(selectedApplicantId));
-  }, [expenses, selectedApplicantId]);
+    let list = expenses.filter(e => String(e.applicantId) === String(selectedApplicantId));
+    if (dateStart) list = list.filter(e => e.date && e.date >= dateStart);
+    if (dateEnd) list = list.filter(e => e.date && e.date <= dateEnd);
+    if (categoryFilter !== 'All') {
+      if (categoryFilter === 'Reimbursable') list = list.filter(e => (e.remarks || '').includes('[REIMBURSABLE]'));
+      else if (categoryFilter === 'Personal') list = list.filter(e => !(e.remarks || '').includes('[REIMBURSABLE]'));
+    }
+    return list;
+  }, [expenses, selectedApplicantId, dateStart, dateEnd, categoryFilter]);
+
+  const soaLogs = useMemo(() => {
+    return (workflow?.activityLogs || []).filter(l => String(l.applicantId) === String(selectedApplicantId) && l.action === 'Generated Statement of Account');
+  }, [workflow, selectedApplicantId]);
+
+  const toggleSelectExpense = (id: string) => {
+    setSelectedExpenseIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleBatchUpdateStatus = (status: string) => {
+    if (!updateExpense) return;
+    const tagMap: Record<string, string> = {
+      'Unbilled': '',
+      'Billed to Employer': '[Billed to Employer]',
+      'Partially Paid': '[Partially Paid]',
+      'Fully Settled': '[Fully Settled]',
+      'Void': '[Void]'
+    };
+    
+    selectedExpenseIds.forEach(id => {
+      const exp = expenses.find(e => e.id === id);
+      if (exp) {
+        let remarks = (exp.remarks || '').replace(/\[Billed to Employer\]|\[Partially Paid\]|\[Fully Settled\]|\[Void\]/g, '').trim();
+        if (tagMap[status]) {
+          remarks = `${remarks} ${tagMap[status]}`.trim();
+        }
+        updateExpense(id, { remarks });
+      }
+    });
+    showToast(`✓ Batch marked ${selectedExpenseIds.length} entries as ${status}`);
+    setSelectedExpenseIds([]);
+  };
+
 
   const totalPeso = currentExpenses.filter(e => e.currency === 'PESO').reduce((sum, e) => sum + e.amount, 0);
   const totalDollarDirect = currentExpenses.filter(e => e.currency === 'DOLLAR').reduce((sum, e) => sum + e.amount, 0);
@@ -91,14 +142,22 @@ export default function ExpenseLedger({
   const personalExpensesList = currentExpenses.filter(e => !(e.remarks || '').includes('[REIMBURSABLE]'));
 
   const reimbursablePHP = reimbursableExpensesList.reduce((sum, e) => sum + e.amount, 0);
+
+  const getExpenseStatus = (remarks: string) => {
+    if (remarks.includes('[Void]')) return 'Void';
+    if (remarks.includes('[Fully Settled]')) return 'Fully Settled';
+    if (remarks.includes('[Partially Paid]')) return 'Partially Paid';
+    if (remarks.includes('[Billed to Employer]')) return 'Billed to Employer';
+    return 'Unbilled';
+  };
   const personalPHP = personalExpensesList.reduce((sum, e) => sum + e.amount, 0);
 
   const handleAddSubmit = () => {
-    let finalRemarks = newExpense.remarks.replace('[REIMBURSABLE]', '').trim();
+    let finalRemarks = (newExpense.remarks || '').replace('[REIMBURSABLE]', '').trim();
     if (isReimbursable) finalRemarks = finalRemarks ? `${finalRemarks} [REIMBURSABLE]` : '[REIMBURSABLE]';
 
     const expense: Omit<ExpenseRecord, 'id'> = {
-      applicantId: selectedApplicantId,
+      applicantId: selectedApplicantId || '',
       purpose: newExpense.purpose || expenseCategory,
       amount: newExpense.amount,
       currency: 'PESO',
@@ -118,7 +177,7 @@ export default function ExpenseLedger({
     }
 
     addActivityLog({
-      applicantId: selectedApplicantId,
+      applicantId: selectedApplicantId || '',
       action: editingExpenseId ? 'Financial Transaction Updated' : 'Financial Transaction Recorded',
       performedBy: currentUserName,
       department: 'Accounting',
@@ -129,7 +188,7 @@ export default function ExpenseLedger({
     setEditingExpenseId(null);
     setIsReimbursable(false);
     setNewExpense({
-      applicantId: selectedApplicantId, purpose: 'VISA Processing', amount: 0, currency: 'PESO', type: 'expense', remarks: '', status: 'approved',
+      applicantId: selectedApplicantId || '', purpose: 'VISA Processing', amount: 0, currency: 'PESO', type: 'expense', remarks: '', status: 'approved',
     });
     setExpenseCategory('VISA Processing');
   };
@@ -173,7 +232,7 @@ export default function ExpenseLedger({
     
     doc.setFontSize(10);
     doc.text(`Applicant: ${applicantDisplayName}`, 14, 38);
-    doc.text(`Employer: ${selectedApplicant?.jobOrder || selectedApplicant?.employerName || 'Not Assigned'}`, 14, 44);
+    doc.text(`Employer: ${selectedApplicant?.jobOrder || 'Not Assigned'}`, 14, 44);
     doc.text(`Date Generated: ${new Date().toLocaleDateString()}`, 14, 50);
 
     const reimbursableExpenses = currentExpenses.filter(e => (e.remarks || '').includes('[REIMBURSABLE]'));
@@ -269,7 +328,7 @@ export default function ExpenseLedger({
     doc.save(`SOA_${applicantDisplayName.replace(/\s+/g, '_')}.pdf`);
 
     addActivityLog({
-      applicantId: selectedApplicantId,
+      applicantId: selectedApplicantId || '',
       action: 'Generated Statement of Account',
       performedBy: currentUserName,
       department: 'Accounting',
@@ -395,6 +454,41 @@ export default function ExpenseLedger({
         <div className="grid grid-cols-1 gap-6">
           {/* Ledger Area */}
           <div className="space-y-6">
+
+            {/* Filters and Batch Actions */}
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Filter size={16} className="text-slate-400" />
+                  <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="border-slate-300 rounded-md text-sm py-1.5 focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="All">All Categories</option>
+                    <option value="Reimbursable">Reimbursable Only</option>
+                    <option value="Personal">Personal Only</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
+                  <Calendar size={16} className="text-slate-400" />
+                  <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="border-slate-300 rounded-md text-sm py-1.5 text-slate-600" />
+                  <span className="text-slate-400 text-xs">to</span>
+                  <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="border-slate-300 rounded-md text-sm py-1.5 text-slate-600" />
+                </div>
+              </div>
+              
+              {selectedExpenseIds.length > 0 && (
+                <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                  <span className="text-xs font-bold text-indigo-700 mr-2">{selectedExpenseIds.length} Selected</span>
+                  <select onChange={(e) => handleBatchUpdateStatus(e.target.value)} className="text-xs border-indigo-200 rounded text-indigo-700 bg-white py-1 cursor-pointer">
+                    <option value="">Mark as...</option>
+                    <option value="Unbilled">Unbilled</option>
+                    <option value="Billed to Employer">Billed to Employer</option>
+                    <option value="Partially Paid">Partially Paid</option>
+                    <option value="Fully Settled">Fully Settled</option>
+                    <option value="Void">Void</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-xl shadow-sm">
@@ -419,8 +513,10 @@ export default function ExpenseLedger({
               <table className="w-full text-sm text-left">
                 <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold">
                   <tr>
+                    <th className="px-4 py-3 w-10"></th>
                     <th className="px-4 py-3">PURPOSE</th>
                     <th className="px-4 py-3 text-right">AMOUNT</th>
+                    <th className="px-4 py-3">STATUS</th>
                     <th className="px-4 py-3">REMARKS</th>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
@@ -428,6 +524,7 @@ export default function ExpenseLedger({
                 <tbody className="divide-y divide-slate-100">
                   {currentExpenses.filter(e => (e.remarks || '').includes('[REIMBURSABLE]')).map((exp) => (
                     <tr key={exp.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3"><input type="checkbox" checked={selectedExpenseIds.includes(exp.id)} onChange={() => toggleSelectExpense(exp.id)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /></td>
                       <td className="px-4 py-3 font-semibold text-slate-800">
                         {exp.purpose || 'General'}
                         {exp.status === 'draft' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase">Draft</span>}
@@ -435,7 +532,8 @@ export default function ExpenseLedger({
                       <td className="px-4 py-3 text-right font-medium text-slate-800">
                         ₱ {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').replace('[REIMBURSABLE]', '').trim()}</td>
+                      <td className="px-4 py-3"><span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase">{getExpenseStatus(exp.remarks || '')}</span></td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').replace('[REIMBURSABLE]', '').replace(/\[Billed to Employer\]|\[Partially Paid\]|\[Fully Settled\]|\[Void\]/g, '').replace(/\[Billed to Employer\]|\[Partially Paid\]|\[Fully Settled\]|\[Void\]/g, '').trim()}</td>
                       <td className="px-4 py-3">
                         <button onClick={() => handleEditExpense(exp)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit Entry">
                           <Edit2 className="w-4 h-4" />
@@ -460,8 +558,10 @@ export default function ExpenseLedger({
               <table className="w-full text-sm text-left">
                 <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold">
                   <tr>
+                    <th className="px-4 py-3 w-10"></th>
                     <th className="px-4 py-3">PURPOSE</th>
                     <th className="px-4 py-3 text-right">AMOUNT</th>
+                    <th className="px-4 py-3">STATUS</th>
                     <th className="px-4 py-3">REMARKS</th>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
@@ -469,6 +569,7 @@ export default function ExpenseLedger({
                 <tbody className="divide-y divide-slate-100">
                   {currentExpenses.filter(e => !(e.remarks || '').includes('[REIMBURSABLE]')).map((exp) => (
                     <tr key={exp.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3"><input type="checkbox" checked={selectedExpenseIds.includes(exp.id)} onChange={() => toggleSelectExpense(exp.id)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /></td>
                       <td className="px-4 py-3 font-semibold text-slate-800">
                         {exp.purpose || 'General'}
                         {exp.status === 'draft' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase">Draft</span>}
@@ -476,7 +577,8 @@ export default function ExpenseLedger({
                       <td className="px-4 py-3 text-right font-medium text-slate-800">
                         ₱ {exp.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').trim()}</td>
+                      <td className="px-4 py-3"><span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase">{getExpenseStatus(exp.remarks || '')}</span></td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{(exp.remarks || '').replace(/\[Billed to Employer\]|\[Partially Paid\]|\[Fully Settled\]|\[Void\]/g, '').trim()}</td>
                       <td className="px-4 py-3">
                         <button onClick={() => handleEditExpense(exp)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit Entry">
                           <Edit2 className="w-4 h-4" />

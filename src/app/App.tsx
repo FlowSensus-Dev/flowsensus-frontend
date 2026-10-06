@@ -1779,11 +1779,23 @@ export default function App() {
           payment_type: updates.purpose,
           amount: updates.amount,
           currency: updates.currency === 'DOLLAR' ? 'USD' : 'PHP',
-          description: updates.remarks,
+          reference_no: updates.remarks,
         });
       }
     } catch (err) {
       console.warn('Could not update expense on backend:', err);
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    setExpenses((prev) => prev.filter(e => e.id !== id));
+    try {
+      if (!id.startsWith('EXP-new-')) {
+        const dbId = id.replace('EXP-', '');
+        await api.delete(`/financial/records/${dbId}`);
+      }
+    } catch (err) {
+      console.warn('Could not delete expense on backend:', err);
     }
   };
 
@@ -1942,6 +1954,7 @@ export default function App() {
             expensesLoaded={expensesLoaded}
             addExpense={addExpense}
             updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
             onLogout={handleLogout}
             isSuperAdmin={isSuperAdmin}
             onSuperAdminDashboard={() => showAppView('super-admin')}
