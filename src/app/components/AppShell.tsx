@@ -586,7 +586,18 @@ export default function AppShell({
           />
         );
       case 'alerts':
-        return <ComplianceAlerts applicants={applicants} showToast={showToastNotification} />;
+        return (
+          <ComplianceAlerts
+            applicants={applicants}
+            showToast={showToastNotification}
+            onNavigate={(view: string, applicantId?: string) => {
+              if (applicantId) {
+                setSelectedApplicantId(applicantId);
+              }
+              setCurrentView(view as any);
+            }}
+          />
+        );
       case 'expense':
         return (
           <ExpenseLedger
