@@ -331,6 +331,9 @@ export default function DocumentOCR({
     match_status?: string;
     mismatchAlert?: DocumentMismatchAlert | null;
   } | null>(null);
+  const [declinedExtractedExp, setDeclinedExtractedExp] = useState(false);
+  const [acceptedExtractedExp, setAcceptedExtractedExp] = useState<string | null>(null);
+  const [isAcceptingExpDate, setIsAcceptingExpDate] = useState(false);
 
   // ── Return Stage Modal State ──────────────────────────────────────────────
   const [returnModalApplicant, setReturnModalApplicant] = useState<ApplicantRecord | null>(null);
@@ -497,6 +500,8 @@ export default function DocumentOCR({
     setSelectedReq(req);
     setManualRemarks('');
     setOcrEphemeralResult(null);
+    setDeclinedExtractedExp(false);
+    setAcceptedExtractedExp(null);
     setOfficialDateUpdated(false);
     setImageZoom(1);
     setImageRotation(0);
@@ -556,14 +561,19 @@ export default function DocumentOCR({
 
   // ── Open Applicant Modal ──────────────────────────────────────────────────
   const handleOpenApplicantModal = (applicant: ApplicantRecord) => {
+    const rawActual = applicant.actualDeploymentDate || (applicant as any).actual_deployment_at;
+    const formattedActual = rawActual ? String(rawActual).split('T')[0] : '';
     const normalizedApplicant: ApplicantRecord = {
       ...applicant,
       dateOfBirth: applicant.dateOfBirth || (applicant as any).birth_date || (applicant as any).birthDate || (applicant as any).date_of_birth || '',
+      actualDeploymentDate: formattedActual,
     };
     modalApplicantRef.current = normalizedApplicant;
     setModalApplicant(normalizedApplicant);
     setForecastData(null);
-    setActualDeploymentInput(normalizedApplicant.actualDeploymentDate || '');
+    setActualDeploymentInput(formattedActual);
+    setDeclinedExtractedExp(false);
+    setAcceptedExtractedExp(null);
     loadRequirements(String(normalizedApplicant.id), normalizedApplicant);
     loadForecast(normalizedApplicant);
   };
@@ -574,6 +584,8 @@ export default function DocumentOCR({
     setSelectedReq(null);
     setPreviewUrl(null);
     setOcrEphemeralResult(null);
+    setDeclinedExtractedExp(false);
+    setAcceptedExtractedExp(null);
     setImageError(false);
   };
 
@@ -948,11 +960,15 @@ export default function DocumentOCR({
       if (typedExpirationDate && reqName.toLowerCase().includes('passport')) {
         if (!isNaN(numericId)) {
           api.put(`/applicants/${numericId}`, {
+            application_id: modalApplicant.applicationId,
             passport_expiration_date: typedExpirationDate,
             updated_at: nowIso,
           }).catch(console.error);
         }
         setModalApplicant(prev => prev ? ({ ...prev, passportExpirationDate: typedExpirationDate }) : null);
+        if (modalApplicantRef.current) {
+          modalApplicantRef.current = { ...modalApplicantRef.current, passportExpirationDate: typedExpirationDate };
+        }
         if (updateApplicant) {
           updateApplicant(applicantId, { passportExpirationDate: typedExpirationDate });
         }
@@ -971,9 +987,13 @@ export default function DocumentOCR({
           updateApplicant(applicantId, updates);
         }
         setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+        if (modalApplicantRef.current) {
+          modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+        }
 
         if (!isNaN(numericId)) {
           await api.put(`/applicants/${numericId}`, {
+            application_id: modalApplicant.applicationId,
             application_status: 'Provisional',
             current_phase: 5,
             phase_description: reasonText,
@@ -1013,9 +1033,13 @@ export default function DocumentOCR({
             updateApplicant(applicantId, updates);
           }
           setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+          if (modalApplicantRef.current) {
+            modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+          }
 
           if (!isNaN(numericId)) {
             await api.put(`/applicants/${numericId}`, {
+              application_id: modalApplicant.applicationId,
               application_status: 'Provisional',
               current_phase: 5,
               phase_description: reasonText,
@@ -1040,9 +1064,13 @@ export default function DocumentOCR({
               updateApplicant(applicantId, updates);
             }
             setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+            if (modalApplicantRef.current) {
+              modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+            }
 
             if (!isNaN(numericId)) {
               await api.put(`/applicants/${numericId}`, {
+                application_id: modalApplicant.applicationId,
                 application_status: 'Endorse for Administrative Processing',
                 current_phase: 5,
                 phase_description: reasonText,
@@ -1150,22 +1178,13 @@ export default function DocumentOCR({
     }
   };
 
-  // ── Optional OCR Assistant (Ephemeral, Non-Storing) ───────────────────────
-  const handleOptionalOcrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !modalApplicant) return;
-
-    // Immediately preview the file in the left document viewer (0ms latency)
-    const localUrl = URL.createObjectURL(file);
-    const mime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-    setPreviewUrl(localUrl);
-    setPreviewMime(mime);
-    setOcrScannedFileName(file.name);
-    setImageZoom(1);
-    setImageRotation(0);
-
+  // ── Execute OCR Analysis with Gemini Vision AI ─────────────────────────────
+  const executeOcrAnalysis = async (file: File) => {
+    if (!modalApplicant) return;
     setIsOcrProcessing(true);
     setOcrEphemeralResult(null);
+    setDeclinedExtractedExp(false);
+    setAcceptedExtractedExp(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -1267,8 +1286,104 @@ export default function DocumentOCR({
       showToast(`Gemini OCR scan error: ${err.response?.data?.detail || err.message}`);
     } finally {
       setIsOcrProcessing(false);
-      e.target.value = '';
     }
+  };
+
+  // ── Optional OCR Assistant (Ephemeral, Non-Storing) ───────────────────────
+  const handleOptionalOcrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !modalApplicant) return;
+
+    // Immediately preview the file in the left document viewer (0ms latency)
+    const localUrl = URL.createObjectURL(file);
+    const mime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+    setPreviewUrl(localUrl);
+    setPreviewMime(mime);
+    setOcrScannedFileName(file.name);
+    setImageZoom(1);
+    setImageRotation(0);
+
+    await executeOcrAnalysis(file);
+    e.target.value = '';
+  };
+
+  // ── Run OCR on Currently Active Document Preview ──────────────────────────
+  const handleRunOcrOnCurrentDoc = async () => {
+    if (!previewUrl || !modalApplicant || isOcrProcessing) return;
+    setIsOcrProcessing(true);
+    setOcrEphemeralResult(null);
+    setDeclinedExtractedExp(false);
+    setAcceptedExtractedExp(null);
+
+    try {
+      const response = await fetch(previewUrl);
+      const blob = await response.blob();
+      const ext = previewMime?.includes('pdf') ? '.pdf' : '.jpg';
+      const fileName = ocrScannedFileName || `${selectedReq?.requirement?.requirement_name || 'document'}${ext}`;
+      const file = new File([blob], fileName, { type: blob.type || previewMime || 'image/jpeg' });
+      await executeOcrAnalysis(file);
+    } catch (err: any) {
+      showToast(`Unable to run OCR on current preview: ${err.message}`);
+      setIsOcrProcessing(false);
+    }
+  };
+
+  // ── Accept Extracted Expiration Date ──────────────────────────────────────
+  const handleAcceptExtractedExpirationDate = async (expDate: string) => {
+    if (!selectedReq || !modalApplicant) return;
+    setIsAcceptingExpDate(true);
+    try {
+      const applicantReqId = selectedReq.applicant_req_id;
+      setTypedExpirationDate(expDate);
+      setAcceptedExtractedExp(expDate);
+      setDeclinedExtractedExp(false);
+
+      // 1. Save to document fields in database
+      await api.patch(`/documents/${applicantReqId}/fields`, {
+        fields: { expiration_date: expDate },
+        reason: 'Accepted from Gemini AI OCR extraction',
+      });
+
+      // 2. Update selectedReq and requirements list
+      setSelectedReq(prev => prev && prev.applicant_req_id === applicantReqId ? { ...prev, expiration_date: expDate } : prev);
+      setRequirements(prev => prev.map(r => r.applicant_req_id === applicantReqId ? { ...r, expiration_date: expDate } : r));
+
+      // 3. Sync passport expiration date to candidate profile if this is a passport
+      const reqName = (selectedReq.requirement?.requirement_name || '').toLowerCase();
+      const applicantId = String(modalApplicant.id);
+      const numericId = parseInt(applicantId, 10);
+      const nowIso = new Date().toISOString();
+
+      if (reqName.includes('passport')) {
+        if (!isNaN(numericId)) {
+          await api.put(`/applicants/${numericId}`, {
+            application_id: modalApplicant.applicationId,
+            passport_expiration_date: expDate,
+            updated_at: nowIso,
+          }).catch(console.error);
+        }
+        setModalApplicant(prev => prev ? ({ ...prev, passportExpirationDate: expDate }) : null);
+        if (modalApplicantRef.current) {
+          modalApplicantRef.current = { ...modalApplicantRef.current, passportExpirationDate: expDate };
+        }
+        if (updateApplicant) {
+          updateApplicant(applicantId, { passportExpirationDate: expDate });
+        }
+      }
+
+      setOfficialDateUpdated(true);
+      showToast(`✓ Expiration date ${expDate} accepted and recorded successfully.`);
+    } catch (err: any) {
+      showToast(`Failed to record expiration date: ${err.message}`);
+    } finally {
+      setIsAcceptingExpDate(false);
+    }
+  };
+
+  // ── Decline Extracted Expiration Date ─────────────────────────────────────
+  const handleDeclineExtractedExpirationDate = () => {
+    setDeclinedExtractedExp(true);
+    showToast('Extracted expiration date dismissed.');
   };
 
   // ── Permanent File Upload for Requirement ─────────────────────────────────
@@ -1540,9 +1655,14 @@ export default function DocumentOCR({
       if (updateApplicant) {
         updateApplicant(applicantId, updates);
       }
+      setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+      if (modalApplicantRef.current) {
+        modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+      }
 
       if (!isNaN(numericId)) {
         await api.put(`/applicants/${numericId}`, {
+          application_id: modalApplicant.applicationId,
           actual_deployment_at: actualDeploymentInput,
           current_phase: targetPhase,
           application_status: targetStatus,
@@ -1571,8 +1691,10 @@ export default function DocumentOCR({
           ? `✓ Candidate marked as Deployed! 3-2-1 Compliance Alert tracking has been successfully stopped.`
           : `✓ DMW Actual Deployment Date saved (${actualDeploymentInput}).`
       );
+
+      loadForecast({ ...modalApplicant, ...updates });
     } catch (err: any) {
-      showToast(`Failed to record deployment date: ${err.message}`);
+      showToast(`Failed to record deployment date: ${err.response?.data?.detail || err.message}`);
     } finally {
       setIsSavingDeployment(false);
     }
@@ -2343,6 +2465,20 @@ export default function DocumentOCR({
                         )}
 
 
+                        {/* Run OCR Scan on Current Document Preview */}
+                        {previewUrl && (
+                          <button
+                            type="button"
+                            onClick={handleRunOcrOnCurrentDoc}
+                            disabled={isOcrProcessing || isProcessing}
+                            className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            title="Run Google Gemini Vision AI OCR on this document"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-[#0EA5E9]" />
+                            <span>{isOcrProcessing ? 'Scanning...' : 'AI OCR'}</span>
+                          </button>
+                        )}
+
                         {/* Remove File */}
                         {previewUrl && (
                           <button
@@ -2374,6 +2510,58 @@ export default function DocumentOCR({
                     <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-12">
                       {/* Left: Document Viewer (7 cols) */}
                       <div className="md:col-span-7 border-r border-slate-200 bg-slate-100 p-3 flex items-center justify-center overflow-hidden relative">
+                        {/* ── Holographic Gemini AI OCR Scanning Overlay ── */}
+                        {isOcrProcessing && (
+                          <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-200">
+                            {/* Scanning laser beam passing across the view */}
+                            <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_15px_#22d3ee] animate-ocr-scan pointer-events-none" />
+
+                            <div className="relative z-10 max-w-sm w-full bg-slate-900/95 border border-cyan-500/40 rounded-2xl p-6 shadow-2xl space-y-4 text-white">
+                              {/* Pulsing Scanner Radar Icon */}
+                              <div className="relative mx-auto w-16 h-16 flex items-center justify-center">
+                                <div className="absolute inset-0 rounded-full border-2 border-cyan-500/30 animate-ping opacity-75" />
+                                <div className="absolute inset-0 rounded-full border-2 border-cyan-400/50 animate-pulse" />
+                                <div className="w-12 h-12 rounded-full bg-cyan-950/80 border border-cyan-400 flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.4)]">
+                                  <Sparkles className="w-6 h-6 text-cyan-300 animate-spin" style={{ animationDuration: '3s' }} />
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-[10px] font-black uppercase tracking-wider text-cyan-300">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                  Gemini Vision AI Engine Active
+                                </div>
+                                <h3 className="text-sm font-extrabold text-white tracking-wide">
+                                  Analyzing & Extracting Document...
+                                </h3>
+                                <p className="text-[11px] text-slate-300">
+                                  Optical character recognition in progress. Extracting identities, validity dates & verifying security integrity.
+                                </p>
+                              </div>
+
+                              {/* Progress Micro-Steps */}
+                              <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800 text-[11px] space-y-2 text-left">
+                                <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400 flex-shrink-0" />
+                                  <span>Extracting document metadata & fields...</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-slate-400 text-[10px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
+                                  <span>Cross-referencing candidate profile & dates...</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-slate-400 text-[10px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
+                                  <span>Flagging document discrepancies & anti-fraud check...</span>
+                                </div>
+                              </div>
+
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Powered by Google Gemini Vision • Fast Multimodal Analysis
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {isProcessing ? (
                           <div className="flex flex-col items-center justify-center text-slate-500 gap-2">
                             <Loader2 className="w-6 h-6 animate-spin text-[#0EA5E9]" />
@@ -2720,19 +2908,41 @@ export default function DocumentOCR({
                               </span>
                             </div>
 
-                            <label className="w-full border-2 border-dashed border-slate-300 hover:border-sky-400 bg-white rounded-xl p-2.5 text-center flex items-center justify-center gap-2 cursor-pointer transition-colors group">
-                              <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#0EA5E9]" />
-                              <span className="text-xs font-bold text-slate-600 group-hover:text-[#0EA5E9]">
-                                {isOcrProcessing ? 'Extracting with Gemini Vision...' : 'Scan Document (Temporary)'}
-                              </span>
-                              <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*,application/pdf"
-                                onChange={handleOptionalOcrUpload}
-                                disabled={isOcrProcessing}
-                              />
-                            </label>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              {previewUrl && (
+                                <button
+                                  type="button"
+                                  onClick={handleRunOcrOnCurrentDoc}
+                                  disabled={isOcrProcessing || isProcessing}
+                                  className="flex-1 bg-sky-600 hover:bg-sky-700 text-white rounded-xl p-2.5 text-center flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-xs disabled:opacity-50 text-xs font-bold"
+                                >
+                                  {isOcrProcessing ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span>Extracting with Gemini...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="w-4 h-4" />
+                                      <span>Scan Current Document</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              <label className="flex-1 border-2 border-dashed border-slate-300 hover:border-sky-400 bg-white rounded-xl p-2.5 text-center flex items-center justify-center gap-2 cursor-pointer transition-colors group">
+                                <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#0EA5E9]" />
+                                <span className="text-xs font-bold text-slate-600 group-hover:text-[#0EA5E9]">
+                                  {isOcrProcessing ? 'Processing File...' : 'Upload & Scan File'}
+                                </span>
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*,application/pdf"
+                                  onChange={handleOptionalOcrUpload}
+                                  disabled={isOcrProcessing}
+                                />
+                              </label>
+                            </div>
 
                             {/* OCR Ephemeral Result Display */}
                             {ocrEphemeralResult && (
@@ -2791,9 +3001,47 @@ export default function DocumentOCR({
 
                                   const hasCurrentValue = Boolean(typedExpirationDate);
                                   const isDifferent = typedExpirationDate && typedExpirationDate !== exp;
+                                  const isAccepted = acceptedExtractedExp === exp;
+
+                                  if (declinedExtractedExp && !isAccepted) {
+                                    return (
+                                      <div className="bg-slate-100 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                                        <div className="flex items-center gap-1.5 text-slate-600">
+                                          <X className="w-3.5 h-3.5 text-slate-400" />
+                                          <span className="text-[11px]">Extracted date <strong>{exp}</strong> was declined.</span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDeclinedExtractedExp(false)}
+                                          className="text-[10px] font-bold text-sky-600 hover:underline cursor-pointer"
+                                        >
+                                          Re-review
+                                        </button>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (isAccepted) {
+                                    return (
+                                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1.5 animate-in fade-in">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>Accepted Expiration Date</span>
+                                          </span>
+                                          <span className="text-xs font-mono font-black text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                                            {exp}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-emerald-700 leading-snug">
+                                          ✓ Saved to verified document records and candidate profile.
+                                        </p>
+                                      </div>
+                                    );
+                                  }
 
                                   return (
-                                    <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
+                                    <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2 animate-in fade-in">
                                       <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                                           <Calendar className="w-3.5 h-3.5 text-[#0EA5E9]" />
@@ -2808,36 +3056,34 @@ export default function DocumentOCR({
                                         {isDifferent
                                           ? `Current entered date is "${typedExpirationDate}". Would you like to accept and override it with "${exp}"?`
                                           : hasCurrentValue
-                                          ? `Extracted date matches currently entered date (${exp}).`
+                                          ? `Extracted date matches currently entered date (${exp}). Would you like to confirm and save it?`
                                           : `Would you like to accept "${exp}" as the verified expiration date?`}
                                       </p>
 
-                                      {(!hasCurrentValue || isDifferent) && (
-                                        <div className="flex gap-1.5 pt-0.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setTypedExpirationDate(exp);
-                                              setOfficialDateUpdated(false);
-                                              showToast(`✓ Accepted & populated expiration date (${exp}).`);
-                                            }}
-                                            className="flex-1 bg-[#0EA5E9] hover:bg-[#0284C7] text-white py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
-                                          >
+                                      <div className="flex gap-1.5 pt-0.5">
+                                        <button
+                                          type="button"
+                                          disabled={isAcceptingExpDate}
+                                          onClick={() => handleAcceptExtractedExpirationDate(exp)}
+                                          className="flex-1 bg-[#0EA5E9] hover:bg-[#0284C7] text-white py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+                                        >
+                                          {isAcceptingExpDate ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
                                             <Check className="w-3.5 h-3.5" />
-                                            <span>{isDifferent ? 'Accept & Override' : 'Accept Date'}</span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              showToast('Extracted date declined. Kept current value.');
-                                            }}
-                                            className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                                          >
-                                            <X className="w-3.5 h-3.5" />
-                                            <span>Decline / Keep</span>
-                                          </button>
-                                        </div>
-                                      )}
+                                          )}
+                                          <span>{isDifferent ? 'Accept & Override' : 'Accept Date'}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isAcceptingExpDate}
+                                          onClick={handleDeclineExtractedExpirationDate}
+                                          className="flex-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>Decline / Keep</span>
+                                        </button>
+                                      </div>
                                     </div>
                                   );
                                 })()}
@@ -2868,7 +3114,7 @@ export default function DocumentOCR({
                             disabled={isProcessing}
                             className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
-                            <Check className="w-4 h-4" />
+                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                             <span>Approve & Verify</span>
                           </button>
 
@@ -2878,7 +3124,7 @@ export default function DocumentOCR({
                             disabled={isProcessing}
                             className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
-                            <X className="w-4 h-4" />
+                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                             <span>Reject Document</span>
                           </button>
                         </div>

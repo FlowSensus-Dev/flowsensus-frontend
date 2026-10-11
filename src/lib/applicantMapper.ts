@@ -191,6 +191,9 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     selectedJobOrderId: item.job_order_id ? String(item.job_order_id) : (formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined),
     phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
     status: item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration',
+    actualDeploymentDate: item.actual_deployment_at
+      ? (typeof item.actual_deployment_at === 'string' ? item.actual_deployment_at.split('T')[0] : String(item.actual_deployment_at).split('T')[0])
+      : (item.actualDeploymentDate || undefined),
     currentHandler: (item.current_handler === 'Unassigned Pool' || item.currentHandler === 'Unassigned Pool') ? 'Unassigned' : (item.current_handler || item.currentHandler || 'Unassigned'),
     currentHandlerUserId: item.current_handler_user_id || item.currentHandlerUserId || undefined,
     currentDepartment: item.current_department || 'Recruitment',
