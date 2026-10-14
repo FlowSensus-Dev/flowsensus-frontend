@@ -5,7 +5,8 @@ import {
   Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight, Loader2,
   ShieldCheck, Lock, Check, RefreshCw, UserPlus, Microscope, Sparkles,
   FileText, KanbanSquare, HeartPulse, ScanText, BellRing, Receipt,
-  CheckSquare, Briefcase, Factory, ClipboardList, Layers
+  CheckSquare, Briefcase, Factory, ClipboardList, Layers, Zap, Monitor,
+  HelpCircle, ChevronDown, ChevronUp, BookOpen
 } from 'lucide-react';
 import { EvaluationTest, WorkflowModuleAccess, UserRole } from '../../types';
 import { api } from '../../../lib/api';
@@ -36,6 +37,8 @@ const ROLE_COLORS: Record<UserRole, { bg: string; text: string; border: string }
 const MODULE_ICONS: Record<string, React.ReactNode> = {
   registration: <UserPlus size={16} className="text-sky-500" />,
   screening: <Microscope size={16} className="text-purple-500" />,
+  'digital-exams': <BookOpen size={16} className="text-violet-500" />,
+  digital_exams: <BookOpen size={16} className="text-violet-500" />,
   fittowork: <HeartPulse size={16} className="text-rose-500" />,
   profiling: <Sparkles size={16} className="text-amber-500" />,
   cv: <FileText size={16} className="text-blue-500" />,
@@ -63,6 +66,13 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
     assignedRoles: ['Recruitment', 'Management'],
     isActive: true,
     description: 'Candidate preliminary screening, trade test scores, aptitude assessments, and evaluation interview scoring.'
+  },
+  {
+    moduleKey: 'digital-exams',
+    moduleName: 'Digital Exams',
+    assignedRoles: ['Recruitment', 'Admin', 'Management'],
+    isActive: true,
+    description: 'Create and manage question banks, multiple-choice tests, automated grading criteria, and candidate exam retakes.'
   },
   {
     moduleKey: 'profiling',
@@ -154,6 +164,8 @@ const BLANK_TEST: Omit<EvaluationTest, 'id'> = {
   scoringGuide: '',
   scoringType: 'numeric',
   applicableJobOrders: [],
+  examMode: 'paper',
+  digitalExamTemplateId: null,
 };
 
 interface Props {
@@ -173,6 +185,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNewTest, setIsNewTest] = useState(false);
   const [isSavingTest, setIsSavingTest] = useState(false);
+  const [showScoringGuide, setShowScoringGuide] = useState(false);
+
+  // Digital Exams from Studio
+  const [digitalExams, setDigitalExams] = useState<any[]>([]);
 
   // Confirmation Popups State
   const [testToDelete, setTestToDelete] = useState<EvaluationTest | null>(null);
@@ -196,6 +212,13 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         .catch(err => console.warn('Could not load job orders in EvaluationSetup:', err));
     }
   }, [globalJobOrders]);
+
+  // Load digital exams from digital exam studio
+  useEffect(() => {
+    api.get('/exam-module/templates')
+      .then(res => setDigitalExams(res.data || []))
+      .catch(err => console.warn('Could not load digital exams in EvaluationSetup:', err));
+  }, []);
 
   const filteredJobOrders = useMemo(() => {
     const q = jobOrderSearch.trim().toLowerCase();
@@ -238,6 +261,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           applicableJobOrders: Array.isArray(t.applicable_job_orders)
             ? t.applicable_job_orders
             : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+          examMode: (t.exam_mode || t.examMode || 'paper') as 'paper' | 'digital',
+          digitalExamTemplateId: t.digital_exam_template_id ?? t.digitalExamTemplateId ?? null,
         }));
         setTests(liveTests);
         onTemplatesUpdated?.(liveTests);
@@ -329,6 +354,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
     try {
       const scoringType = editingTest.scoringType || 'numeric';
       const applicableJobOrders = editingTest.applicableJobOrders || [];
+      const examMode = editingTest.examMode || 'paper';
+      const digitalExamTemplateId = examMode === 'digital' ? (editingTest.digitalExamTemplateId || null) : null;
 
       const payload = {
         name: editingTest.name,
@@ -341,6 +368,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         is_active: editingTest.isActive,
         scoring_type: scoringType,
         applicable_job_orders: applicableJobOrders,
+        exam_mode: examMode,
+        digital_exam_template_id: digitalExamTemplateId,
       };
 
       if (isNewTest) {
@@ -351,6 +380,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           id: String(created.test_template_id || created.id),
           scoringType,
           applicableJobOrders,
+          examMode,
+          digitalExamTemplateId,
         };
         setTests(p => {
           const next = [...p, newTest];
@@ -364,7 +395,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           await api.put(`/evaluations/templates/${numId}`, payload);
         }
         setTests(p => {
-          const next = p.map(t => t.id === editingTest.id ? { ...editingTest, scoringType, applicableJobOrders } : t);
+          const next = p.map(t => t.id === editingTest.id ? { ...editingTest, scoringType, applicableJobOrders, examMode, digitalExamTemplateId } : t);
           onTemplatesUpdated?.(next);
           return next;
         });
@@ -506,7 +537,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             </span>
           </div>
           <p className="text-slate-500 text-sm mt-1">
-            Configure screening evaluations with scoring weights, and govern system role module access across agency operations.
+            Manage applicant evaluation criteria, passing marks, and role access permissions.
           </p>
         </div>
         {tab === 'evaluations' ? (
@@ -557,76 +588,106 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
       {/* ── TAB 1: EVALUATIONS & SCORING ───────────────────────────────────── */}
       {tab === 'evaluations' && (
-        <>
-          {/* General Baseline Weight Summary */}
-          <div className={`flex flex-wrap items-center justify-between gap-4 px-5 py-4 rounded-xl border ${weightOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className={`flex items-center gap-2 font-semibold text-sm ${weightOk ? 'text-emerald-700' : 'text-amber-700'}`}>
-                {weightOk ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                <span>
-                  General Baseline Weight: <span className="text-lg font-bold ml-1">{generalWeight}%</span> / 100%
-                </span>
-              </div>
-            </div>
-
-            <div className="flex-1 h-2.5 bg-white/70 rounded-full overflow-hidden min-w-[160px] max-w-xs flex border border-slate-200">
-              {generalTests.map(t => (
-                <div key={t.id} className="h-full" style={{ width: `${t.weight}%`, background: TEST_TYPE_META[t.type].color }} title={`${t.name}: ${t.weight}% (General)`} />
-              ))}
-            </div>
-
-            {!weightOk ? (
-              <span className="text-xs font-semibold text-amber-700">
-                General baseline evaluations must total exactly 100% (currently {generalWeight}%)
+        <div className="space-y-4">
+          {/* General Baseline Weight Summary Strip */}
+          <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl border ${weightOk ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/70 border-amber-200 text-amber-900'}`}>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {weightOk ? (
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+              ) : (
+                <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              )}
+              <span className="text-xs font-semibold">
+                General Tests Total Weight: <span className="text-sm font-bold ml-1">{generalWeight}%</span> / 100%
               </span>
-            ) : (
-              <span className="text-xs font-semibold text-emerald-700">
-                ✓ General baseline evaluations total exactly 100%
+              <span className="text-xs opacity-75 hidden sm:inline">
+                {weightOk
+                  ? '— General evaluation weights are balanced.'
+                  : `— General evaluations must total exactly 100% (currently ${generalWeight}%).`}
               </span>
-            )}
-          </div>
-
-          {/* General Baseline Legend (Only General Active Tests) */}
-          <div className="flex flex-wrap gap-2.5">
-            {generalTests.map(t => (
-              <div key={t.id} className="flex items-center gap-1.5 text-xs text-slate-600 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: TEST_TYPE_META[t.type].color }} />
-                <span className="font-medium text-slate-700">{t.name}</span>
-                <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">{t.weight}%</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Explanation: How Job-Order-Specific Assessments Are Computed */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600">
-            <div className="flex items-center gap-2 font-bold text-[#0F172A] text-sm mb-1.5">
-              <Info className="w-4 h-4 text-[#0EA5E9] flex-shrink-0" />
-              <span>How Job-Order-Specific Assessments Are Computed</span>
             </div>
-            <p className="text-slate-500 text-xs mb-3">
-              Because different job orders have distinct trade requirements, job-specific assessments are not combined into a single static global weight. Instead, scoring is dynamically calculated per candidate:
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="bg-white p-3 rounded-lg border border-slate-200">
-                <span className="font-bold text-[#0F172A] text-xs block mb-1">1. Universal General Baseline</span>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  General assessments (e.g. English, EQ, IQ) apply to all applicants across the agency and sum to the 100% baseline weight.
-                </p>
+
+            <div className="flex items-center gap-3">
+              <div className="w-28 sm:w-36 h-2 bg-white/80 rounded-full overflow-hidden flex border border-slate-200" title="General evaluation weight breakdown">
+                {generalTests.map(t => (
+                  <div key={t.id} className="h-full" style={{ width: `${t.weight}%`, background: TEST_TYPE_META[t.type].color }} title={`${t.name}: ${t.weight}%`} />
+                ))}
               </div>
-              <div className="bg-white p-3 rounded-lg border border-slate-200">
-                <span className="font-bold text-[#0F172A] text-xs block mb-1">2. Target Job Order Isolation</span>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Tests linked to specific Job Orders (e.g. welding tests, culinary demos) only appear for candidates applying for that job order. Other candidates are completely unaffected.
-                </p>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-slate-200">
-                <span className="font-bold text-[#0F172A] text-xs block mb-1">3. Dynamic Per-Candidate Normalization</span>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  When a candidate has job-specific numeric tests, weights normalize to 100% effective rating for that applicant. Pass/Fail clearance tests require a verified Pass without altering percentage weights.
-                </p>
-              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowScoringGuide(prev => !prev)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors shadow-2xs"
+              >
+                <HelpCircle size={13} className="text-[#0EA5E9]" />
+                <span>{showScoringGuide ? 'Hide Guide' : 'How Scoring Works'}</span>
+                {showScoringGuide ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
             </div>
           </div>
+
+          {/* Optional Collapsible Scoring & Recommendation Guide */}
+          {showScoringGuide && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
+                    <Info size={15} className="text-[#0EA5E9]" />
+                    Screening Evaluations & Scoring Guide
+                  </h3>
+                  <button
+                    onClick={() => setShowScoringGuide(false)}
+                    className="text-xs text-slate-400 hover:text-slate-600 font-medium"
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="text-slate-500 text-xs">
+                  General evaluations apply to all applicants. Job-specific evaluations only apply to candidates applying for a selected job order.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-900 text-xs block mb-1">1. General Evaluations</span>
+                  <p className="text-slate-500 text-[11px] leading-relaxed">
+                    Standard tests that every applicant takes (such as English, Aptitude, or Personality). Their weights must total 100%.
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-900 text-xs block mb-1">2. Job-Specific Evaluations</span>
+                  <p className="text-slate-500 text-[11px] leading-relaxed">
+                    Special skill tests for specific roles (like Welding, Driving, or Culinary). These only appear for applicants assigned to that job order.
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-900 text-xs block mb-1">3. Automated Scoring</span>
+                  <p className="text-slate-500 text-[11px] leading-relaxed">
+                    Digital exams are graded automatically by the system. Paper-based evaluations can have scores entered manually by staff.
+                  </p>
+                </div>
+              </div>
+
+              {/* Recommendation verdicts */}
+              <div className="pt-2 border-t border-slate-200">
+                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">Screening Outcomes:</div>
+                <div className="grid md:grid-cols-3 gap-2.5">
+                  <div className="bg-white p-2.5 rounded-lg border border-emerald-100 flex items-start gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">PASS</span>
+                    <span className="text-[11px] text-slate-600">Candidate meets or exceeds passing score across all active assessments.</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-amber-100 flex items-start gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 shrink-0">CONDITIONAL</span>
+                    <span className="text-[11px] text-slate-600">Overall score passes, but one test is below threshold. Referred for retake.</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-rose-100 flex items-start gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 shrink-0">FAIL</span>
+                    <span className="text-[11px] text-slate-600">Overall score is below acceptable mark. Requires evaluation review.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Tests table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
@@ -635,11 +696,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
                     <th className="px-4 py-3 text-left font-semibold">Evaluation Name</th>
-                    <th className="px-4 py-3 text-left font-semibold">Category Type</th>
-                    <th className="px-4 py-3 text-center font-semibold">Max Score</th>
+                    <th className="px-4 py-3 text-left font-semibold">Delivery Mode</th>
+                    <th className="px-4 py-3 text-left font-semibold">Category</th>
                     <th className="px-4 py-3 text-center font-semibold">Passing Mark</th>
                     <th className="px-4 py-3 text-center font-semibold">Weight</th>
-                    <th className="px-4 py-3 text-center font-semibold">Active Status</th>
+                    <th className="px-4 py-3 text-center font-semibold">Status</th>
                     <th className="px-4 py-3 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -654,9 +715,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                               <Skeleton className="h-2.5 w-64 bg-slate-100" />
                             </div>
                           </td>
-                          <td className="px-4 py-3"><SkeletonBadge className="w-32" /></td>
-                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
-                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                          <td className="px-4 py-3"><SkeletonBadge className="w-24" /></td>
+                          <td className="px-4 py-3"><SkeletonBadge className="w-28" /></td>
+                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-12 mx-auto" /></td>
                           <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
                           <td className="px-4 py-3 text-center"><Skeleton className="h-6 w-10 rounded-full mx-auto bg-slate-100" /></td>
                           <td className="px-4 py-3">
@@ -670,17 +731,35 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                     </>
                   ) : tests.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
-                        No evaluation templates configured. Click "Add Evaluation" to create one.
+                      <td colSpan={7} className="px-6 py-12 text-center">
+                        <div className="max-w-xs mx-auto flex flex-col items-center">
+                          <div className="w-12 h-12 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-[#0EA5E9] mb-3">
+                            <Sliders size={22} />
+                          </div>
+                          <p className="text-sm font-semibold text-slate-700">No Evaluations Configured</p>
+                          <p className="text-xs text-slate-500 mt-1 mb-4">Create your first evaluation to start screening applicants.</p>
+                          <button
+                            onClick={openNewTest}
+                            className="text-xs font-semibold text-white bg-[#0EA5E9] hover:bg-[#0284C7] px-3.5 py-2 rounded-lg transition-colors shadow-sm"
+                          >
+                            + Add Evaluation
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : tests.map(test => {
                     const meta = TEST_TYPE_META[test.type];
+                    const linkedExam = test.digitalExamTemplateId
+                      ? digitalExams.find(ex => ex.template_id === test.digitalExamTemplateId)
+                      : null;
+
                     return (
-                      <tr key={test.id} className={`border-b border-slate-100 last:border-0 ${test.isActive ? 'hover:bg-slate-50' : 'opacity-50 bg-slate-50/50'}`}>
+                      <tr key={test.id} className={`border-b border-slate-100 last:border-0 ${test.isActive ? 'hover:bg-slate-50/70' : 'opacity-50 bg-slate-50/40'}`}>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-[#0F172A]">{test.name}</div>
-                          <div className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">{test.description}</div>
+                          {test.description && (
+                            <div className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">{test.description}</div>
+                          )}
                           <div className="flex items-center gap-1.5 mt-1">
                             {test.applicableJobOrders && test.applicableJobOrders.length > 0 ? (
                               <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
@@ -693,18 +772,35 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                             )}
                             {test.scoringType === 'pass_fail' && (
                               <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                                Pass / Fail Mode
+                                Pass / Fail
                               </span>
                             )}
                           </div>
                         </td>
                         <td className="px-4 py-3.5">
-                          <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full w-fit" style={{ background: meta.color + '18', color: meta.color }}>
+                          {test.examMode === 'digital' ? (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                <Zap size={11} className="text-violet-500 fill-violet-500" /> Digital Exam
+                              </span>
+                              {linkedExam ? (
+                                <span className="text-[10px] text-violet-900 font-semibold truncate max-w-[150px]" title={linkedExam.title}>
+                                  {linkedExam.title}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">No exam attached</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                              <FileText size={11} className="text-slate-500" /> Paper-Based
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full" style={{ background: meta.color + '14', color: meta.color }}>
                             {meta.icon} {meta.label}
                           </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-center font-mono font-semibold text-[#0F172A]">
-                          {test.scoringType === 'pass_fail' ? '—' : test.maxScore}
                         </td>
                         <td className="px-4 py-3.5 text-center">
                           {test.scoringType === 'pass_fail' ? (
@@ -712,15 +808,15 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                               ✓ Pass Required
                             </span>
                           ) : (
-                            <span className="font-mono font-semibold px-2 py-0.5 rounded text-xs" style={{ background: verdictColor(test.passingScore, test.maxScore * 0.5) + '18', color: verdictColor(test.passingScore, test.maxScore * 0.5) }}>
-                              {test.passingScore}%
+                            <span className="font-semibold text-xs text-slate-800">
+                              {test.passingScore}% min
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-3.5 text-center">
                           <div className="flex flex-col items-center gap-1">
-                            <span className="font-bold text-[#0F172A]">{test.weight}%</span>
-                            <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <span className="font-bold text-[#0F172A] text-xs">{test.weight}%</span>
+                            <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                               <div className="h-full rounded-full" style={{ width: `${test.weight}%`, background: meta.color }} />
                             </div>
                           </div>
@@ -734,7 +830,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => openEditTest(test)} title="Edit evaluation" className="p-1.5 hover:bg-blue-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
+                            <button onClick={() => openEditTest(test)} title="Edit evaluation" className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
                               <Pencil size={15} />
                             </button>
                             <button onClick={() => setTestToDelete(test)} title="Delete evaluation" className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
@@ -749,71 +845,34 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               </table>
             </div>
           </div>
-
-          {/* Verdict logic explainer */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-[#0F172A] mb-3 flex items-center gap-2"><Info size={15} className="text-[#0EA5E9]" /> Screening Scoring & Recommendation Framework</h3>
-            <div className="grid md:grid-cols-3 gap-3 text-sm">
-              {[
-                { verdict: 'PASS', color: '#10B981', desc: 'Candidate meets or exceeds passing score across all active assessments and attains overall passing aggregate.' },
-                { verdict: 'CONDITIONAL', color: '#F59E0B', desc: 'Overall aggregate score passes, but one individual test is below threshold. Referred for re-testing or remedial training.' },
-                { verdict: 'FAIL', color: '#EF4444', desc: 'Aggregate score is below acceptable mark. Applicant is held under Provisional status and cannot advance to medical clearance.' },
-              ].map(v => (
-                <div key={v.verdict} className="bg-white rounded-lg p-3.5 border border-slate-200">
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: v.color + '18', color: v.color }}>{v.verdict}</span>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">{v.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
+        </div>
       )}
 
       {/* ── TAB 2: ROLE & MODULE ACCESS ─────────────────────────── */}
       {tab === 'workflow' && (
-        <div className="space-y-6">
-          {/* Information & Exclusion Notice Banner */}
-          <div className="bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 border border-blue-200 rounded-xl p-5 text-sm text-slate-700 space-y-3">
-            <div className="flex items-start gap-3">
-              <ShieldCheck size={20} className="text-[#0EA5E9] flex-shrink-0 mt-0.5" />
+        <div className="space-y-4">
+          {/* Streamlined Permissions Header Bar */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center text-[#0EA5E9] shrink-0">
+                <ShieldCheck size={18} />
+              </div>
               <div>
-                <h3 className="font-bold text-[#0F172A] text-base">System Role Module Access Delegation</h3>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Configure which operational modules are accessible to each system role (<strong className="text-sky-700">Recruitment</strong>, <strong className="text-indigo-700">Admin</strong>, <strong className="text-emerald-700">Accounting</strong>, and <strong className="text-purple-700">Management</strong>) across your agency operations.
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-[#0F172A] text-sm">Role & Module Permissions</h3>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    {filteredModules.length} Modules
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure which modules each staff role can access. Dashboard and Applicant List remain available to all roles.
                 </p>
               </div>
             </div>
-
-            {/* Scope & Exclusions Breakdown */}
-            <div className="grid md:grid-cols-2 gap-3 pt-2 text-xs">
-              <div className="bg-white/80 border border-slate-200 rounded-lg p-3">
-                <span className="font-bold text-slate-700 flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
-                  <CheckCircle2 size={13} className="text-emerald-500" /> Universal Modules (Unrestricted)
-                </span>
-                <p className="text-slate-500 leading-normal">
-                  <strong className="text-slate-700">Dashboard</strong> and <strong className="text-slate-700">Applicant List</strong> are core platforms available to all staff members regardless of assigned role.
-                </p>
-              </div>
-              <div className="bg-white/80 border border-purple-200 rounded-lg p-3">
-                <span className="font-bold text-purple-800 flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
-                  <Lock size={13} className="text-purple-600" /> Management-Exclusive Oversight (Protected)
-                </span>
-                <p className="text-purple-900/80 leading-normal">
-                  <strong className="text-purple-900">Evaluation & Workflow</strong>, <strong className="text-purple-900">Predictive Timeline</strong>, <strong className="text-purple-900">Deployment History</strong>, <strong className="text-purple-900">Operational Reports</strong>, and <strong className="text-purple-900">User Management</strong> are restricted strictly to Management.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Filters Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Configurable Modules ({filteredModules.length})
-            </span>
 
             {/* Filter by Role */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Filter Role:</span>
+              <span className="text-xs font-semibold text-slate-400">Filter Role:</span>
               <select
                 value={roleFilter}
                 onChange={e => setRoleFilter(e.target.value as any)}
@@ -986,12 +1045,15 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                 <div className="grid grid-cols-3 gap-2">
                   {(Object.keys(TEST_TYPE_META) as EvaluationTest['type'][]).map(t => {
                     const m = TEST_TYPE_META[t];
+                    const isSelected = editingTest.type === t;
                     return (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setEditingTest(p => p ? { ...p, type: t } : p)}
-                        className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium border-2 transition-all ${editingTest.type === t ? 'border-[#0EA5E9] bg-[#0EA5E9]/10 text-[#0EA5E9]' : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold border transition-all ${isSelected
+                            ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] shadow-2xs'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
                           }`}
                       >
                         {m.icon} {m.label}
@@ -1006,36 +1068,133 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                   value={editingTest.description}
                   onChange={e => setEditingTest(p => p ? { ...p, description: e.target.value } : p)}
                   rows={2}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] resize-none"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] resize-none"
                 />
               </div>
-              {/* Scoring Model Selection */}
+
+              {/* ── How applicants take this exam (Paper vs Online Digital Exam) ── */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  Scoring Model
+                  How will applicants take this exam?
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTest(p => p ? { ...p, examMode: 'paper' } : p)}
+                    className={`p-3 rounded-xl border text-left transition-all ${editingTest.examMode !== 'digital'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0F172A] shadow-2xs'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <FileText size={14} className={editingTest.examMode !== 'digital' ? 'text-[#0EA5E9]' : 'text-slate-400'} />
+                      Paper-Based (In Person)
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-snug">
+                      Staff administers the test in person and manually enters the score.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingTest(p => p ? { ...p, examMode: 'digital' } : p)}
+                    className={`p-3 rounded-xl border text-left transition-all ${editingTest.examMode === 'digital'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0F172A] shadow-2xs'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <Zap size={14} className={editingTest.examMode === 'digital' ? 'text-[#0EA5E9] fill-[#0EA5E9]' : 'text-slate-400'} />
+                      Digital Exam (Online in Portal)
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-snug">
+                      Applicants answer online in their portal. Scores are calculated and saved automatically.
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Linked Digital Exam Selector (Active when Digital Exam is chosen) */}
+              {editingTest.examMode === 'digital' && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Select the online exam to attach
+                    </label>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {digitalExams.length} available
+                    </span>
+                  </div>
+
+                  <select
+                    value={editingTest.digitalExamTemplateId ?? ''}
+                    onChange={e => setEditingTest(p => p ? { ...p, digitalExamTemplateId: e.target.value ? Number(e.target.value) : null } : p)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                  >
+                    <option value="">— Choose an online exam —</option>
+                    {digitalExams.map(ex => (
+                      <option key={ex.template_id} value={ex.template_id}>
+                        {ex.title} ({ex.category || 'General'} • Passing Score: {ex.passing_score ?? 60}% • {ex.time_limit_mins ? `${ex.time_limit_mins} mins` : 'No time limit'})
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Summary of chosen exam if selected */}
+                  {(() => {
+                    const chosen = digitalExams.find(ex => ex.template_id === editingTest.digitalExamTemplateId);
+                    if (chosen) {
+                      return (
+                        <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-xs flex items-center justify-between">
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate flex items-center gap-1.5">
+                              <CheckCircle2 size={13} className="text-[#10B981] shrink-0" />
+                              {chosen.title}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                              <span>Passing Mark: <strong className="text-slate-700">{chosen.passing_score ?? 60}%</strong></span>
+                              <span>•</span>
+                              <span>Time: <strong className="text-slate-700">{chosen.time_limit_mins ? `${chosen.time_limit_mins} mins` : 'No time limit'}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        When candidates are evaluated for this requirement, this online exam will appear in their portal. You can manage or create new exams anytime from the <strong>Digital Exams</strong> page.
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Grading Method Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  Grading Method
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'numeric' } : p)}
                     className={`p-3 rounded-xl border text-left transition-all ${editingTest.scoringType !== 'pass_fail'
-                        ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0F172A] shadow-2xs font-semibold'
                         : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
                       }`}
                   >
-                    <div className="font-semibold text-xs text-slate-900">Numerical Scoring</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Calculated score out of total items with a minimum passing percentage benchmark</div>
+                    <div className="font-bold text-xs text-slate-900">Numerical Score (%)</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Scored out of total items with a minimum passing percentage (e.g. 75%).</div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'pass_fail' } : p)}
                     className={`p-3 rounded-xl border text-left transition-all ${editingTest.scoringType === 'pass_fail'
-                        ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0F172A] shadow-2xs font-semibold'
                         : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
                       }`}
                   >
-                    <div className="font-semibold text-xs text-slate-900">Pass / Fail Clearance</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Direct clearance outcome without numerical item scoring (e.g. medical, trade demo)</div>
+                    <div className="font-bold text-xs text-slate-900">Pass / Fail Only</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Simple Pass or Fail outcome (recommended for interviews, medical exams, and trade demos).</div>
                   </button>
                 </div>
               </div>
@@ -1051,7 +1210,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       value={editingTest.maxScore}
                       onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
                       placeholder="100"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
                     />
                   </div>
                   <div>
@@ -1063,7 +1222,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       value={editingTest.passingScore}
                       onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
                       placeholder="60"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
                     />
                   </div>
                   <div>
@@ -1075,15 +1234,15 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       value={editingTest.weight}
                       onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
                       placeholder="10"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
                     />
                   </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <div>
-                    <div className="text-xs font-semibold text-slate-700">Clearance Threshold</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Staff awards binary Pass or Fail verdict in Screening Panel.</div>
+                    <div className="text-xs font-semibold text-slate-700">Clearance Result</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Staff marks the applicant as Passed or Failed in the Screening panel.</div>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Weight %</label>
@@ -1094,7 +1253,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       value={editingTest.weight}
                       onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
                       placeholder="10"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center bg-white"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center bg-white"
                     />
                   </div>
                 </div>
@@ -1104,7 +1263,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Applicant Requirement Scope
+                    Who Needs to Take This Exam?
                   </label>
                   <span className="text-[11px] font-medium text-slate-500">
                     {(editingTest.applicableJobOrders || []).length === 0
@@ -1118,11 +1277,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, applicableJobOrders: [] } : p)}
                     className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${(editingTest.applicableJobOrders || []).length === 0
-                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] shadow-2xs'
                         : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
                       }`}
                   >
-                    All Job Orders (General)
+                    All Applicants (General)
                   </button>
                   <button
                     type="button"
@@ -1132,7 +1291,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       }
                     }}
                     className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${(editingTest.applicableJobOrders || []).length > 0
-                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
+                        ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] shadow-2xs'
                         : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
                       }`}
                   >

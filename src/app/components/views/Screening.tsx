@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../../../lib/api';
+import ScreeningExamPreview from './ScreeningExamPreview';
 import { jsPDF } from 'jspdf';
 import {
   Microscope,
@@ -2436,6 +2437,11 @@ export default function Screening({
           </div>
         </div>
       </div>
+
+      {/* ── DIGITAL EXAM PREVIEW ───────────────────────────────────────────── */}
+      {selectedApplicant && Number.isFinite(Number(selectedApplicant.id)) && (
+        <ScreeningExamPreview applicantId={Number(selectedApplicant.id)} showToast={showToast} />
+      )}
 
       {/* ── CORE RULE NOTICE BANNER ────────────────────────────────────────── */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">

@@ -8,6 +8,7 @@ import {
 import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import type { ApplicationForecastResponse } from '../types';
+import ExamPortal from './views/ExamPortal';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -654,6 +655,11 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
         {/* ── 3. Single Card Inner Body ───────────────────────────────────── */}
         <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
           <ApplicantDeploymentCard application={activeApp} agencyId={profile?.agency_id} />
+
+          {/* ── SECTION: Digital Exams ── */}
+          <section id="portal-exams-section" className="space-y-3">
+            <ExamPortal />
+          </section>
 
           {/* ═══════════════════════════════════════════════════════════════════ */}
           {/* ── SECTION: 5-Phase Recruitment Roadmap ─────────────────────────── */}
