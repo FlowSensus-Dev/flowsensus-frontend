@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
 import { UserRole, ViewType, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
@@ -31,6 +31,7 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
+import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
 import { hasAccessToView } from '../../lib/accessControl';
 
@@ -49,7 +50,9 @@ interface AppShellProps {
   activityLogs: ActivityLog[];
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   expenses: ExpenseRecord[];
+  expensesLoaded?: boolean;
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
@@ -75,7 +78,9 @@ export default function AppShell({
   activityLogs,
   addActivityLog,
   expenses,
+  expensesLoaded,
   addExpense,
+  updateExpense,
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
@@ -153,6 +158,81 @@ export default function AppShell({
     }
   }, [applicants, selectedApplicantId]);
 
+  // Global Auto-Sync for Phase-based Expenses
+  const processedPhases = useRef<Set<string>>(new Set());
+  
+  useEffect(() => {
+    if (!applicantsLoaded || !expensesLoaded || !expenses) return;
+    
+    // Fetch current rates to use when logging
+    const rates = getStoredRates();
+    
+    applicants.forEach(app => {
+      // Phase 3 (Medical Cleared) -> Medical Package
+      if (app.phase >= 3) {
+        const medicalKey = `${app.id}-medical`;
+        if (!processedPhases.current.has(medicalKey)) {
+          const hasMedicalExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Medical'));
+          if (!hasMedicalExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Medical Package (Fit-to-Work)',
+              amount: rates.medical,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated medical fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(medicalKey);
+        }
+      }
+      
+      // Phase 5 (Processing - Passporting, OEC) -> Document Processing
+      if (app.phase >= 5) {
+        const oecKey = `${app.id}-oec`;
+        if (!processedPhases.current.has(oecKey)) {
+          const hasOecExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('OEC'));
+          if (!hasOecExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'OEC Processing',
+              amount: rates.oec,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(oecKey);
+        }
+
+        const passportKey = `${app.id}-passport`;
+        if (!processedPhases.current.has(passportKey)) {
+          const hasPassportExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Passport'));
+          if (!hasPassportExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Passport Processing',
+              amount: rates.passport,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(passportKey);
+        }
+      }
+    });
+  }, [applicants, expenses, addExpense, applicantsLoaded]);
+
   const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
 
@@ -185,24 +265,9 @@ export default function AppShell({
 
   useEffect(() => {
     fetchEvaluationTemplates();
-
-    const evalChannel = supabase
-      .channel('realtime:evaluation_templates_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'evaluation_template' },
-        () => {
-          fetchEvaluationTemplates();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(evalChannel);
-    };
   }, []);
 
-  // Fetch live workflow module permissions from backend & subscribe in real time
+  // Fetch live workflow module permissions from backend
   useEffect(() => {
     const fetchWorkflowPerms = async () => {
       try {
@@ -221,22 +286,6 @@ export default function AppShell({
       }
     };
     fetchWorkflowPerms();
-
-    const permChannel = supabase
-      .channel('realtime:workflow_module_access_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'workflow_module_access' },
-        (payload: any) => {
-          console.log('[AppShell] Realtime module access change received:', payload.eventType);
-          fetchWorkflowPerms();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(permChannel);
-    };
   }, []);
 
   const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
@@ -355,7 +404,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} />
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} />
                 </div>
               </div>
             </div>
@@ -389,6 +438,8 @@ export default function AppShell({
                 applicants={applicants}
                 expenses={expenses}
                 onNavigate={handleNavigate}
+                onViewApplicant={handleViewApplicant}
+                onSelectApplicant={setSelectedApplicantId}
                 onAddExpense={addExpense}
                 isLoading={isApplicantsLoading}
               />
@@ -430,6 +481,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             onEditApplicant={() => setCurrentView('registration')}
+            currentUserRole={currentUserRole}
           />
         );
       case 'registration':
@@ -443,6 +495,7 @@ export default function AppShell({
             addApplicant={addApplicant}
             applicants={applicants}
             globalJobOrders={globalJobOrders}
+            addExpense={addExpense}
           />
         );
       case 'screening':
@@ -516,6 +569,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            addExpense={addExpense}
           />
         );
       case 'ocr':
@@ -527,21 +581,44 @@ export default function AppShell({
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            updateApplicant={updateApplicant}
+            onNavigate={(view: string) => setCurrentView(view as any)}
           />
         );
       case 'alerts':
-        return <ComplianceAlerts applicants={applicants} showToast={showToastNotification} />;
+        return (
+          <ComplianceAlerts
+            applicants={applicants}
+            showToast={showToastNotification}
+            onNavigate={(view: string, applicantId?: string) => {
+              if (applicantId) {
+                setSelectedApplicantId(applicantId);
+              }
+              setCurrentView(view as any);
+            }}
+          />
+        );
       case 'expense':
         return (
           <ExpenseLedger
             workflow={workflow}
             expenses={expenses}
             addExpense={addExpense}
+            updateExpense={updateExpense}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            onViewApplicant={handleViewApplicant}
+            onSelectApplicant={setSelectedApplicantId}
+          />
+        );
+      case 'accounting-settings':
+        return (
+          <AccountingSettings
+            onBack={() => handleNavigate('dashboard')}
+            showToast={showToastNotification}
           />
         );
       case 'manager':
@@ -570,7 +647,7 @@ export default function AppShell({
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
-        return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
+        return <OperationalReports />;
       case 'users':
         return (
           <UserManagement

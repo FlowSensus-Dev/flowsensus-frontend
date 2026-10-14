@@ -31,6 +31,7 @@ interface ApplicantListProps {
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   showToast?: (msg: string) => void;
   onEditApplicant?: () => void;
+  currentUserRole?: string;
 }
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
@@ -57,6 +58,7 @@ export default function ApplicantList({
   addActivityLog,
   showToast,
   onEditApplicant,
+  currentUserRole,
 }: ApplicantListProps) {
   const [search, setSearch] = useState('');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
@@ -204,9 +206,6 @@ export default function ApplicantList({
               <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 font-medium">
                 {selectedApplicant.applicantCode || selectedApplicant.id}
               </span>
-              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                Phase {selectedApplicant.phase}
-              </span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${selectedApplicant.status === 'Provisional'
                   ? 'bg-amber-50 text-amber-800 border-amber-300'
                   : selectedApplicant.status === 'Processing Stopped'
@@ -261,6 +260,7 @@ export default function ApplicantList({
           hasNext={hasNext}
           applicantIndexText={applicantIndexText}
           onEdit={onEditApplicant}
+          currentUserRole={currentUserRole}
         />
       </div>
     );

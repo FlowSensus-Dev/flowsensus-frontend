@@ -212,6 +212,12 @@ export interface RankedCandidate {
   expiredDocs: Array<{ name: string; expiry: string; type: string }>;
   genderCriteria?: { required: string; candidate: string; isMismatch: boolean; notice?: string };
   ageCriteria?: { minAge?: number; maxAge?: number; candidateAge?: number; isMismatch: boolean; notice?: string };
+  jobOrderRequirementsAudit?: Array<{
+    name: string;
+    category: 'CERTIFICATION' | 'DOCUMENT' | 'MEDICAL' | 'OTHER';
+    status: 'VERIFIED' | 'SUBMITTED' | 'PENDING' | 'MISSING';
+    isSatisfied: boolean;
+  }>;
 }
 
 export function getCategoryCandidateExplanation(categoryKey: string, candidate: RankedCandidate, jobOrder: any): string {

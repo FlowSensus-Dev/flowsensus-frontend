@@ -21,7 +21,8 @@ export type ViewType =
   | 'requirements'
   | 'evaluation'
   | 'joborders'
-  | 'employers';
+  | 'employers'
+  | 'accounting-settings';
 
 export interface WorkflowState {
   screeningPassed: boolean;
@@ -135,6 +136,11 @@ export interface ApplicantRecord {
   medicalReferralClinic?: string;
   medicalReferralDate?: string;
   clinicReferralId?: number;
+
+  // Deployment tracking & Compliance
+  actualDeploymentDate?: string;
+  predictedDeploymentDate?: string;
+  passportExpirationDate?: string;
 }
 
 export interface Clinic {
@@ -283,18 +289,26 @@ export interface DocumentRecord {
 export interface ExpenseRecord {
   id: string;
   applicantId: string;
-  type?: string;
+  purpose: string;
   amount: number;
+  currency: 'PESO' | 'DOLLAR';
+  type: 'expense' | 'cash_advance' | 'deduction';
+  remarks?: string;
   description?: string;
+  status: 'draft' | 'approved';
   date?: string;
   recordedBy?: string;
-  category?: 'processing_fee' | 'visa' | 'medical' | 'cash_advance' | 'other' | string;
-  paymentMethod?: string;
-  paidBy?: 'Agency' | 'Applicant' | 'Employer' | string;
-  notes?: string;
   timestamp?: string;
 }
 
+export interface ApplicantLedgerSummary {
+  applicantId: string;
+  targetCurrency: string;
+  exchangeRateUsdToPhp: number;
+  accommodationPerDay: number;
+  accommodationDays: number;
+  remittance: number;
+}
 export interface DynamicTestScore {
   id?: string;
   templateId?: string;
@@ -412,6 +426,7 @@ export interface DocumentRequirement {
   id: string;
   name: string;
   description: string;
+  category?: 'DOCUMENT' | 'CERTIFICATION' | 'MEDICAL' | 'OTHER';
   isRequired: boolean;
   applicantTypes: string[];
   jobOrders: number[];
@@ -455,8 +470,9 @@ export interface WorkflowModuleAccess {
   id?: number | string;
   moduleKey: string;
   moduleName: string;
-  phaseNumber: number;
-  phaseName: string;
+  phaseNumber?: number;
+  phaseName?: string;
+  category?: string;
   assignedRoles: UserRole[];
   isActive: boolean;
   description: string;
@@ -509,5 +525,7 @@ export interface ApplicationForecastResponse {
   days_spent_in_current_stage?: number | null;
   stage_breakdown: Record<string, number>;
   record?: ApplicationForecastRecord | null;
+  pipeline_estimated_remaining_days?: number | null;
+  estimate_basis?: 'pipeline_forecast' | null;
   limitations: string[];
 }

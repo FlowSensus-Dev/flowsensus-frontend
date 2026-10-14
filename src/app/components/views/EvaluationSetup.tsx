@@ -50,12 +50,9 @@ const MODULE_ICONS: Record<string, React.ReactNode> = {
 };
 
 const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
-  // Phase 1
   {
     moduleKey: 'registration',
     moduleName: 'Registration',
-    phaseNumber: 1,
-    phaseName: 'Phase 1: Registration & Screening',
     assignedRoles: ['Recruitment', 'Management'],
     isActive: true,
     description: 'Applicant data intake, biographical credentials, ID verification, and baseline document uploads.'
@@ -63,37 +60,27 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   {
     moduleKey: 'screening',
     moduleName: 'Screening Panel',
-    phaseNumber: 1,
-    phaseName: 'Phase 1: Registration & Screening',
     assignedRoles: ['Recruitment', 'Management'],
     isActive: true,
     description: 'Candidate preliminary screening, trade test scores, aptitude assessments, and evaluation interview scoring.'
   },
-  // Phase 2
+  {
+    moduleKey: 'profiling',
+    moduleName: 'Applicant Profiling',
+    assignedRoles: ['Recruitment', 'Admin', 'Management'],
+    isActive: true,
+    description: 'Candidate profile overview, competency scoring, and job order skill matching.'
+  },
   {
     moduleKey: 'fittowork',
     moduleName: 'Fit-to-Work',
-    phaseNumber: 2,
-    phaseName: 'Phase 2: Medical Clearance',
     assignedRoles: ['Admin', 'Management'],
     isActive: true,
     description: 'Clinic referral issuance, DOH lab test diagnostics, and pre-employment medical fitness certification.'
   },
   {
-    moduleKey: 'profiling',
-    moduleName: 'Applicant Profiling',
-    phaseNumber: 2,
-    phaseName: 'Phase 2: Medical Clearance',
-    assignedRoles: ['Recruitment', 'Admin', 'Management'],
-    isActive: true,
-    description: 'AI-assisted candidate profile summary, competency scoring, and job order skill matching.'
-  },
-  // Phase 3
-  {
     moduleKey: 'cv',
     moduleName: 'CV Encoding',
-    phaseNumber: 3,
-    phaseName: 'Phase 3: CV Encoding & Management Approval',
     assignedRoles: ['Recruitment', 'Management'],
     isActive: true,
     description: 'Standardized agency CV generation, verified work history encoding, and skills cataloging.'
@@ -101,37 +88,20 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   {
     moduleKey: 'manager',
     moduleName: 'CV & Employer Hub',
-    phaseNumber: 3,
-    phaseName: 'Phase 3: CV Encoding & Management Approval',
     assignedRoles: ['Management'],
     isActive: true,
     description: 'Managerial review, CV vetting, employer submission authorization, and interview logs.'
   },
-  // Phase 4
   {
     moduleKey: 'endorsement',
     moduleName: 'Endorsement Tracker',
-    phaseNumber: 4,
-    phaseName: 'Phase 4: Employer Endorsement',
     assignedRoles: ['Management'],
     isActive: true,
     description: 'Overseas employer review, client interview scheduling, hiring approvals, and selection tracking.'
   },
-  // Phase 5
-  {
-    moduleKey: 'requirements',
-    moduleName: 'Document Requirements',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
-    assignedRoles: ['Admin', 'Management'],
-    isActive: true,
-    description: 'POEA/DMW mandatory documents, apostilles, OEC compliance checklists, and contract verification.'
-  },
   {
     moduleKey: 'joborders',
     moduleName: 'Job Orders',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
     assignedRoles: ['Admin', 'Management'],
     isActive: true,
     description: 'Overseas job vacancy management, client demand quotas, and candidate slot reservations.'
@@ -139,17 +109,20 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   {
     moduleKey: 'employers',
     moduleName: 'Employer Profiles',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
     assignedRoles: ['Admin', 'Management'],
     isActive: true,
     description: 'Foreign principal accreditation, overseas worksite validation, and direct employer contracts.'
   },
   {
+    moduleKey: 'requirements',
+    moduleName: 'Document Requirements',
+    assignedRoles: ['Admin', 'Management'],
+    isActive: true,
+    description: 'POEA/DMW mandatory documents, apostilles, OEC compliance checklists, and contract verification.'
+  },
+  {
     moduleKey: 'ocr',
-    moduleName: 'Document OCR',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
+    moduleName: 'Document Validation',
     assignedRoles: ['Admin', 'Management'],
     isActive: true,
     description: 'Automated passport OCR, biometric validation, and document anomaly / fraud detection.'
@@ -157,8 +130,6 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   {
     moduleKey: 'alerts',
     moduleName: '3-2-1 Alerts',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
     assignedRoles: ['Admin', 'Management'],
     isActive: true,
     description: 'Critical milestone countdowns, visa expiry tracking, and POEA/DMW deployment deadlines.'
@@ -166,8 +137,6 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   {
     moduleKey: 'expense',
     moduleName: 'Expense Ledger',
-    phaseNumber: 5,
-    phaseName: 'Phase 5: Final Deployment Processing',
     assignedRoles: ['Accounting', 'Management'],
     isActive: true,
     description: 'Deployment processing fee disbursement, worker cash advances, receipts, and financial ledger accounting.'
@@ -197,13 +166,18 @@ interface Props {
 
 export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTemplatesUpdated, globalJobOrders }: Props) {
   const [tab, setTab] = useState<'evaluations' | 'workflow'>('evaluations');
-  
+
   // Evaluation Templates State
   const [tests, setTests] = useState<EvaluationTest[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
   const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
   const [isNewTest, setIsNewTest] = useState(false);
   const [isSavingTest, setIsSavingTest] = useState(false);
+
+  // Confirmation Popups State
+  const [testToDelete, setTestToDelete] = useState<EvaluationTest | null>(null);
+  const [isDeletingTest, setIsDeletingTest] = useState(false);
+  const [moduleToDeactivate, setModuleToDeactivate] = useState<WorkflowModuleAccess | null>(null);
 
   // Available Job Orders for targeting specific tests
   const [jobOrders, setJobOrders] = useState<any[]>(globalJobOrders || []);
@@ -242,7 +216,6 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   const [modules, setModules] = useState<WorkflowModuleAccess[]>(DEFAULT_WORKFLOW_MODULES);
   const [loadingModules, setLoadingModules] = useState(false);
   const [isSavingModules, setIsSavingModules] = useState(false);
-  const [phaseFilter, setPhaseFilter] = useState<'all' | number>('all');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
 
   // ── 1. Fetch Evaluation Templates from Database ──────────────────────────
@@ -286,8 +259,6 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           id: m.id,
           moduleKey: m.module_key || m.moduleKey,
           moduleName: m.module_name || m.moduleName,
-          phaseNumber: Number(m.phase_number ?? m.phaseNumber ?? 1),
-          phaseName: m.phase_name || m.phaseName,
           assignedRoles: Array.isArray(m.assigned_roles) ? m.assigned_roles : (m.assignedRoles || []),
           isActive: Boolean(m.is_active ?? m.isActive ?? true),
           description: m.description || ''
@@ -386,7 +357,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           onTemplatesUpdated?.(next);
           return next;
         });
-        showToast(`Evaluation "${editingTest.name}" added to database`);
+        showToast(`Evaluation "${editingTest.name}" created successfully`);
       } else {
         const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
         if (!isNaN(numId)) {
@@ -397,7 +368,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           onTemplatesUpdated?.(next);
           return next;
         });
-        showToast(`Evaluation "${editingTest.name}" updated in database`);
+        showToast(`Evaluation "${editingTest.name}" updated successfully`);
       }
       setEditingTest(null);
     } catch (err: any) {
@@ -419,7 +390,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
           onTemplatesUpdated?.(next);
           return next;
         });
-        showToast(`Evaluation "${t?.name}" deleted from database`);
+        showToast(`Evaluation "${t?.name}" deleted successfully`);
       } catch (err: any) {
         console.error('Failed to delete template:', err);
         showToast('Error deleting template: ' + (err.response?.data?.detail || err.message));
@@ -470,10 +441,16 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   };
 
   const toggleModuleActive = (moduleKey: string) => {
-    setModules(prev => prev.map(m => {
-      if (m.moduleKey !== moduleKey) return m;
-      return { ...m, isActive: !m.isActive };
-    }));
+    const current = modules.find(m => m.moduleKey === moduleKey);
+    if (!current) return;
+    if (current.isActive) {
+      // Prompt confirmation popup before deactivating
+      setModuleToDeactivate(current);
+    } else {
+      // Activating can happen directly
+      setModules(prev => prev.map(m => m.moduleKey === moduleKey ? { ...m, isActive: true } : m));
+      showToast(`Module "${current.moduleName}" activated. Click "Save Configuration" to apply changes.`);
+    }
   };
 
   const saveWorkflowModules = async () => {
@@ -482,14 +459,12 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
       const payload = modules.map(m => ({
         module_key: m.moduleKey,
         module_name: m.moduleName,
-        phase_number: m.phaseNumber,
-        phase_name: m.phaseName,
         assigned_roles: m.assignedRoles,
         is_active: m.isActive,
         description: m.description
       }));
       await api.post('/workflow/modules/batch', payload);
-      showToast('Workflow module permissions successfully saved to database!');
+      showToast('Workflow module permissions updated successfully');
 
       if (onPermissionsUpdated) {
         const permMap: Record<string, UserRole[]> = {};
@@ -515,9 +490,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
     score >= passing ? '#10B981' : score >= passing * 0.8 ? '#F59E0B' : '#EF4444';
 
   const filteredModules = modules.filter(m => {
-    const matchPhase = phaseFilter === 'all' || m.phaseNumber === phaseFilter;
     const matchRole = roleFilter === 'all' || m.assignedRoles.includes(roleFilter);
-    return matchPhase && matchRole;
+    return matchRole;
   });
 
   return (
@@ -532,7 +506,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             </span>
           </div>
           <p className="text-slate-500 text-sm mt-1">
-            Configure screening evaluations with scoring weights, and govern system role module access across applicant workflow phases.
+            Configure screening evaluations with scoring weights, and govern system role module access across agency operations.
           </p>
         </div>
         {tab === 'evaluations' ? (
@@ -557,7 +531,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               className="flex items-center gap-2 bg-[#10B981] hover:bg-[#059669] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
             >
               {isSavingModules ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              Save Configuration to DB
+              Save Configuration
             </button>
           </div>
         )}
@@ -567,19 +541,17 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
         <button
           onClick={() => setTab('evaluations')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-            tab === 'evaluations' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'evaluations' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
         >
           <Sliders size={15} /> Evaluations & Scoring
         </button>
         <button
           onClick={() => setTab('workflow')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-            tab === 'workflow' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'workflow' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
         >
-          <Layers size={15} /> Workflow Phases & Module Access
+          <Layers size={15} /> Role & Module Access
         </button>
       </div>
 
@@ -765,7 +737,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                             <button onClick={() => openEditTest(test)} title="Edit evaluation" className="p-1.5 hover:bg-blue-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
                               <Pencil size={15} />
                             </button>
-                            <button onClick={() => removeTest(test.id)} title="Delete evaluation" className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
+                            <button onClick={() => setTestToDelete(test)} title="Delete evaluation" className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -797,7 +769,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         </>
       )}
 
-      {/* ── TAB 2: WORKFLOW PHASES & MODULE ACCESS ─────────────────────────── */}
+      {/* ── TAB 2: ROLE & MODULE ACCESS ─────────────────────────── */}
       {tab === 'workflow' && (
         <div className="space-y-6">
           {/* Information & Exclusion Notice Banner */}
@@ -805,9 +777,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             <div className="flex items-start gap-3">
               <ShieldCheck size={20} className="text-[#0EA5E9] flex-shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-bold text-[#0F172A] text-base">Workflow Phases & System Role Delegation</h3>
+                <h3 className="font-bold text-[#0F172A] text-base">System Role Module Access Delegation</h3>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Configure which operational modules are accessible to each system role (<strong className="text-sky-700">Recruitment</strong>, <strong className="text-indigo-700">Admin</strong>, <strong className="text-emerald-700">Accounting</strong>, and <strong className="text-purple-700">Management</strong>) across the applicant lifecycle phases.
+                  Configure which operational modules are accessible to each system role (<strong className="text-sky-700">Recruitment</strong>, <strong className="text-indigo-700">Admin</strong>, <strong className="text-emerald-700">Accounting</strong>, and <strong className="text-purple-700">Management</strong>) across your agency operations.
                 </p>
               </div>
             </div>
@@ -816,7 +788,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             <div className="grid md:grid-cols-2 gap-3 pt-2 text-xs">
               <div className="bg-white/80 border border-slate-200 rounded-lg p-3">
                 <span className="font-bold text-slate-700 flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
-                  <CheckCircle2 size={13} className="text-emerald-500" /> Universal Modules (Excluded from Restricting)
+                  <CheckCircle2 size={13} className="text-emerald-500" /> Universal Modules (Unrestricted)
                 </span>
                 <p className="text-slate-500 leading-normal">
                   <strong className="text-slate-700">Dashboard</strong> and <strong className="text-slate-700">Applicant List</strong> are core platforms available to all staff members regardless of assigned role.
@@ -824,7 +796,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               </div>
               <div className="bg-white/80 border border-purple-200 rounded-lg p-3">
                 <span className="font-bold text-purple-800 flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
-                  <Lock size={13} className="text-purple-600" /> Management-Exclusive Oversight (Excluded from Workflow)
+                  <Lock size={13} className="text-purple-600" /> Management-Exclusive Oversight (Protected)
                 </span>
                 <p className="text-purple-900/80 leading-normal">
                   <strong className="text-purple-900">Evaluation & Workflow</strong>, <strong className="text-purple-900">Predictive Timeline</strong>, <strong className="text-purple-900">Deployment History</strong>, <strong className="text-purple-900">Operational Reports</strong>, and <strong className="text-purple-900">User Management</strong> are restricted strictly to Management.
@@ -835,29 +807,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
           {/* Filters Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-            {/* Phase Tabs */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-400 mr-1 uppercase tracking-wider">Phase:</span>
-              <button
-                onClick={() => setPhaseFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  phaseFilter === 'all' ? 'bg-[#0F172A] text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                All Phases ({modules.length})
-              </button>
-              {[1, 2, 3, 4, 5].map(pNum => (
-                <button
-                  key={pNum}
-                  onClick={() => setPhaseFilter(pNum)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    phaseFilter === pNum ? 'bg-[#0EA5E9] text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Phase {pNum}
-                </button>
-              ))}
-            </div>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Configurable Modules ({filteredModules.length})
+            </span>
 
             {/* Filter by Role */}
             <div className="flex items-center gap-2">
@@ -875,7 +827,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             </div>
           </div>
 
-          {/* Modules List Grouped by Phase */}
+          {/* Modules List */}
           {loadingModules ? (
             <div className="space-y-4">
               {[...Array(3)].map((_, i) => (
@@ -908,9 +860,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               {filteredModules.map((mod) => (
                 <div
                   key={mod.moduleKey}
-                  className={`bg-white rounded-xl border transition-all ${
-                    mod.isActive ? 'border-slate-200 shadow-2xs' : 'border-slate-200/60 opacity-60 bg-slate-50/50'
-                  }`}
+                  className={`bg-white rounded-xl border transition-all ${mod.isActive ? 'border-slate-200 shadow-2xs' : 'border-slate-200/60 opacity-60 bg-slate-50/50'
+                    }`}
                 >
                   <div className="p-5 flex flex-wrap md:flex-nowrap items-center justify-between gap-4">
                     {/* Left: Module Details */}
@@ -921,12 +872,6 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-[#0F172A] text-sm">{mod.moduleName}</span>
-                          <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {mod.moduleKey}
-                          </span>
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                            Phase {mod.phaseNumber}
-                          </span>
                           {!mod.isActive && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
                               Disabled
@@ -959,11 +904,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                                   ? 'Management has universal administrative access to all workflow stages'
                                   : `Toggle ${role} access to ${mod.moduleName}`
                               }
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                                isAssigned
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${isAssigned
                                   ? `${color.bg} ${color.border} shadow-2xs`
                                   : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300'
-                              } ${isManagement ? 'cursor-default' : 'cursor-pointer hover:scale-102'}`}
+                                } ${isManagement ? 'cursor-default' : 'cursor-pointer hover:scale-102'}`}
                             >
                               {isManagement ? (
                                 <Lock size={11} className="text-purple-500" />
@@ -1004,7 +948,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <Info size={14} className="text-[#0EA5E9]" />
               <span>
-                Role assignments take immediate effect across navigation menus for staff after saving to the database.
+                Role assignments take immediate effect across navigation menus for staff once saved.
               </span>
             </div>
             <button
@@ -1013,7 +957,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               className="flex items-center gap-2 bg-[#10B981] hover:bg-[#059669] disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
             >
               {isSavingModules ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              Save Configuration to DB
+              Save Configuration
             </button>
           </div>
         </div>
@@ -1047,9 +991,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                         key={t}
                         type="button"
                         onClick={() => setEditingTest(p => p ? { ...p, type: t } : p)}
-                        className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium border-2 transition-all ${
-                          editingTest.type === t ? 'border-[#0EA5E9] bg-[#0EA5E9]/10 text-[#0EA5E9]' : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium border-2 transition-all ${editingTest.type === t ? 'border-[#0EA5E9] bg-[#0EA5E9]/10 text-[#0EA5E9]' : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                          }`}
                       >
                         {m.icon} {m.label}
                       </button>
@@ -1075,11 +1018,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                   <button
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'numeric' } : p)}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      editingTest.scoringType !== 'pass_fail'
+                    className={`p-3 rounded-xl border text-left transition-all ${editingTest.scoringType !== 'pass_fail'
                         ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
                         : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
-                    }`}
+                      }`}
                   >
                     <div className="font-semibold text-xs text-slate-900">Numerical Scoring</div>
                     <div className="text-[11px] text-slate-500 mt-0.5">Calculated score out of total items with a minimum passing percentage benchmark</div>
@@ -1087,11 +1029,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                   <button
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, scoringType: 'pass_fail' } : p)}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      editingTest.scoringType === 'pass_fail'
+                    className={`p-3 rounded-xl border text-left transition-all ${editingTest.scoringType === 'pass_fail'
                         ? 'border-[#0EA5E9] bg-sky-50/60 text-[#0F172A] shadow-xs ring-1 ring-[#0EA5E9]'
                         : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-white'
-                    }`}
+                      }`}
                   >
                     <div className="font-semibold text-xs text-slate-900">Pass / Fail Clearance</div>
                     <div className="text-[11px] text-slate-500 mt-0.5">Direct clearance outcome without numerical item scoring (e.g. medical, trade demo)</div>
@@ -1176,11 +1117,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                   <button
                     type="button"
                     onClick={() => setEditingTest(p => p ? { ...p, applicableJobOrders: [] } : p)}
-                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                      (editingTest.applicableJobOrders || []).length === 0
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${(editingTest.applicableJobOrders || []).length === 0
                         ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
                         : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
-                    }`}
+                      }`}
                   >
                     All Job Orders (General)
                   </button>
@@ -1191,11 +1131,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                         setEditingTest(p => p ? { ...p, applicableJobOrders: [] } : p);
                       }
                     }}
-                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                      (editingTest.applicableJobOrders || []).length > 0
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${(editingTest.applicableJobOrders || []).length > 0
                         ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] ring-1 ring-[#0EA5E9]'
                         : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
-                    }`}
+                      }`}
                   >
                     Specific Job Orders Only
                   </button>
@@ -1232,11 +1171,10 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                           <div
                             key={joId}
                             onClick={() => toggleJobOrderSelection(joId, joCode)}
-                            className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                              isSelected
+                            className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${isSelected
                                 ? 'bg-sky-50 border-sky-300 text-sky-900 font-semibold shadow-2xs'
                                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center gap-2 truncate pr-2">
                               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold shrink-0">
@@ -1244,9 +1182,8 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                               </span>
                               <span className="truncate">{joPos}</span>
                             </div>
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 transition-colors ${
-                              isSelected ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 transition-colors ${isSelected ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}>
                               {isSelected ? '✓ Selected' : '+ Add'}
                             </span>
                           </div>
@@ -1324,6 +1261,125 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                     <Save size={15} /> {isNewTest ? 'Add Evaluation' : 'Save Changes'}
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL: CONFIRM DELETE EVALUATION ──────────────────────────────── */}
+      {testToDelete && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete Evaluation Template?</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Are you sure you want to delete <strong className="text-slate-800">"{testToDelete.name}"</strong>? This will permanently remove this assessment from the agency evaluation framework.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Weight Contribution:</span>
+                  <span className="font-bold text-slate-800">{testToDelete.weight}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Target Scope:</span>
+                  <span className="font-semibold text-slate-800">
+                    {testToDelete.applicableJobOrders && testToDelete.applicableJobOrders.length > 0
+                      ? `${testToDelete.applicableJobOrders.length} Specific Job Order(s)`
+                      : 'General Baseline (All Applicants)'}
+                  </span>
+                </div>
+                {testToDelete.isActive && (
+                  <p className="text-[11px] text-amber-700 font-medium pt-1 border-t border-slate-200">
+                    ⚠️ Deleting an active template may affect baseline weight calculations until remaining weights total 100%.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTestToDelete(null)}
+                disabled={isDeletingTest}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!testToDelete) return;
+                  setIsDeletingTest(true);
+                  try {
+                    await removeTest(testToDelete.id);
+                  } finally {
+                    setIsDeletingTest(false);
+                    setTestToDelete(null);
+                  }
+                }}
+                disabled={isDeletingTest}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isDeletingTest ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CONFIRM DEACTIVATE MODULE ──────────────────────────────── */}
+      {moduleToDeactivate && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Deactivate Module "{moduleToDeactivate.moduleName}"?</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Disabling this module will hide it from the sidebar navigation and restrict staff access until re-enabled.
+                </p>
+              </div>
+
+              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <Info size={13} className="text-amber-600 flex-shrink-0" />
+                  <span>Important Note:</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Existing candidate applications and historical stage records will remain safely preserved, but daily processing for this module will be paused until re-enabled.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModuleToDeactivate(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors"
+              >
+                Keep Active
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!moduleToDeactivate) return;
+                  setModules(prev => prev.map(m => m.moduleKey === moduleToDeactivate.moduleKey ? { ...m, isActive: false } : m));
+                  showToast(`Module "${moduleToDeactivate.moduleName}" deactivated. Click "Save Configuration" to apply changes.`);
+                  setModuleToDeactivate(null);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+              >
+                <ToggleLeft size={14} />
+                Confirm Deactivation
               </button>
             </div>
           </div>

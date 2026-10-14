@@ -79,11 +79,11 @@ const DEFAULT_ROLES_CATALOG: AvailableRole[] = [
 ];
 
 const PHASE_CONFIG: Record<number, { name: string; color: string }> = {
-  1: { name: 'Phase 1: Screening', color: 'bg-sky-50 text-sky-700 border-sky-200' },
-  2: { name: 'Phase 2: Medical', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-  3: { name: 'Phase 3: Vetting', color: 'bg-purple-50 text-purple-700 border-purple-200' },
-  4: { name: 'Phase 4: Interview', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  5: { name: 'Phase 5: Deployment', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  1: { name: 'Screening', color: 'bg-sky-50 text-sky-700 border-sky-200' },
+  2: { name: 'Medical', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  3: { name: 'Vetting', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  4: { name: 'Interview', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  5: { name: 'Deployment', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
 };
 
 const mapStaffFromApi = (u: any): StaffAccount => {
@@ -1034,11 +1034,11 @@ export default function UserManagement({
                 className="text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-slate-50 text-slate-700 font-medium outline-none"
               >
                 <option value="All">All 5 Phases</option>
-                <option value="1">Phase 1: Screening</option>
-                <option value="2">Phase 2: Medical</option>
-                <option value="3">Phase 3: Vetting</option>
-                <option value="4">Phase 4: Interview</option>
-                <option value="5">Phase 5: Deployment</option>
+                <option value="1">Screening</option>
+                <option value="2">Medical</option>
+                <option value="3">Vetting</option>
+                <option value="4">Interview</option>
+                <option value="5">Deployment</option>
               </select>
 
               {(applicantSearch || applicantStatusFilter !== 'All' || applicantPhaseFilter !== 'All') && (

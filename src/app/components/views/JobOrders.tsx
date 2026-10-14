@@ -52,20 +52,35 @@ const mapJobOrderFromApi = (jo: any): JobOrder => ({
     : (Array.isArray(jo.required_skills) && jo.required_skills.length > 0
         ? jo.required_skills
         : (Array.isArray(jo.job_order_requirement)
-            ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+            ? jo.job_order_requirement.filter((r: any) => ((r.requirement?.category || r.category || 'DOCUMENT').toUpperCase() !== 'CERTIFICATION')).map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
             : [])),
   minExperience: jo.min_experience_years || 1,
   genderPreference: (jo.gender_preference || jo.genderPreference || 'Any') as 'Any' | 'Male' | 'Female',
   minAge: jo.min_age ?? jo.minAge ?? 21,
   maxAge: jo.max_age ?? jo.maxAge ?? 45,
-  certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
-  detailedRequirements: Array.isArray(jo.job_order_requirements)
+  certifications: Array.isArray(jo.certifications) && jo.certifications.length > 0
+    ? jo.certifications
+    : (Array.isArray(jo.required_certifications) && jo.required_certifications.length > 0
+        ? jo.required_certifications
+        : (Array.isArray(jo.job_order_requirement)
+            ? jo.job_order_requirement.filter((r: any) => ((r.requirement?.category || r.category || '').toUpperCase() === 'CERTIFICATION')).map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+            : [])),
+  detailedRequirements: Array.isArray(jo.job_order_requirements) && jo.job_order_requirements.length > 0
     ? jo.job_order_requirements.map((r: any) => ({
-        name: r.requirement?.requirement_name || r.requirement_name,
-        category: r.category || r.requirement?.category || 'DOCUMENT',
-        isMandatory: r.is_mandatory ?? true
+        name: r.requirement?.requirement_name || r.requirement_name || (typeof r === 'string' ? r : ''),
+        category: (((r.category || r.requirement?.category || 'DOCUMENT').toUpperCase() === 'CERTIFICATION') ? 'CERTIFICATION' : 'DOCUMENT') as 'DOCUMENT' | 'CERTIFICATION',
+        isMandatory: r.is_mandatory ?? r.isMandatory ?? true
       }))
-    : [],
+    : (Array.isArray(jo.job_order_requirement) && jo.job_order_requirement.length > 0
+        ? jo.job_order_requirement.map((r: any) => ({
+            name: r.requirement?.requirement_name || r.requirement_name || '',
+            category: (((r.requirement?.category || r.category || 'DOCUMENT').toUpperCase() === 'CERTIFICATION') ? 'CERTIFICATION' : 'DOCUMENT') as 'DOCUMENT' | 'CERTIFICATION',
+            isMandatory: r.is_mandatory ?? true
+          }))
+        : [
+            ...(Array.isArray(jo.requirements) ? jo.requirements.map((name: string) => ({ name, category: 'DOCUMENT' as const, isMandatory: true })) : []),
+            ...(Array.isArray(jo.certifications) ? jo.certifications.map((name: string) => ({ name, category: 'CERTIFICATION' as const, isMandatory: true })) : [])
+          ]),
   status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
   datePosted: jo.date_posted || '',
   deadline: jo.application_deadline || jo.deadline || '',
@@ -181,7 +196,29 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   };
 
   const openEdit = (o: JobOrder) => {
-    setEditing({ ...o, requirements: [...o.requirements], certifications: [...o.certifications], detailedRequirements: o.detailedRequirements ? [...o.detailedRequirements] : [] });
+    const detailed = [...(o.detailedRequirements || [])];
+    const existingNames = new Set(detailed.map(d => d.name.toLowerCase()));
+
+    (o.requirements || []).forEach(rName => {
+      if (rName && !existingNames.has(rName.toLowerCase())) {
+        detailed.push({ name: rName, category: 'DOCUMENT', isMandatory: true });
+        existingNames.add(rName.toLowerCase());
+      }
+    });
+
+    (o.certifications || []).forEach(cName => {
+      if (cName && !existingNames.has(cName.toLowerCase())) {
+        detailed.push({ name: cName, category: 'CERTIFICATION', isMandatory: true });
+        existingNames.add(cName.toLowerCase());
+      }
+    });
+
+    setEditing({
+      ...o,
+      requirements: o.requirements ? [...o.requirements] : [],
+      certifications: o.certifications ? [...o.certifications] : [],
+      detailedRequirements: detailed,
+    });
     setIsNew(false);
     setReqInput('');
     setCertInput('');
@@ -204,10 +241,34 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
     const finalCountry = (editing.country || '').trim() || (empObj ? empObj.country : 'International');
+
+    // Auto-commit any non-empty input from reqInput or certInput so typing without clicking + is not lost
+    const finalDetailed = [...(editing.detailedRequirements || [])];
+    const finalReqs = [...(editing.requirements || [])];
+    const finalCerts = [...(editing.certifications || [])];
+
+    if (reqInput.trim()) {
+      const v = reqInput.trim();
+      if (!finalDetailed.some(r => r.name.toLowerCase() === v.toLowerCase())) {
+        finalDetailed.push({ name: v, category: 'DOCUMENT', isMandatory: reqIsMandatory });
+        if (!finalReqs.includes(v)) finalReqs.push(v);
+      }
+    }
+    if (certInput.trim()) {
+      const v = certInput.trim();
+      if (!finalDetailed.some(r => r.name.toLowerCase() === v.toLowerCase())) {
+        finalDetailed.push({ name: v, category: 'CERTIFICATION', isMandatory: certIsMandatory });
+        if (!finalCerts.includes(v)) finalCerts.push(v);
+      }
+    }
+
     const updatedEditing: JobOrder = {
       ...editing,
       employerName: empObj ? empObj.companyName : editing.employerName,
       country: finalCountry,
+      requirements: finalReqs,
+      certifications: finalCerts,
+      detailedRequirements: finalDetailed,
     };
 
     const payload = {
@@ -229,9 +290,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
       deadline: editing.deadline || undefined,
       notes: editing.notes,
-      requirements: editing.requirements,
-      certifications: editing.certifications,
-      job_order_requirements: editing.detailedRequirements?.map(r => ({
+      requirements: finalReqs,
+      certifications: finalCerts,
+      job_order_requirements: finalDetailed.map(r => ({
         requirement_name: r.name,
         category: r.category,
         is_mandatory: r.isMandatory
@@ -271,7 +332,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setOrders(p => p.filter(o => o.id !== id));
     try {
       await api.delete(`/job-orders/${id}`);
-      showToast(`"${o?.code} ${o?.position}" deleted from database`);
+      showToast(`"${o?.code} ${o?.position}" deleted successfully`);
       await fetchLiveJobOrders(true);
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
@@ -287,7 +348,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setEditing(p => p ? {
       ...p,
       detailedRequirements: [...(p.detailedRequirements || []), { name: v, category, isMandatory }],
-      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...p[category === 'DOCUMENT' ? 'requirements' : 'certifications'], v]
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...(p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []), v]
     } : p);
     if (category === 'DOCUMENT') { setReqInput(''); setReqIsMandatory(true); }
     else { setCertInput(''); setCertIsMandatory(true); }
@@ -297,7 +358,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setEditing(p => p ? {
       ...p,
       detailedRequirements: (p.detailedRequirements || []).filter(r => r.name !== val),
-      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: p[category === 'DOCUMENT' ? 'requirements' : 'certifications'].filter(x => x !== val)
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: (p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []).filter(x => x !== val)
     } : p);
   };
 
@@ -701,7 +762,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 <div className="flex flex-wrap gap-2 items-center">
                   <input list="doc-catalog" value={reqInput} onChange={e => setReqInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('DOCUMENT', reqInput, reqIsMandatory); } }} placeholder="Select or type document..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                   <datalist id="doc-catalog">
-                    {catalogRequirements.filter(r => r.category === 'DOCUMENT').map(r => (
+                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() !== 'CERTIFICATION').map(r => (
                       <option key={r.requirement_id} value={r.requirement_name} />
                     ))}
                   </datalist>
@@ -727,7 +788,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 <div className="flex flex-wrap gap-2 items-center">
                   <input list="cert-catalog" value={certInput} onChange={e => setCertInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('CERTIFICATION', certInput, certIsMandatory); } }} placeholder="Select or type certification..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                   <datalist id="cert-catalog">
-                    {catalogRequirements.filter(r => r.category === 'CERTIFICATION').map(r => (
+                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() === 'CERTIFICATION').map(r => (
                       <option key={r.requirement_id} value={r.requirement_name} />
                     ))}
                   </datalist>

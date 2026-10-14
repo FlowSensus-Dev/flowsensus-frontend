@@ -24,7 +24,7 @@ import {
   Pencil,
   Trash2
 } from 'lucide-react';
-import { WorkflowState, ActivityLog, ApplicantRecord, Clinic, ClinicReferral } from '../../types';
+import { WorkflowState, ActivityLog, ApplicantRecord, Clinic, ClinicReferral, ExpenseRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
 
@@ -37,6 +37,7 @@ interface FitToWorkProps {
   updateApplicant: (applicantId: string, updates: Partial<ApplicantRecord>) => void;
   selectedApplicantId?: string;
   applicants?: ApplicantRecord[];
+  addExpense?: (expense: Omit<ExpenseRecord, 'id'>) => void;
 }
 
 export default function FitToWork({
@@ -47,7 +48,8 @@ export default function FitToWork({
   addActivityLog,
   updateApplicant,
   selectedApplicantId: initialApplicantId,
-  applicants = []
+  applicants = [],
+  addExpense
 }: FitToWorkProps) {
   // ── Database state for clinics and clinic referrals from Supabase ─────────
   const [clinics, setClinics] = useState<Clinic[]>([]);
@@ -505,7 +507,7 @@ export default function FitToWork({
         };
 
         setClinics(prev => [...prev, createdClinic]);
-        showToast(`✓ Accredited clinic "${createdClinic.clinicName}" added to database.`);
+        showToast(`✓ Accredited clinic "${createdClinic.clinicName}" added successfully.`);
 
         // If opened for a specific applicant, auto-assign this new clinic immediately!
         if (targetApplicantForClinic) {
@@ -521,7 +523,7 @@ export default function FitToWork({
       }
     } catch (err) {
       console.error('Failed to create clinic:', err);
-      showToast('Error creating accredited clinic in database.');
+      showToast('Error creating accredited clinic.');
     } finally {
       setIsSavingClinic(false);
     }
@@ -668,7 +670,7 @@ export default function FitToWork({
       }
     } catch (err) {
       console.error('Failed to delete clinic:', err);
-      showToast('Error deleting clinic from database.');
+      showToast('Error deleting clinic.');
     } finally {
       setIsDeletingClinic(false);
     }
@@ -1030,6 +1032,8 @@ export default function FitToWork({
 
       updateApplicant(applicantId, updates);
       updateWorkflow({ medicalCleared: true });
+
+      // Auto-sync for Medical Package is now handled globally in AppShell.tsx
 
       // 3. Persist to Backend with audit trail (triggers application_status_history insert!)
       if (!isNaN(numericId)) {

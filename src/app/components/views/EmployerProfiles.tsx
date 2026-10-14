@@ -169,7 +169,7 @@ export default function EmployerProfiles({ showToast, currentUserName, globalEmp
     setEmployers(p => p.filter(e => e.id !== id));
     try {
       await api.delete(`/employers/${id}`);
-      showToast(`"${e?.companyName}" removed from database`);
+      showToast(`"${e?.companyName}" removed successfully`);
       await fetchLiveEmployers(true);
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);

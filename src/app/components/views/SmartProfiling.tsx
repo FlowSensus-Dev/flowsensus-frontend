@@ -145,6 +145,28 @@ export default function SmartProfiling({
             const vacancies = Math.max(0, total - filled);
             const code = jo.job_code || jo.job_order_code || (jo.job_order_id ? `JO-2026-${String(jo.job_order_id).padStart(4, '0')}` : 'JO-0000');
             const empName = jo.employer_name || jo.client_employer?.company_name || 'Partner Principal';
+            const certsList = new Set<string>();
+            (Array.isArray(jo.certifications) ? jo.certifications : (jo.required_certifications || [])).forEach((c: any) => {
+              if (c) certsList.add(typeof c === 'string' ? c : (c.title || c.name || ''));
+            });
+            const reqsList = new Set<string>();
+            (Array.isArray(jo.requirements) ? jo.requirements : (jo.required_skills || [])).forEach((r: any) => {
+              if (r) reqsList.add(typeof r === 'string' ? r : (r.name || r.requirement_name || ''));
+            });
+
+            const details = Array.isArray(jo.job_order_requirements) ? jo.job_order_requirements : (Array.isArray(jo.detailedRequirements) ? jo.detailedRequirements : []);
+            details.forEach((d: any) => {
+              const name = d.requirement_name || d.name;
+              const cat = String(d.category || '').toUpperCase();
+              if (name) {
+                if (cat === 'CERTIFICATION' || cat === 'CERTIFICATE') {
+                  certsList.add(name);
+                } else {
+                  reqsList.add(name);
+                }
+              }
+            });
+
             return {
               realId: jo.job_order_id,
               jobOrderId: jo.job_order_id,
@@ -160,8 +182,9 @@ export default function SmartProfiling({
               vacancies,
               available: vacancies,
               minExperience: Number(jo.min_experience_years ?? 1),
-              certifications: Array.isArray(jo.certifications) ? jo.certifications : (jo.required_certifications || []),
-              requirements: Array.isArray(jo.requirements) ? jo.requirements : (jo.required_skills || []),
+              certifications: Array.from(certsList),
+              requirements: Array.from(reqsList),
+              detailedRequirements: details,
               genderPreference: jo.gender_preference || jo.genderPreference,
               minAge: jo.min_age ?? jo.minAge,
               maxAge: jo.max_age ?? jo.maxAge,
@@ -740,9 +763,24 @@ export default function SmartProfiling({
 
       // ── 2. Required Certifications (Max: 25 pts) ────────────────────────
       const jobCertsRaw: string[] = Array.isArray(currentJobOrder?.certifications) ? currentJobOrder.certifications : [];
-      const appCertsRaw: string[] = Array.isArray(applicant.certifications)
-        ? applicant.certifications.map((c: any) => (typeof c === 'string' ? c : c.name || c.title || ''))
-        : (applicant.certificateRecords || []).map((c: any) => c.title || '');
+      
+      const appCertsRawSet = new Set<string>();
+      (Array.isArray(applicant.certifications) ? applicant.certifications : []).forEach((c: any) => {
+        const title = typeof c === 'string' ? c : (c.name || c.title || '');
+        if (title && title.trim()) appCertsRawSet.add(title.trim());
+      });
+      (applicant.certificateRecords || []).forEach((c: any) => {
+        const title = c.title || c.name || '';
+        if (title && title.trim()) appCertsRawSet.add(title.trim());
+      });
+      (applicant.requirements || []).forEach((r: any) => {
+        const cat = String(r.category || '').toUpperCase();
+        const title = String(r.name || r.requirement_name || '').trim();
+        if (title && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE')) {
+          appCertsRawSet.add(title);
+        }
+      });
+      const appCertsRaw: string[] = Array.from(appCertsRawSet);
 
       const appCertsLower = appCertsRaw.map((c) => c.toLowerCase());
       let certScore = 0;
@@ -1113,6 +1151,82 @@ export default function SmartProfiling({
         failureReasons.push(`Readiness score (${readinessScore}%) is below the 75% threshold for ${jobPos}`);
       }
 
+      // ── 7. Job-Order Specific Requirements Audit (Documents & Certifications) ──
+      const jobOrderRequirementsAudit: Array<{
+        name: string;
+        category: 'CERTIFICATION' | 'DOCUMENT' | 'MEDICAL' | 'OTHER';
+        status: 'VERIFIED' | 'SUBMITTED' | 'PENDING' | 'MISSING';
+        isSatisfied: boolean;
+      }> = [];
+
+      const appReqs = applicant.requirements || [];
+      const appIds = (applicant as any).identifications || [];
+
+      // Audit Required Certifications
+      jobCertsRaw.forEach((jc) => {
+        const jcClean = jc.trim();
+        const jcLower = jcClean.toLowerCase();
+        
+        const matchReq = appReqs.find((r: any) => {
+          const rName = String(r.name || r.requirement_name || '').toLowerCase();
+          return rName.includes(jcLower) || jcLower.includes(rName);
+        });
+
+        const matchCert = (applicant.certificateRecords || []).find((c: any) => {
+          const cTitle = String(c.title || c.name || '').toLowerCase();
+          return cTitle.includes(jcLower) || jcLower.includes(cTitle);
+        });
+
+        let status: 'VERIFIED' | 'SUBMITTED' | 'PENDING' | 'MISSING' = 'MISSING';
+        if (matchReq) {
+          const s = String(matchReq.status || '').toUpperCase();
+          status = s === 'VERIFIED' ? 'VERIFIED' : (s === 'SUBMITTED' || s === 'UNDER_REVIEW' ? 'SUBMITTED' : 'PENDING');
+        } else if (matchCert) {
+          status = 'VERIFIED';
+        } else if (appCertsLower.some((ac) => ac.includes(jcLower) || jcLower.includes(ac))) {
+          status = 'VERIFIED';
+        }
+
+        jobOrderRequirementsAudit.push({
+          name: jcClean,
+          category: 'CERTIFICATION',
+          status,
+          isSatisfied: status === 'VERIFIED' || status === 'SUBMITTED',
+        });
+      });
+
+      // Audit Required Documents
+      const jobDocsRaw: string[] = Array.isArray(currentJobOrder?.requirements) ? currentJobOrder.requirements : [];
+      jobDocsRaw.forEach((jd) => {
+        const jdClean = jd.trim();
+        const jdLower = jdClean.toLowerCase();
+
+        const matchReq = appReqs.find((r: any) => {
+          const rName = String(r.name || r.requirement_name || '').toLowerCase();
+          return rName.includes(jdLower) || jdLower.includes(rName);
+        });
+
+        const matchId = appIds.find((i: any) => {
+          const iType = String(i.type || i.idType || '').toLowerCase();
+          return iType.includes(jdLower) || jdLower.includes(iType);
+        });
+
+        let status: 'VERIFIED' | 'SUBMITTED' | 'PENDING' | 'MISSING' = 'MISSING';
+        if (matchReq) {
+          const s = String(matchReq.status || '').toUpperCase();
+          status = s === 'VERIFIED' ? 'VERIFIED' : (s === 'SUBMITTED' || s === 'UNDER_REVIEW' ? 'SUBMITTED' : 'PENDING');
+        } else if (matchId) {
+          status = 'VERIFIED';
+        }
+
+        jobOrderRequirementsAudit.push({
+          name: jdClean,
+          category: 'DOCUMENT',
+          status,
+          isSatisfied: status === 'VERIFIED' || status === 'SUBMITTED',
+        });
+      });
+
       const compliancePassed = passportStatus.valid && nbiStatus.valid && medicalStatus.valid;
       const complianceReasons = [];
       if (!passportStatus.valid) complianceReasons.push(`Passport: ${passportStatus.status}`);
@@ -1171,6 +1285,7 @@ export default function SmartProfiling({
           isMismatch: hasAgeMismatch,
           notice: ageNotice,
         },
+        jobOrderRequirementsAudit,
       };
     });
 
@@ -3243,6 +3358,70 @@ export default function SmartProfiling({
                   </div>
                 )}
               </div>
+
+              {/* Job-Order Specific Requirements Checklist */}
+              {activeModalCandidate.jobOrderRequirementsAudit && activeModalCandidate.jobOrderRequirementsAudit.length > 0 && (
+                <div className="p-4 rounded-xl border bg-slate-50/70 border-slate-200">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Job Order Requirements Checklist ({activeModalCandidate.jobOrderRequirementsAudit.length} Required Items)
+                    </span>
+                    <span
+                      className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${
+                        activeModalCandidate.jobOrderRequirementsAudit.every((r) => r.isSatisfied)
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}
+                    >
+                      {activeModalCandidate.jobOrderRequirementsAudit.every((r) => r.isSatisfied)
+                        ? 'All Requirements Satisfied'
+                        : `${activeModalCandidate.jobOrderRequirementsAudit.filter((r) => !r.isSatisfied).length} Pending / Missing`}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {activeModalCandidate.jobOrderRequirementsAudit.map((item, idx) => {
+                      const isVerified = item.status === 'VERIFIED';
+                      const isSubmitted = item.status === 'SUBMITTED';
+                      const catBadge =
+                        item.category === 'CERTIFICATION'
+                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                          : 'bg-blue-50 text-blue-700 border-blue-200';
+                      return (
+                        <div
+                          key={idx}
+                          className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isVerified ? (
+                              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                            ) : isSubmitted ? (
+                              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            )}
+                            <span className="font-semibold text-slate-800 truncate">{item.name}</span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border ${catBadge}`}>
+                              {item.category}
+                            </span>
+                          </div>
+                          <span
+                            className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                              isVerified
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : isSubmitted
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}
+                          >
+                            {isVerified ? '✓ Verified' : isSubmitted ? '⏳ Submitted' : '✗ Missing'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Modal Actions Footer: Clean, unified-height (h-9) responsive layout */}

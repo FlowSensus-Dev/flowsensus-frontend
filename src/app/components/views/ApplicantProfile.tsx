@@ -85,6 +85,7 @@ interface ApplicantProfileProps {
   hasNext?: boolean;
   applicantIndexText?: string;
   onEdit?: () => void;
+  currentUserRole?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -102,7 +103,10 @@ export default function ApplicantProfile({
   hasNext,
   applicantIndexText,
   onEdit,
+  currentUserRole,
 }: ApplicantProfileProps) {
+  const isAccounting = currentUserRole === 'Accounting';
+
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
@@ -594,7 +598,7 @@ export default function ApplicantProfile({
             <div className="flex flex-wrap gap-2 mt-3">
               {/* Phase Badge */}
               <span className="text-xs px-3 py-1 bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/40 font-bold flex items-center gap-1.5">
-                <span>Phase {applicant.phase} - {PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
+                <span>{PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
               </span>
 
               {/* Status Badge */}
@@ -658,7 +662,7 @@ export default function ApplicantProfile({
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
             <div className="flex gap-2">
-              {applicant.status === 'Processing Stopped' && (
+              {!isAccounting && applicant.status === 'Processing Stopped' && (
                 <button
                   onClick={() => setShowDeleteModal(true)}
                   disabled={isDeleting}
@@ -667,7 +671,7 @@ export default function ApplicantProfile({
                   <Trash2 size={13} /> {isDeleting ? 'Deleting...' : 'Delete'}
                 </button>
               )}
-              {!(applicant.status === 'Processing Stopped') && updateApplicant && (
+              {!isAccounting && !(applicant.status === 'Processing Stopped') && updateApplicant && (
                 <button
                   onClick={() => setShowStopModal(true)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
@@ -708,18 +712,6 @@ export default function ApplicantProfile({
               );
             })}
           </div>
-
-          {onEdit && (
-            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-              <button 
-                onClick={onEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-              >
-                <Edit2 size={13} />
-                <span>Update Details</span>
-              </button>
-            </div>
-          )}
         </div>
       </nav>
 
@@ -1172,20 +1164,59 @@ export default function ApplicantProfile({
 
         {/* Certificates */}
         {(() => {
-          const certs = (applicant.certificateRecords && applicant.certificateRecords.length > 0)
-            ? applicant.certificateRecords
-            : (Array.isArray(applicant.certifications) && applicant.certifications.length > 0)
-              ? applicant.certifications.map((c: any, idx: number) => ({
-                  id: `cert-fallback-${idx}`,
-                  title: typeof c === 'string' ? c : (c.title || c.name || 'Certificate'),
-                  issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || 'Accredited Issuer') : 'Accredited Issuer',
-                  serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
-                  noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
-                  competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
-                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
-                  proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
-                }))
-              : [];
+          const seenTitles = new Set<string>();
+          const certs: any[] = [];
+
+          // 1. Certificate records from applicant_certification
+          (applicant.certificateRecords || []).forEach((c: any) => {
+            const title = c.title || c.name || 'Certificate';
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push(c);
+            }
+          });
+
+          // 2. Direct certifications from CV encoding / profiling
+          (Array.isArray(applicant.certifications) ? applicant.certifications : []).forEach((c: any, idx: number) => {
+            const title = typeof c === 'string' ? c : (c.title || c.name || 'Certificate');
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-fallback-${idx}`,
+                title,
+                issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer')) : (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
+                noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
+                competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
+                expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
+                proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
+              });
+            }
+          });
+
+          // 3. Certifications from Document & Regulatory Requirements
+          (applicant.requirements || []).forEach((r: any, idx: number) => {
+            const cat = String(r.category || '').toUpperCase();
+            const title = String(r.name || r.requirement_name || '').trim();
+            const clean = title.toLowerCase();
+            if (title && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE') && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-req-${r.applicant_req_id || idx}`,
+                title,
+                issuedBy: title.includes('TESDA') ? 'TESDA' : (title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: r.applicant_req_id ? `REQ-${r.applicant_req_id}` : '—',
+                noOfHours: '—',
+                competencyDateIssued: r.issue_date || '—',
+                expiryDate: r.expiration_date && r.expiration_date !== 'No expiry' ? r.expiration_date : 'N/A',
+                proofDocumentUrl: r.file_url || r.document_url || r.proof_url,
+                verificationStatus: r.status || 'PENDING'
+              });
+            }
+          });
+
           if (certs.length === 0) return null;
           return (
             <div className="space-y-2">
@@ -1196,6 +1227,15 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
+                        {row.verificationStatus && (
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                            String(row.verificationStatus).toUpperCase() === 'VERIFIED'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {row.verificationStatus}
+                          </span>
+                        )}
                         {row.proofDocumentUrl && (
                           <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
                         )}
@@ -1404,7 +1444,10 @@ export default function ApplicantProfile({
         </div>
 
         {/* Regulatory & Compliance Requirements from Supabase */}
-        <div className="space-y-2">
+        <div className="space-y-2 relative">
+          {isAccounting && (
+            <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed pointer-events-auto" title="Read-only access"></div>
+          )}
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-1.5">
             <FileCheck size={13} className="text-[#0EA5E9]" /> Regulatory &amp; Compliance Clearances ({applicant.requirements?.length || 0})
           </p>
@@ -1428,9 +1471,19 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{req.name}</p>
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                          {req.category}
-                        </span>
+                        {(() => {
+                          const cat = String(req.category || 'DOCUMENT').toUpperCase();
+                          const badgeCls =
+                            cat === 'CERTIFICATION' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            cat === 'MEDICAL' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            cat === 'OTHER' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            'bg-blue-50 text-blue-700 border-blue-200';
+                          return (
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${badgeCls}`}>
+                              {cat}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                         {req.issue_date && <span>Issued: {req.issue_date}</span>}
@@ -1661,7 +1714,7 @@ export default function ApplicantProfile({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-[#0F172A]">{exp.type}</p>
-                  <p className="text-xs text-slate-500">{exp.description} · {exp.recordedBy}</p>
+                  <p className="text-xs text-slate-500">{exp.description || exp.purpose || exp.remarks} · {exp.recordedBy}</p>
                 </div>
                 <p className="text-base font-black text-[#0F172A] flex-shrink-0">₱{exp.amount.toLocaleString()}</p>
               </div>
@@ -1861,7 +1914,7 @@ export default function ApplicantProfile({
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700 space-y-1">
                 <p className="font-semibold text-sm mb-1">Warning:</p>
                 <p>Are you sure you want to permanently delete the applicant <strong>{applicant?.name}</strong>?</p>
-                <p className="mt-2">Note: This is a soft-delete in the system. The record and associated photo are retained in the cloud database for compliance and audit trail purposes but will no longer appear in your active agency lists.</p>
+                <p className="mt-2">Note: The record and associated files are safely archived for regulatory compliance and audit trail purposes, but will no longer appear in active agency lists.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">

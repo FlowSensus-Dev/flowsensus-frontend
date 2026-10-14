@@ -159,7 +159,7 @@ export interface ReturnStageOption {
   desc: string;
 }
 
-export const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
+const RETURN_STAGE_OPTIONS: ReturnStageOption[] = [
   {
     key: 'cv_encoding',
     name: 'CV Encoding',
@@ -419,7 +419,6 @@ interface KanbanCardProps {
   onOpenNotSelected: (card: CvSubmission) => void;
   onOpenVerificationModal: (card: CvSubmission) => void;
   onPromptRollback: (card: CvSubmission) => void;
-  onRevertAdminEndorsement?: (card: CvSubmission) => void;
   isActing: boolean;
 }
 
@@ -439,7 +438,6 @@ function KanbanCard({
   onOpenNotSelected,
   onOpenVerificationModal,
   onPromptRollback,
-  onRevertAdminEndorsement,
   isActing,
 }: KanbanCardProps) {
   const [expanded, setExpanded] = useState(isExpandedDefault);
@@ -721,9 +719,6 @@ function KanbanCard({
                       <p className="text-[10.5px] text-violet-700 font-medium">
                         Endorsed by <span className="font-bold text-violet-900">{endorserName}</span>
                       </p>
-                      <p className="text-[10px] text-slate-500">
-                        Unlocked for Document Validation & Expense Ledger
-                      </p>
                       <button
                         onClick={() => onOpenVerificationModal(card)}
                         className="w-full mt-1 flex items-center justify-center gap-1 py-1 px-2 text-[11px] font-bold text-violet-700 hover:text-violet-900 bg-white hover:bg-violet-100/50 border border-violet-200 rounded-md transition-colors shadow-2xs"
@@ -731,37 +726,28 @@ function KanbanCard({
                         <Eye className="w-3 h-3 text-violet-500" />
                         View Verification Checklist
                       </button>
-                      {onRevertAdminEndorsement && (
-                        <button
-                          onClick={() => onRevertAdminEndorsement(card)}
-                          disabled={isActing}
-                          className="w-full mt-1 flex items-center justify-center gap-1 py-1 px-2 text-[10.5px] font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100/70 border border-amber-200 rounded-md transition-colors"
-                          title="Revert endorsement back to Pre-Deployment Processing"
-                        >
-                          <Undo2 className="w-3 h-3 text-amber-600" />
-                          Revert to Pre-Deployment Processing
-                        </button>
-                      )}
                     </div>
                   ) : (
-                    <button
-                      onClick={() => onOpenVerificationModal(card)}
-                      disabled={isActing}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      Review & Endorse to Admin
-                    </button>
+                    <>
+                      <button
+                        onClick={() => onOpenVerificationModal(card)}
+                        disabled={isActing}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-40"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Review & Endorse to Admin
+                      </button>
+                      <button
+                        onClick={() => onPromptRollback(card)}
+                        disabled={isActing}
+                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-amber-800 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+                        title="Revert back to Waiting Selection if clicked by mistake"
+                      >
+                        <Undo2 className="w-3 h-3 text-amber-600" />
+                        Return to Waiting Selection
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={() => onPromptRollback(card)}
-                    disabled={isActing}
-                    className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 text-slate-500 hover:text-amber-800 hover:bg-amber-50/80 border border-slate-200 hover:border-amber-300 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
-                    title="Revert back to Waiting Selection if clicked by mistake"
-                  >
-                    <Undo2 className="w-3 h-3 text-amber-600" />
-                    Return to Waiting Selection
-                  </button>
                 </div>
               )}
             </div>
@@ -1405,81 +1391,6 @@ export default function EndorsementTracker({
     }
   };
 
-  // ── Revert Admin Endorsement (Step back from Admin Endorsed to Pre-Deployment) ──
-  const handleRevertAdminEndorsement = async (card: CvSubmission) => {
-    const previousSubmissions = submissions;
-    const previousApp = getApplicantForCard(card);
-    const nowIso = new Date().toISOString();
-    const numId = parseInt(String(card.applicant_id), 10);
-
-    // 1. Optimistic Update (0ms UI latency)
-    setSubmissions(prev => prev.map(s => s.submission_id === card.submission_id ? {
-      ...s,
-      admin_notes: '',
-      stage_updated_by: currentUserName,
-      stage_updated_at: nowIso,
-    } : s));
-
-    updateApplicant(String(card.applicant_id), {
-      phase: 4,
-      status: 'Pre-Deployment Processing',
-      currentHandler: currentUserName,
-      currentDepartment: 'Admin',
-      phaseDescription: 'Candidate returned to Pre-Deployment Processing. Ready for document validation.',
-    });
-
-    notify(`↩ ${card.applicant_name}: Reverted Admin Endorsement. Status is now "Pre-Deployment Processing".`);
-
-    // 2. Parallel Background API Requests
-    setActingId(card.submission_id);
-    try {
-      const tasks: Promise<any>[] = [
-        api.patch(`/cv-submissions/${card.submission_id}`, {
-          adminNotes: '',
-          stageUpdatedBy: currentUserName,
-          updatedBy: currentUserName,
-        }),
-      ];
-      if (!isNaN(numId)) {
-        tasks.push(
-          api.put(`/applicants/${numId}`, {
-            current_phase: 4,
-            application_status: 'Pre-Deployment Processing',
-            current_handler: currentUserName,
-            current_department: 'Admin',
-            phase_description: 'Candidate returned to Pre-Deployment Processing. Ready for document validation.',
-            statusChangeReason: 'Admin endorsement reverted to Pre-Deployment Processing',
-            statusChangeSource: 'ENDORSEMENT_STAGE_ROLLBACK',
-            updated_at: nowIso,
-          })
-        );
-      }
-      await Promise.all(tasks);
-
-      addActivityLog({
-        applicantId: String(card.applicant_id),
-        action: 'Reverted Admin Endorsement',
-        performedBy: currentUserName,
-        department: 'Admin',
-        details: 'Admin endorsement reverted to Pre-Deployment Processing.',
-      });
-    } catch (err: any) {
-      setSubmissions(previousSubmissions);
-      if (previousApp) {
-        updateApplicant(String(card.applicant_id), {
-          phase: previousApp.phase,
-          status: previousApp.status,
-          currentHandler: previousApp.currentHandler,
-          currentDepartment: previousApp.currentDepartment,
-          phaseDescription: previousApp.phaseDescription,
-        });
-      }
-      notify(`Failed to revert endorsement: ${err?.response?.data?.detail || err.message}`);
-    } finally {
-      setActingId(null);
-    }
-  };
-
   // ── Rollback Stage Handler (Return card to previous step in Tracker) ────────
   const handleRollbackStage = async (card: CvSubmission, customReason?: string) => {
     const prevInfo = PREVIOUS_STAGE_MAP[card.board_stage_code];
@@ -1875,7 +1786,6 @@ export default function EndorsementTracker({
                             setConfirmRollbackCard(c);
                             setRollbackReason('Accidentally advanced phase');
                           }}
-                          onRevertAdminEndorsement={handleRevertAdminEndorsement}
                           isActing={actingId === card.submission_id}
                         />
                       ))
@@ -1912,7 +1822,7 @@ export default function EndorsementTracker({
         </div>
         <div className="flex items-center gap-2 text-xs text-[#10b981] font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Document Validation & Expense Ledger Unlocked at Phase 5</span>
+          <span>Deployment Administrative Verification Gate</span>
         </div>
       </div>
 
@@ -2701,7 +2611,7 @@ export default function EndorsementTracker({
                           <span>Endorsement Confirmed: Endorsed for Administrative Processing</span>
                         </div>
                         <p className="text-[11px] text-violet-700 pl-6">
-                          Endorsed by <strong>{modalEndorserName}</strong>. Phase 5 Document Validation & Expense Ledger are unlocked.
+                          Endorsed by <strong>{modalEndorserName}</strong>.
                         </p>
                       </div>
                     ) : !isComplete ? (
