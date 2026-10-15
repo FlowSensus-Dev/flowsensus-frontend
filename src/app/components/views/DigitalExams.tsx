@@ -20,6 +20,7 @@ import {
   Globe, Building2, CheckSquare, Square, Users, Calendar
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import { ExamSimulatorModal } from './ExamPortal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -293,264 +294,7 @@ function QuestionCard({
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// PREVIEW MODAL (Applicant View)
-// ══════════════════════════════════════════════════════════════════════════════
 
-function PreviewModal({
-  template,
-  onClose,
-}: {
-  template: ExamTemplate;
-  onClose: () => void;
-}) {
-  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
-  const [showResult, setShowResult] = useState(false);
-  const questions = template.questions || [];
-
-  const handleSelect = (qIdx: number, cIdx: number) => {
-    setSelectedAnswers((prev) => ({ ...prev, [qIdx]: cIdx }));
-  };
-
-  const calculateScore = () => {
-    let earned = 0;
-    let total = 0;
-    questions.forEach((q, idx) => {
-      total += q.points;
-      const chosen = selectedAnswers[idx];
-      if (chosen !== undefined && q.choices[chosen]?.is_correct) {
-        earned += q.points;
-      }
-    });
-    return total > 0 ? (earned / total) * 100 : 0;
-  };
-
-  const scorePct = calculateScore();
-  const passingScore = template.passing_score ?? 60;
-  const isPassed = scorePct >= passingScore;
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-slate-200 overflow-hidden">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-white">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                Applicant View Preview
-              </span>
-              {template.time_limit_mins ? (
-                <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                  <Clock size={11} /> {template.time_limit_mins} mins
-                </span>
-              ) : null}
-            </div>
-            <h2 className="font-bold text-[#0F172A] text-base mt-1">{template.title}</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Info */}
-        <div className="bg-slate-50 px-5 py-2.5 border-b border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-          <span>This is a preview of how the applicant answers this exam in their portal.</span>
-          <span className="font-semibold text-slate-700">
-            Passing Mark: {passingScore}%
-          </span>
-        </div>
-
-        {/* Content */}
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
-          {questions.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-xs font-medium">
-              No questions have been added to this exam yet.
-            </div>
-          ) : (
-            questions.map((q, qIdx) => {
-              const chosenIdx = selectedAnswers[qIdx];
-              const isAnswered = chosenIdx !== undefined;
-              const isCorrect = isAnswered && q.choices[chosenIdx]?.is_correct;
-
-              return (
-                <div
-                  key={qIdx}
-                  className={`p-4 rounded-xl border space-y-2.5 transition-all ${
-                    showResult
-                      ? isCorrect
-                        ? 'bg-emerald-50/20 border-emerald-200'
-                        : isAnswered
-                          ? 'bg-rose-50/20 border-rose-200'
-                          : 'bg-slate-50/60 border-slate-200'
-                      : 'bg-slate-50/60 border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-700">
-                      Question {qIdx + 1} ({q.points} pt{q.points > 1 ? 's' : ''})
-                    </span>
-                    {showResult ? (
-                      isAnswered ? (
-                        isCorrect ? (
-                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                            <CheckCircle2 size={12} className="text-emerald-600" /> Correct (+{q.points} pt)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                            <XCircle size={12} className="text-rose-600" /> Incorrect (0 / {q.points} pt)
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                          Unanswered (0 / {q.points} pt)
-                        </span>
-                      )
-                    ) : (
-                      isAnswered && (
-                        <span className="text-[11px] text-[#10B981] font-semibold flex items-center gap-1">
-                          <CheckCircle2 size={12} /> Answered
-                        </span>
-                      )
-                    )}
-                  </div>
-
-                  <p className="text-xs font-semibold text-slate-900 leading-relaxed">
-                    {q.question_text || '(Empty question prompt)'}
-                  </p>
-
-                  <div className="space-y-1.5 pt-1">
-                    {q.choices.map((c, cIdx) => {
-                      const isSelected = selectedAnswers[qIdx] === cIdx;
-                      const letter = String.fromCharCode(65 + cIdx);
-
-                      // Determine visual styling for choice
-                      let choiceContainerClass = 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70';
-                      let letterBadgeClass = 'bg-slate-100 text-slate-600';
-                      let statusBadge = null;
-
-                      if (showResult) {
-                        if (isSelected && c.is_correct) {
-                          // Applicant answered correctly
-                          choiceContainerClass = 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold ring-1 ring-emerald-500 shadow-2xs';
-                          letterBadgeClass = 'bg-emerald-600 text-white font-bold';
-                          statusBadge = (
-                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                              <Check size={11} strokeWidth={3} /> Your Answer (Correct)
-                            </span>
-                          );
-                        } else if (isSelected && !c.is_correct) {
-                          // Applicant answered WRONG
-                          choiceContainerClass = 'bg-rose-50 border-rose-400 text-rose-950 font-semibold ring-1 ring-rose-400 shadow-2xs';
-                          letterBadgeClass = 'bg-rose-600 text-white font-bold';
-                          statusBadge = (
-                            <span className="text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                              <X size={11} strokeWidth={3} /> Your Answer (Incorrect)
-                            </span>
-                          );
-                        } else if (!isSelected && c.is_correct) {
-                          // This was the actual correct answer that applicant missed
-                          choiceContainerClass = 'bg-emerald-50/40 border-emerald-400 text-emerald-900 font-medium border-dashed';
-                          letterBadgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold';
-                          statusBadge = (
-                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                              <Check size={11} strokeWidth={2.5} /> Correct Answer
-                            </span>
-                          );
-                        } else {
-                          // Unselected incorrect choice
-                          choiceContainerClass = 'bg-white/60 border-slate-200 text-slate-400 opacity-60';
-                          letterBadgeClass = 'bg-slate-100 text-slate-400';
-                        }
-                      } else {
-                        // Test-taking mode
-                        if (isSelected) {
-                          choiceContainerClass = 'bg-sky-50 border-[#0EA5E9] text-sky-900 font-semibold shadow-2xs';
-                          letterBadgeClass = 'bg-[#0EA5E9] text-white';
-                        }
-                      }
-
-                      return (
-                        <div
-                          key={cIdx}
-                          onClick={() => {
-                            if (!showResult) {
-                              handleSelect(qIdx, cIdx);
-                            }
-                          }}
-                          className={`p-2.5 rounded-lg border text-xs transition-all flex items-center gap-2.5 ${choiceContainerClass} ${
-                            showResult ? 'cursor-default' : 'cursor-pointer'
-                          }`}
-                        >
-                          <span
-                            className={`w-5 h-5 rounded text-[11px] font-bold flex items-center justify-center shrink-0 ${letterBadgeClass}`}
-                          >
-                            {letter}
-                          </span>
-                          <span className="flex-1">{c.choice_text || `(Option ${letter})`}</span>
-                          {statusBadge}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })
-          )}
-
-          {showResult && (
-            <div
-              className={`p-4 rounded-xl border text-xs ${
-                isPassed ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-sm">
-                    {isPassed ? '✓ Passed Examination' : '✕ Did Not Pass'}
-                  </span>
-                  <p className="mt-0.5">
-                    Score: <strong>{scorePct.toFixed(1)}%</strong> (Passing benchmark: {passingScore}%)
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowResult(false)}
-                  className="px-2.5 py-1 text-xs font-semibold bg-white border border-current rounded-md"
-                >
-                  Try Again
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            {Object.keys(selectedAnswers).length} of {questions.length} answered
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800"
-            >
-              Close
-            </button>
-            <button
-              onClick={() => setShowResult(true)}
-              disabled={questions.length === 0}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 rounded-lg shadow-sm"
-            >
-              Test Scoring
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN VIEW: DIGITAL EXAMS
@@ -967,7 +711,9 @@ export default function DigitalExams({
       setJobOrderSearch('');
       setIsChangingExamInModal(false);
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || 'Could not assign exam.');
+      const err = e?.response?.data?.detail;
+      const msg = typeof err === 'string' ? err : (err?.message || 'Could not assign exam.');
+      showToast(msg);
     } finally {
       setAssigning(false);
     }
@@ -1266,6 +1012,21 @@ export default function DigitalExams({
                             className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
                           >
                             <Send size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const res = await api.get(`/exam-module/templates/${t.template_id}`);
+                                setPreviewTemplate(res.data);
+                              } catch {
+                                setPreviewTemplate(t);
+                              }
+                            }}
+                            title="Preview applicant assessment experience"
+                            className="p-1.5 hover:bg-slate-100 hover:text-[#0EA5E9] text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye size={14} />
                           </button>
                           <button
                             onClick={() => openEdit(t)}
@@ -1819,7 +1580,7 @@ export default function DigitalExams({
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 shadow-2xs transition-colors"
                 >
-                  <Eye size={13} className="text-slate-500" /> Preview Exam
+                  <Eye size={13} className="text-slate-500" /> Preview Test
                 </button>
               </div>
 
@@ -2257,9 +2018,9 @@ export default function DigitalExams({
         );
       })()}
 
-      {/* ── LIVE SIMULATOR MODAL ── */}
+      {/* ── LIVE SIMULATOR MODAL (1:1 Candidate Portal Experience) ── */}
       {previewTemplate && (
-        <PreviewModal template={previewTemplate} onClose={() => setPreviewTemplate(null)} />
+        <ExamSimulatorModal template={previewTemplate} onClose={() => setPreviewTemplate(null)} />
       )}
     </div>
   );

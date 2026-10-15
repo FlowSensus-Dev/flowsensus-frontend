@@ -3,7 +3,8 @@ import {
   LogOut, Briefcase, Clock, CheckCircle2, Globe, Building2,
   Award, Layers, ShieldCheck, FileCheck, Stethoscope, FileText,
   PlaneTakeoff, User, RefreshCw, Copy, Check, ChevronDown,
-  ChevronUp, Milestone, AlertTriangle, Bell, X, Info, Calendar
+  ChevronUp, Milestone, AlertTriangle, Bell, X, Info, Calendar,
+  Compass, ChevronRight
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
@@ -76,43 +77,43 @@ interface ApplicantPortalProps {
 const PHASES = [
   {
     phase: 1,
-    title: 'Registration & Initial Screening',
+    title: 'Application & Screening',
     shortTitle: 'Screening',
-    subtitle: 'Profile intake, identity authentication & qualifications check',
+    subtitle: 'Checking your basic qualifications, information, and initial test',
     icon: FileCheck,
-    description: 'Initial document assessment and qualification rating against foreign principal requirements.',
+    description: 'We review your background and basic details to match you with available jobs abroad.',
   },
   {
     phase: 2,
-    title: 'Medical Clearance',
+    title: 'Medical Examination',
     shortTitle: 'Medical',
-    subtitle: 'Fit-to-Work certification',
+    subtitle: 'Official clinic health checkup and Fit-to-Work certification',
     icon: Stethoscope,
-    description: 'Complete diagnostic workup, laboratory tests, and physical examination to ensure medical readiness.',
+    description: 'A routine medical exam at an accredited clinic to make sure you are healthy and ready to travel.',
   },
   {
     phase: 3,
-    title: 'CV Encoding & Management Approval',
-    shortTitle: 'CV Encoding & Approval',
-    subtitle: 'Standardized international format encoding and agency manager sign-off',
+    title: 'Resume & Agency Approval',
+    shortTitle: 'Resume & Sign-Off',
+    subtitle: 'Preparing your standardized international resume and agency sign-off',
     icon: FileText,
-    description: 'Skills matrix and professional bio-data verified and approved by the agency operations team.',
+    description: 'Your resume is formatted and approved by the agency operations team for employer presentation.',
   },
   {
     phase: 4,
-    title: 'Employer Endorsement',
-    shortTitle: 'Employer Review',
-    subtitle: 'Principal submission, candidate selection & pre-deployment processing',
+    title: 'Employer Matching & Selection',
+    shortTitle: 'Employer Match',
+    subtitle: 'Your profile is presented to the employer for contract offer and hiring',
     icon: Building2,
-    description: 'Candidate profile forwarded directly to the accredited overseas employer for final selection and pre-deployment processing.',
+    description: 'Your profile is forwarded to the accredited overseas employer for final selection and job offer.',
   },
   {
     phase: 5,
-    title: 'Deployment',
-    shortTitle: 'Deployment',
-    subtitle: 'POEA/DMW clearance, work visa issuance, PDOS seminar, and flight departure',
+    title: 'Work Visa & Departure',
+    shortTitle: 'Flight & Departure',
+    subtitle: 'POEA/DMW government clearance, work visa, pre-departure seminar, and flight booking',
     icon: PlaneTakeoff,
-    description: 'Final administrative clearances, contract verification, visa stamping, and travel coordination.',
+    description: 'Final government travel clearances, visa stamping, pre-departure orientation (PDOS), and ticket booking.',
   },
 ];
 
@@ -121,6 +122,14 @@ function formatDeploymentDate(value: string | null | undefined): string | null {
   const calendarDate = new Date(`${value.slice(0, 10)}T00:00:00Z`);
   if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== value.slice(0, 10)) return null;
   return calendarDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+}
+
+function formatCleanEmployerName(rawName?: string | null): string {
+  if (!rawName) return 'Accredited Foreign Principal';
+  const parts = rawName.split(/[\/\\]+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return rawName.trim();
+  // If the database has multiple repeated aliases separated by slash, return the primary clean name
+  return parts[0];
 }
 
 function ApplicantDeploymentCard({ application, agencyId }: { application: PortalApplication | null; agencyId?: number }) {
@@ -181,44 +190,53 @@ function ApplicantDeploymentCard({ application, agencyId }: { application: Porta
           <Calendar size={15} />
         </div>
         <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-          {confirmedDate ? 'Deployment' : 'Deployment Forecast'}
+          {confirmedDate ? 'Confirmed Departure Date' : 'Estimated Departure Timeline'}
         </h3>
       </div>
       {confirmedDate ? (
         <div>
-          <p className="text-xs font-semibold text-emerald-700">Confirmed Deployment Date</p>
+          <p className="text-xs font-semibold text-emerald-700">Official Travel / Departure Date</p>
           <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">{confirmedDate}</p>
         </div>
       ) : loadingForecast ? (
         <p className="text-xs text-slate-500 flex items-center gap-2">
-          <RefreshCw size={13} className="animate-spin" /> Loading deployment estimate...
+          <RefreshCw size={13} className="animate-spin" /> Calculating timeline...
         </p>
       ) : hasEstimate ? (
         <div>
-          <p className="text-xs font-semibold text-sky-700">{estimatedDate ? 'Estimated Deployment Date' : 'Estimated Remaining Time'}</p>
-          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">{estimatedDate || `${remainingDays} days`}</p>
+          <p className="text-xs font-semibold text-sky-700">{estimatedDate ? 'Target Departure Window' : 'Estimated Time Remaining'}</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">{estimatedDate || `About ${remainingDays} days`}</p>
           {estimatedDate && hasRemainingDays && (
-            <p className="text-xs text-slate-600 mt-2">Estimated Remaining Time: {remainingDays} days</p>
+            <p className="text-xs text-slate-600 mt-1.5">Approximately {remainingDays} days until departure readiness.</p>
           )}
-          <p className="text-[11px] text-slate-500 mt-2">This is an estimate. Your agency will confirm your deployment date.</p>
+          <p className="text-[11px] text-slate-500 mt-2">
+            This is an automated estimate while requirements are in progress. Your agency will confirm your official departure schedule.
+          </p>
         </div>
       ) : hasPipelineEstimate ? (
         <div>
-          <p className="text-xs font-semibold text-sky-700">Estimated Remaining Time</p>
-          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">~{pipelineRemainingDays.toFixed(1)} days</p>
-          <p className="text-[11px] text-slate-500 mt-2">Estimate based on the current recruitment pipeline.</p>
+          <p className="text-xs font-semibold text-sky-700">Estimated Departure Readiness</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">~{Math.round(pipelineRemainingDays)} Days to Target Departure</p>
+          <p className="text-[11px] text-slate-500 mt-2">
+            Estimated based on standard processing times for your destination. Your agency officer will confirm exact travel dates once your requirements are complete.
+          </p>
         </div>
       ) : (
         <div>
-          <p className="text-sm font-bold text-slate-800">Deployment estimate unavailable yet</p>
+          <p className="text-sm font-bold text-slate-800">Timeline being prepared</p>
           <p className="text-xs text-slate-500 mt-1">
             {application
-              ? 'Your deployment forecast will become available once timing for your current phase has been recorded.'
-              : 'Your deployment forecast will become available once an application is available.'}
+              ? 'Your estimated departure timeline will appear once your initial screening is recorded.'
+              : 'Your estimated departure timeline will appear once your application is active.'}
           </p>
         </div>
       )}
-      {phase && <p className="text-xs text-slate-600">Current Phase: <span className="font-semibold text-slate-800">{phase}</span></p>}
+      {phase && (
+        <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-xs text-slate-600">
+          <span className="text-slate-400">Current Step:</span>
+          <span className="font-semibold text-slate-800">{phase}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -234,6 +252,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'steps' | 'documents' | 'profile' | 'all'>('overview');
 
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -391,6 +410,10 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
     (d) => d.status?.toUpperCase() === 'VERIFIED'
   ).length;
 
+  const rawHandler = activeApp?.handler_name?.trim();
+  const isHandlerAssigned = Boolean(rawHandler && !/unassigned/i.test(rawHandler));
+  const handlerDisplayName = isHandlerAssigned ? rawHandler : null;
+
   const notificationsList: Array<{
     id: number;
     title: string;
@@ -419,20 +442,20 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
     });
   }
 
-  if (activeApp?.handler_name) {
+  if (isHandlerAssigned && handlerDisplayName) {
     notificationsList.push({
       id: 3,
       title: 'Officer Assigned',
-      message: `Case Handler: ${activeApp.handler_name} is processing your deployment file.`,
+      message: `Processing Officer: ${handlerDisplayName} is managing your application.`,
       time: 'Assignment',
       type: 'info',
     });
   }
 
   return (
-    <div className="w-full min-h-screen bg-slate-100 text-[#0F172A] flex flex-col items-center justify-start py-3 sm:py-6 md:py-8 px-2 sm:px-4 md:px-6 antialiased selection:bg-[#0EA5E9]/20 overflow-x-hidden">
+    <div className="w-full min-h-screen bg-slate-100 text-[#0F172A] flex flex-col items-center justify-start py-2 sm:py-4 md:py-6 px-2 sm:px-4 md:px-6 lg:px-8 antialiased selection:bg-[#0EA5E9]/20 overflow-x-hidden">
       {/* ── Single Master Portal Card ─────────────────────────────────────── */}
-      <div className="w-full max-w-5xl bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden flex flex-col">
+      <div className="w-full max-w-7xl xl:max-w-[1440px] bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden flex flex-col">
         {/* ── 1. Card Top Navigation & Header ─────────────────────────────── */}
         <header className="bg-white border-b border-slate-100 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
           {/* Logo & Agency Title */}
@@ -628,7 +651,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
             {/* Overall Progress Widget */}
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/10 flex flex-col justify-between md:min-w-[260px] flex-shrink-0">
               <div className="flex items-center justify-between text-xs font-bold text-slate-300 mb-2">
-                <span className="text-[10px] sm:text-xs tracking-wider uppercase">RECRUITMENT PROGRESS</span>
+                <span className="text-[11px] font-bold text-slate-300">Overall Progress</span>
                 <span className="text-[#38BDF8] font-mono font-extrabold text-xs sm:text-sm">
                   {currentProgressPercent}%
                 </span>
@@ -643,7 +666,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
               </div>
 
               <div className="flex items-center justify-between mt-2.5 text-[10px] sm:text-[11px] text-slate-400 font-medium">
-                <span>Phase {currentPhaseNumber} of 5</span>
+                <span>Step {currentPhaseNumber} of 5</span>
                 <span className="text-emerald-400 font-bold">
                   {PHASES[currentPhaseNumber - 1]?.shortTitle || 'In Progress'}
                 </span>
@@ -652,422 +675,558 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
           </div>
         </div>
 
-        {/* ── 3. Single Card Inner Body ───────────────────────────────────── */}
-        <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
-          <ApplicantDeploymentCard application={activeApp} agencyId={profile?.agency_id} />
+        {/* ── 3. Tab Navigation Bar (Evenly Spread Across Full Width) ──── */}
+        <div className="bg-slate-50/90 border-b border-slate-200 px-2 sm:px-6 md:px-8 py-2 sm:py-2.5">
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 md:gap-3 w-full">
+            {[
+              { id: 'overview', label: 'Overview', icon: Compass },
+              { id: 'steps', label: 'Application Steps', icon: Milestone },
+              { id: 'documents', label: 'Required Documents', icon: FileCheck, count: documents.length > 0 ? `${verifiedDocsCount}/${documents.length}` : undefined },
+              { id: 'profile', label: 'Profile', icon: User },
+              { id: 'all', label: 'View All', icon: Layers },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as any)}
+                  title={tab.label}
+                  aria-label={tab.label}
+                  className={`w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-1 sm:px-3 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer relative text-center ${
+                    isActive
+                      ? 'bg-white text-[#0284C7] shadow-xs border border-slate-200/90 ring-1 ring-[#0EA5E9]/20'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon size={17} className={isActive ? 'text-[#0EA5E9]' : 'text-slate-500'} />
+                  <span className="hidden sm:inline whitespace-nowrap">{tab.label}</span>
+                  {tab.count && (
+                    <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                      isActive ? 'bg-sky-100 text-[#0284C7]' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          {/* ── SECTION: Digital Exams ── */}
-          <section id="portal-exams-section" className="space-y-3">
-            <ExamPortal />
-          </section>
-
+        {/* ── 4. Card Inner Body (Rendered based on Active Tab) ─────────────── */}
+        <div className="p-4 sm:p-6 md:p-8">
           {/* ═══════════════════════════════════════════════════════════════════ */}
-          {/* ── SECTION: 5-Phase Recruitment Roadmap ─────────────────────────── */}
+          {/* TAB 1: OVERVIEW & WHAT'S NEXT (Default, Calm, Uncluttered) ──────── */}
           {/* ═══════════════════════════════════════════════════════════════════ */}
-          <section className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-              <div>
-                <h2 className="font-extrabold text-[#0F172A] text-base sm:text-lg tracking-tight flex items-center gap-2">
-                  <Milestone size={18} className="text-[#0EA5E9]" />
-                  <span>5-Phase Recruitment Roadmap</span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Official stage tracking from candidate intake to overseas departure
-                </p>
-              </div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0EA5E9] bg-sky-50 px-3 py-1 rounded-full border border-sky-200 self-start sm:self-auto">
-                <span className="w-2 h-2 rounded-full bg-[#0EA5E9] animate-pulse" />
-                Active in Phase {currentPhaseNumber}
-              </span>
-            </div>
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+                {/* Left: What to do now (Exam) + Timeline */}
+                <div className="lg:col-span-7 xl:col-span-8 space-y-6">
+                  {/* Digital Exam Section (Primary Action) */}
+                  <section id="portal-exams-section" className="space-y-3">
+                    <ExamPortal />
+                  </section>
 
-            {/* Responsive Phase Step Selector (Zoom-friendly flex-wrap) */}
-            <div className="flex flex-wrap sm:flex-nowrap gap-2">
-              {PHASES.map((p) => {
-                const isCurrent = p.phase === currentPhaseNumber;
-                const isCompleted = p.phase < currentPhaseNumber;
-                return (
-                  <button
-                    key={p.phase}
-                    type="button"
-                    onClick={() => setExpandedPhase(p.phase)}
-                    className={`flex-1 min-w-[70px] sm:min-w-0 py-2 px-1.5 rounded-xl border text-center transition-all cursor-pointer ${isCurrent
-                      ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] font-bold shadow-xs'
-                      : isCompleted
-                        ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
-                      }`}
-                  >
-                    <div className="text-[11px] sm:text-xs font-black">Phase {p.phase}</div>
-                    <div className="text-[9px] sm:text-[10px] truncate mt-0.5">{p.shortTitle}</div>
-                  </button>
-                );
-              })}
-            </div>
+                  {/* Departure Timeline Card */}
+                  <ApplicantDeploymentCard application={activeApp} agencyId={profile?.agency_id} />
+                </div>
 
-            {/* Detailed Phase Cards (With Current Status, No Deliverable) */}
-            <div className="space-y-3 pt-1">
-              {PHASES.map((p) => {
-                const isCurrent = p.phase === currentPhaseNumber;
-                const isCompleted = p.phase < currentPhaseNumber;
-                const isExpanded = expandedPhase === p.phase || isCurrent;
-
-                return (
-                  <div
-                    key={p.phase}
-                    className={`rounded-2xl border transition-all overflow-hidden ${isCurrent
-                      ? 'border-[#0EA5E9] bg-sky-50/30 ring-2 ring-[#0EA5E9]/20 shadow-sm'
-                      : isCompleted
-                        ? 'border-emerald-200 bg-emerald-50/15'
-                        : 'border-slate-200 bg-white'
-                      }`}
-                  >
-                    {/* Phase Header */}
-                    <button
-                      type="button"
-                      onClick={() => setExpandedPhase(isExpanded ? null : p.phase)}
-                      className="w-full p-3.5 sm:p-4 text-left flex items-start sm:items-center justify-between gap-3 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0 ${isCompleted
-                            ? 'bg-emerald-600 text-white'
-                            : isCurrent
-                              ? 'bg-[#0EA5E9] text-white shadow-md shadow-[#0EA5E9]/25'
-                              : 'bg-slate-100 text-slate-500'
-                            }`}
-                        >
-                          {isCompleted ? <Check size={16} /> : <span>{p.phase}</span>}
+                {/* Right: Job Details + Coordinator */}
+                <div className="lg:col-span-5 xl:col-span-4 space-y-6">
+                  {/* Active Job Assignment Card */}
+                  <div className="bg-gradient-to-br from-slate-50 to-[#F0F9FF] border border-sky-100 rounded-2xl p-4 sm:p-5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-200/60 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                          <Award size={15} />
                         </div>
+                        <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+                          Your Job Assignment
+                        </h3>
+                      </div>
+                      <span className="font-mono text-xs font-semibold text-slate-500 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200">
+                        Ref: {activeApp?.job_code || 'Pending'}
+                      </span>
+                    </div>
 
-                        <div className="min-w-0">
-                          <h3
-                            className={`text-xs sm:text-sm font-bold truncate ${isCurrent ? 'text-[#0EA5E9]' : isCompleted ? 'text-emerald-900' : 'text-slate-800'
-                              }`}
+                    {activeApp ? (
+                      <>
+                        <div>
+                          <h4 className="text-base sm:text-lg font-black text-slate-900">
+                            {activeApp.position || 'Position to be confirmed'}
+                          </h4>
+                          <p
+                            className="text-xs text-sky-800 font-semibold mt-1 flex items-center gap-1.5"
+                            title={activeApp.employer_name || undefined}
                           >
-                            Phase {p.phase}: {p.title}
-                          </h3>
-                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {p.subtitle}
+                            <Building2 size={14} className="text-[#0EA5E9] shrink-0" />
+                            <span>{formatCleanEmployerName(activeApp.employer_name)}</span>
                           </p>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span
-                          className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${isCurrent
-                            ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
-                            : isCompleted
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              : 'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}
-                        >
-                          {isCurrent ? '● Active' : isCompleted ? '✓ Completed' : 'Upcoming'}
-                        </span>
-                        <span className="text-slate-400">
-                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        </span>
-                      </div>
-                    </button>
-
-                    {/* Phase Details (Shows Current Status, No Deliverable) */}
-                    {isExpanded && (
-                      <div className="px-3.5 pb-4 sm:px-4 pt-1 border-t border-slate-100 text-xs space-y-3 animate-in fade-in duration-150">
-                        <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-600">
-                          <Calendar size={13} className="text-slate-400" />
-                          <span className="font-semibold text-slate-500">
-                            {isCompleted ? 'Phase ended:' : 'Phase end date:'}
-                          </span>
-                          <span className="font-bold text-slate-800">
-                            {(() => {
-                              const end = activeApp?.phase_end_dates?.[String(p.phase)];
-                              return end
-                                ? new Date(end).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-                                : 'To be determined';
-                            })()}
-                          </span>
-                        </div>
-
-                        {/* Current Status Box (Replaces Key Milestone per User Requirement) */}
-                        <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-2.5 pt-2 border-t border-sky-100 text-xs">
                           <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                              Current Status
-                            </span>
-                            <span className="text-xs sm:text-sm font-bold text-slate-800">
-                              {isCurrent
-                                ? activeApp?.status_code || profile?.status_code || 'Active Evaluation'
-                                : isCompleted
-                                  ? 'Phase Completed & Verified'
-                                  : 'Pending Completion of Preceding Phase'}
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Destination</span>
+                            <span className="font-bold text-slate-800 flex items-center gap-1">
+                              <Globe size={12} className="text-[#0EA5E9]" />
+                              {activeApp.country_name || 'Pending assignment'}
                             </span>
                           </div>
-
-                          {isCurrent && (
-                            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#0EA5E9] bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-100 self-start sm:self-auto">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9] animate-pulse" />
-                              Assigned Officer: {activeApp?.handler_name || 'Unassigned'}
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Status</span>
+                            <span className="font-semibold text-slate-800">
+                              {activeApp.status_code || profile?.status_code || 'Screening'}
                             </span>
-                          )}
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Assigned Coordinator</span>
+                            <span className="font-semibold text-slate-800 truncate block">
+                              {isHandlerAssigned ? handlerDisplayName : 'No staff currently assigned'}
+                            </span>
+                          </div>
                         </div>
+                      </>
+                    ) : (
+                      <div className="py-4 text-center text-xs text-slate-500">
+                        Your agency is currently matching your profile with available job orders.
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          </section>
 
-          {/* ═══════════════════════════════════════════════════════════════════ */}
-          {/* ── SECTION: Candidate Profile & Assigned Case Handler (Name Only) ─ */}
-          {/* ═══════════════════════════════════════════════════════════════════ */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            {/* 1. Candidate Profile Summary */}
-            <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3">
-              <div className="flex items-center gap-2 border-b border-slate-200 pb-2.5">
-                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                  <User size={15} />
-                </div>
-                <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-                  Candidate Profile Summary
-                </h3>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-200/70">
-                  <span className="text-slate-500 font-medium">Applicant Code:</span>
-                  <span className="font-mono font-bold text-slate-900">{profile?.applicant_code || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-200/70">
-                  <span className="text-slate-500 font-medium">Registered Email:</span>
-                  <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
-                    {profile?.email || 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-200/70">
-                  <span className="text-slate-500 font-medium">Contact Number:</span>
-                  <span className="font-medium text-slate-900">{profile?.contact_number || 'None provided'}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-200/70">
-                  <span className="text-slate-500 font-medium">Civil Status:</span>
-                  <span className="font-medium text-slate-900">{profile?.civil_status || 'Not specified'}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-200/70">
-                  <span className="text-slate-500 font-medium">Birth Date:</span>
-                  <span className="font-medium text-slate-900">{profile?.birth_date || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-500 font-medium">Birthplace / Origin:</span>
-                  <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
-                    {profile?.place_of_birth || 'Not specified'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Assigned Case Handler (Name & Role Only - Contacts Removed per User Request) */}
-            <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-sky-50 text-[#0EA5E9] flex items-center justify-center">
-                      <ShieldCheck size={15} />
+                  {/* Assigned Application Processor */}
+                  <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 flex flex-col justify-center">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-sky-50 text-[#0EA5E9] flex items-center justify-center">
+                          <ShieldCheck size={15} />
+                        </div>
+                        <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+                          Application Processor
+                        </h3>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${isHandlerAssigned ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isHandlerAssigned ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                        {isHandlerAssigned ? 'Assigned' : 'Unassigned'}
+                      </span>
                     </div>
-                    <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-                      Assigned Case Handler
-                    </h3>
-                  </div>
-                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${activeApp?.handler_name ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${activeApp?.handler_name ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                    {activeApp?.handler_name ? 'Designated' : 'Unassigned'}
-                  </span>
-                </div>
 
-                <div className="mt-3.5 bg-white border border-slate-200 rounded-xl p-3.5 flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#0EA5E9] to-[#0284C7] text-white flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0">
-                    {(activeApp?.handler_name || 'Unassigned')
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Officer Name</p>
-                    <p className="font-black text-slate-900 text-sm sm:text-base truncate">
-                      {activeApp?.handler_name || 'Unassigned Officer'}
-                    </p>
-                    <p className="text-xs text-[#0EA5E9] font-medium truncate mt-0.5">
-                      {activeApp?.handler_name ? (activeApp?.stage_name || 'Agency Processing Specialist') : 'No officer assigned yet'}
-                    </p>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                      {profile?.agency_name || 'Agency Operations Office'}
-                    </p>
+                    <div className="mt-3.5 bg-white border border-slate-200 rounded-xl p-3.5 flex items-center gap-3">
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0 ${isHandlerAssigned ? 'bg-gradient-to-tr from-[#0EA5E9] to-[#0284C7] text-white' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
+                        {isHandlerAssigned && handlerDisplayName ? (
+                          handlerDisplayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+                        ) : (
+                          <User size={18} className="text-slate-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                          {isHandlerAssigned ? 'Processing Officer' : 'Processing Status'}
+                        </p>
+                        <p className={`text-sm sm:text-base truncate ${isHandlerAssigned ? 'font-black text-slate-900' : 'font-bold text-slate-700'}`}>
+                          {isHandlerAssigned ? handlerDisplayName : 'No staff is currently processing your application'}
+                        </p>
+                        <p className="text-xs text-slate-400 truncate mt-0.5">
+                          {profile?.agency_name || 'Agency Operations Office'}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Applicant View Notice */}
-              <div className="p-3 bg-sky-50/70 border border-sky-100 rounded-xl text-xs text-sky-900 flex items-start gap-2">
-                <Info size={14} className="text-[#0EA5E9] flex-shrink-0 mt-0.5" />
-                <p className="text-[11px] leading-relaxed text-sky-800">
-                  This is a read-only account view for applicants. Case assignments and regulatory submissions are coordinated directly through your agency office.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* ═══════════════════════════════════════════════════════════════════ */}
-          {/* ── SECTION: Placement Record & Document Requirements ────────────── */}
-          {/* ═══════════════════════════════════════════════════════════════════ */}
-          <section className="space-y-4">
-            {/* Active Placement Record Card */}
-            <div className="bg-gradient-to-br from-slate-50 to-[#F0F9FF] border border-sky-100 rounded-2xl p-4 sm:p-5 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-200/60 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <Award size={15} />
-                  </div>
-                  <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-                    Active Placement
-                  </h3>
-                </div>
-                <span className="font-mono text-xs font-bold text-slate-500">
-                  {activeApp?.job_code || 'N/A'}
-                </span>
-              </div>
-
-              {activeApp ? (
-                <>
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              {/* Helpful Quick Navigation Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('steps')}
+                  className="p-4 rounded-2xl border border-slate-200 bg-white hover:bg-sky-50/50 hover:border-sky-300 transition-all text-left flex items-center justify-between group cursor-pointer shadow-2xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-50 text-[#0EA5E9] flex items-center justify-center group-hover:scale-105 transition-transform">
+                      <Milestone size={20} />
+                    </div>
                     <div>
-                      <h4 className="text-base sm:text-lg font-black text-slate-900">
-                        {activeApp.position || 'Position Unspecified'}
+                      <h4 className="text-sm font-bold text-slate-900 group-hover:text-[#0EA5E9] transition-colors">
+                        View Application Steps
                       </h4>
-                      <p className="text-xs text-[#0EA5E9] font-bold mt-0.5 flex items-center gap-1">
-                        <Building2 size={13} />
-                        {activeApp.employer_name || 'Principal Unassigned'}
-                      </p>
+                      <p className="text-xs text-slate-500">Currently in Step {currentPhaseNumber}: {PHASES[currentPhaseNumber - 1]?.shortTitle}</p>
                     </div>
                   </div>
+                  <ChevronRight size={18} className="text-slate-400 group-hover:text-[#0EA5E9] group-hover:translate-x-1 transition-all" />
+                </button>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-sky-100 text-xs">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Destination Country</span>
-                      <span className="font-bold text-slate-800 flex items-center gap-1">
-                        <Globe size={12} className="text-[#0EA5E9]" />
-                        {activeApp.country_name || 'Destination Pending'}
-                      </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('documents')}
+                  className="p-4 rounded-2xl border border-slate-200 bg-white hover:bg-purple-50/50 hover:border-purple-300 transition-all text-left flex items-center justify-between group cursor-pointer shadow-2xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                      <FileCheck size={20} />
                     </div>
                     <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Current Stage</span>
-                      <span className="font-semibold text-slate-800">
-                        {activeApp.status_code || profile?.status_code || 'Pending'}
-                      </span>
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Assigned Officer</span>
-                      <span className="font-semibold text-slate-800 truncate block">
-                        {activeApp.handler_name || 'Unassigned'}
-                      </span>
+                      <h4 className="text-sm font-bold text-slate-900 group-hover:text-purple-600 transition-colors">
+                        Check Required Documents
+                      </h4>
+                      <p className="text-xs text-slate-500">{documents.length > 0 ? `${verifiedDocsCount} of ${documents.length} verified` : 'View document requirements'}</p>
                     </div>
                   </div>
-                </>
-              ) : (
-                <div className="py-4 text-center text-xs text-slate-500">
-                  No active job placement order currently associated with your account.
-                </div>
-              )}
+                  <ChevronRight size={18} className="text-slate-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all" />
+                </button>
+              </div>
             </div>
+          )}
 
-            {/* Regulatory Document Requirements (Aligned with Applicant Profile) */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-                    <FileCheck size={15} />
-                  </div>
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {/* TAB 2: APPLICATION STEPS (Spacious, Clear Journey) ──────────────── */}
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {(activeTab === 'steps' || activeTab === 'all') && (
+            <div className={activeTab === 'all' ? 'mt-8 pt-8 border-t border-slate-200' : 'space-y-4'}>
+              <section className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                   <div>
-                    <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
-                      Regulatory Document Compliance
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      Standard DMW & Foreign Principal Required Documents for this Candidate
+                    <h2 className="font-extrabold text-[#0F172A] text-base sm:text-lg tracking-tight flex items-center gap-2">
+                      <Milestone size={18} className="text-[#0EA5E9]" />
+                      <span>Application Steps</span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Track your application progress and upcoming milestones
                     </p>
                   </div>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0EA5E9] bg-sky-50 px-3 py-1 rounded-full border border-sky-200 self-start sm:self-auto">
+                    <span className="w-2 h-2 rounded-full bg-[#0EA5E9] animate-pulse" />
+                    Currently in Step {currentPhaseNumber}
+                  </span>
                 </div>
-                <span className="text-xs text-slate-500 font-semibold self-start sm:self-auto">
-                  {documents.length > 0 ? `${verifiedDocsCount} of ${documents.length} Verified` : 'No Requirements'}
-                </span>
-              </div>
 
-              {/* Document List aligned with applicant profile */}
-              {documents.length === 0 ? (
-                <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center">
-                  <FileText className="text-slate-300 mb-2" size={32} />
-                  <p className="text-xs font-bold text-slate-700">No Regulatory Requirements Recorded</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5 max-w-sm">
-                    Your agency has not yet assigned specific regulatory document requirements to your profile.
-                  </p>
+                {/* Responsive Phase Step Selector */}
+                <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                  {PHASES.map((p) => {
+                    const isCurrent = p.phase === currentPhaseNumber;
+                    const isCompleted = p.phase < currentPhaseNumber;
+                    return (
+                      <button
+                        key={p.phase}
+                        type="button"
+                        onClick={() => setExpandedPhase(p.phase)}
+                        className={`flex-1 min-w-[70px] sm:min-w-0 py-2.5 px-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          isCurrent
+                            ? 'border-[#0EA5E9] bg-sky-50 text-[#0EA5E9] font-bold shadow-xs'
+                            : isCompleted
+                            ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
+                            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="text-[11px] sm:text-xs font-black">Step {p.phase}</div>
+                        <div className="text-[9px] sm:text-[10px] truncate mt-0.5">{p.shortTitle}</div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {documents.map((doc) => {
-                    const statusNormalized = doc.status?.toUpperCase() || 'PENDING';
-                    const isVerified = statusNormalized === 'VERIFIED';
-                    const isUnderReview = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
-                    const hasValidExpiry = doc.expiration_date && doc.expiration_date !== 'No expiry' && doc.expiration_date !== 'N/A';
+
+                {/* Detailed Phase Cards */}
+                <div className="space-y-3 pt-1">
+                  {PHASES.map((p) => {
+                    const isCurrent = p.phase === currentPhaseNumber;
+                    const isCompleted = p.phase < currentPhaseNumber;
+                    const isExpanded = expandedPhase === p.phase || isCurrent;
 
                     return (
                       <div
-                        key={doc.applicant_req_id}
-                        className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2.5"
+                        key={p.phase}
+                        className={`rounded-2xl border transition-all overflow-hidden ${
+                          isCurrent
+                            ? 'border-[#0EA5E9] bg-sky-50/30 ring-2 ring-[#0EA5E9]/20 shadow-sm'
+                            : isCompleted
+                            ? 'border-emerald-200 bg-emerald-50/15'
+                            : 'border-slate-200 bg-white'
+                        }`}
                       >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold text-slate-800 truncate">{doc.requirement_name}</p>
-                          </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5 truncate">
-                            <span>{doc.category || 'MANDATORY DOCUMENT'}</span>
-                            <span>·</span>
-                            <span>Expires: {hasValidExpiry ? doc.expiration_date : 'N/A'}</span>
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPhase(isExpanded ? null : p.phase)}
+                          className="w-full p-3.5 sm:p-4 text-left flex items-start sm:items-center justify-between gap-3 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0 ${
+                                isCompleted
+                                  ? 'bg-emerald-600 text-white'
+                                  : isCurrent
+                                  ? 'bg-[#0EA5E9] text-white shadow-md shadow-[#0EA5E9]/25'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {isCompleted ? <Check size={16} /> : <span>{p.phase}</span>}
+                            </div>
 
-                        <div className="flex-shrink-0">
-                          {isVerified ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              <CheckCircle2 size={11} /> Verified
+                            <div className="min-w-0">
+                              <h3
+                                className={`text-xs sm:text-sm font-bold truncate ${
+                                  isCurrent ? 'text-[#0EA5E9]' : isCompleted ? 'text-emerald-900' : 'text-slate-800'
+                                }`}
+                              >
+                                Step {p.phase}: {p.title}
+                              </h3>
+                              <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                {p.subtitle}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span
+                              className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                isCurrent
+                                  ? 'bg-[#0EA5E9] text-white border-[#0EA5E9]'
+                                  : isCompleted
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-slate-100 text-slate-500 border-slate-200'
+                              }`}
+                            >
+                              {isCurrent ? '● Active' : isCompleted ? '✓ Completed' : 'Upcoming'}
                             </span>
-                          ) : isUnderReview ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
-                              <Clock size={11} /> Under Review
+                            <span className="text-slate-400">
+                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                             </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
-                              Pending
-                            </span>
-                          )}
-                        </div>
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-3.5 pb-4 sm:px-4 pt-1 border-t border-slate-100 text-xs space-y-3 animate-in fade-in duration-150">
+                            <p className="text-[11px] text-slate-600 leading-relaxed pt-1">
+                              {p.description}
+                            </p>
+
+                            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-600">
+                              <Calendar size={13} className="text-slate-400" />
+                              <span className="font-semibold text-slate-500">
+                                {isCompleted ? 'Completed on:' : 'Target completion date:'}
+                              </span>
+                              <span className="font-bold text-slate-800">
+                                {(() => {
+                                  const end = activeApp?.phase_end_dates?.[String(p.phase)];
+                                  return end
+                                    ? new Date(end).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                                    : 'Will be confirmed by agency';
+                                })()}
+                              </span>
+                            </div>
+
+                            <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                              <div>
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                                  Status for this Step
+                                </span>
+                                <span className="text-xs sm:text-sm font-bold text-slate-800">
+                                  {isCurrent
+                                    ? 'In Progress — Agency is currently reviewing your submissions'
+                                    : isCompleted
+                                    ? 'Step Completed & Verified'
+                                    : 'Pending completion of the previous step'}
+                                </span>
+                              </div>
+
+                              {isCurrent && (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#0EA5E9] bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-100 self-start sm:self-auto">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9] animate-pulse" />
+                                  Officer: {activeApp?.handler_name || 'Designated by agency'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              )}
-
-              {/* Regulatory Notice for Applicants */}
-              <p className="text-[10px] sm:text-[11px] text-slate-400 text-center pt-2 leading-relaxed">
-                Applicant View: Document verifications and uploads are recorded and authenticated by your assigned agency case handler in accordance with DMW standards.
-              </p>
+              </section>
             </div>
-          </section>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {/* TAB 3: REQUIRED DOCUMENTS CHECKLIST ─────────────────────────────── */}
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {(activeTab === 'documents' || activeTab === 'all') && (
+            <div className={activeTab === 'all' ? 'mt-8 pt-8 border-t border-slate-200' : 'space-y-4'}>
+              <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <FileCheck size={15} />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+                        Required Documents Checklist
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Mandatory papers for POEA / DMW clearance and travel readiness
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-slate-500 font-semibold self-start sm:self-auto">
+                    {documents.length > 0 ? `${verifiedDocsCount} of ${documents.length} Verified` : 'No Requirements Recorded'}
+                  </span>
+                </div>
+
+                {documents.length === 0 ? (
+                  <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center">
+                    <FileText className="text-slate-300 mb-2" size={32} />
+                    <p className="text-xs font-bold text-slate-700">No Document Requirements Assigned Yet</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 max-w-sm">
+                      Your agency will list any required papers here (e.g. Passport, NBI Clearance, Medical) as your application progresses.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {documents.map((doc) => {
+                      const statusNormalized = doc.status?.toUpperCase() || 'PENDING';
+                      const isVerified = statusNormalized === 'VERIFIED';
+                      const isUnderReview = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
+                      const hasValidExpiry = doc.expiration_date && doc.expiration_date !== 'No expiry' && doc.expiration_date !== 'N/A';
+
+                      return (
+                        <div
+                          key={doc.applicant_req_id}
+                          className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-slate-800 truncate">{doc.requirement_name}</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5 truncate">
+                              <span>{doc.category || 'MANDATORY REQUIREMENT'}</span>
+                              <span>·</span>
+                              <span>Expires: {hasValidExpiry ? doc.expiration_date : 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex-shrink-0">
+                            {isVerified ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <CheckCircle2 size={11} /> Verified
+                              </span>
+                            ) : isUnderReview ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                                <Clock size={11} /> In Review
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
+                                To Submit
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {/* TAB 4: YOUR PROFILE & AGENCY INFO ───────────────────────────────── */}
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {(activeTab === 'profile' || activeTab === 'all') && (
+            <div className={activeTab === 'all' ? 'mt-8 pt-8 border-t border-slate-200' : 'space-y-6'}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                {/* Candidate Profile Summary */}
+                <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3">
+                  <div className="flex items-center gap-2 border-b border-slate-200 pb-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                      <User size={15} />
+                    </div>
+                    <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+                      Your Registered Information
+                    </h3>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1 border-b border-slate-200/70">
+                      <span className="text-slate-500 font-medium">Application Reference:</span>
+                      <span className="font-mono font-bold text-slate-900">{profile?.applicant_code || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/70">
+                      <span className="text-slate-500 font-medium">Email Address:</span>
+                      <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
+                        {profile?.email || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/70">
+                      <span className="text-slate-500 font-medium">Contact Number:</span>
+                      <span className="font-medium text-slate-900">{profile?.contact_number || 'None provided'}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/70">
+                      <span className="text-slate-500 font-medium">Civil Status:</span>
+                      <span className="font-medium text-slate-900">{profile?.civil_status || 'Not specified'}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/70">
+                      <span className="text-slate-500 font-medium">Birth Date:</span>
+                      <span className="font-medium text-slate-900">{profile?.birth_date || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-slate-500 font-medium">Home Province / Origin:</span>
+                      <span className="font-medium text-slate-900 truncate max-w-[170px] sm:max-w-[200px]">
+                        {profile?.place_of_birth || 'Not specified'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 text-center pt-1">
+                    To update any personal details or contact numbers, please notify your agency coordinator.
+                  </p>
+                </div>
+
+                {/* Application Processor */}
+                <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 flex flex-col justify-center">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-sky-50 text-[#0EA5E9] flex items-center justify-center">
+                        <ShieldCheck size={15} />
+                      </div>
+                      <h3 className="font-extrabold text-[#0F172A] text-xs sm:text-sm tracking-tight">
+                        Application Processor
+                      </h3>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${isHandlerAssigned ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isHandlerAssigned ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                      {isHandlerAssigned ? 'Assigned' : 'Unassigned'}
+                    </span>
+                  </div>
+
+                  <div className="mt-3.5 bg-white border border-slate-200 rounded-xl p-3.5 flex items-center gap-3">
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0 ${isHandlerAssigned ? 'bg-gradient-to-tr from-[#0EA5E9] to-[#0284C7] text-white' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
+                      {isHandlerAssigned && handlerDisplayName ? (
+                        handlerDisplayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+                      ) : (
+                        <User size={18} className="text-slate-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                        {isHandlerAssigned ? 'Processing Officer' : 'Processing Status'}
+                      </p>
+                      <p className={`text-sm sm:text-base truncate ${isHandlerAssigned ? 'font-black text-slate-900' : 'font-bold text-slate-700'}`}>
+                        {isHandlerAssigned ? handlerDisplayName : 'No staff is currently processing your application'}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate mt-0.5">
+                        {profile?.agency_name || 'Agency Operations Office'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── 4. Card Dossier Footer ───────────────────────────────────────── */}
-        <footer className="border-t border-slate-200 bg-slate-50/80 py-4 px-4 sm:px-6 text-center text-[10px] sm:text-[11px] text-slate-400">
-          <p>
-            FlowSensus Candidate Placement Dossier · Read-Only Applicant View · Regulated by Philippine DMW & POEA
-          </p>
+        <footer className="border-t border-slate-200 bg-slate-50/80 py-4 px-4 sm:px-6 text-center text-xs font-semibold text-slate-500">
+          <p>{profile?.agency_name || 'FlowSensus'}</p>
         </footer>
       </div>
     </div>
