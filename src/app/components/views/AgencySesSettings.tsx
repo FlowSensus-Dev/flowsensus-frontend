@@ -90,10 +90,9 @@ export default function AgencySesSettings({ canEdit = false, onSaved }: {
   };
 
   return (
-    <section aria-labelledby="forecast-configuration" className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <h3 id="forecast-configuration" className="font-bold text-slate-900 text-lg">Forecasting Configuration</h3>
-      <div className="border-t border-slate-200 pt-5 space-y-3">
-        <h4 className="font-bold text-slate-900 text-sm">Agency SES Settings</h4>
+    <details className="border-t border-slate-200 pt-4">
+      <summary className="cursor-pointer font-bold text-slate-900 text-sm">Agency SES Settings</summary>
+      <div className="mt-3 space-y-3">
         <p className="text-xs text-slate-500 max-w-2xl">Alpha controls how strongly new observations influence future SES learning across your agency. Higher values give recent observations more weight. Changing alpha preserves existing forecasts, observation counts, and stored history.</p>
         <p className="text-sm text-slate-700">Current agency SES alpha: <strong className="font-mono text-sky-700">{loading ? 'Loading…' : alpha ?? 'Unavailable'}</strong></p>
         {editing && canEdit ? (
@@ -118,6 +117,6 @@ export default function AgencySesSettings({ canEdit = false, onSaved }: {
           <button type="button" disabled={saving || loading} onClick={() => void load()} className="font-semibold underline disabled:opacity-50">Reload Settings</button></div>}
         {success && <p role="status" className="text-xs text-emerald-700">{success}</p>}
       </div>
-    </section>
+    </details>
   );
 }

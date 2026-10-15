@@ -12,10 +12,13 @@ import {
 import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
-import AgencySesSettings from './AgencySesSettings';
+import ForecastingConfiguration from './ForecastingConfiguration';
+import useDelayReasons from './useDelayReasons';
+import { applicableDelayReasons, DelayReason } from '../../../lib/forecastPenalties';
 import SesCalculationBreakdown, { SimulationCalculationBreakdown } from './SesCalculationBreakdown';
 
 interface StageForecast {
+  workflow_stage_id?: number;
   stage_name: string;
   observation_count: number;
   optimistic: number | null;
@@ -84,11 +87,6 @@ interface PreviewObservation {
 }
 
 type PreviewChains = Record<string, PreviewObservation[]>;
-interface ExceptionOption {
-  reason: string;
-  scope: string | null;
-  weight: number | undefined;
-}
 
 // Pipeline responses expose the effective live duration as current_forecast.
 function getLiveStageForecast(stage: StageForecast): number | undefined {
@@ -96,29 +94,8 @@ function getLiveStageForecast(stage: StageForecast): number | undefined {
     .find((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
 }
 
-function getStageExceptions(pipeline: PipelineForecastData, stageName: string): ExceptionOption[] {
-  const rows = (pipeline.dynamic_exceptions ?? []).filter((exception) =>
-    exception.reason_name && exception.reason_name !== 'Normal Process' &&
-    (exception.stage_name === stageName || exception.stage_name == null)
-  );
-  return Array.from(new Set(rows.map((exception) => exception.reason_name))).sort().map((reason) => {
-    const matching = rows.filter((exception) => exception.reason_name === reason);
-    const specific = matching.filter((exception) => exception.stage_name === stageName);
-    const candidates = specific.length ? specific : matching;
-    const row = candidates.length === 1 ? candidates[0] : undefined;
-    const weight = row && Number.isFinite(row.current_weight_days) && row.current_weight_days >= 0 &&
-      Number.isInteger(row.observation_count) && row.observation_count >= 0 ? row.current_weight_days : undefined;
-    return { reason, scope: specific.length ? stageName : null, weight };
-  });
-}
-
 function getStageLiveBasis(pipeline: PipelineForecastData, stage: StageForecast): string {
-  return JSON.stringify([pipeline.agency_id, pipeline.alpha_used, getLiveStageForecast(stage)]);
-}
-
-function getExceptionBasis(reason: string, exceptions: ExceptionOption[]): string {
-  const exception = exceptions.find((option) => option.reason === reason);
-  return JSON.stringify([reason, exception ? exception.scope : 'unconfigured', exception?.weight ?? null]);
+  return JSON.stringify([pipeline.agency_id, stage.workflow_stage_id, pipeline.alpha_used, getLiveStageForecast(stage)]);
 }
 
 function prunePreviewChains(chains: PreviewChains, pipeline: PipelineForecastData | null): PreviewChains {
@@ -127,9 +104,7 @@ function prunePreviewChains(chains: PreviewChains, pipeline: PipelineForecastDat
   const retained: PreviewChains = {};
   for (const [stageName, history] of Object.entries(chains)) {
     const stage = pipeline.stages.find((item) => item.stage_name === stageName);
-    const exceptions = stage ? getStageExceptions(pipeline, stageName) : [];
-    if (stage && history.every((observation) => observation.liveBasis === getStageLiveBasis(pipeline, stage) &&
-      (!observation.exceptionBasis || observation.exceptionBasis === getExceptionBasis(observation.reason, exceptions)))) {
+    if (stage && history.every((observation) => observation.liveBasis === getStageLiveBasis(pipeline, stage))) {
       retained[stageName] = history;
     } else changed = true;
   }
@@ -151,14 +126,15 @@ function getWhatIfPipelineForecast(pipeline: PipelineForecastData | null, chains
   return total;
 }
 
-export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, exceptions, onSuccess, onReset }: {
+export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, exceptions, delaysUnavailable = false, onSuccess, onReset }: {
   stage: StageForecast;
   applicantId: string;
   alpha: number | undefined;
   inputId: string;
   history: PreviewObservation[];
   liveBasis: string;
-  exceptions: ExceptionOption[];
+  exceptions: DelayReason[];
+  delaysUnavailable?: boolean;
   onSuccess: (observation: PreviewObservation) => void;
   onReset: () => void;
 }) {
@@ -166,23 +142,20 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
   const [includePenalty, setIncludePenalty] = useState(false);
   const [reason, setReason] = useState(history[history.length - 1]?.reason ?? '');
   const [penaltyDays, setPenaltyDays] = useState('');
+  const [delaySelection, setDelaySelection] = useState('');
   const [result, setResult] = useState<PreviewObservation | null>(history[history.length - 1] ?? null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const requestId = useRef(0);
   const livePrior = getLiveStageForecast(stage);
   const prior = history[history.length - 1]?.data.new_stage_forecast ?? livePrior;
-  const selectedReason = exceptions.length
-    ? exceptions.find((option) => option.reason === reason)?.reason ?? exceptions[0].reason
-    : reason.trim();
-  const selectedException = exceptions.find((option) => option.reason === selectedReason);
-  const exceptionBasis = getExceptionBasis(selectedReason, exceptions);
+  const options = applicableDelayReasons(exceptions, stage.workflow_stage_id);
+  const selection = delaySelection || (options.length === 0 ? 'custom' : '');
+  const selectedException = options.find((option) => String(option.exception_type_id) === selection);
+  const selectedReason = selection === 'custom' ? reason.trim() : selectedException?.reason_name ?? '';
+  const delayDays = selection === 'custom' ? penaltyDays : selectedException ? String(selectedException.current_weight_days) : '';
   const learnedPenaltyHistory = history.filter((observation) => observation.data.exception_weight_updated &&
     observation.data.previous_weight_days != null && observation.data.new_exception_weight != null);
-  const previousPenalty = learnedPenaltyHistory.slice().reverse().find((observation) =>
-    observation.reason === selectedReason && observation.exceptionBasis === exceptionBasis);
-  const exceptionPrior = selectedException?.weight != null
-    ? previousPenalty?.data.new_exception_weight ?? selectedException.weight : undefined;
   const liveStateAvailable = typeof prior === 'number' && Number.isFinite(prior) && prior >= 0 &&
     typeof alpha === 'number' && Number.isFinite(alpha) && alpha > 0 && alpha <= 1;
 
@@ -200,8 +173,8 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
       setError('Enter a valid base duration of zero or more days.');
       return;
     }
-    if (includePenalty && (!validDays(penaltyDays) || !selectedReason)) {
-      setError('Enter an exception reason and a valid penalty of zero or more days.');
+    if (includePenalty && (!validDays(delayDays) || !selectedReason)) {
+      setError('Select a configured delay reason or enter a custom reason and a delay of zero or more days.');
       return;
     }
     if (!liveStateAvailable || !applicantId) {
@@ -215,10 +188,9 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
       days_passed: Number(baseDuration),
       prior_forecast_days: prior!,
       alpha: alpha!,
-      actual_penalty: includePenalty ? Number(penaltyDays) : 0,
+      actual_penalty: includePenalty ? Number(delayDays) : 0,
       reason: includePenalty ? selectedReason : 'Normal Process',
-      ...(includePenalty && Number(penaltyDays) > 0 && selectedReason !== 'Normal Process' && exceptionPrior != null
-        ? { prior_exception_weight_days: exceptionPrior } : {}),
+      // Configured and custom delays are one-off adjustments, not exception learning commands.
       advance_stage: true,
     };
     setRunning(true);
@@ -238,8 +210,7 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
           typeof data.new_exception_weight !== 'number' || !Number.isFinite(data.new_exception_weight) || data.new_exception_weight < 0))) {
         throw new Error('Unexpected exception preview response.');
       }
-      const observation: PreviewObservation = { data, reason: payload.reason!, liveBasis,
-        ...(data.actual_penalty_days > 0 ? { exceptionBasis } : {}) };
+      const observation: PreviewObservation = { data, reason: payload.reason!, liveBasis };
       onSuccess(observation);
       setResult(observation);
     } catch (err: any) {
@@ -278,26 +249,32 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
         <label className="inline-flex items-center gap-2 text-slate-600">
           <input type="checkbox" checked={includePenalty} disabled={running} className="accent-sky-600"
             onChange={(event) => { setIncludePenalty(event.target.checked); clearResult(); }} />
-          Add Exception / Penalty
+          Include Additional Delay
         </label>
         {includePenalty && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-            <div><label htmlFor={`${inputId}-reason`} className="block text-slate-600 mb-1">Reason</label>
-              {exceptions.length ? (
-                <select id={`${inputId}-reason`} value={selectedReason} disabled={running}
-                  onChange={(event) => { setReason(event.target.value); clearResult(); }} className={inputClass}>
-                  {exceptions.map((option) => <option key={option.reason} value={option.reason}>{option.reason}</option>)}
-                </select>
-              ) : (
+          <div className="space-y-2 max-w-lg">
+            <div><label htmlFor={`${inputId}-delay-choice`} className="block text-slate-600 mb-1">Select Configured Delay Reason or Custom What-if Delay</label>
+              <select id={`${inputId}-delay-choice`} value={selection} disabled={running} className={inputClass}
+                onChange={(event) => { setDelaySelection(event.target.value); clearResult(); }}>
+                <option value="" disabled>Select a delay reason</option>
+                {options.map((option) => <option key={option.exception_type_id} value={option.exception_type_id}>{option.reason_name} ({option.workflow_stage_id === null ? 'All Stages' : 'This Stage'})</option>)}
+                <option value="custom">Custom What-if Delay</option>
+              </select>
+            </div>
+            {delaysUnavailable && <p className="text-[11px] text-slate-500">Configured reasons are loading or unavailable. Custom What-if Delay remains available.</p>}
+            {(!Number.isSafeInteger(stage.workflow_stage_id) || stage.workflow_stage_id! <= 0) && <p className="text-[11px] text-slate-500">Stage ID unavailable. Only All Stages reasons and custom delays can be used.</p>}
+            {selectedException && <p className="text-slate-600">Current estimated delay: <strong className="font-mono">{selectedException.current_weight_days} days</strong> · One-off preview adjustment</p>}
+            {selection === 'custom' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div><label htmlFor={`${inputId}-reason`} className="block text-slate-600 mb-1">Reason</label>
                 <input id={`${inputId}-reason`} value={reason} disabled={running}
-                  onChange={(event) => { setReason(event.target.value); clearResult(); }} className={inputClass} />
-              )}</div>
-            <div><label htmlFor={`${inputId}-penalty`} className="block text-slate-600 mb-1">Penalty Days</label>
-              <input id={`${inputId}-penalty`} type="number" min="0" step="any" value={penaltyDays} disabled={running}
-                onChange={(event) => { setPenaltyDays(event.target.value); clearResult(); }} className={inputClass} /></div>
+                  onChange={(event) => { setReason(event.target.value); clearResult(); }} className={inputClass} /></div>
+              <div><label htmlFor={`${inputId}-penalty`} className="block text-slate-600 mb-1">Penalty Days</label>
+                <input id={`${inputId}-penalty`} type="number" min="0" step="any" value={penaltyDays} disabled={running}
+                  onChange={(event) => { setPenaltyDays(event.target.value); clearResult(); }} className={inputClass} /></div>
+            </div>}
           </div>
         )}
-        {includePenalty && exceptionPrior == null && <p className="text-[11px] text-slate-500">One-off penalty impact</p>}
+        {includePenalty && <p className="text-[11px] text-slate-500">One-off delay impact · Not saved</p>}
       </form>
       {error && <p role="alert" className="mt-2 text-rose-700">{error}</p>}
       {result && (
@@ -373,6 +350,7 @@ export default function PredictiveForecast({
   globalPipelineForecast,
   canEditAgencySettings = false,
 }: PredictiveForecastProps) {
+  const delays = useDelayReasons();
   const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [backendError, setBackendError] = useState<string | null>(null);
@@ -548,6 +526,7 @@ export default function PredictiveForecast({
   }, [activeApplicantId, activeApplicationId, pipelineData?.agency_id]);
 
   const handleRefresh = () => {
+    void delays.refresh();
     setPreviewChains({});
     setPreviewEpoch((previous) => previous + 1);
     fetchPipeline(true);
@@ -566,7 +545,7 @@ export default function PredictiveForecast({
     if (results.some((result) => result === false)) throw new Error('Forecast refresh failed');
   };
 
-  const configuration = <AgencySesSettings canEdit={canEditAgencySettings} onSaved={refreshAfterSettings} />;
+  const configuration = <ForecastingConfiguration {...delays} canEdit={canEditAgencySettings} onAlphaSaved={refreshAfterSettings} />;
 
   const selectedApplicationRecord =
     matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
@@ -930,7 +909,7 @@ export default function PredictiveForecast({
                   const coldStart = stage.observation_count === 0;
                   const expanded = expandedStages.has(stage.stage_name);
                   const detailsId = `forecast-stage-details-${idx}`;
-                  const exceptions = getStageExceptions(pipelineData!, stage.stage_name);
+                  const exceptions = applicableDelayReasons(delays.reasons, stage.workflow_stage_id);
                   const liveBasis = getStageLiveBasis(pipelineData!, stage);
                   const stageHistory = activePreviewChains[stage.stage_name] ?? [];
                   const latestPreview = stageHistory[stageHistory.length - 1]?.data;
@@ -994,7 +973,7 @@ export default function PredictiveForecast({
                             </dl>
                             {coldStart && stage.pert_baseline != null && <p className="text-amber-700 mt-3">No learned observations yet - using PERT baseline</p>}
                             <StageWhatIf
-                              key={JSON.stringify([previewEpoch, activeApplicantId, activeApplicationId, liveBasis, exceptions])}
+                              key={JSON.stringify([previewEpoch, activeApplicantId, activeApplicationId, liveBasis])}
                               stage={stage}
                               applicantId={activeApplicantId}
                               alpha={pipelineData?.alpha_used}
@@ -1002,6 +981,7 @@ export default function PredictiveForecast({
                               history={stageHistory}
                               liveBasis={liveBasis}
                               exceptions={exceptions}
+                              delaysUnavailable={delays.loading || !!delays.error}
                               onSuccess={(observation) => setPreviewChains((previous) => ({
                                 ...previous,
                                 [stage.stage_name]: [...(previous[stage.stage_name] ?? []), observation],
@@ -1029,44 +1009,6 @@ export default function PredictiveForecast({
         </div>
       </div>
 
-      {/* Backend Exception Penalty Weights */}
-      {pipelineData?.dynamic_exceptions && pipelineData.dynamic_exceptions.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center gap-2">
-            <AlertCircle size={16} className="text-amber-500" />
-            Configured Exception Penalty Weights
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Current penalty weights and observation history
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            {pipelineData.dynamic_exceptions.map((ex) => (
-              <div
-                key={ex.reason_name}
-                className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl flex flex-col justify-between"
-              >
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    {ex.stage_name ?? 'Agency-wide'}
-                  </span>
-                  <span className="font-bold text-xs text-slate-800 mt-1 block">
-                    {ex.reason_name}
-                  </span>
-                </div>
-                <div className="mt-3 pt-2 border-t border-slate-200 flex items-baseline justify-between">
-                  <span className="text-[10px] text-slate-500">Weight:</span>
-                  <span className="font-mono text-xs font-black text-amber-600">
-                    +{ex.current_weight_days.toFixed(1)} days
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-2">
-                  {`Backend reports ${ex.observation_count} observation${ex.observation_count === 1 ? '' : 's'}`}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       {configuration}
     </div>
   );
