@@ -13,6 +13,7 @@ describe('collapsible configuration structure', () => {
     expect(html).not.toContain('<details open');
     expect(html).toContain('Forecasting Configuration'); expect(html).toContain('Agency SES Settings');
     expect(html).toContain('Delay Reason Management'); expect(html).toContain('No delay reasons configured.');
+    expect(html).toContain('SES Alpha Decision Guide');
     expect(html).not.toContain('Edit Alpha'); expect(html).not.toContain('+ Add Delay Reason');
   });
 });

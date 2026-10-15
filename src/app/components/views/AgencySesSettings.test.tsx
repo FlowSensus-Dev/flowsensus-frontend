@@ -19,6 +19,7 @@ vi.mock('react', async (original) => {
   };
 });
 import AgencySesSettings, { validAlpha } from './AgencySesSettings';
+import SesAlphaDecisionGuide from './SesAlphaDecisionGuide';
 
 function nodes(tree: any): any[] {
   if (!tree || typeof tree !== 'object') return [];
@@ -104,5 +105,51 @@ describe('Agency SES settings (mocked API)', () => {
     await flush(); expect(text(render())).toContain('do not have permission');
     button(render(), 'Reload Settings').props.onClick(); await flush();
     expect(text(render())).toContain('0.3');
+  });
+
+  it.each([0.0001, 0.99999, 1])('preserves loaded and saved precision for %s without moving the indicator for drafts', async (alpha) => {
+    h.get.mockResolvedValueOnce({ data: { ses_alpha: alpha } });
+    // Remount with a different authenticated GET response.
+    h.slots = []; h.effects = []; render(); h.effects[0](); await flush();
+    const guide = () => nodes(render()).find((n) => n.type === SesAlphaDecisionGuide);
+    expect(guide().props.alpha).toBe(alpha);
+    const current = nodes(render()).find((n) => n.type === 'p' && text(n).startsWith('Current agency SES alpha:'));
+    expect(text(current).replace(/\s+/g, ' ').trim()).toBe(`Current agency SES alpha: ${alpha}`);
+    expect(nodes(edit()).find((n) => n.type === 'input').props.value).toBe(String(alpha));
+    input('0.5'); expect(guide().props.alpha).toBe(alpha);
+    button(render(), 'Cancel').props.onClick(); expect(guide().props.alpha).toBe(alpha);
+    edit(); input(String(alpha)); h.put.mockResolvedValueOnce({ data: { ses_alpha: alpha } }); await save();
+    expect(h.put).toHaveBeenCalledWith('/forecasting/settings', { ses_alpha: alpha });
+    expect(guide().props.alpha).toBe(alpha); expect(onSaved).toHaveBeenCalledOnce();
+  });
+
+  it('updates the indicator only from the successful backend response', async () => {
+    const guide = () => nodes(render()).find((n) => n.type === SesAlphaDecisionGuide);
+    edit(); input('0.99999'); h.put.mockRejectedValueOnce(new Error('Network')); await save();
+    expect(guide().props.alpha).toBe(0.3);
+    expect(text(render())).toContain('Check your connection');
+    h.put.mockResolvedValueOnce({ data: { ses_alpha: 0.99999 } }); await save();
+    expect(guide().props.alpha).toBe(0.99999);
+  });
+
+  it('distinguishes invalid inputs, backend validation, network failures and malformed responses', async () => {
+    edit(); input('1.01'); await save();
+    const field = () => nodes(render()).find((n) => n.type === 'input');
+    expect(field().props['aria-invalid']).toBe(true);
+    expect(field().props['aria-describedby']).toContain('agency-ses-alpha-error');
+    expect(h.put).not.toHaveBeenCalled();
+    input('0.99999'); h.put.mockRejectedValueOnce({ response: { status: 422 } }); await save();
+    expect(text(render())).toContain('backend rejected'); expect(field().props['aria-invalid']).toBe(true);
+    h.put.mockRejectedValueOnce(new Error('Offline')); await save();
+    expect(text(render())).toContain('Check your connection'); expect(field().props['aria-invalid']).toBe(false);
+    h.put.mockResolvedValueOnce({ data: { ses_alpha: 0 } }); await save();
+    expect(text(render())).toContain('backend returned an invalid alpha'); expect(field().props['aria-invalid']).toBe(false);
+    expect(text(render())).not.toContain('Check your connection');
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('uses a responsive two-column layout and keeps arbitrary valid values outside guidance ranges', () => {
+    expect(nodes(render()).some((n) => n.props?.className?.includes('grid-cols-1 xl:grid-cols-2'))).toBe(true);
+    for (const value of ['0.0001', '0.25', '0.55', '0.75', '0.99999', '1']) expect(validAlpha(value)).toBe(true);
   });
 });
