@@ -10,13 +10,14 @@
  *   - Preview exams exactly as applicants see them in their portal
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Plus, BookOpen, Trash2, Edit3, ChevronRight,
-  CheckCircle2, Clock, Send, Eye,
+  CheckCircle2, XCircle, Clock, Send, Eye,
   Loader2, X, Check, Minus, Search,
   Link as LinkIcon, FileText, Zap, ToggleLeft, ToggleRight,
-  HelpCircle, AlertCircle, Info, Sparkles
+  HelpCircle, AlertCircle, Info, Sparkles, ChevronDown, ChevronUp,
+  Globe, Building2, CheckSquare, Square, Users, Calendar
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 
@@ -369,56 +370,134 @@ function PreviewModal({
               No questions have been added to this exam yet.
             </div>
           ) : (
-            questions.map((q, qIdx) => (
-              <div key={qIdx} className="p-4 bg-slate-50/60 rounded-xl border border-slate-200 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">
-                    Question {qIdx + 1} ({q.points} pt{q.points > 1 ? 's' : ''})
-                  </span>
-                  {selectedAnswers[qIdx] !== undefined && (
-                    <span className="text-[11px] text-[#10B981] font-semibold flex items-center gap-1">
-                      <CheckCircle2 size={12} /> Answered
+            questions.map((q, qIdx) => {
+              const chosenIdx = selectedAnswers[qIdx];
+              const isAnswered = chosenIdx !== undefined;
+              const isCorrect = isAnswered && q.choices[chosenIdx]?.is_correct;
+
+              return (
+                <div
+                  key={qIdx}
+                  className={`p-4 rounded-xl border space-y-2.5 transition-all ${
+                    showResult
+                      ? isCorrect
+                        ? 'bg-emerald-50/20 border-emerald-200'
+                        : isAnswered
+                          ? 'bg-rose-50/20 border-rose-200'
+                          : 'bg-slate-50/60 border-slate-200'
+                      : 'bg-slate-50/60 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700">
+                      Question {qIdx + 1} ({q.points} pt{q.points > 1 ? 's' : ''})
                     </span>
-                  )}
-                </div>
+                    {showResult ? (
+                      isAnswered ? (
+                        isCorrect ? (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                            <CheckCircle2 size={12} className="text-emerald-600" /> Correct (+{q.points} pt)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                            <XCircle size={12} className="text-rose-600" /> Incorrect (0 / {q.points} pt)
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                          Unanswered (0 / {q.points} pt)
+                        </span>
+                      )
+                    ) : (
+                      isAnswered && (
+                        <span className="text-[11px] text-[#10B981] font-semibold flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Answered
+                        </span>
+                      )
+                    )}
+                  </div>
 
-                <p className="text-xs font-semibold text-slate-900 leading-relaxed">
-                  {q.question_text || '(Empty question prompt)'}
-                </p>
+                  <p className="text-xs font-semibold text-slate-900 leading-relaxed">
+                    {q.question_text || '(Empty question prompt)'}
+                  </p>
 
-                <div className="space-y-1.5 pt-1">
-                  {q.choices.map((c, cIdx) => {
-                    const isSelected = selectedAnswers[qIdx] === cIdx;
-                    const letter = String.fromCharCode(65 + cIdx);
-                    return (
-                      <div
-                        key={cIdx}
-                        onClick={() => handleSelect(qIdx, cIdx)}
-                        className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all flex items-center gap-2.5 ${
-                          isSelected
-                            ? 'bg-sky-50 border-[#0EA5E9] text-sky-900 font-semibold'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70'
-                        }`}
-                      >
-                        <span
-                          className={`w-5 h-5 rounded text-[11px] font-bold flex items-center justify-center shrink-0 ${
-                            isSelected ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600'
+                  <div className="space-y-1.5 pt-1">
+                    {q.choices.map((c, cIdx) => {
+                      const isSelected = selectedAnswers[qIdx] === cIdx;
+                      const letter = String.fromCharCode(65 + cIdx);
+
+                      // Determine visual styling for choice
+                      let choiceContainerClass = 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70';
+                      let letterBadgeClass = 'bg-slate-100 text-slate-600';
+                      let statusBadge = null;
+
+                      if (showResult) {
+                        if (isSelected && c.is_correct) {
+                          // Applicant answered correctly
+                          choiceContainerClass = 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold ring-1 ring-emerald-500 shadow-2xs';
+                          letterBadgeClass = 'bg-emerald-600 text-white font-bold';
+                          statusBadge = (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                              <Check size={11} strokeWidth={3} /> Your Answer (Correct)
+                            </span>
+                          );
+                        } else if (isSelected && !c.is_correct) {
+                          // Applicant answered WRONG
+                          choiceContainerClass = 'bg-rose-50 border-rose-400 text-rose-950 font-semibold ring-1 ring-rose-400 shadow-2xs';
+                          letterBadgeClass = 'bg-rose-600 text-white font-bold';
+                          statusBadge = (
+                            <span className="text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                              <X size={11} strokeWidth={3} /> Your Answer (Incorrect)
+                            </span>
+                          );
+                        } else if (!isSelected && c.is_correct) {
+                          // This was the actual correct answer that applicant missed
+                          choiceContainerClass = 'bg-emerald-50/40 border-emerald-400 text-emerald-900 font-medium border-dashed';
+                          letterBadgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold';
+                          statusBadge = (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                              <Check size={11} strokeWidth={2.5} /> Correct Answer
+                            </span>
+                          );
+                        } else {
+                          // Unselected incorrect choice
+                          choiceContainerClass = 'bg-white/60 border-slate-200 text-slate-400 opacity-60';
+                          letterBadgeClass = 'bg-slate-100 text-slate-400';
+                        }
+                      } else {
+                        // Test-taking mode
+                        if (isSelected) {
+                          choiceContainerClass = 'bg-sky-50 border-[#0EA5E9] text-sky-900 font-semibold shadow-2xs';
+                          letterBadgeClass = 'bg-[#0EA5E9] text-white';
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={cIdx}
+                          onClick={() => {
+                            if (!showResult) {
+                              handleSelect(qIdx, cIdx);
+                            }
+                          }}
+                          className={`p-2.5 rounded-lg border text-xs transition-all flex items-center gap-2.5 ${choiceContainerClass} ${
+                            showResult ? 'cursor-default' : 'cursor-pointer'
                           }`}
                         >
-                          {letter}
-                        </span>
-                        <span className="flex-1">{c.choice_text || `(Option ${letter})`}</span>
-                        {showResult && c.is_correct && (
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                            Correct Answer
+                          <span
+                            className={`w-5 h-5 rounded text-[11px] font-bold flex items-center justify-center shrink-0 ${letterBadgeClass}`}
+                          >
+                            {letter}
                           </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          <span className="flex-1">{c.choice_text || `(Option ${letter})`}</span>
+                          {statusBadge}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
 
           {showResult && (
@@ -498,6 +577,7 @@ export default function DigitalExams({
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [showGuide, setShowGuide] = useState(false);
 
   // Form State
   const [form, setForm] = useState({
@@ -517,12 +597,34 @@ export default function DigitalExams({
 
   // Assign State
   const [assignTemplateId, setAssignTemplateId] = useState<number | null>(null);
-  const [assignJobOrderId, setAssignJobOrderId] = useState<number | null>(null);
+  const [assignScope, setAssignScope] = useState<'all' | 'specific'>('all');
+  const [assignJobOrderIds, setAssignJobOrderIds] = useState<number[]>([]);
+  const [jobOrderSearch, setJobOrderSearch] = useState('');
   const [assignDueDate, setAssignDueDate] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [isChangingExamInModal, setIsChangingExamInModal] = useState(false);
 
   // Delete Confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+
+  // Purpose State & Click-outside Ref
+  const [purposeMode, setPurposeMode] = useState<'standalone' | 'screening'>('standalone');
+  const [isPurposeDropdownOpen, setIsPurposeDropdownOpen] = useState(false);
+  const purposeDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (purposeDropdownRef.current && !purposeDropdownRef.current.contains(event.target as Node)) {
+        setIsPurposeDropdownOpen(false);
+      }
+    };
+    if (isPurposeDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isPurposeDropdownOpen]);
 
   // ── Load Templates ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -586,7 +688,9 @@ export default function DigitalExams({
     setQuestions([newQuestion(0)]);
     setFormError('');
     setSelectedTemplate(null);
+    setPurposeMode('standalone');
     setFormTab('info');
+    setIsPurposeDropdownOpen(false);
   };
 
   const openCreate = () => {
@@ -596,10 +700,12 @@ export default function DigitalExams({
 
   // ── Open Edit ────────────────────────────────────────────────────────────
   const openEdit = async (tmpl: ExamTemplate) => {
+    setIsPurposeDropdownOpen(false);
     try {
       const res = await api.get(`/exam-module/templates/${tmpl.template_id}`);
       const t: ExamTemplate = res.data;
       setSelectedTemplate(t);
+      setPurposeMode(t.evaluation_template_id ? 'screening' : 'standalone');
       setForm({
         title: t.title,
         description: t.description || '',
@@ -612,7 +718,42 @@ export default function DigitalExams({
         is_active: Boolean(t.is_active),
         evaluation_template_id: t.evaluation_template_id ? String(t.evaluation_template_id) : '',
       });
-      setQuestions(t.questions && t.questions.length > 0 ? t.questions : [newQuestion(0)]);
+      const loadedQuestions: ExamQuestion[] = (t.questions || []).map((q: any, qIdx: number) => {
+        const rawChoices = (q.choices && Array.isArray(q.choices) && q.choices.length > 0)
+          ? q.choices
+          : (q.exam_choice && Array.isArray(q.exam_choice) && q.exam_choice.length > 0)
+            ? q.exam_choice
+            : [];
+
+        const normalizedChoices: ExamChoice[] = rawChoices.length > 0
+          ? rawChoices.map((c: any, cIdx: number) => ({
+              choice_id: c.choice_id,
+              choice_text: c.choice_text ?? '',
+              is_correct: Boolean(c.is_correct),
+              choice_order: c.choice_order ?? cIdx,
+            }))
+          : [
+              { choice_text: '', is_correct: true, choice_order: 0 },
+              { choice_text: '', is_correct: false, choice_order: 1 },
+              { choice_text: '', is_correct: false, choice_order: 2 },
+              { choice_text: '', is_correct: false, choice_order: 3 },
+            ];
+
+        if (!normalizedChoices.some(c => c.is_correct) && normalizedChoices.length > 0) {
+          normalizedChoices[0].is_correct = true;
+        }
+
+        return {
+          question_id: q.question_id,
+          template_id: q.template_id,
+          question_text: q.question_text ?? '',
+          question_order: q.question_order ?? qIdx,
+          points: q.points ?? 1,
+          choices: normalizedChoices,
+        };
+      });
+
+      setQuestions(loadedQuestions.length > 0 ? loadedQuestions : [newQuestion(0)]);
       setFormError('');
       setFormTab('info');
       setIsFormOpen(true);
@@ -654,9 +795,16 @@ export default function DigitalExams({
       }
     }
 
+    if (purposeMode === 'screening' && !form.evaluation_template_id) {
+      setFormError('Please select which official screening evaluation template to link with, or switch to Standalone Exam.');
+      setFormTab('info');
+      setIsPurposeDropdownOpen(true);
+      return;
+    }
+
     setSaving(true);
     try {
-      const evalTemplateId = form.evaluation_template_id
+      const evalTemplateId = (purposeMode === 'screening' && form.evaluation_template_id)
         ? Number(form.evaluation_template_id)
         : null;
 
@@ -686,7 +834,17 @@ export default function DigitalExams({
       }
 
       // Save questions
-      await api.put(`/exam-module/templates/${templateId}/questions`, questions);
+      const cleanQuestions = questions.map((q, qIdx) => ({
+        question_text: q.question_text.trim(),
+        question_order: q.question_order ?? qIdx,
+        points: q.points ?? 1,
+        choices: q.choices.map((c, cIdx) => ({
+          choice_text: c.choice_text.trim(),
+          is_correct: Boolean(c.is_correct),
+          choice_order: c.choice_order ?? cIdx,
+        })),
+      }));
+      await api.put(`/exam-module/templates/${templateId}/questions`, cleanQuestions);
 
       // Link with evaluation if selected
       if (evalTemplateId) {
@@ -735,24 +893,79 @@ export default function DigitalExams({
     }
   };
 
-  // ── Assign to Job Order ──────────────────────────────────────────────────
+  // ── Assign Job Orders Helpers ────────────────────────────────────────────
+  const filteredJobOrders = useMemo(() => {
+    if (!jobOrderSearch.trim()) return globalJobOrders;
+    const q = jobOrderSearch.toLowerCase().trim();
+    return globalJobOrders.filter((j) => {
+      const code = (j.job_code || '').toLowerCase();
+      const pos = (j.position || '').toLowerCase();
+      const emp = (j.employer_name || '').toLowerCase();
+      return code.includes(q) || pos.includes(q) || emp.includes(q);
+    });
+  }, [globalJobOrders, jobOrderSearch]);
+
+  const toggleJobOrder = (id: number) => {
+    setAssignJobOrderIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllFilteredJobOrders = () => {
+    const ids = filteredJobOrders.map((j) => j.job_order_id);
+    setAssignJobOrderIds((prev) => Array.from(new Set([...prev, ...ids])));
+  };
+
+  const clearAllJobOrders = () => {
+    setAssignJobOrderIds([]);
+  };
+
+  const setDeadlineDaysAhead = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(23, 59, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const mm = pad(d.getMonth() + 1);
+    const dd = pad(d.getDate());
+    const hh = pad(d.getHours());
+    const min = pad(d.getMinutes());
+    setAssignDueDate(`${yyyy}-${mm}-${dd}T${hh}:${min}`);
+  };
+
+  // ── Assign Exam to Candidates ────────────────────────────────────────────
   const assignExam = async () => {
-    if (!assignTemplateId || !assignJobOrderId) {
-      showToast('Please select both an exam and a job order.');
+    if (!assignTemplateId) {
+      showToast('Please select an online exam to dispatch.');
       return;
     }
+    if (assignScope === 'specific' && assignJobOrderIds.length === 0) {
+      showToast('Please select at least one target job order.');
+      return;
+    }
+
     setAssigning(true);
     try {
-      const res = await api.post('/exam-module/assign', {
+      const payload: any = {
         template_id: assignTemplateId,
-        job_order_id: assignJobOrderId,
-        due_date: assignDueDate || null,
-      });
+        due_date: assignDueDate ? new Date(assignDueDate).toISOString() : null,
+      };
+
+      if (assignScope === 'all') {
+        payload.assign_all = true;
+      } else {
+        payload.job_order_ids = assignJobOrderIds;
+        payload.job_order_id = assignJobOrderIds[0];
+      }
+
+      const res = await api.post('/exam-module/assign', payload);
       showToast(res.data.message || 'Exam assigned successfully.');
       setIsAssignOpen(false);
       setAssignTemplateId(null);
-      setAssignJobOrderId(null);
+      setAssignJobOrderIds([]);
       setAssignDueDate('');
+      setJobOrderSearch('');
+      setIsChangingExamInModal(false);
     } catch (e: any) {
       showToast(e?.response?.data?.detail || 'Could not assign exam.');
     } finally {
@@ -799,22 +1012,33 @@ export default function DigitalExams({
         </button>
       </div>
 
-      {/* ── STATS OVERVIEW RIBBON ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        {[
-          { label: 'Total Online Exams', value: templates.length, color: 'text-sky-600' },
-          { label: 'Ready for Applicants', value: templates.filter((t) => t.is_active).length, color: 'text-emerald-600' },
-          { label: 'Timed Exams', value: templates.filter((t) => Boolean(t.time_limit_mins)).length, color: 'text-amber-600' },
-          { label: 'Linked to Evaluations', value: templates.filter((t) => Boolean(t.evaluation_template_id)).length, color: 'text-purple-600' },
-        ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
-            <div className="text-xs text-slate-500 font-medium">{s.label}</div>
-            <div className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</div>
-          </div>
-        ))}
+      {/* ── COMPACT STATS SUMMARY ── */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-2xs">
+          <span className="text-slate-500">Total Exams:</span>
+          <span className="font-bold text-slate-900">{templates.length}</span>
+        </div>
+        <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-2xs">
+          <span className="text-slate-500">Active:</span>
+          <span className="font-bold text-emerald-600">
+            {templates.filter((t) => t.is_active).length}
+          </span>
+        </div>
+        <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-2xs">
+          <span className="text-slate-500">Timed:</span>
+          <span className="font-bold text-amber-600">
+            {templates.filter((t) => Boolean(t.time_limit_mins)).length}
+          </span>
+        </div>
+        <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-2xs">
+          <span className="text-slate-500">Screening Linked:</span>
+          <span className="font-bold text-purple-600">
+            {templates.filter((t) => Boolean(t.evaluation_template_id)).length}
+          </span>
+        </div>
       </div>
 
-      {/* ── SEARCH & FILTER BAR (Clean search + dropdown, no button clutter) ── */}
+      {/* ── SEARCH & FILTER BAR + QUICK GUIDE TOGGLE ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -827,54 +1051,134 @@ export default function DigitalExams({
           />
         </div>
 
-        <div className="min-w-[190px]">
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] cursor-pointer"
+        <div className="flex items-center gap-2.5">
+          <div className="min-w-[170px]">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] cursor-pointer"
+            >
+              <option value="ALL">All Categories</option>
+              {CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowGuide(!showGuide)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              showGuide
+                ? 'bg-violet-50 border-violet-200 text-violet-700'
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+            }`}
           >
-            <option value="ALL">All Categories</option>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
+            <HelpCircle size={13} className={showGuide ? 'text-violet-600' : 'text-slate-400'} />
+            <span className="hidden sm:inline">Screening vs Standalone Guide</span>
+            <span className="sm:hidden">Guide</span>
+            {showGuide ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
         </div>
       </div>
 
+      {/* ── COLLAPSIBLE EXPLANATION GUIDE ── */}
+      {showGuide && (
+        <div className="bg-gradient-to-r from-violet-50/80 via-sky-50/50 to-white border border-slate-200 rounded-xl p-4 shadow-2xs animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <h4 className="font-bold text-xs text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
+                <BookOpen size={14} className="text-[#0EA5E9]" />
+                Staff Guide: When to Link to Screening vs. Direct Dispatch
+              </h4>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Here is how Digital Exams connect with applicant evaluation:
+              </p>
+            </div>
+            <button
+              onClick={() => setShowGuide(false)}
+              className="text-slate-400 hover:text-slate-600 text-xs p-1 rounded"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {/* Method 1: Screening Test */}
+            <div className="bg-white border border-violet-200/80 rounded-xl p-3.5 shadow-2xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">
+                    <Zap size={11} className="text-violet-600 fill-violet-600" /> 1. Official Screening Test (Linked)
+                  </span>
+                </div>
+                <div className="font-bold text-xs text-slate-900 mb-1">
+                  Linked in Evaluation Setup • Counts in 100% Scorecard
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Linked to an official evaluation criterion (e.g. English Proficiency or Trade Knowledge). Has an official weight percentage (e.g. 20%) in the agency screening scorecard. When the applicant finishes online, their score automatically syncs to their evaluation and calculates their Pass/Fail recommendation.
+                </p>
+              </div>
+              <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-violet-700 font-semibold flex items-center gap-1">
+                ✓ Best for: Required entrance exams, aptitude tests, official screening criteria
+              </div>
+            </div>
+
+            {/* Method 2: Standalone Direct Dispatch */}
+            <div className="bg-white border border-sky-200/80 rounded-xl p-3.5 shadow-2xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
+                    <Send size={11} className="text-[#0EA5E9]" /> 2. Standalone Exam (Direct Dispatch)
+                  </span>
+                </div>
+                <div className="font-bold text-xs text-slate-900 mb-1">
+                  Dispatched to Candidates • Graded Independently
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Not linked to the baseline evaluation weights. Staff can dispatch this exam to all candidates applied under a specific job order with an optional completion deadline. The candidate’s score is recorded separately on their profile without altering the 100% scorecard weights.
+                </p>
+              </div>
+              <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-sky-700 font-semibold flex items-center gap-1">
+                ✓ Best for: Employer-specific quizzes, safety briefings, extra trade tests
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── EXAMS TABLE ── */}
+      {/* ── STREAMLINED EXAMS TABLE (Consolidated & Clean) ── */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left font-semibold">Exam Title</th>
-                <th className="px-4 py-3 text-left font-semibold">Category</th>
-                <th className="px-4 py-3 text-center font-semibold">Passing Mark</th>
-                <th className="px-4 py-3 text-center font-semibold">Time Limit</th>
-                <th className="px-4 py-3 text-left font-semibold">Linked Evaluation</th>
-                <th className="px-4 py-3 text-center font-semibold">Available to Applicants</th>
-                <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                <th className="px-5 py-3 text-left font-semibold">Exam & Criteria</th>
+                <th className="px-4 py-3 text-center font-semibold w-56">Purpose</th>
+                <th className="px-4 py-3 text-center font-semibold w-24">Status</th>
+                <th className="px-5 py-3 text-center font-semibold w-28">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
                     <Loader2 className="animate-spin inline-block mr-2" size={16} />
                     Loading digital exams...
                   </td>
                 </tr>
               ) : filteredTemplates.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-14 text-center">
+                  <td colSpan={4} className="px-6 py-14 text-center">
                     <div className="max-w-sm mx-auto space-y-3">
                       <div className="w-12 h-12 bg-sky-50 border border-sky-100 rounded-full flex items-center justify-center mx-auto text-[#0EA5E9]">
                         <BookOpen size={20} />
                       </div>
                       <div>
-                        <h3 className="font-bold text-sm text-[#0F172A]">No digital exams yet</h3>
+                        <h3 className="font-bold text-sm text-[#0F172A]">No digital exams found</h3>
                         <p className="text-xs text-slate-500 mt-0.5">
                           Create online multiple-choice exams for your applicants to answer in their portal.
                         </p>
@@ -883,7 +1187,7 @@ export default function DigitalExams({
                         onClick={openCreate}
                         className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
                       >
-                        <Plus size={14} /> Create Your First Exam
+                        <Plus size={14} /> Create Digital Exam
                       </button>
                     </div>
                   </td>
@@ -897,66 +1201,40 @@ export default function DigitalExams({
                   return (
                     <tr
                       key={t.template_id}
-                      className={`border-b border-slate-100 last:border-0 ${
+                      className={`border-b border-slate-100 last:border-0 transition-colors ${
                         t.is_active ? 'hover:bg-slate-50/70' : 'opacity-60 bg-slate-50/40'
                       }`}
                     >
-                      {/* Title & Desc */}
-                      <td className="px-4 py-3.5">
-                        <div className="font-semibold text-[#0F172A]">{t.title}</div>
-                        {t.description && (
-                          <div className="text-xs text-slate-500 mt-0.5 max-w-xs truncate">
-                            {t.description}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-                          {t.allow_review && (
-                            <span className="text-emerald-700 font-medium">✓ Answers shown after submit</span>
-                          )}
-                          {t.randomize && (
-                            <span>• Shuffled order</span>
-                          )}
+                      {/* Column 1: Title & Consolidated Criteria Subtitle */}
+                      <td className="px-5 py-3.5">
+                        <div className="font-semibold text-[#0F172A] text-sm">{t.title}</div>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                          <span className="font-medium text-slate-700">{t.category || 'General'}</span>
+                          <span className="text-slate-300">•</span>
+                          <span>{t.passing_score ?? 60}% pass mark</span>
+                          <span className="text-slate-300">•</span>
+                          <span>{t.time_limit_mins ? `${t.time_limit_mins} mins` : 'No time limit'}</span>
                         </div>
                       </td>
 
-                      {/* Category */}
-                      <td className="px-4 py-3.5">
-                        <span className="inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                          {t.category || 'General'}
-                        </span>
-                      </td>
-
-                      {/* Passing Mark */}
+                      {/* Column 2: Purpose */}
                       <td className="px-4 py-3.5 text-center">
-                        <span className="font-semibold px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          {t.passing_score ?? 60}%
-                        </span>
-                      </td>
-
-                      {/* Time Limit */}
-                      <td className="px-4 py-3.5 text-center text-xs text-slate-700">
-                        {t.time_limit_mins ? (
-                          <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
-                            <Clock size={11} className="text-slate-400" />
-                            {t.time_limit_mins} mins
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">No time limit</span>
-                        )}
-                      </td>
-
-                      {/* Attached Evaluation */}
-                      <td className="px-4 py-3.5">
                         {matchedEval ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200">
-                            <LinkIcon size={11} /> {matchedEval.name}
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200"
+                            title={`Scores automatically sync to ${matchedEval.name} (${matchedEval.weight_percentage}% of screening scorecard)`}
+                          >
+                            <Zap size={11} className="text-violet-600 fill-violet-600" />
+                            Screening: {matchedEval.name} ({matchedEval.weight_percentage}%)
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">— Not linked</span>
+                          <span className="inline-flex items-center text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            Standalone
+                          </span>
                         )}
                       </td>
 
-                      {/* Status Toggle */}
+                      {/* Column 3: Active Status Toggle */}
                       <td className="px-4 py-3.5 text-center">
                         <button
                           type="button"
@@ -971,23 +1249,28 @@ export default function DigitalExams({
                         </button>
                       </td>
 
-                      {/* Streamlined Actions (Clean & Uncluttered) */}
-                      <td className="px-4 py-3.5">
+                      {/* Column 4: Streamlined Actions */}
+                      <td className="px-5 py-3.5 text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => {
                               setAssignTemplateId(t.template_id);
+                              setAssignScope(t.evaluation_template_id ? 'specific' : 'all');
+                              setAssignJobOrderIds([]);
+                              setJobOrderSearch('');
+                              setAssignDueDate('');
+                              setIsChangingExamInModal(false);
                               setIsAssignOpen(true);
                             }}
-                            title="Assign to job order applicants"
-                            className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] text-slate-500 rounded-lg transition-colors"
+                            title="Dispatch exam to candidates"
+                            className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
                           >
                             <Send size={14} />
                           </button>
                           <button
                             onClick={() => openEdit(t)}
                             title="Edit exam & questions"
-                            className="p-1.5 hover:bg-slate-100 hover:text-[#0EA5E9] text-slate-500 rounded-lg transition-colors"
+                            className="p-1.5 hover:bg-slate-100 hover:text-[#0EA5E9] text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
                           >
                             <Edit3 size={14} />
                           </button>
@@ -1093,59 +1376,282 @@ export default function DigitalExams({
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
               {formTab === 'info' ? (
                 <div className="space-y-4">
-                  {/* Exam Title */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                      Exam Name *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Cognitive & Aptitude Test (IQ)"
-                      value={form.title}
-                      onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
-                    />
-                  </div>
+                  {/* Exam Title & Category Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                        Exam Name *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Cognitive & Aptitude Test (IQ)"
+                        value={form.title}
+                        onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                      />
+                    </div>
 
-                  {/* Category & Linked Evaluation */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
                         Category
                       </label>
-                      <select
-                        value={form.category}
-                        onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
-                      >
-                        {CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={form.category}
+                          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                          className="w-full appearance-none bg-white border border-slate-200 rounded-lg px-3 py-2 pr-8 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exam Purpose & Screening Linkage (Interactive Selection Buttons) */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                        Exam Purpose & Screening Linkage
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-medium">Click to select purpose</span>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                        Link to Screening Evaluation <span className="text-slate-400 font-normal">(Optional)</span>
-                      </label>
-                      <select
-                        value={form.evaluation_template_id}
-                        onChange={(e) => setForm((f) => ({ ...f, evaluation_template_id: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                    {/* Two Main Mode Selection Button Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Option 1: Standalone Exam */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurposeMode('standalone');
+                          setForm((f) => ({ ...f, evaluation_template_id: '' }));
+                          setIsPurposeDropdownOpen(false);
+                        }}
+                        className={`p-3.5 rounded-xl border text-left transition-all ${
+                          purposeMode === 'standalone'
+                            ? 'border-[#0EA5E9] bg-sky-50/70 text-[#0F172A] shadow-2xs ring-1 ring-[#0EA5E9]'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50/60 bg-white'
+                        }`}
                       >
-                        <option value="">— Not linked to an evaluation —</option>
-                        {evaluationTemplates.map((ev) => (
-                          <option key={ev.test_template_id} value={ev.test_template_id}>
-                            {ev.name} ({ev.weight_percentage}% weight • Pass mark: {ev.passing_score}%)
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        When applicants pass this exam, their score automatically fills their screening evaluation scorecard.
-                      </p>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                              purposeMode === 'standalone' ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              <BookOpen size={14} />
+                            </div>
+                            <span className="font-bold text-xs text-slate-900">Standalone Exam</span>
+                          </div>
+                          {purposeMode === 'standalone' && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-[#0EA5E9] border border-sky-200">
+                              <Check size={10} /> Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Independent skills test or quiz. Not tied to the 100% baseline scorecard. Can be dispatched freely to job orders.
+                        </p>
+                      </button>
+
+                      {/* Option 2: Official Screening Evaluation */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurposeMode('screening');
+                          setIsPurposeDropdownOpen(true);
+                        }}
+                        className={`p-3.5 rounded-xl border text-left transition-all ${
+                          purposeMode === 'screening'
+                            ? 'border-violet-500 bg-violet-50/70 text-[#0F172A] shadow-2xs ring-1 ring-violet-500'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50/60 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                              purposeMode === 'screening' ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              <Zap size={14} className={purposeMode === 'screening' ? 'fill-white' : ''} />
+                            </div>
+                            <span className="font-bold text-xs text-slate-900">Official Screening Test</span>
+                          </div>
+                          {purposeMode === 'screening' && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                              <Check size={10} /> Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Linked to official screening. When applicants take this digital exam, score is automatically recorded in their scorecard.
+                        </p>
+                      </button>
                     </div>
+
+                    {/* When Standalone is active: Simple helpful confirmation */}
+                    {purposeMode === 'standalone' && (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-start gap-2">
+                        <Info size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-slate-800">Standalone Assessment:</span> This exam operates independently. You can dispatch it directly to applicants or job orders at any time without altering their 100% baseline screening requirements.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* When Official Screening is active: Custom Dropdown Selector & Confirmation */}
+                    {purposeMode === 'screening' && (
+                      <div className="p-3.5 bg-violet-50/60 border border-violet-200 rounded-xl space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-bold text-violet-950">
+                            Select which screening evaluation to fulfill:
+                          </label>
+                          <span className="text-[11px] font-semibold text-violet-600">
+                            {evaluationTemplates.length} evaluation templates available
+                          </span>
+                        </div>
+
+                        {/* Custom Dropdown Trigger Button */}
+                        <div className="relative" ref={purposeDropdownRef}>
+                          {(() => {
+                            const selectedEval = form.evaluation_template_id
+                              ? evaluationTemplates.find(
+                                  (ev) => String(ev.test_template_id) === String(form.evaluation_template_id)
+                                )
+                              : null;
+                            return (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsPurposeDropdownOpen((prev) => !prev)}
+                                  className={`w-full bg-white rounded-xl px-3.5 py-2.5 text-left flex items-center justify-between shadow-2xs hover:shadow-xs transition-all focus:outline-none focus:ring-2 focus:ring-violet-400 border ${
+                                    selectedEval ? 'border-violet-200 hover:border-violet-400' : 'border-amber-300 hover:border-amber-400 bg-amber-50/30'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                    <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+                                      selectedEval ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      <Zap size={13} className={selectedEval ? 'fill-violet-700' : ''} />
+                                    </div>
+                                    {selectedEval ? (
+                                      <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                        <span className="font-bold text-xs text-slate-900 truncate">
+                                          {selectedEval.name}
+                                        </span>
+                                        <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                          {selectedEval.test_type}
+                                        </span>
+                                        <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                          {selectedEval.weight_percentage}% weight
+                                        </span>
+                                        <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                          {selectedEval.passing_score}% min pass
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-slate-600 font-semibold">
+                                        Click to choose a screening evaluation...
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
+                                    <span className="text-[11px] font-semibold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-md">
+                                      {selectedEval ? 'Change' : 'Choose Template'}
+                                    </span>
+                                    <ChevronDown
+                                      size={16}
+                                      className={`transition-transform duration-200 text-violet-600 ${
+                                        isPurposeDropdownOpen ? 'rotate-180' : ''
+                                      }`}
+                                    />
+                                  </div>
+                                </button>
+
+                                {/* Custom Dropdown Popover Menu */}
+                                {isPurposeDropdownOpen && (
+                                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1 max-h-64 overflow-y-auto">
+                                    <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50 border-b border-slate-100">
+                                      Select an Evaluation Template
+                                    </div>
+                                    {evaluationTemplates.map((ev) => {
+                                      const isSelected = String(ev.test_template_id) === String(form.evaluation_template_id);
+                                      return (
+                                        <button
+                                          key={ev.test_template_id}
+                                          type="button"
+                                          onClick={() => {
+                                            setForm((f) => ({ ...f, evaluation_template_id: String(ev.test_template_id) }));
+                                            setIsPurposeDropdownOpen(false);
+                                          }}
+                                          className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between transition-colors border-b border-slate-100 last:border-b-0 ${
+                                            isSelected ? 'bg-violet-50/80 font-semibold' : 'hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2.5 min-w-0 pr-3">
+                                            <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+                                              isSelected ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500'
+                                            }`}>
+                                              <Zap size={12} className={isSelected ? 'fill-white' : ''} />
+                                            </div>
+                                            <div className="min-w-0">
+                                              <div className="text-xs font-bold text-slate-900 truncate">
+                                                {ev.name}
+                                              </div>
+                                              <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5 flex-wrap">
+                                                <span>{ev.test_type}</span>
+                                                <span className="text-slate-300">•</span>
+                                                <span className="text-amber-700 font-medium">{ev.weight_percentage}% weight</span>
+                                                <span className="text-slate-300">•</span>
+                                                <span className="text-emerald-700 font-medium">Pass: {ev.passing_score}%</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          {isSelected && (
+                                            <div className="w-5 h-5 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
+                                              <Check size={12} strokeWidth={3} />
+                                            </div>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Status Note: Either Auto-Score Sync or Prompt to Choose */}
+                        {(() => {
+                          const selectedEval = form.evaluation_template_id
+                            ? evaluationTemplates.find(
+                                (ev) => String(ev.test_template_id) === String(form.evaluation_template_id)
+                              )
+                            : null;
+                          if (selectedEval) {
+                            return (
+                              <div className="text-[11px] text-violet-800 bg-white/90 border border-violet-100 rounded-lg p-2.5 flex items-start gap-2">
+                                <Sparkles size={13} className="text-violet-600 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold">Auto-Score Sync:</span> When an applicant finishes this digital exam, their test score is automatically calculated and recorded directly to their <strong>{selectedEval.name}</strong> requirement ({selectedEval.weight_percentage}% of their official screening scorecard).
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="text-[11px] text-amber-900 bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 flex items-start gap-2">
+                              <AlertCircle size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-bold">Choose Evaluation Template:</span> Please click the button above to pick which screening evaluation this online exam will fulfill.
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
 
                   {/* Instructions */}
@@ -1348,105 +1854,408 @@ export default function DigitalExams({
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {/* MODAL: ASSIGN EXAM TO JOB ORDER (Clean Modal)                          */}
+      {/* MODAL: DISPATCH EXAM TO CANDIDATES                                      */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {isAssignOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-[#0F172A]">Assign Exam to Job Order</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Applicants applied under this job position will see this exam in their portal.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAssignOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
+      {isAssignOpen && (() => {
+        const selectedTpl = templates.find((t) => t.template_id === assignTemplateId);
+        const linkedEval = selectedTpl?.evaluation_template_id
+          ? evaluationTemplates.find((e) => e.test_template_id === selectedTpl.evaluation_template_id)
+          : null;
 
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Select Online Exam *
-                </label>
-                <select
-                  value={assignTemplateId ?? ''}
-                  onChange={(e) => setAssignTemplateId(Number(e.target.value) || null)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+        return (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-sky-100 text-[#0EA5E9] flex items-center justify-center shrink-0">
+                    <Send size={18} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-[#0F172A]">Dispatch Online Exam</h2>
+                    <p className="text-xs text-slate-500">
+                      Assign this online exam to candidates across all job orders or target specific job orders.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAssignOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors"
                 >
-                  <option value="">— Choose an online exam —</option>
-                  {templates.map((t) => (
-                    <option key={t.template_id} value={t.template_id}>
-                      {t.title} ({t.category || 'General'} • Passing Score: {t.passing_score ?? 60}%)
-                    </option>
-                  ))}
-                </select>
+                  <X size={18} />
+                </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Select Target Job Order *
-                </label>
-                <select
-                  value={assignJobOrderId ?? ''}
-                  onChange={(e) => setAssignJobOrderId(Number(e.target.value) || null)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
-                >
-                  <option value="">— Choose a job order —</option>
-                  {globalJobOrders.map((j) => (
-                    <option key={j.job_order_id} value={j.job_order_id}>
-                      [{j.job_code}] {j.position} {j.employer_name ? `— ${j.employer_name}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Scrollable Modal Content */}
+              <div className="p-6 space-y-5 overflow-y-auto">
+                {/* 1. Selected Exam Card / Selector */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Selected Online Exam *
+                    </label>
+                    {selectedTpl && !isChangingExamInModal && (
+                      <button
+                        type="button"
+                        onClick={() => setIsChangingExamInModal(true)}
+                        className="text-[11px] font-semibold text-[#0EA5E9] hover:underline"
+                      >
+                        Change Exam
+                      </button>
+                    )}
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Deadline for Applicants <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="datetime-local"
-                  value={assignDueDate}
-                  onChange={(e) => setAssignDueDate(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
-                />
-              </div>
-            </div>
+                  {selectedTpl && !isChangingExamInModal ? (
+                    <div className="p-3.5 bg-gradient-to-r from-slate-50 to-sky-50/30 border border-slate-200 rounded-xl">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-900">{selectedTpl.title}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-700">
+                            {selectedTpl.category || 'General'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-500">Pass Benchmark:</span>
+                          <span className="font-bold text-[#0EA5E9]">{selectedTpl.passing_score ?? 60}%</span>
+                        </div>
+                      </div>
 
-            <div className="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setIsAssignOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={assignExam}
-                disabled={assigning || !assignTemplateId || !assignJobOrderId}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 rounded-lg shadow-sm flex items-center gap-1.5"
-              >
-                {assigning ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" /> Assigning...
-                  </>
-                ) : (
-                  <>
-                    <Send size={13} /> Confirm Assignment
-                  </>
+                      {/* Purpose callout banner */}
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-200/70">
+                        {linkedEval ? (
+                          <div className="flex items-start gap-2 text-xs text-violet-900">
+                            <Zap size={14} className="text-violet-600 fill-violet-600 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-bold">Official Screening Linked:</span> Automatically weights{' '}
+                              <strong>{linkedEval.weight_percentage}%</strong> into{' '}
+                              <em>{linkedEval.name}</em> on applicant scorecards.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-2 text-xs text-slate-700">
+                            <Info size={14} className="text-[#0EA5E9] shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-bold">Standalone Assessment:</span> Graded out of 100% on candidate profiles independently without altering screening formula weights.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <select
+                          value={assignTemplateId ?? ''}
+                          onChange={(e) => {
+                            const val = Number(e.target.value) || null;
+                            setAssignTemplateId(val);
+                            if (val) setIsChangingExamInModal(false);
+                          }}
+                          className="w-full appearance-none bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 pr-8 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                        >
+                          <option value="">— Choose an online exam —</option>
+                          {templates.map((t) => {
+                            const isLinked = Boolean(t.evaluation_template_id);
+                            return (
+                              <option key={t.template_id} value={t.template_id}>
+                                {isLinked ? '⚡ [Screening Test] ' : '📋 [Standalone] '}
+                                {t.title} ({t.category || 'General'} • Pass: {t.passing_score ?? 60}%)
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                      {isChangingExamInModal && selectedTpl && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setIsChangingExamInModal(false)}
+                            className="text-[11px] text-slate-400 hover:text-slate-600"
+                          >
+                            Keep current exam
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Target Scope Toggle Cards */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Who Should Receive This Exam? *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Option A: All Job Orders (Universal / Standalone) */}
+                    <button
+                      type="button"
+                      onClick={() => setAssignScope('all')}
+                      className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
+                        assignScope === 'all'
+                          ? 'border-[#0EA5E9] bg-sky-50/70 ring-2 ring-[#0EA5E9]/20 shadow-xs'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                      }`}
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                          assignScope === 'all' ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Globe size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900">All Job Orders</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-sky-100 text-sky-800">
+                            Universal
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Standalone dispatch to all registered active applicants across all job orders.
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* Option B: Specific Job Order(s) */}
+                    <button
+                      type="button"
+                      onClick={() => setAssignScope('specific')}
+                      className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
+                        assignScope === 'specific'
+                          ? 'border-[#0EA5E9] bg-sky-50/70 ring-2 ring-[#0EA5E9]/20 shadow-xs'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                      }`}
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                          assignScope === 'specific' ? 'bg-[#0EA5E9] text-white' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Building2 size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900">Specific Job Order(s)</span>
+                          {assignJobOrderIds.length > 0 && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-[#0EA5E9] text-white">
+                              {assignJobOrderIds.length} chosen
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Multi-select one or multiple job orders to receive this examination.
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Job Order Multi-Select Container (when specific scope is chosen) */}
+                {assignScope === 'specific' && (
+                  <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/60 space-y-3 animate-in fade-in duration-150">
+                    {/* Filter and bulk action controls */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="relative flex-1 min-w-[200px]">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Filter by job code, position, employer..."
+                          value={jobOrderSearch}
+                          onChange={(e) => setJobOrderSearch(e.target.value)}
+                          className="w-full pl-7 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                        />
+                        {jobOrderSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setJobOrderSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={selectAllFilteredJobOrders}
+                          className="text-[11px] font-semibold text-[#0EA5E9] hover:underline"
+                        >
+                          Select All ({filteredJobOrders.length})
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={clearAllJobOrders}
+                          disabled={assignJobOrderIds.length === 0}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-40"
+                        >
+                          Clear ({assignJobOrderIds.length})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable Job Orders List */}
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-100">
+                      {filteredJobOrders.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          No job orders found matching "{jobOrderSearch}"
+                        </div>
+                      ) : (
+                        filteredJobOrders.map((j) => {
+                          const isSelected = assignJobOrderIds.includes(j.job_order_id);
+                          return (
+                            <div
+                              key={j.job_order_id}
+                              onClick={() => toggleJobOrder(j.job_order_id)}
+                              className={`p-2.5 rounded-lg cursor-pointer transition-colors flex items-center justify-between gap-3 ${
+                                isSelected
+                                  ? 'bg-sky-50/90 border border-sky-300 shadow-2xs'
+                                  : 'bg-white border border-slate-200/80 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="shrink-0 text-[#0EA5E9]">
+                                  {isSelected ? (
+                                    <CheckSquare size={16} className="text-[#0EA5E9]" />
+                                  ) : (
+                                    <Square size={16} className="text-slate-300" />
+                                  )}
+                                </div>
+                                <span className="font-mono text-[11px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200 shrink-0">
+                                  {j.job_code}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-800 truncate">
+                                  {j.position}
+                                </span>
+                              </div>
+                              {j.employer_name && (
+                                <span className="text-[11px] text-slate-400 truncate max-w-[180px] text-right shrink-0">
+                                  {j.employer_name}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {assignJobOrderIds.length === 0 && (
+                      <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5">
+                        <AlertCircle size={12} /> Please select at least one job order from the list above.
+                      </p>
+                    )}
+                  </div>
                 )}
-              </button>
+
+                {/* 4. Completion Deadline (Optional) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Completion Deadline <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-400 font-medium mr-1">Quick Presets:</span>
+                      <button
+                        type="button"
+                        onClick={() => setDeadlineDaysAhead(3)}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                      >
+                        +3 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeadlineDaysAhead(7)}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                      >
+                        +7 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeadlineDaysAhead(14)}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                      >
+                        +14 Days
+                      </button>
+                      {assignDueDate && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignDueDate('')}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="datetime-local"
+                      value={assignDueDate}
+                      onChange={(e) => setAssignDueDate(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Candidates will see an active countdown timer badge in their applicant portal.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3 shrink-0">
+                <div className="text-[11px] text-slate-500">
+                  {assignScope === 'all' ? (
+                    <span className="flex items-center gap-1.5 text-slate-600 font-medium">
+                      <Users size={13} className="text-[#0EA5E9]" />
+                      Dispatching universal exam across all active applicants.
+                    </span>
+                  ) : (
+                    <span className="text-slate-600 font-medium">
+                      Targeting: <strong className="text-[#0EA5E9]">{assignJobOrderIds.length}</strong> job order{assignJobOrderIds.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsAssignOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={assignExam}
+                    disabled={
+                      assigning ||
+                      !assignTemplateId ||
+                      (assignScope === 'specific' && assignJobOrderIds.length === 0)
+                    }
+                    className="px-4 py-2 text-xs font-semibold text-white bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm flex items-center gap-1.5 transition-colors"
+                  >
+                    {assigning ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" /> Dispatching...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={13} />
+                        {assignScope === 'all'
+                          ? 'Dispatch to All Candidates'
+                          : `Dispatch to ${assignJobOrderIds.length} Job Order${assignJobOrderIds.length === 1 ? '' : 's'}`}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── LIVE SIMULATOR MODAL ── */}
       {previewTemplate && (

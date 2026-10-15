@@ -6,7 +6,7 @@ import {
   ShieldCheck, Lock, Check, RefreshCw, UserPlus, Microscope, Sparkles,
   FileText, KanbanSquare, HeartPulse, ScanText, BellRing, Receipt,
   CheckSquare, Briefcase, Factory, ClipboardList, Layers, Zap, Monitor,
-  HelpCircle, ChevronDown, ChevronUp, BookOpen
+  HelpCircle, ChevronDown, ChevronUp, BookOpen, Globe
 } from 'lucide-react';
 import { EvaluationTest, WorkflowModuleAccess, UserRole } from '../../types';
 import { api } from '../../../lib/api';
@@ -310,16 +310,54 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
     fetchModules();
   }, []);
 
-  // ── Evaluation Operations ───────────────────────────────────────────────
-  const generalTests = tests.filter(t => t.isActive && (!t.applicableJobOrders || t.applicableJobOrders.length === 0));
-  const jobSpecificTests = tests.filter(t => t.isActive && t.applicableJobOrders && t.applicableJobOrders.length > 0);
+  // ── Evaluation Operations & Segregation ─────────────────────────────────
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'general' | 'job_specific'>('all');
+  const [evalSearch, setEvalSearch] = useState('');
+
+  // Segregated collections
+  const allGeneralTests = useMemo(
+    () => tests.filter(t => !t.applicableJobOrders || t.applicableJobOrders.length === 0),
+    [tests]
+  );
+  const allJobSpecificTests = useMemo(
+    () => tests.filter(t => t.applicableJobOrders && t.applicableJobOrders.length > 0),
+    [tests]
+  );
+
+  const generalTests = useMemo(() => allGeneralTests.filter(t => t.isActive), [allGeneralTests]);
+  const jobSpecificTests = useMemo(() => allJobSpecificTests.filter(t => t.isActive), [allJobSpecificTests]);
   const generalWeight = generalTests.reduce((s, t) => s + t.weight, 0);
   const totalWeight = tests.filter(t => t.isActive).reduce((s, t) => s + t.weight, 0);
   const hasJobSpecific = jobSpecificTests.length > 0;
   const weightOk = hasJobSpecific ? generalWeight === 100 : totalWeight === 100;
 
+  // Search filtered lists
+  const filteredGeneralTests = useMemo(() => {
+    const q = evalSearch.trim().toLowerCase();
+    if (!q) return allGeneralTests;
+    return allGeneralTests.filter(t =>
+      t.name.toLowerCase().includes(q) ||
+      (t.description && t.description.toLowerCase().includes(q)) ||
+      t.type.toLowerCase().includes(q)
+    );
+  }, [allGeneralTests, evalSearch]);
+
+  const filteredJobSpecificTests = useMemo(() => {
+    const q = evalSearch.trim().toLowerCase();
+    if (!q) return allJobSpecificTests;
+    return allJobSpecificTests.filter(t =>
+      t.name.toLowerCase().includes(q) ||
+      (t.description && t.description.toLowerCase().includes(q)) ||
+      t.type.toLowerCase().includes(q)
+    );
+  }, [allJobSpecificTests, evalSearch]);
+
   const openNewTest = () => {
-    setEditingTest({ ...BLANK_TEST, id: `ev-${Date.now()}` });
+    setEditingTest({
+      ...BLANK_TEST,
+      id: `ev-${Date.now()}`,
+      applicableJobOrders: scopeFilter === 'job_specific' && jobOrders.length > 0 ? [String(jobOrders[0].job_order_id || jobOrders[0].id)] : [],
+    });
     setIsNewTest(true);
   };
 
@@ -689,162 +727,426 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             </div>
           )}
 
-          {/* Tests table */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
-                    <th className="px-4 py-3 text-left font-semibold">Evaluation Name</th>
-                    <th className="px-4 py-3 text-left font-semibold">Delivery Mode</th>
-                    <th className="px-4 py-3 text-left font-semibold">Category</th>
-                    <th className="px-4 py-3 text-center font-semibold">Passing Mark</th>
-                    <th className="px-4 py-3 text-center font-semibold">Weight</th>
-                    <th className="px-4 py-3 text-center font-semibold">Status</th>
-                    <th className="px-4 py-3 text-center font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingTests ? (
-                    <>
-                      {[...Array(4)].map((_, i) => (
-                        <tr key={i}>
-                          <td className="px-4 py-3">
-                            <div className="space-y-1.5">
-                              <Skeleton className="h-3.5 w-44" />
-                              <Skeleton className="h-2.5 w-64 bg-slate-100" />
-                            </div>
+          {/* Scope Filter Pills & Search Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg flex-wrap">
+              <button
+                type="button"
+                onClick={() => setScopeFilter('all')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  scopeFilter === 'all'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All Evaluations ({tests.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('general')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  scopeFilter === 'general'
+                    ? 'bg-white text-[#0EA5E9] shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>🌐 100% Baseline ({allGeneralTests.length})</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    generalWeight === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {generalWeight}%
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('job_specific')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  scopeFilter === 'job_specific'
+                    ? 'bg-white text-purple-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Briefcase size={12} className={scopeFilter === 'job_specific' ? 'text-purple-600' : 'text-slate-400'} />
+                <span>Job-Order Specific ({allJobSpecificTests.length})</span>
+              </button>
+            </div>
+
+            <div className="relative min-w-[220px]">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search evaluations..."
+                value={evalSearch}
+                onChange={(e) => setEvalSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:bg-white transition-all"
+              />
+            </div>
+          </div>
+
+          {/* ── SECTION 1: GENERAL BASELINE EVALUATIONS (100% SCORECARD) ── */}
+          {(scopeFilter === 'all' || scopeFilter === 'general') && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-sky-100 text-[#0EA5E9] flex items-center justify-center shrink-0">
+                      <Globe size={13} />
+                    </div>
+                    <h2 className="text-sm font-bold text-[#0F172A]">
+                      General Baseline Evaluations (100% Scorecard)
+                    </h2>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      ({filteredGeneralTests.length} tests)
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 ml-8">
+                    Standard agency evaluations required for all applicants. Active test weights must total exactly 100%.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                      generalWeight === 100
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}
+                  >
+                    {generalWeight === 100 ? (
+                      <CheckCircle2 size={13} className="text-emerald-600" />
+                    ) : (
+                      <AlertTriangle size={13} className="text-amber-600" />
+                    )}
+                    Total Weight: {generalWeight}% / 100%
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left font-semibold">Evaluation & Criteria</th>
+                        <th className="px-4 py-3 text-center font-semibold w-28">Weight</th>
+                        <th className="px-4 py-3 text-center font-semibold w-24">Status</th>
+                        <th className="px-5 py-3 text-center font-semibold w-24">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loadingTests ? (
+                        <>
+                          {[...Array(3)].map((_, i) => (
+                            <tr key={i}>
+                              <td className="px-5 py-3.5">
+                                <div className="space-y-1.5">
+                                  <Skeleton className="h-3.5 w-44" />
+                                  <Skeleton className="h-2.5 w-64 bg-slate-100" />
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                              <td className="px-4 py-3.5 text-center"><Skeleton className="h-6 w-10 rounded-full mx-auto bg-slate-100" /></td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center justify-center gap-2">
+                                  <Skeleton className="h-7 w-7 rounded" />
+                                  <Skeleton className="h-7 w-7 rounded" />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      ) : filteredGeneralTests.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-8 text-center text-xs text-slate-500">
+                            No general baseline evaluations found matching your filter.
                           </td>
-                          <td className="px-4 py-3"><SkeletonBadge className="w-24" /></td>
-                          <td className="px-4 py-3"><SkeletonBadge className="w-28" /></td>
-                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-12 mx-auto" /></td>
-                          <td className="px-4 py-3 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
-                          <td className="px-4 py-3 text-center"><Skeleton className="h-6 w-10 rounded-full mx-auto bg-slate-100" /></td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-2">
-                              <Skeleton className="h-7 w-7 rounded" />
-                              <Skeleton className="h-7 w-7 rounded" />
+                        </tr>
+                      ) : (
+                        filteredGeneralTests.map((test) => {
+                          const meta = TEST_TYPE_META[test.type];
+                          const linkedExam = test.digitalExamTemplateId
+                            ? digitalExams.find(ex => ex.template_id === test.digitalExamTemplateId)
+                            : null;
+
+                          return (
+                            <tr
+                              key={test.id}
+                              className={`border-b border-slate-100 last:border-0 transition-colors ${
+                                test.isActive ? 'hover:bg-slate-50/70' : 'opacity-50 bg-slate-50/40'
+                              }`}
+                            >
+                              {/* Column 1: Evaluation Title & Compact Criteria Subtitle */}
+                              <td className="px-5 py-3.5">
+                                <div className="font-semibold text-[#0F172A] text-sm">{test.name}</div>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                                  <span className="font-medium text-slate-700">{meta.label}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span>{test.scoringType === 'pass_fail' ? 'Pass Required' : `${test.passingScore}% min`}</span>
+                                  <span className="text-slate-300">•</span>
+                                  {test.examMode === 'digital' ? (
+                                    <span className="inline-flex items-center gap-1 text-violet-700 font-medium">
+                                      <Zap size={11} className="text-violet-600 fill-violet-600" />
+                                      Digital Exam{linkedExam ? `: ${linkedExam.title}` : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500">Paper-Based</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Column 2: Weight */}
+                              <td className="px-4 py-3.5 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="font-bold text-[#0F172A] text-xs">{test.weight}%</span>
+                                  <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${Math.min(test.weight, 100)}%`, background: meta.color }} />
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Column 3: Status Toggle */}
+                              <td className="px-4 py-3.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTest(test.id)}
+                                  className="inline-flex items-center justify-center p-1 rounded hover:bg-slate-100 transition-colors"
+                                  title={test.isActive ? 'Active (Click to deactivate)' : 'Inactive (Click to activate)'}
+                                >
+                                  {test.isActive ? (
+                                    <ToggleRight size={24} className="text-[#10B981] transition-transform hover:scale-105" />
+                                  ) : (
+                                    <ToggleLeft size={24} className="text-slate-300 transition-transform hover:scale-105" />
+                                  )}
+                                </button>
+                              </td>
+
+                              {/* Column 4: Actions */}
+                              <td className="px-5 py-3.5 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => openEditTest(test)}
+                                    title="Edit evaluation"
+                                    className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => setTestToDelete(test)}
+                                    title="Delete evaluation"
+                                    className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                    {!loadingTests && filteredGeneralTests.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-50/80 border-t border-slate-200 text-xs font-semibold">
+                          <td className="px-5 py-2.5 text-right text-slate-700">
+                            Total Active Baseline Weight:
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span
+                              className={`font-bold text-xs ${
+                                generalWeight === 100 ? 'text-emerald-700' : 'text-amber-700'
+                              }`}
+                            >
+                              {generalWeight}% / 100%
+                            </span>
+                          </td>
+                          <td colSpan={2} className="px-5 py-2.5 text-[11px]">
+                            {generalWeight === 100 ? (
+                              <span className="text-emerald-700 font-bold">✓ 100% Balanced</span>
+                            ) : (
+                              <span className="text-amber-700 font-bold">
+                                {100 - generalWeight > 0 ? `${100 - generalWeight}% unallocated` : `${generalWeight - 100}% over allocated`}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── SECTION 2: JOB-ORDER SPECIFIC EVALUATIONS ── */}
+          {(scopeFilter === 'all' || scopeFilter === 'job_specific') && (
+            <div className="space-y-3 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                      <Briefcase size={13} />
+                    </div>
+                    <h2 className="text-sm font-bold text-[#0F172A]">
+                      Job-Order Specific Evaluations
+                    </h2>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      ({filteredJobSpecificTests.length} tests)
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 ml-8">
+                    Specialized trade & skill evaluations required <strong>only</strong> for applicants assigned to matching job orders. These do not alter the 100% baseline formula.
+                  </p>
+                </div>
+
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200">
+                  <Briefcase size={12} /> Independent Job Requirements
+                </span>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left font-semibold">Evaluation & Criteria</th>
+                        <th className="px-4 py-3 text-center font-semibold w-28">Weight</th>
+                        <th className="px-4 py-3 text-center font-semibold w-24">Status</th>
+                        <th className="px-5 py-3 text-center font-semibold w-24">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loadingTests ? (
+                        <>
+                          {[...Array(2)].map((_, i) => (
+                            <tr key={i}>
+                              <td className="px-5 py-3.5">
+                                <div className="space-y-1.5">
+                                  <Skeleton className="h-3.5 w-44" />
+                                  <Skeleton className="h-2.5 w-64 bg-slate-100" />
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5 text-center"><Skeleton className="h-3.5 w-10 mx-auto" /></td>
+                              <td className="px-4 py-3.5 text-center"><Skeleton className="h-6 w-10 rounded-full mx-auto bg-slate-100" /></td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center justify-center gap-2">
+                                  <Skeleton className="h-7 w-7 rounded" />
+                                  <Skeleton className="h-7 w-7 rounded" />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      ) : filteredJobSpecificTests.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-10 text-center">
+                            <div className="max-w-md mx-auto space-y-1.5">
+                              <div className="w-10 h-10 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 mx-auto">
+                                <Briefcase size={18} />
+                              </div>
+                              <p className="text-xs font-semibold text-slate-700">
+                                No Job-Order Specific Evaluations Configured
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                When you create an evaluation and target it to specific job positions (e.g. Welder, Nurse, Driver), it will appear here segregated from the 100% baseline.
+                              </p>
                             </div>
                           </td>
                         </tr>
-                      ))}
-                    </>
-                  ) : tests.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center">
-                        <div className="max-w-xs mx-auto flex flex-col items-center">
-                          <div className="w-12 h-12 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-[#0EA5E9] mb-3">
-                            <Sliders size={22} />
-                          </div>
-                          <p className="text-sm font-semibold text-slate-700">No Evaluations Configured</p>
-                          <p className="text-xs text-slate-500 mt-1 mb-4">Create your first evaluation to start screening applicants.</p>
-                          <button
-                            onClick={openNewTest}
-                            className="text-xs font-semibold text-white bg-[#0EA5E9] hover:bg-[#0284C7] px-3.5 py-2 rounded-lg transition-colors shadow-sm"
-                          >
-                            + Add Evaluation
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : tests.map(test => {
-                    const meta = TEST_TYPE_META[test.type];
-                    const linkedExam = test.digitalExamTemplateId
-                      ? digitalExams.find(ex => ex.template_id === test.digitalExamTemplateId)
-                      : null;
+                      ) : (
+                        filteredJobSpecificTests.map((test) => {
+                          const meta = TEST_TYPE_META[test.type];
+                          const linkedExam = test.digitalExamTemplateId
+                            ? digitalExams.find(ex => ex.template_id === test.digitalExamTemplateId)
+                            : null;
 
-                    return (
-                      <tr key={test.id} className={`border-b border-slate-100 last:border-0 ${test.isActive ? 'hover:bg-slate-50/70' : 'opacity-50 bg-slate-50/40'}`}>
-                        <td className="px-4 py-3.5">
-                          <div className="font-semibold text-[#0F172A]">{test.name}</div>
-                          {test.description && (
-                            <div className="text-xs text-slate-500 mt-0.5 max-w-sm truncate">{test.description}</div>
-                          )}
-                          <div className="flex items-center gap-1.5 mt-1">
-                            {test.applicableJobOrders && test.applicableJobOrders.length > 0 ? (
-                              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
-                                Required for {test.applicableJobOrders.length} Job Order(s)
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                                General (All Applicants)
-                              </span>
-                            )}
-                            {test.scoringType === 'pass_fail' && (
-                              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                                Pass / Fail
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {test.examMode === 'digital' ? (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
-                                <Zap size={11} className="text-violet-500 fill-violet-500" /> Digital Exam
-                              </span>
-                              {linkedExam ? (
-                                <span className="text-[10px] text-violet-900 font-semibold truncate max-w-[150px]" title={linkedExam.title}>
-                                  {linkedExam.title}
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 italic">No exam attached</span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                              <FileText size={11} className="text-slate-500" /> Paper-Based
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full" style={{ background: meta.color + '14', color: meta.color }}>
-                            {meta.icon} {meta.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-center">
-                          {test.scoringType === 'pass_fail' ? (
-                            <span className="font-semibold px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              ✓ Pass Required
-                            </span>
-                          ) : (
-                            <span className="font-semibold text-xs text-slate-800">
-                              {test.passingScore}% min
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5 text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="font-bold text-[#0F172A] text-xs">{test.weight}%</span>
-                            <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${test.weight}%`, background: meta.color }} />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5 text-center">
-                          <button onClick={() => toggleTest(test.id)} title={test.isActive ? 'Click to deactivate' : 'Click to activate'}>
-                            {test.isActive
-                              ? <ToggleRight size={24} className="text-[#10B981] mx-auto transition-transform hover:scale-105" />
-                              : <ToggleLeft size={24} className="text-slate-300 mx-auto transition-transform hover:scale-105" />}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => openEditTest(test)} title="Edit evaluation" className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400">
-                              <Pencil size={15} />
-                            </button>
-                            <button onClick={() => setTestToDelete(test)} title="Delete evaluation" className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400">
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          return (
+                            <tr
+                              key={test.id}
+                              className={`border-b border-slate-100 last:border-0 transition-colors ${
+                                test.isActive ? 'hover:bg-slate-50/70' : 'opacity-50 bg-slate-50/40'
+                              }`}
+                            >
+                              {/* Column 1: Evaluation Title & Compact Criteria Subtitle */}
+                              <td className="px-5 py-3.5">
+                                <div className="font-semibold text-[#0F172A] text-sm">{test.name}</div>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                                  <span className="font-medium text-slate-700">{meta.label}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span>{test.scoringType === 'pass_fail' ? 'Pass Required' : `${test.passingScore}% min`}</span>
+                                  <span className="text-slate-300">•</span>
+                                  {test.examMode === 'digital' ? (
+                                    <span className="inline-flex items-center gap-1 text-violet-700 font-medium">
+                                      <Zap size={11} className="text-violet-600 fill-violet-600" />
+                                      Digital Exam{linkedExam ? `: ${linkedExam.title}` : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500">Paper-Based</span>
+                                  )}
+                                  <span className="text-slate-300">•</span>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                                    <Briefcase size={10} /> {test.applicableJobOrders?.length || 0} Job Order(s)
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* Column 2: Weight */}
+                              <td className="px-4 py-3.5 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="font-bold text-[#0F172A] text-xs">{test.weight}%</span>
+                                  <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${Math.min(test.weight, 100)}%`, background: meta.color }} />
+                                  </div>
+                                  <span className="text-[10px] text-purple-600 font-medium">per job</span>
+                                </div>
+                              </td>
+
+                              {/* Column 3: Status Toggle */}
+                              <td className="px-4 py-3.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTest(test.id)}
+                                  className="inline-flex items-center justify-center p-1 rounded hover:bg-slate-100 transition-colors"
+                                  title={test.isActive ? 'Active (Click to deactivate)' : 'Inactive (Click to activate)'}
+                                >
+                                  {test.isActive ? (
+                                    <ToggleRight size={24} className="text-[#10B981] transition-transform hover:scale-105" />
+                                  ) : (
+                                    <ToggleLeft size={24} className="text-slate-300 transition-transform hover:scale-105" />
+                                  )}
+                                </button>
+                              </td>
+
+                              {/* Column 4: Actions */}
+                              <td className="px-5 py-3.5 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => openEditTest(test)}
+                                    title="Edit evaluation"
+                                    className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-lg transition-colors text-slate-400"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => setTestToDelete(test)}
+                                    title="Delete evaluation"
+                                    className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors text-slate-400"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -1154,6 +1456,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                               <span>Passing Mark: <strong className="text-slate-700">{chosen.passing_score ?? 60}%</strong></span>
                               <span>•</span>
                               <span>Time: <strong className="text-slate-700">{chosen.time_limit_mins ? `${chosen.time_limit_mins} mins` : 'No time limit'}</strong></span>
+                            </div>
+                            <div className="text-[11px] text-violet-700 font-medium mt-1">
+                              ⚡ Scores will automatically sync to fulfill this {editingTest.weight}% evaluation requirement.
                             </div>
                           </div>
                         </div>
