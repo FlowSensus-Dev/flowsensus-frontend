@@ -12,6 +12,8 @@ import {
 import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
+import AgencySesSettings from './AgencySesSettings';
+import SesCalculationBreakdown, { SimulationCalculationBreakdown } from './SesCalculationBreakdown';
 
 interface StageForecast {
   stage_name: string;
@@ -71,6 +73,7 @@ interface SimulationStepResponse {
   new_stage_index: number;
   total_pipeline_eta: number | null;
   math_explanation: string;
+  calculation_breakdown?: SimulationCalculationBreakdown | null;
 }
 
 interface PreviewObservation {
@@ -148,7 +151,7 @@ function getWhatIfPipelineForecast(pipeline: PipelineForecastData | null, chains
   return total;
 }
 
-function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, exceptions, onSuccess, onReset }: {
+export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, exceptions, onSuccess, onReset }: {
   stage: StageForecast;
   applicantId: string;
   alpha: number | undefined;
@@ -309,6 +312,7 @@ function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, e
             <span aria-hidden="true">&rarr;</span>
             <span>Normal What-if SES: <strong className="font-mono text-sky-700">{result.data.new_stage_forecast.toFixed(2)} d</strong></span>
           </div>
+          <SesCalculationBreakdown data={result.data} />
           {result.data.actual_penalty_days > 0 && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2 text-amber-900">
               <p className="font-semibold">Exception / Penalty</p>
@@ -330,6 +334,7 @@ function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, e
             {history.map((observation, index) => (
               <li key={index} className="font-mono">
                 Prior {observation.data.previous_stage_forecast.toFixed(2)} d &rarr; Actual {observation.data.base_actual_days.toFixed(2)} d &rarr; SES {observation.data.new_stage_forecast.toFixed(2)} d
+                <SesCalculationBreakdown data={observation.data} compact />
               </li>
             ))}
           </ol>
@@ -358,6 +363,7 @@ interface PredictiveForecastProps {
   applicantsLoaded?: boolean;
   selectedApplicantId?: string;
   globalPipelineForecast?: any;
+  canEditAgencySettings?: boolean;
 }
 
 export default function PredictiveForecast({
@@ -365,6 +371,7 @@ export default function PredictiveForecast({
   applicantsLoaded = true,
   selectedApplicantId = '1',
   globalPipelineForecast,
+  canEditAgencySettings = false,
 }: PredictiveForecastProps) {
   const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -456,17 +463,19 @@ export default function PredictiveForecast({
     fetchLightweightApplications();
   }, []);
 
-  const fetchPipeline = async () => {
+  const fetchPipeline = async (force = false) => {
     setLoading(true);
     setBackendError(null);
     try {
-      const res = globalPipelineForecast ? { data: globalPipelineForecast } : await api.get('/forecasting/pipeline');
+      const res = !force && globalPipelineForecast ? { data: globalPipelineForecast } : await api.get('/forecasting/pipeline');
       setPipelineData(res.data);
+      return true;
     } catch (err: any) {
       console.error('Failed to fetch forecasting data from backend:', err);
       setBackendError(
         err.response?.data?.detail || err.message || 'Could not connect to FastAPI backend.'
       );
+      return false;
     } finally {
       setLoading(false);
     }
@@ -485,6 +494,7 @@ export default function PredictiveForecast({
         throw new Error('Forecast response does not match the requested application.');
       }
       setForecastResponse(res.data);
+      return true;
     } catch (err: any) {
       if (requestId !== forecastRequestId.current) return;
       console.warn(`Could not load forecast for application ${appId}:`, err);
@@ -499,6 +509,7 @@ export default function PredictiveForecast({
       } else {
         setForecastError('Unable to load forecast for this application.');
       }
+      return false;
     } finally {
       if (requestId === forecastRequestId.current) setLoadingApplicant(false);
     }
@@ -539,11 +550,23 @@ export default function PredictiveForecast({
   const handleRefresh = () => {
     setPreviewChains({});
     setPreviewEpoch((previous) => previous + 1);
-    fetchPipeline();
+    fetchPipeline(true);
     if (activeApplicationId) {
       fetchApplicationForecast(activeApplicationId);
     }
   };
+
+  const refreshAfterSettings = async () => {
+    setPreviewChains({});
+    setPreviewEpoch((previous) => previous + 1);
+    const results = await Promise.all([
+      fetchPipeline(true),
+      ...(activeApplicationId ? [fetchApplicationForecast(activeApplicationId)] : []),
+    ]);
+    if (results.some((result) => result === false)) throw new Error('Forecast refresh failed');
+  };
+
+  const configuration = <AgencySesSettings canEdit={canEditAgencySettings} onSaved={refreshAfterSettings} />;
 
   const selectedApplicationRecord =
     matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
@@ -649,10 +672,10 @@ export default function PredictiveForecast({
 
   if (!selectedApplicant) {
     return (
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="space-y-6"><div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-2xl font-bold text-slate-900">Predictive Timeline Forecast</h2>
         <p className="text-sm text-slate-500">No applicants are available to forecast.</p>
-      </div>
+      </div>{configuration}</div>
     );
   }
 
@@ -1044,6 +1067,7 @@ export default function PredictiveForecast({
           </div>
         </div>
       )}
+      {configuration}
     </div>
   );
 }

@@ -638,6 +638,7 @@ export default function AppShell({
       case 'forecast':
         return (
           <PredictiveForecast
+            canEditAgencySettings={userRolesList.includes('Management')}
             applicants={applicants}
             applicantsLoaded={applicantsLoaded}
             selectedApplicantId={selectedApplicantId || undefined}
