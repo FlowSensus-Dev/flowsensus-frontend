@@ -29,6 +29,7 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
+  BookOpen,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
@@ -83,6 +84,7 @@ export default function Sidebar({
       items: [
         { id: 'registration', label: 'Registration', icon: UserPlus, roles: ['Recruitment', 'Management'] },
         { id: 'screening', label: 'Screening Panel', icon: Microscope, roles: ['Recruitment', 'Management'] },
+        { id: 'digital-exams', label: 'Digital Exams', icon: BookOpen, roles: ['Recruitment', 'Admin', 'Management'] },
         { id: 'profiling', label: 'Applicant Profiling', icon: Sparkles, roles: ['Recruitment', 'Admin', 'Management'] },
       ],
     },

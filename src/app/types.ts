@@ -22,7 +22,8 @@ export type ViewType =
   | 'evaluation'
   | 'joborders'
   | 'employers'
-  | 'accounting-settings';
+  | 'accounting-settings'
+  | 'digital-exams';
 
 export interface WorkflowState {
   screeningPassed: boolean;
@@ -452,6 +453,8 @@ export interface EvaluationTest {
   scoringGuide: string;
   scoringType?: 'numeric' | 'pass_fail';
   applicableJobOrders?: string[]; // IDs or codes of applicable job orders. If empty or undefined, applies to all applicants.
+  examMode?: 'paper' | 'digital'; // 'paper' = physical/manual entry; 'digital' = online exam in portal
+  digitalExamTemplateId?: number | null; // Linked digital exam template ID from Digital Exam module
 }
 
 export interface WorkflowPhase {

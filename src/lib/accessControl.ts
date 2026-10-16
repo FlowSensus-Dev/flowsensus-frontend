@@ -29,6 +29,7 @@ export const UNIVERSAL_VIEWS: ViewType[] = [
 export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
   registration: ['Recruitment'],
   screening: ['Recruitment'],
+  'digital-exams': ['Recruitment', 'Admin'],
   profiling: ['Recruitment', 'Admin'],
   cv: ['Recruitment'],
   endorsement: ['Recruitment', 'Admin'],

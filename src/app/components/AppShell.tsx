@@ -31,6 +31,7 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
+import DigitalExams from './views/DigitalExams';
 import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
 import { hasAccessToView } from '../../lib/accessControl';
@@ -677,6 +678,14 @@ export default function AppShell({
             currentUserName={currentUserName}
             onPermissionsUpdated={(newPerms) => setWorkflowPermissions(newPerms)}
             onTemplatesUpdated={(tpls) => setEvaluationTemplates(tpls)}
+            globalJobOrders={globalJobOrders}
+          />
+        );
+      case 'digital-exams':
+        return (
+          <DigitalExams
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
             globalJobOrders={globalJobOrders}
           />
         );
