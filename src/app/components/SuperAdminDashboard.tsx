@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { isAxiosError } from 'axios';
 import {
   Building2, BarChart3, ScrollText, UserPlus, LogOut, Search, Shield,
   Users, CheckCircle2, AlertTriangle, Clock, ArrowRight,
@@ -13,6 +12,8 @@ import { api } from '../../lib/api';
 import { Skeleton } from './ui/skeleton';
 import DeploymentHistory from './views/DeploymentHistory';
 import Logo from './Logo';
+import { SHARED_PORTAL, ProvisionedAgency, confirmedProvisioning, provisioningFailure, provisioningPayload, suggestWorkspaceCode } from '../../lib/agencyProvisioning';
+import { TENANT_STATUSES, confirmedTenantUpdate, rawTenantStatus, tenantEditForm, tenantEditPayload, tenantUpdateError, validTenantStatus } from '../../lib/tenantManagement';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,8 +31,8 @@ interface LiveAuditLog {
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 function getStatusCfg(rawStatus: string | null | undefined) {
-  const s = (rawStatus || '').toLowerCase().trim();
-  if (s === 'active') {
+  const s = validTenantStatus(rawStatus);
+  if (s === 'ACTIVE') {
     return {
       label: 'Active',
       color: '#10B981',
@@ -40,16 +41,16 @@ function getStatusCfg(rawStatus: string | null | undefined) {
       dot: '#10B981',
     };
   }
-  if (s === 'pending approval' || s === 'pending_approval' || s.includes('pending')) {
+  if (s === 'CLOSED') {
     return {
-      label: 'Pending Approval',
+      label: 'Closed',
       color: '#D97706',
       bg: '#FFFBEB',
       border: '#FDE68A',
       dot: '#F59E0B',
     };
   }
-  if (s === 'suspended') {
+  if (s === 'SUSPENDED') {
     return {
       label: 'Suspended',
       color: '#DC2626',
@@ -59,16 +60,12 @@ function getStatusCfg(rawStatus: string | null | undefined) {
     };
   }
   return {
-    label: rawStatus || 'Active',
-    color: '#10B981',
-    bg: '#ECFDF5',
-    border: '#A7F3D0',
-    dot: '#10B981',
+    label: rawStatus ? `Unsupported: ${rawStatus}` : 'Status unavailable',
+    color: '#475569',
+    bg: '#F8FAFC',
+    border: '#CBD5E1',
+    dot: '#64748B',
   };
-}
-
-function toSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'agency-name';
 }
 
 function fmtTimestamp(raw: string | null): string {
@@ -140,79 +137,72 @@ export default function SuperAdminDashboard({
 
   // Agency management and editing state
   const [editingAgency, setEditingAgency] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({
-    agency_name: '',
-    poea_license_no: '',
-    agency_prefix: '',
-    workspace_url: '',
-    workspace_status: 'Active',
-  });
+  const [editForm, setEditForm] = useState(tenantEditForm({}));
+  const [editStatusChanged, setEditStatusChanged] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [tenantError, setTenantError] = useState<string | null>(null);
+  const tenantUpdateLock = useRef(false);
 
   const handleQuickStatusChange = async (agencyId: number, newStatus: string) => {
+    const agency = agencies.find((row) => row.agency_id === agencyId);
+    const selectedStatus = validTenantStatus(newStatus);
+    if (!agency || !selectedStatus || tenantUpdateLock.current || selectedStatus === validTenantStatus(rawTenantStatus(agency))) return;
+    tenantUpdateLock.current = true;
+    setTenantError(null);
+    setToastMessage(null);
     setUpdatingStatusId(agencyId);
     try {
-      await api.patch(`/agency-workspaces/${agencyId}`, {
-        workspace_status: newStatus,
-        status: newStatus.toUpperCase(),
+      const { data } = await api.patch(`/agency-workspaces/${agencyId}`, {
+        workspace_status: selectedStatus,
+        status: selectedStatus,
       });
+      const updated = confirmedTenantUpdate(data, agencyId, selectedStatus);
       setAgencies((prev) =>
         prev.map((a) =>
           a.agency_id === agencyId
-            ? { ...a, workspace_status: newStatus, status: newStatus.toUpperCase() }
+            ? { ...a, ...updated }
             : a
         )
       );
-      setToastMessage(`Agency status updated to "${newStatus}"`);
+      setToastMessage(`Agency status updated to "${selectedStatus}"`);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
-      alert(`Failed to update status: ${err?.response?.data?.detail || err.message}`);
+      setTenantError(tenantUpdateError(err));
     } finally {
       setUpdatingStatusId(null);
+      tenantUpdateLock.current = false;
     }
   };
 
   const openEditModal = (agency: any) => {
-    const rawStat = agency.workspace_status || agency.status || 'Active';
-    let normalized = 'Active';
-    const s = rawStat.toLowerCase();
-    if (s.includes('pending')) normalized = 'Pending Approval';
-    else if (s.includes('suspend')) normalized = 'Suspended';
-
+    if (tenantUpdateLock.current) return;
     setEditingAgency(agency);
-    setEditForm({
-      agency_name: agency.agency_name || '',
-      poea_license_no: agency.poea_license_no || '',
-      agency_prefix: agency.agency_prefix || '',
-      workspace_url: agency.workspace_url || agency.workspace_code || '',
-      workspace_status: normalized,
-    });
+    setEditForm(tenantEditForm(agency));
+    setEditStatusChanged(false);
     setEditError(null);
   };
 
   const handleEditSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!editingAgency) return;
+    if (!editingAgency || tenantUpdateLock.current) return;
+    let payload;
+    try { payload = tenantEditPayload(editingAgency, editForm, editStatusChanged); }
+    catch (err) { setEditError((err as Error).message); return; }
+    if (!Object.keys(payload).length) { setEditingAgency(null); return; }
+    tenantUpdateLock.current = true;
     setEditLoading(true);
     setEditError(null);
+    setToastMessage(null);
     try {
-      const res = await api.patch(`/agency-workspaces/${editingAgency.agency_id}`, {
-        agency_name: editForm.agency_name.trim(),
-        poea_license_no: editForm.poea_license_no.trim(),
-        agency_prefix: editForm.agency_prefix.trim().toUpperCase() || undefined,
-        workspace_url: editForm.workspace_url.trim(),
-        workspace_code: editForm.workspace_url.trim(),
-        workspace_status: editForm.workspace_status,
-        status: editForm.workspace_status.toUpperCase(),
-      });
-      const updated = res.data;
+      const res = await api.patch(`/agency-workspaces/${editingAgency.agency_id}`, payload);
+      const updated = confirmedTenantUpdate(res.data, editingAgency.agency_id, payload.status);
       setAgencies((prev) =>
         prev.map((a) =>
           a.agency_id === editingAgency.agency_id
-            ? { ...a, ...updated, ...editForm }
+            ? { ...a, ...updated }
             : a
         )
       );
@@ -220,9 +210,10 @@ export default function SuperAdminDashboard({
       setToastMessage(`Agency "${editForm.agency_name}" updated successfully`);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
-      setEditError(err?.response?.data?.detail || err?.message || 'Failed to update agency');
+      setEditError(tenantUpdateError(err));
     } finally {
       setEditLoading(false);
+      tenantUpdateLock.current = false;
     }
   };
 
@@ -232,13 +223,15 @@ export default function SuperAdminDashboard({
 
   // Agency Onboarding form state
   const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
+  const workspaceCodeEdited = useRef(false);
   const provisioningLock = useRef(false);
   const [provisioning, setProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [provisionReviewRequired, setProvisionReviewRequired] = useState(false);
+  const [provisionUncertain, setProvisionUncertain] = useState(false);
+  const [provisionReference, setProvisionReference] = useState<string | undefined>();
   const [agencyReload, setAgencyReload] = useState(0);
-  const [provisionResult, setProvisionResult] = useState<{
-    agencyName: string; workspaceUrl: string; email: string; temporaryPassword: string;
-  } | null>(null);
+  const [provisionResult, setProvisionResult] = useState<ProvisionedAgency | null>(null);
   const [copyMessage, setCopyMessage] = useState('');
   const [hasCopied, setHasCopied] = useState(false);
 
@@ -246,54 +239,31 @@ export default function SuperAdminDashboard({
     event.preventDefault();
     if (provisioningLock.current || provisionResult) return;
     setProvisionError(null);
-    const payload = {
-      agencyName: form.agencyName.trim(),
-      poeaLicenseNo: form.licenseNo.trim(),
-      workspaceUrl: `${form.slug.trim()}.flowsensus.com`,
-      workspaceStatus: 'Active',
-      adminFullName: form.gmName.trim(),
-      adminEmail: form.email.trim(),
-    };
-    if (!payload.agencyName || !payload.poeaLicenseNo || !payload.adminFullName || !payload.adminEmail || !form.slug.trim()) {
-      setProvisionError('Please complete all required fields, including the workspace URL.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.adminEmail)) {
-      setProvisionError('Please enter a valid corporate email address.');
-      return;
-    }
-    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(form.slug.trim())) {
-      setProvisionError('Use a workspace slug of 1–63 letters, numbers, or hyphens, starting and ending with a letter or number.');
-      return;
-    }
+    setProvisionReference(undefined);
+    setProvisionUncertain(false);
+    let payload;
+    try { payload = provisioningPayload(form); }
+    catch (error) { setProvisionError((error as Error).message); return; }
     provisioningLock.current = true;
     setProvisioning(true);
+    let uncertain = false;
+    let confirmed = false;
     try {
-      const { data } = await api.post('/agency-workspaces/provision', payload);
-      setProvisionResult({
-        agencyName: data.agency?.agency_name || payload.agencyName,
-        workspaceUrl: data.agency?.workspace_url || payload.workspaceUrl,
-        email: data.admin.email,
-        temporaryPassword: data.admin.temporary_password,
-      });
+      const response = await api.post('/agency-workspaces/provision', payload);
+      setProvisionResult(confirmedProvisioning(response, payload));
+      confirmed = true;
       setCopyMessage('');
       setHasCopied(false);
       setAgencyReload(value => value + 1);
     } catch (error: unknown) {
-      const status = isAxiosError(error) ? error.response?.status : undefined;
-      const detail = isAxiosError(error) ? error.response?.data?.detail : undefined;
-      // Render only short, plain backend messages; never response objects or traces.
-      const safeDetail = typeof detail === 'string' && detail.length <= 300 &&
-        !/[\r\n]|traceback|stack trace|\bat\s+\S+\s*\(|<[^>]+>/i.test(detail);
-      setProvisionError(safeDetail ? detail : status === 403
-        ? 'The current account is not a verified Super Admin.'
-        : status === 400
-          ? 'Unable to provision this workspace. Check the license number and Admin email for duplicates.'
-          : status && status >= 500
-            ? 'Workspace provisioning failed on the server. Please try again later.'
-            : 'Unable to provision the workspace. Please check your connection and try again.');
+      const issue = provisioningFailure(error);
+      uncertain = issue.uncertain;
+      setProvisionError(issue.message);
+      setProvisionReference(issue.reference);
+      setProvisionUncertain(issue.uncertain);
+      setProvisionReviewRequired(issue.uncertain);
     } finally {
-      provisioningLock.current = false;
+      provisioningLock.current = uncertain || confirmed;
       setProvisioning(false);
     }
   };
@@ -355,16 +325,13 @@ export default function SuperAdminDashboard({
   const tenantMetrics = {
     total: agencies.length,
     active: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s === 'active';
+      return validTenantStatus(rawTenantStatus(a)) === 'ACTIVE';
     }).length,
-    pending: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s.includes('pending');
+    closed: agencies.filter(a => {
+      return validTenantStatus(rawTenantStatus(a)) === 'CLOSED';
     }).length,
     suspended: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s === 'suspended';
+      return validTenantStatus(rawTenantStatus(a)) === 'SUSPENDED';
     }).length,
   };
 
@@ -373,12 +340,12 @@ export default function SuperAdminDashboard({
     const name = (a.agency_name || '').toLowerCase();
     const lic = (a.poea_license_no || '').toLowerCase();
     const code = (a.workspace_code || a.workspace_url || '').toLowerCase();
-    const stat = (a.workspace_status || a.status || '').toLowerCase().trim();
+    const stat = validTenantStatus(rawTenantStatus(a));
     const matchesSearch = q === '' || name.includes(q) || lic.includes(q) || code.includes(q);
     const matchesStatus = statusFilter === 'all' ||
-      (statusFilter === 'active' && stat === 'active') ||
-      (statusFilter === 'pending' && stat.includes('pending')) ||
-      (statusFilter === 'suspended' && stat === 'suspended');
+      (statusFilter === 'active' && stat === 'ACTIVE') ||
+      (statusFilter === 'closed' && stat === 'CLOSED') ||
+      (statusFilter === 'suspended' && stat === 'SUSPENDED');
     return matchesSearch && matchesStatus;
   });
 
@@ -416,7 +383,7 @@ export default function SuperAdminDashboard({
     },
     onboarding: {
       title: 'Agency Onboarding',
-      subtitle: 'Provision new verified recruitment agency workspaces and issue administrator credentials.',
+      subtitle: 'Register agencies and create their initial Management accounts.',
     },
     audit: {
       title: 'Super Admin Audit Ledger',
@@ -610,11 +577,11 @@ export default function SuperAdminDashboard({
                     </p>
                   </div>
 
-                  {/* Pending Approval */}
+                  {/* Closed */}
                   <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs relative overflow-hidden group hover:shadow-md transition-all">
                     <div className="absolute -right-4 -top-4 w-16 h-16 bg-amber-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
                     <div className="flex items-center justify-between mb-3 relative z-10">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Approval</p>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Closed</p>
                       <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center font-bold">
                         <Clock size={19} />
                       </div>
@@ -623,11 +590,11 @@ export default function SuperAdminDashboard({
                       <Skeleton className="h-9 w-20 mt-1" />
                     ) : (
                       <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-1 tracking-tight">
-                        {tenantMetrics.pending}
+                        {tenantMetrics.closed}
                       </p>
                     )}
                     <p className="text-xs text-amber-600 mt-2 font-semibold">
-                      Awaiting compliance & license review
+                      Agencies marked Closed
                     </p>
                   </div>
 
@@ -732,11 +699,11 @@ export default function SuperAdminDashboard({
 
                       <div className="bg-amber-50/60 border border-amber-200/70 rounded-xl p-4 flex items-center gap-4">
                         <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black text-xl shadow-xs">
-                          {tenantMetrics.pending}
+                          {tenantMetrics.closed}
                         </div>
                         <div>
-                          <p className="font-bold text-amber-950 text-sm">Pending Verification</p>
-                          <p className="text-amber-700 text-xs">Awaiting license documentation</p>
+                          <p className="font-bold text-amber-950 text-sm">Closed Agencies</p>
+                          <p className="text-amber-700 text-xs">Agency status recorded as Closed</p>
                         </div>
                       </div>
 
@@ -746,7 +713,7 @@ export default function SuperAdminDashboard({
                         </div>
                         <div>
                           <p className="font-bold text-red-950 text-sm">Suspended Agencies</p>
-                          <p className="text-red-700 text-xs">Login & API endpoints suspended</p>
+                          <p className="text-red-700 text-xs">Agency status recorded as Suspended</p>
                         </div>
                       </div>
                     </div>
@@ -831,7 +798,7 @@ export default function SuperAdminDashboard({
                   >
                     <option value="all">All Workspace Statuses</option>
                     <option value="active">Active Only</option>
-                    <option value="pending">Pending Approval</option>
+                    <option value="closed">Closed Only</option>
                     <option value="suspended">Suspended Only</option>
                   </select>
                   <button
@@ -854,6 +821,7 @@ export default function SuperAdminDashboard({
                   </button>
                 </div>
 
+                {tenantError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{tenantError}</p>}
                 {/* Agencies Table Card */}
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                   <div className="overflow-x-auto">
@@ -907,11 +875,9 @@ export default function SuperAdminDashboard({
                           </tr>
                         ) : (
                           filtered.map((t) => {
-                            const rawStatus = t.workspace_status || t.status || 'Active';
+                            const rawStatus = rawTenantStatus(t);
                             const cfg = getStatusCfg(rawStatus);
-                            const urlDisplay = t.workspace_url
-                              ? (t.workspace_url.includes('.') ? t.workspace_url : `${t.workspace_url}.flowsensus.com`)
-                              : (t.workspace_code ? `${t.workspace_code}.flowsensus.com` : '—');
+                            const urlDisplay = t.workspace_code ?? t.workspace_url ?? '—';
                             const isUpdatingThis = updatingStatusId === t.agency_id;
 
                             return (
@@ -958,15 +924,15 @@ export default function SuperAdminDashboard({
                                     </span>
                                     {/* Quick Status Control */}
                                     <select
-                                      disabled={isUpdatingThis}
-                                      value={rawStatus.toLowerCase().includes('pending') ? 'Pending Approval' : (rawStatus.toLowerCase() === 'suspended' ? 'Suspended' : 'Active')}
+                                      disabled={updatingStatusId !== null || editLoading}
+                                      value={validTenantStatus(rawStatus)}
                                       onChange={(e) => handleQuickStatusChange(t.agency_id, e.target.value)}
                                       title="Change agency status"
+                                      aria-label={`Change status for ${t.agency_name}`}
                                       className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1 hover:border-[#0EA5E9] focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] cursor-pointer disabled:opacity-50"
                                     >
-                                      <option value="Active">Active</option>
-                                      <option value="Pending Approval">Pending Approval</option>
-                                      <option value="Suspended">Suspended</option>
+                                      {!validTenantStatus(rawStatus) && <option value="" disabled>Unknown status — choose explicitly</option>}
+                                      {TENANT_STATUSES.map((status) => <option key={status} value={status}>{status[0] + status.slice(1).toLowerCase()}</option>)}
                                     </select>
                                     {isUpdatingThis && <Loader2 size={13} className="animate-spin text-[#0EA5E9]" />}
                                   </div>
@@ -981,6 +947,7 @@ export default function SuperAdminDashboard({
                                       onClick={() => openEditModal(t)}
                                       className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:text-[#0EA5E9] hover:border-sky-300 hover:bg-sky-50/50 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                                       title="Edit agency details"
+                                      disabled={updatingStatusId !== null || editLoading}
                                     >
                                       <Edit2 size={13} />
                                       <span>Edit</span>
@@ -1036,7 +1003,7 @@ export default function SuperAdminDashboard({
                         Provision New Tenant Workspace
                       </h3>
                       <p className="text-slate-500 text-xs">
-                        Registers the official recruitment workspace and generates admin credentials.
+                        Registers an agency and creates its initial Management account.
                       </p>
                     </div>
                   </div>
@@ -1044,7 +1011,7 @@ export default function SuperAdminDashboard({
                   <div className="my-5 p-3.5 rounded-xl bg-sky-50 border border-sky-200 text-xs text-[#0369A1] font-medium flex items-center gap-2.5">
                     <Sparkles size={16} className="text-[#0EA5E9] flex-shrink-0" />
                     <span>
-                      A secure temporary administrator password will be created automatically upon submission.
+                      A temporary password is generated for the initial Manager. Secure credential handoff is required; no onboarding email is sent.
                     </span>
                   </div>
 
@@ -1054,7 +1021,7 @@ export default function SuperAdminDashboard({
                       <div className="flex items-center gap-2 mb-3">
                         <CheckCheck className="w-5 h-5 text-emerald-600" />
                         <h4 className="font-black text-base text-emerald-900">
-                          Workspace Provisioned Successfully!
+                          Agency and Initial Manager Created
                         </h4>
                       </div>
                       
@@ -1064,11 +1031,11 @@ export default function SuperAdminDashboard({
                           <span className="font-bold text-[#0F172A]">{provisionResult.agencyName}</span>
                         </div>
                         <div className="flex justify-between border-b border-slate-100 pb-2">
-                          <span className="text-slate-500 font-semibold">Workspace Domain</span>
-                          <span className="font-mono text-[#0EA5E9] font-bold">{provisionResult.workspaceUrl}</span>
+                          <span className="text-slate-500 font-semibold">Workspace Code</span>
+                          <span className="font-mono text-[#0EA5E9] font-bold">{provisionResult.workspaceCode}</span>
                         </div>
                         <div className="flex justify-between border-b border-slate-100 pb-2">
-                          <span className="text-slate-500 font-semibold">Admin Account</span>
+                          <span className="text-slate-500 font-semibold">Initial Manager Email</span>
                           <span className="font-semibold text-slate-800">{provisionResult.email}</span>
                         </div>
                         <div className="flex justify-between items-center pt-1">
@@ -1078,6 +1045,10 @@ export default function SuperAdminDashboard({
                           </code>
                         </div>
                       </div>
+
+                      <p className="text-xs">Securely share these login credentials with the initial Manager. No email has been sent.</p>
+                      <p className="mt-2 text-xs">Sign in through <a href={SHARED_PORTAL} target="_blank" rel="noreferrer" className="font-bold underline">{SHARED_PORTAL}</a>.</p>
+                      {provisionResult.mustChangePassword && <p className="mt-2 text-xs font-semibold">The Manager must complete the password-change prompt at first sign-in.</p>}
 
                       <div className="flex flex-wrap items-center gap-3 mt-4">
                         <button
@@ -1095,6 +1066,11 @@ export default function SuperAdminDashboard({
                             setProvisionResult(null);
                             setCopyMessage('');
                             setProvisionError(null);
+                            setProvisionReviewRequired(false);
+                            setProvisionUncertain(false);
+                            setProvisionReference(undefined);
+                            workspaceCodeEdited.current = false;
+                            provisioningLock.current = false;
                             setForm({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
                           }}
                           className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline cursor-pointer"
@@ -1108,21 +1084,22 @@ export default function SuperAdminDashboard({
                   )}
 
                   <form onSubmit={handleProvision} noValidate className="space-y-4">
-                    <fieldset disabled={provisioning || !!provisionResult} className="space-y-4 disabled:opacity-60">
+                    <fieldset disabled={provisioning || !!provisionResult || provisionReviewRequired} className="space-y-4 disabled:opacity-60">
                       
                       {/* Agency Name */}
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
+                        <label htmlFor="onboarding-agency-name" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
                           Agency Name <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="text"
                           value={form.agencyName}
+                          id="onboarding-agency-name"
                           onChange={(e) => setForm(p => ({
                             ...p,
                             agencyName: e.target.value,
-                            slug: toSlug(e.target.value),
+                            slug: workspaceCodeEdited.current ? p.slug : suggestWorkspaceCode(e.target.value),
                           }))}
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] transition-all"
                           placeholder="e.g. FindStaff Placement Services Inc."
@@ -1131,13 +1108,14 @@ export default function SuperAdminDashboard({
 
                       {/* POEA License No. */}
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
+                        <label htmlFor="onboarding-license" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
                           POEA / DMW License No. <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="text"
                           value={form.licenseNo}
+                          id="onboarding-license"
                           onChange={(e) => setForm(p => ({ ...p, licenseNo: e.target.value }))}
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] font-mono transition-all"
                           placeholder="POEA-123-LB-040124-R"
@@ -1146,38 +1124,40 @@ export default function SuperAdminDashboard({
 
                       {/* General Manager Name */}
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
-                          General Manager / Authorized Representative <span className="text-red-500">*</span>
+                        <label htmlFor="onboarding-manager-name" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
+                          Initial Manager / Authorized Representative <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="text"
                           value={form.gmName}
+                          id="onboarding-manager-name"
                           onChange={(e) => setForm(p => ({ ...p, gmName: e.target.value }))}
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] transition-all"
-                          placeholder="Full legal name of GM"
+                          placeholder="Full legal name of initial Manager"
                         />
                       </div>
 
                       {/* Corporate Email */}
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
-                          Corporate Admin Email <span className="text-red-500">*</span>
+                        <label htmlFor="onboarding-manager-email" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
+                          Initial Manager Email <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="email"
                           value={form.email}
+                          id="onboarding-manager-email"
                           onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))}
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] transition-all"
                           placeholder="gm@agency.com"
                         />
                       </div>
 
-                      {/* Workspace URL Subdomain */}
+                      {/* Logical identifier within the shared application */}
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
-                          Assigned Workspace Domain <span className="text-red-500">*</span>
+                        <label htmlFor="onboarding-workspace-code" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1.5">
+                          Workspace Code <span className="text-red-500">*</span>
                         </label>
                         <div className="flex rounded-xl border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-[#0EA5E9]/20 focus-within:border-[#0EA5E9] transition-all">
                           <input
@@ -1185,32 +1165,43 @@ export default function SuperAdminDashboard({
                             type="text"
                             maxLength={63}
                             value={form.slug}
-                            onChange={(e) => setForm(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                            id="onboarding-workspace-code"
+                            onChange={(e) => {
+                              workspaceCodeEdited.current = true;
+                              setForm(p => ({ ...p, slug: e.target.value.toLowerCase() }));
+                            }}
                             className="flex-1 px-4 py-2.5 text-sm focus:outline-none font-mono bg-white text-[#0F172A]"
-                            placeholder="agency-name"
+                            placeholder="agency2test"
                           />
-                          <span className="bg-slate-50 border-l border-slate-200 px-4 py-2.5 text-slate-500 text-xs font-mono flex items-center whitespace-nowrap">
-                            .flowsensus.com
-                          </span>
                         </div>
+                        <p className="mt-1.5 text-xs text-slate-500">A unique agency identifier within the shared FlowSensus application at {SHARED_PORTAL}. This does not create a separate subdomain.</p>
                       </div>
                     </fieldset>
 
                     {provisionError && (
                       <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs text-red-700 font-semibold">
                         {provisionError}
+                        {provisionReference && <span className="block mt-2 font-mono">Recovery reference: {provisionReference}</span>}
                       </p>
                     )}
 
+                    {provisionUncertain && <label className="flex items-start gap-2 text-xs text-slate-600">
+                      <input type="checkbox" checked={!provisionReviewRequired} onChange={(event) => {
+                        setProvisionReviewRequired(!event.target.checked);
+                        provisioningLock.current = !event.target.checked;
+                      }} />
+                      I have verified agency and Manager account records and confirmed it is safe to submit again.
+                    </label>}
+
                     <button
                       type="submit"
-                      disabled={provisioning || !!provisionResult}
+                      disabled={provisioning || !!provisionResult || provisionReviewRequired}
                       className="w-full bg-[#0EA5E9] hover:bg-[#0284C7] active:bg-[#0369A1] disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl shadow-xs hover:shadow transition-all flex items-center justify-center gap-2 mt-4 cursor-pointer text-sm"
                     >
                       {provisioning ? (
                         <>
                           <Loader2 size={16} className="animate-spin" />
-                          <span>Provisioning Workspace Architecture...</span>
+                          <span>Creating Agency and Initial Manager...</span>
                         </>
                       ) : (
                         <>
@@ -1233,8 +1224,8 @@ export default function SuperAdminDashboard({
                     <ul className="space-y-3">
                       {[
                         'Agency holds an active, unexpired POEA / DMW recruitment license',
-                        'Corporate business email belongs to the registered agency entity',
-                        'General Manager legal identity and onboarding authority validated',
+                        'Initial Manager email is correct and accessible to the authorized representative',
+                        'Initial Manager identity and onboarding authority validated',
                         'No conflicting workspace exists under this license registration',
                       ].map((item, i) => (
                         <li key={i} className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed">
@@ -1252,10 +1243,10 @@ export default function SuperAdminDashboard({
                     </p>
                     <div className="space-y-3.5">
                       {[
-                        { step: '01', title: 'Workspace Initialization', desc: 'Agency workspace record and tenancy schemas are created in the database.' },
-                        { step: '02', title: 'Tenant Isolation', desc: 'Secure row-level and workspace boundaries are partitioned for the agency.' },
-                        { step: '03', title: 'Admin Account Generation', desc: 'Tenant administrator identity is registered with temporary authentication.' },
-                        { step: '04', title: 'System Access Ready', desc: 'Administrator signs in with temporary password and initializes staff onboarding.' },
+                        { step: '01', title: 'Agency Registration', desc: 'An ACTIVE agency record is created with a unique Workspace Code.' },
+                        { step: '02', title: 'Management Account', desc: 'An Auth identity and linked staff account are created for the agency with Management membership.' },
+                        { step: '03', title: 'Secure Handoff', desc: 'The Super Admin securely shares the returned temporary login credentials. No email is sent.' },
+                        { step: '04', title: 'Shared Portal Access', desc: 'The initial Manager signs in at flowsensus.app and completes the password-change prompt.' },
                       ].map((s) => (
                         <div key={s.step} className="flex items-start gap-3">
                           <span className="font-mono text-sky-400 font-extrabold text-xs flex-shrink-0 mt-0.5">
@@ -1296,6 +1287,7 @@ export default function SuperAdminDashboard({
                     <button
                       type="button"
                       onClick={() => setEditingAgency(null)}
+                      disabled={editLoading}
                       className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition-colors cursor-pointer"
                     >
                       <X size={18} />
@@ -1304,19 +1296,21 @@ export default function SuperAdminDashboard({
 
                   <form onSubmit={handleEditSubmit} className="p-6 space-y-4 text-left">
                     {editError && (
-                      <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold">
+                      <div role="alert" className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold">
                         {editError}
                       </div>
                     )}
 
+                    <fieldset disabled={editLoading} className="space-y-4">
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                      <label htmlFor="tenant-edit-name" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                         Agency Business Name <span className="text-red-500">*</span>
                       </label>
                       <input
                         required
                         type="text"
                         value={editForm.agency_name}
+                        id="tenant-edit-name"
                         onChange={(e) => setEditForm(p => ({ ...p, agency_name: e.target.value }))}
                         className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
                       />
@@ -1324,13 +1318,14 @@ export default function SuperAdminDashboard({
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                        <label htmlFor="tenant-edit-license" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                           POEA / DMW License <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="text"
                           value={editForm.poea_license_no}
+                          id="tenant-edit-license"
                           onChange={(e) => setEditForm(p => ({ ...p, poea_license_no: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
                         />
@@ -1343,6 +1338,7 @@ export default function SuperAdminDashboard({
                           type="text"
                           maxLength={6}
                           value={editForm.agency_prefix}
+                          id="tenant-edit-prefix"
                           onChange={(e) => setEditForm(p => ({ ...p, agency_prefix: e.target.value.toUpperCase() }))}
                           placeholder="e.g. FPT"
                           className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono font-bold text-[#0F172A] uppercase focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
@@ -1351,42 +1347,49 @@ export default function SuperAdminDashboard({
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
-                        Workspace Subdomain Slug <span className="text-red-500">*</span>
+                      <label htmlFor="tenant-edit-workspace" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                        Workspace Code <span className="text-red-500">*</span>
                       </label>
                       <div className="flex rounded-xl border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-[#0EA5E9]/20 focus-within:border-[#0EA5E9]">
                         <input
                           required
                           type="text"
                           value={editForm.workspace_url}
+                          maxLength={63}
+                          id="tenant-edit-workspace"
                           onChange={(e) => setEditForm(p => ({ ...p, workspace_url: e.target.value }))}
                           className="flex-1 px-3.5 py-2 text-sm font-mono text-[#0F172A] focus:outline-none"
                         />
-                        <span className="bg-slate-50 border-l border-slate-200 px-3 py-2 text-slate-500 text-xs font-mono flex items-center">
-                          .flowsensus.com
-                        </span>
                       </div>
+                      <p className="mt-1 text-xs text-slate-500">Unique agency identifier in the shared FlowSensus application.</p>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                      <label htmlFor="tenant-edit-status" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                         Operational Status <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={editForm.workspace_status}
-                        onChange={(e) => setEditForm(p => ({ ...p, workspace_status: e.target.value }))}
+                        id="tenant-edit-status"
+                        onChange={(e) => {
+                          setEditStatusChanged(true);
+                          setEditForm(p => ({ ...p, workspace_status: validTenantStatus(e.target.value) }));
+                        }}
                         className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] cursor-pointer"
                       >
-                        <option value="Active">Active</option>
-                        <option value="Pending Approval">Pending Approval</option>
-                        <option value="Suspended">Suspended</option>
+                        {!validTenantStatus(rawTenantStatus(editingAgency)) && <option value="" disabled>Unknown status — choose explicitly</option>}
+                        {TENANT_STATUSES.map((status) => <option key={status} value={status}>{status[0] + status.slice(1).toLowerCase()}</option>)}
                       </select>
+                      {!validTenantStatus(rawTenantStatus(editingAgency)) && <p className="mt-1 text-xs text-slate-600">Returned status: {rawTenantStatus(editingAgency) || 'Unavailable'}. Profile-only changes preserve this value.</p>}
+                      <p className="mt-1 text-xs text-slate-500">Status is submitted only when you deliberately select a different value.</p>
                     </div>
+                    </fieldset>
 
                     <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={() => setEditingAgency(null)}
+                        disabled={editLoading}
                         className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
                       >
                         Cancel
