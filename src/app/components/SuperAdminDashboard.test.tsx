@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AxiosError, AxiosHeaders } from 'axios';
 
-const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, post: vi.fn(), get: vi.fn(), patch: vi.fn() }));
+const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as any[], post: vi.fn(), get: vi.fn(), patch: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api: { post: h.post, get: h.get, patch: h.patch } }));
 vi.mock('react', async (original) => ({ ...(await original() as any),
   useState: (initial: any) => {
@@ -10,7 +10,7 @@ vi.mock('react', async (original) => ({ ...(await original() as any),
     return [h.slots[index], (value: any) => { h.slots[index] = typeof value === 'function' ? value(h.slots[index]) : value; }];
   },
   useRef: (initial: any) => { const index = h.cursor++; return h.slots[index] ?? (h.slots[index] = { current: initial }); },
-  useEffect: () => {},
+  useEffect: (effect: any) => { h.effects.push(effect); },
 }));
 import SuperAdminDashboard from './SuperAdminDashboard';
 
@@ -49,7 +49,7 @@ describe('Super Admin onboarding (mocked API only)', () => {
   };
 
   beforeEach(() => {
-    h.slots = []; h.cursor = 0; vi.clearAllMocks(); vi.useFakeTimers();
+    h.slots = []; h.cursor = 0; h.effects = []; vi.clearAllMocks(); vi.useFakeTimers();
     props = { currentUserName: 'Authorized Operator', applicants: [], activityLogs: [], onLogout: vi.fn(), onSwitchRole: vi.fn() };
     copy = vi.fn().mockResolvedValue(undefined); storage = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: copy } });
@@ -152,5 +152,109 @@ describe('Super Admin onboarding (mocked API only)', () => {
     button('Management').props.onClick(); expect(props.onSwitchRole).toHaveBeenCalledWith('Management');
     const logout = nodes(render()).find((n) => n.type === 'button' && n.props.onClick === props.onLogout);
     expect(logout).toBeDefined(); logout.props.onClick(); expect(props.onLogout).toHaveBeenCalledOnce();
+  });
+
+  const tenant = (status: any) => ({ agency_id: 83, agency_name: 'Example Agency', poea_license_no: 'DEMO-LICENSE',
+    agency_prefix: 'EX', workspace_code: 'example-agency', status, created_at: null });
+  const loadTenants = async (rows: any[]) => {
+    h.get.mockResolvedValue({ data: rows });
+    h.patch.mockImplementation(async (url, body) => ({ data: { ...rows.find((r) => url.endsWith(`/${r.agency_id}`)), ...body } }));
+    h.effects[1]();
+    await Promise.resolve(); await Promise.resolve();
+    button('Tenant Management').props.onClick();
+  };
+  const editField = (id: string) => nodes(render()).find((n) => n.props?.id === `tenant-edit-${id}`);
+  const editChange = (id: string, value: string) => editField(id).props.onChange({ target: { value } });
+  const quickStatus = () => nodes(render()).find((n) => n.type === 'select' && n.props.title === 'Change agency status');
+  const editableOptions = (select: any) => nodes(select).filter((n) => n.type === 'option' && !n.props.disabled).map((n) => n.props.value);
+  const openTenant = () => nodes(render()).find((n) => n.type === 'button' && n.props.title === 'Edit agency details').props.onClick();
+
+  it('offers only supported status choices, correctly displays CLOSED, and never writes on load', async () => {
+    await loadTenants([tenant('CLOSED')]);
+    expect(quickStatus().props.value).toBe('CLOSED');
+    expect(editableOptions(quickStatus())).toEqual(['ACTIVE', 'SUSPENDED', 'CLOSED']);
+    expect(text(render())).not.toContain('Pending Approval');
+    openTenant(); expect(editField('status').props.value).toBe('CLOSED');
+    expect(editableOptions(editField('status'))).toEqual(['ACTIVE', 'SUSPENDED', 'CLOSED']);
+    expect(h.patch).not.toHaveBeenCalled(); expect(h.post).not.toHaveBeenCalled();
+  });
+  it.each(['CLOSED', 'SUSPENDED', 'ACTIVE'])('keeps %s unchanged when saving only a profile field', async (status) => {
+    await loadTenants([tenant(status)]); openTenant(); editChange('name', 'Renamed Agency'); await submit();
+    expect(h.patch).toHaveBeenCalledWith('/agency-workspaces/83', { agency_name: 'Renamed Agency' });
+    expect(h.patch.mock.calls[0][1]).not.toHaveProperty('status'); expect(h.patch.mock.calls[0][1]).not.toHaveProperty('workspace_status');
+    expect(h.patch.mock.calls[0][1]).not.toHaveProperty('workspaceStatus'); expect(quickStatus().props.value).toBe(status);
+  });
+  it.each(['LEGACY_REVIEW', null, 'Pending Approval'])('preserves unknown raw status %s and saves profile edits without status', async (status) => {
+    await loadTenants([tenant(status)]); expect(quickStatus().props.value).toBe('');
+    openTenant(); expect(editField('status').props.value).toBe('');
+    expect(text(render())).toContain(status || 'Status unavailable');
+    editChange('license', 'NEW-LICENSE');
+    h.patch.mockResolvedValueOnce({ data: { ...tenant(status), status: status ?? '', poea_license_no: 'NEW-LICENSE' } });
+    await submit(); expect(h.patch).toHaveBeenCalledWith('/agency-workspaces/83', { poea_license_no: 'NEW-LICENSE' });
+    expect(quickStatus().props.value).toBe('');
+  });
+  it.each([['CLOSED', 'ACTIVE'], ['ACTIVE', 'SUSPENDED'], ['SUSPENDED', 'CLOSED']])('submits deliberate %s -> %s transitions alongside profile edits', async (from, to) => {
+    await loadTenants([tenant(from)]); openTenant(); editChange('status', to); editChange('name', 'Renamed Agency'); await submit();
+    expect(h.patch).toHaveBeenCalledWith('/agency-workspaces/83', { agency_name: 'Renamed Agency', workspace_status: to, status: to });
+    expect(quickStatus().props.value).toBe(to);
+  });
+  it('omits status when the user reverts the selection and skips a completely unchanged save', async () => {
+    await loadTenants([tenant('CLOSED')]); openTenant(); await submit(); expect(h.patch).not.toHaveBeenCalled();
+    openTenant(); editChange('status', 'ACTIVE'); editChange('status', 'CLOSED'); editChange('name', 'Renamed Agency'); await submit();
+    expect(h.patch.mock.calls[0][1]).toEqual({ agency_name: 'Renamed Agency' });
+  });
+  it('resets deliberate-status tracking on cancel and requires explicit selection for an unknown status', async () => {
+    await loadTenants([tenant('LEGACY')]); openTenant(); editChange('status', 'ACTIVE'); button('Cancel').props.onClick();
+    openTenant(); expect(editField('status').props.value).toBe(''); editChange('name', 'Renamed Agency'); await submit();
+    expect(h.patch.mock.calls[0][1]).toEqual({ agency_name: 'Renamed Agency' });
+    openTenant(); editChange('status', 'ACTIVE'); await submit();
+    expect(h.patch.mock.calls[1][1]).toEqual({ workspace_status: 'ACTIVE', status: 'ACTIVE' });
+  });
+  it('keeps supported profile fields editable and submits bare workspace aliases without status', async () => {
+    await loadTenants([tenant('SUSPENDED')]); openTenant();
+    expect(text(render())).toContain('Workspace Code'); expect(text(render())).not.toContain('.flowsensus.com');
+    editChange('license', 'NEW-LICENSE'); editChange('prefix', 'TEST'); editChange('workspace', 'new-code'); await submit();
+    expect(h.patch.mock.calls[0][1]).toEqual({ poea_license_no: 'NEW-LICENSE', agency_prefix: 'TEST', workspace_url: 'new-code', workspace_code: 'new-code' });
+  });
+  it('sends compatible quick-status aliases and ignores unchanged or unsupported selections', async () => {
+    await loadTenants([tenant('ACTIVE')]);
+    await quickStatus().props.onChange({ target: { value: 'ACTIVE' } }); expect(h.patch).not.toHaveBeenCalled();
+    await quickStatus().props.onChange({ target: { value: 'Pending Approval' } }); expect(h.patch).not.toHaveBeenCalled();
+    await quickStatus().props.onChange({ target: { value: 'CLOSED' } });
+    expect(h.patch).toHaveBeenCalledWith('/agency-workspaces/83', { workspace_status: 'CLOSED', status: 'CLOSED' });
+    expect(quickStatus().props.value).toBe('CLOSED');
+  });
+  it.each([403, 409, 422, 500, undefined])('retains status and shows safe errors after failed quick update (%s)', async (status) => {
+    await loadTenants([tenant('CLOSED')]); h.patch.mockRejectedValueOnce(reject(status, 'Database internals: do-not-display'));
+    await quickStatus().props.onChange({ target: { value: 'ACTIVE' } });
+    expect(quickStatus().props.value).toBe('CLOSED'); expect(quickStatus().props.disabled).toBe(false);
+    expect(text(render())).not.toContain('Agency status updated'); expect(text(render())).not.toContain('Database internals');
+    expect(nodes(render()).some((n) => n.props?.role === 'alert')).toBe(true);
+    if (status === 403) expect(text(render())).toContain('verified platform Super Admin');
+    if (status === 422) expect(text(render())).toContain('Active, Suspended, or Closed');
+  });
+  it('preserves the modal draft and previous status when mixed updates are forbidden', async () => {
+    await loadTenants([tenant('CLOSED')]); openTenant(); editChange('status', 'ACTIVE'); editChange('name', 'Renamed Agency');
+    h.patch.mockRejectedValueOnce(reject(403, 'Private internals')); await submit();
+    expect(editField('name').props.value).toBe('Renamed Agency'); expect(editField('status').props.value).toBe('ACTIVE');
+    expect(quickStatus().props.value).toBe('CLOSED'); expect(text(render())).not.toContain('updated successfully');
+    expect(text(render())).not.toContain('Private internals');
+  });
+  it('does not claim success for an unconfirmed or mismatched backend response', async () => {
+    await loadTenants([tenant('CLOSED')]); h.patch.mockResolvedValueOnce({ data: tenant('CLOSED') });
+    await quickStatus().props.onChange({ target: { value: 'ACTIVE' } });
+    expect(quickStatus().props.value).toBe('CLOSED'); expect(text(render())).toContain('could not be confirmed');
+    expect(text(render())).not.toContain('Agency status updated');
+  });
+  it('prevents overlapping quick updates and duplicate modal submissions', async () => {
+    await loadTenants([tenant('CLOSED')]); let resolve: any;
+    h.patch.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const pending = quickStatus().props.onChange({ target: { value: 'ACTIVE' } });
+    await quickStatus().props.onChange({ target: { value: 'SUSPENDED' } }); expect(h.patch).toHaveBeenCalledOnce();
+    expect(quickStatus().props.disabled).toBe(true); resolve({ data: tenant('ACTIVE') }); await pending;
+    openTenant(); editChange('name', 'Renamed Agency');
+    h.patch.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const pendingEdit = submit(); await submit(); expect(h.patch).toHaveBeenCalledTimes(2);
+    resolve({ data: { ...tenant('ACTIVE'), agency_name: 'Renamed Agency' } }); await pendingEdit;
   });
 });

@@ -13,6 +13,7 @@ import { Skeleton } from './ui/skeleton';
 import DeploymentHistory from './views/DeploymentHistory';
 import Logo from './Logo';
 import { SHARED_PORTAL, ProvisionedAgency, confirmedProvisioning, provisioningFailure, provisioningPayload, suggestWorkspaceCode } from '../../lib/agencyProvisioning';
+import { TENANT_STATUSES, confirmedTenantUpdate, rawTenantStatus, tenantEditForm, tenantEditPayload, tenantUpdateError, validTenantStatus } from '../../lib/tenantManagement';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,8 +31,8 @@ interface LiveAuditLog {
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 function getStatusCfg(rawStatus: string | null | undefined) {
-  const s = (rawStatus || '').toLowerCase().trim();
-  if (s === 'active') {
+  const s = validTenantStatus(rawStatus);
+  if (s === 'ACTIVE') {
     return {
       label: 'Active',
       color: '#10B981',
@@ -40,16 +41,16 @@ function getStatusCfg(rawStatus: string | null | undefined) {
       dot: '#10B981',
     };
   }
-  if (s === 'pending approval' || s === 'pending_approval' || s.includes('pending')) {
+  if (s === 'CLOSED') {
     return {
-      label: 'Pending Approval',
+      label: 'Closed',
       color: '#D97706',
       bg: '#FFFBEB',
       border: '#FDE68A',
       dot: '#F59E0B',
     };
   }
-  if (s === 'suspended') {
+  if (s === 'SUSPENDED') {
     return {
       label: 'Suspended',
       color: '#DC2626',
@@ -59,11 +60,11 @@ function getStatusCfg(rawStatus: string | null | undefined) {
     };
   }
   return {
-    label: rawStatus || 'Active',
-    color: '#10B981',
-    bg: '#ECFDF5',
-    border: '#A7F3D0',
-    dot: '#10B981',
+    label: rawStatus ? `Unsupported: ${rawStatus}` : 'Status unavailable',
+    color: '#475569',
+    bg: '#F8FAFC',
+    border: '#CBD5E1',
+    dot: '#64748B',
   };
 }
 
@@ -136,79 +137,72 @@ export default function SuperAdminDashboard({
 
   // Agency management and editing state
   const [editingAgency, setEditingAgency] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({
-    agency_name: '',
-    poea_license_no: '',
-    agency_prefix: '',
-    workspace_url: '',
-    workspace_status: 'Active',
-  });
+  const [editForm, setEditForm] = useState(tenantEditForm({}));
+  const [editStatusChanged, setEditStatusChanged] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [tenantError, setTenantError] = useState<string | null>(null);
+  const tenantUpdateLock = useRef(false);
 
   const handleQuickStatusChange = async (agencyId: number, newStatus: string) => {
+    const agency = agencies.find((row) => row.agency_id === agencyId);
+    const selectedStatus = validTenantStatus(newStatus);
+    if (!agency || !selectedStatus || tenantUpdateLock.current || selectedStatus === validTenantStatus(rawTenantStatus(agency))) return;
+    tenantUpdateLock.current = true;
+    setTenantError(null);
+    setToastMessage(null);
     setUpdatingStatusId(agencyId);
     try {
-      await api.patch(`/agency-workspaces/${agencyId}`, {
-        workspace_status: newStatus,
-        status: newStatus.toUpperCase(),
+      const { data } = await api.patch(`/agency-workspaces/${agencyId}`, {
+        workspace_status: selectedStatus,
+        status: selectedStatus,
       });
+      const updated = confirmedTenantUpdate(data, agencyId, selectedStatus);
       setAgencies((prev) =>
         prev.map((a) =>
           a.agency_id === agencyId
-            ? { ...a, workspace_status: newStatus, status: newStatus.toUpperCase() }
+            ? { ...a, ...updated }
             : a
         )
       );
-      setToastMessage(`Agency status updated to "${newStatus}"`);
+      setToastMessage(`Agency status updated to "${selectedStatus}"`);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
-      alert(`Failed to update status: ${err?.response?.data?.detail || err.message}`);
+      setTenantError(tenantUpdateError(err));
     } finally {
       setUpdatingStatusId(null);
+      tenantUpdateLock.current = false;
     }
   };
 
   const openEditModal = (agency: any) => {
-    const rawStat = agency.workspace_status || agency.status || 'Active';
-    let normalized = 'Active';
-    const s = rawStat.toLowerCase();
-    if (s.includes('pending')) normalized = 'Pending Approval';
-    else if (s.includes('suspend')) normalized = 'Suspended';
-
+    if (tenantUpdateLock.current) return;
     setEditingAgency(agency);
-    setEditForm({
-      agency_name: agency.agency_name || '',
-      poea_license_no: agency.poea_license_no || '',
-      agency_prefix: agency.agency_prefix || '',
-      workspace_url: agency.workspace_url || agency.workspace_code || '',
-      workspace_status: normalized,
-    });
+    setEditForm(tenantEditForm(agency));
+    setEditStatusChanged(false);
     setEditError(null);
   };
 
   const handleEditSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!editingAgency) return;
+    if (!editingAgency || tenantUpdateLock.current) return;
+    let payload;
+    try { payload = tenantEditPayload(editingAgency, editForm, editStatusChanged); }
+    catch (err) { setEditError((err as Error).message); return; }
+    if (!Object.keys(payload).length) { setEditingAgency(null); return; }
+    tenantUpdateLock.current = true;
     setEditLoading(true);
     setEditError(null);
+    setToastMessage(null);
     try {
-      const res = await api.patch(`/agency-workspaces/${editingAgency.agency_id}`, {
-        agency_name: editForm.agency_name.trim(),
-        poea_license_no: editForm.poea_license_no.trim(),
-        agency_prefix: editForm.agency_prefix.trim().toUpperCase() || undefined,
-        workspace_url: editForm.workspace_url.trim(),
-        workspace_code: editForm.workspace_url.trim(),
-        workspace_status: editForm.workspace_status,
-        status: editForm.workspace_status.toUpperCase(),
-      });
-      const updated = res.data;
+      const res = await api.patch(`/agency-workspaces/${editingAgency.agency_id}`, payload);
+      const updated = confirmedTenantUpdate(res.data, editingAgency.agency_id, payload.status);
       setAgencies((prev) =>
         prev.map((a) =>
           a.agency_id === editingAgency.agency_id
-            ? { ...a, ...updated, ...editForm }
+            ? { ...a, ...updated }
             : a
         )
       );
@@ -216,9 +210,10 @@ export default function SuperAdminDashboard({
       setToastMessage(`Agency "${editForm.agency_name}" updated successfully`);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
-      setEditError(err?.response?.data?.detail || err?.message || 'Failed to update agency');
+      setEditError(tenantUpdateError(err));
     } finally {
       setEditLoading(false);
+      tenantUpdateLock.current = false;
     }
   };
 
@@ -330,16 +325,13 @@ export default function SuperAdminDashboard({
   const tenantMetrics = {
     total: agencies.length,
     active: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s === 'active';
+      return validTenantStatus(rawTenantStatus(a)) === 'ACTIVE';
     }).length,
-    pending: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s.includes('pending');
+    closed: agencies.filter(a => {
+      return validTenantStatus(rawTenantStatus(a)) === 'CLOSED';
     }).length,
     suspended: agencies.filter(a => {
-      const s = (a.workspace_status || a.status || '').toLowerCase().trim();
-      return s === 'suspended';
+      return validTenantStatus(rawTenantStatus(a)) === 'SUSPENDED';
     }).length,
   };
 
@@ -348,12 +340,12 @@ export default function SuperAdminDashboard({
     const name = (a.agency_name || '').toLowerCase();
     const lic = (a.poea_license_no || '').toLowerCase();
     const code = (a.workspace_code || a.workspace_url || '').toLowerCase();
-    const stat = (a.workspace_status || a.status || '').toLowerCase().trim();
+    const stat = validTenantStatus(rawTenantStatus(a));
     const matchesSearch = q === '' || name.includes(q) || lic.includes(q) || code.includes(q);
     const matchesStatus = statusFilter === 'all' ||
-      (statusFilter === 'active' && stat === 'active') ||
-      (statusFilter === 'pending' && stat.includes('pending')) ||
-      (statusFilter === 'suspended' && stat === 'suspended');
+      (statusFilter === 'active' && stat === 'ACTIVE') ||
+      (statusFilter === 'closed' && stat === 'CLOSED') ||
+      (statusFilter === 'suspended' && stat === 'SUSPENDED');
     return matchesSearch && matchesStatus;
   });
 
@@ -585,11 +577,11 @@ export default function SuperAdminDashboard({
                     </p>
                   </div>
 
-                  {/* Pending Approval */}
+                  {/* Closed */}
                   <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs relative overflow-hidden group hover:shadow-md transition-all">
                     <div className="absolute -right-4 -top-4 w-16 h-16 bg-amber-500/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
                     <div className="flex items-center justify-between mb-3 relative z-10">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Approval</p>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Closed</p>
                       <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center font-bold">
                         <Clock size={19} />
                       </div>
@@ -598,11 +590,11 @@ export default function SuperAdminDashboard({
                       <Skeleton className="h-9 w-20 mt-1" />
                     ) : (
                       <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-1 tracking-tight">
-                        {tenantMetrics.pending}
+                        {tenantMetrics.closed}
                       </p>
                     )}
                     <p className="text-xs text-amber-600 mt-2 font-semibold">
-                      Awaiting compliance & license review
+                      Agencies marked Closed
                     </p>
                   </div>
 
@@ -707,11 +699,11 @@ export default function SuperAdminDashboard({
 
                       <div className="bg-amber-50/60 border border-amber-200/70 rounded-xl p-4 flex items-center gap-4">
                         <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black text-xl shadow-xs">
-                          {tenantMetrics.pending}
+                          {tenantMetrics.closed}
                         </div>
                         <div>
-                          <p className="font-bold text-amber-950 text-sm">Pending Verification</p>
-                          <p className="text-amber-700 text-xs">Awaiting license documentation</p>
+                          <p className="font-bold text-amber-950 text-sm">Closed Agencies</p>
+                          <p className="text-amber-700 text-xs">Agency status recorded as Closed</p>
                         </div>
                       </div>
 
@@ -721,7 +713,7 @@ export default function SuperAdminDashboard({
                         </div>
                         <div>
                           <p className="font-bold text-red-950 text-sm">Suspended Agencies</p>
-                          <p className="text-red-700 text-xs">Login & API endpoints suspended</p>
+                          <p className="text-red-700 text-xs">Agency status recorded as Suspended</p>
                         </div>
                       </div>
                     </div>
@@ -806,7 +798,7 @@ export default function SuperAdminDashboard({
                   >
                     <option value="all">All Workspace Statuses</option>
                     <option value="active">Active Only</option>
-                    <option value="pending">Pending Approval</option>
+                    <option value="closed">Closed Only</option>
                     <option value="suspended">Suspended Only</option>
                   </select>
                   <button
@@ -829,6 +821,7 @@ export default function SuperAdminDashboard({
                   </button>
                 </div>
 
+                {tenantError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{tenantError}</p>}
                 {/* Agencies Table Card */}
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                   <div className="overflow-x-auto">
@@ -882,11 +875,9 @@ export default function SuperAdminDashboard({
                           </tr>
                         ) : (
                           filtered.map((t) => {
-                            const rawStatus = t.workspace_status || t.status || 'Active';
+                            const rawStatus = rawTenantStatus(t);
                             const cfg = getStatusCfg(rawStatus);
-                            const urlDisplay = t.workspace_url
-                              ? (t.workspace_url.includes('.') ? t.workspace_url : `${t.workspace_url}.flowsensus.com`)
-                              : (t.workspace_code ? `${t.workspace_code}.flowsensus.com` : '—');
+                            const urlDisplay = t.workspace_code ?? t.workspace_url ?? '—';
                             const isUpdatingThis = updatingStatusId === t.agency_id;
 
                             return (
@@ -933,15 +924,15 @@ export default function SuperAdminDashboard({
                                     </span>
                                     {/* Quick Status Control */}
                                     <select
-                                      disabled={isUpdatingThis}
-                                      value={rawStatus.toLowerCase().includes('pending') ? 'Pending Approval' : (rawStatus.toLowerCase() === 'suspended' ? 'Suspended' : 'Active')}
+                                      disabled={updatingStatusId !== null || editLoading}
+                                      value={validTenantStatus(rawStatus)}
                                       onChange={(e) => handleQuickStatusChange(t.agency_id, e.target.value)}
                                       title="Change agency status"
+                                      aria-label={`Change status for ${t.agency_name}`}
                                       className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1 hover:border-[#0EA5E9] focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] cursor-pointer disabled:opacity-50"
                                     >
-                                      <option value="Active">Active</option>
-                                      <option value="Pending Approval">Pending Approval</option>
-                                      <option value="Suspended">Suspended</option>
+                                      {!validTenantStatus(rawStatus) && <option value="" disabled>Unknown status — choose explicitly</option>}
+                                      {TENANT_STATUSES.map((status) => <option key={status} value={status}>{status[0] + status.slice(1).toLowerCase()}</option>)}
                                     </select>
                                     {isUpdatingThis && <Loader2 size={13} className="animate-spin text-[#0EA5E9]" />}
                                   </div>
@@ -956,6 +947,7 @@ export default function SuperAdminDashboard({
                                       onClick={() => openEditModal(t)}
                                       className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:text-[#0EA5E9] hover:border-sky-300 hover:bg-sky-50/50 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                                       title="Edit agency details"
+                                      disabled={updatingStatusId !== null || editLoading}
                                     >
                                       <Edit2 size={13} />
                                       <span>Edit</span>
@@ -1295,6 +1287,7 @@ export default function SuperAdminDashboard({
                     <button
                       type="button"
                       onClick={() => setEditingAgency(null)}
+                      disabled={editLoading}
                       className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 transition-colors cursor-pointer"
                     >
                       <X size={18} />
@@ -1303,19 +1296,21 @@ export default function SuperAdminDashboard({
 
                   <form onSubmit={handleEditSubmit} className="p-6 space-y-4 text-left">
                     {editError && (
-                      <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold">
+                      <div role="alert" className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold">
                         {editError}
                       </div>
                     )}
 
+                    <fieldset disabled={editLoading} className="space-y-4">
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                      <label htmlFor="tenant-edit-name" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                         Agency Business Name <span className="text-red-500">*</span>
                       </label>
                       <input
                         required
                         type="text"
                         value={editForm.agency_name}
+                        id="tenant-edit-name"
                         onChange={(e) => setEditForm(p => ({ ...p, agency_name: e.target.value }))}
                         className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
                       />
@@ -1323,13 +1318,14 @@ export default function SuperAdminDashboard({
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                        <label htmlFor="tenant-edit-license" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                           POEA / DMW License <span className="text-red-500">*</span>
                         </label>
                         <input
                           required
                           type="text"
                           value={editForm.poea_license_no}
+                          id="tenant-edit-license"
                           onChange={(e) => setEditForm(p => ({ ...p, poea_license_no: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
                         />
@@ -1342,6 +1338,7 @@ export default function SuperAdminDashboard({
                           type="text"
                           maxLength={6}
                           value={editForm.agency_prefix}
+                          id="tenant-edit-prefix"
                           onChange={(e) => setEditForm(p => ({ ...p, agency_prefix: e.target.value.toUpperCase() }))}
                           placeholder="e.g. FPT"
                           className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono font-bold text-[#0F172A] uppercase focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]"
@@ -1350,42 +1347,49 @@ export default function SuperAdminDashboard({
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
-                        Workspace Subdomain Slug <span className="text-red-500">*</span>
+                      <label htmlFor="tenant-edit-workspace" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                        Workspace Code <span className="text-red-500">*</span>
                       </label>
                       <div className="flex rounded-xl border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-[#0EA5E9]/20 focus-within:border-[#0EA5E9]">
                         <input
                           required
                           type="text"
                           value={editForm.workspace_url}
+                          maxLength={63}
+                          id="tenant-edit-workspace"
                           onChange={(e) => setEditForm(p => ({ ...p, workspace_url: e.target.value }))}
                           className="flex-1 px-3.5 py-2 text-sm font-mono text-[#0F172A] focus:outline-none"
                         />
-                        <span className="bg-slate-50 border-l border-slate-200 px-3 py-2 text-slate-500 text-xs font-mono flex items-center">
-                          .flowsensus.com
-                        </span>
                       </div>
+                      <p className="mt-1 text-xs text-slate-500">Unique agency identifier in the shared FlowSensus application.</p>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
+                      <label htmlFor="tenant-edit-status" className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-1">
                         Operational Status <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={editForm.workspace_status}
-                        onChange={(e) => setEditForm(p => ({ ...p, workspace_status: e.target.value }))}
+                        id="tenant-edit-status"
+                        onChange={(e) => {
+                          setEditStatusChanged(true);
+                          setEditForm(p => ({ ...p, workspace_status: validTenantStatus(e.target.value) }));
+                        }}
                         className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9] cursor-pointer"
                       >
-                        <option value="Active">Active</option>
-                        <option value="Pending Approval">Pending Approval</option>
-                        <option value="Suspended">Suspended</option>
+                        {!validTenantStatus(rawTenantStatus(editingAgency)) && <option value="" disabled>Unknown status — choose explicitly</option>}
+                        {TENANT_STATUSES.map((status) => <option key={status} value={status}>{status[0] + status.slice(1).toLowerCase()}</option>)}
                       </select>
+                      {!validTenantStatus(rawTenantStatus(editingAgency)) && <p className="mt-1 text-xs text-slate-600">Returned status: {rawTenantStatus(editingAgency) || 'Unavailable'}. Profile-only changes preserve this value.</p>}
+                      <p className="mt-1 text-xs text-slate-500">Status is submitted only when you deliberately select a different value.</p>
                     </div>
+                    </fieldset>
 
                     <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={() => setEditingAgency(null)}
+                        disabled={editLoading}
                         className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
                       >
                         Cancel
