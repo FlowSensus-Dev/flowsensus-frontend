@@ -92,5 +92,13 @@
     "overrides": {
       "vite": "6.3.5"
     }
+  },
+  "allowScripts": {
+    "@tailwindcss/oxide": true,
+    "@tailwindcss/oxide@4.1.12": true,
+    "core-js": true,
+    "core-js@3.50.0": true,
+    "esbuild": true,
+    "esbuild@0.25.12": true
   }
 }

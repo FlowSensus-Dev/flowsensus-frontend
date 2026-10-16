@@ -499,11 +499,13 @@ function ExamTaker({
   };
 
   const handleSaveAndExit = () => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(answers));
-      localStorage.setItem(`${storageKey}_q_idx`, String(currentQIndex));
-    } catch {
-      // ignore
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(answers));
+        localStorage.setItem(`${storageKey}_q_idx`, String(currentQIndex));
+      } catch {
+        // ignore
+      }
     }
     setShowExitConfirm(false);
     if (onExit) onExit();
