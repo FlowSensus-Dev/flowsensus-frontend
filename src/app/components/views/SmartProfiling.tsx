@@ -113,6 +113,8 @@ export default function SmartProfiling({
   const [expandedExamApplicantIds, setExpandedExamApplicantIds] = useState<Set<string>>(new Set());
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
   const [activeJobCluster, setActiveJobCluster] = useState<OccupationalClusterData | null>(null);
+  // Bumped when staff click "Try AI again" so the job family is re-requested (bypassing the short cache)
+  const [clusterRetryTick, setClusterRetryTick] = useState(0);
   const [isSynthesizingCluster, setIsSynthesizingCluster] = useState<boolean>(false);
 
   // Return Candidate to Previous Phase State
@@ -430,10 +432,41 @@ export default function SmartProfiling({
     );
   }, [jobOrders, selectedJobOrderId]);
 
-  // Fetch or synthesize the AI Trade Cluster for the active job order via Gemini Flash
+  // Load the "related job family" for the active job order.
+  // AI (Gemini) only *suggests* related job titles. We optimistically seed with the built-in DMW
+  // occupational trade catalog immediately (0ms latency), then enrich in the background with AI.
+  // If AI is slow or offline, the recruiter is never blocked and retains the full trade cluster.
   useEffect(() => {
     if (!currentJobOrder?.position) return;
     let isMounted = true;
+    const pos = String(currentJobOrder.position || '').trim();
+
+    // 1. INSTANT OPTIMISTIC SEEDING (0ms):
+    // Immediately seed with the built-in DMW occupational cluster so candidate rankings,
+    // match scores, and related roles display immediately without waiting for AI.
+    const initialMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+    if (initialMatch?.data) {
+      const seeded: OccupationalClusterData = {
+        ...initialMatch.data,
+        cluster_id: initialMatch.id || initialMatch.data.cluster_id,
+        ai_powered: false,
+        engine: 'Built-in Rules',
+      };
+      // Only replace activeJobCluster if we don't already have an AI-enhanced cluster for this exact job order
+      setActiveJobCluster((prev) => {
+        if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase()) && prev.ai_powered && clusterRetryTick === 0) {
+          return prev;
+        }
+        return seeded;
+      });
+      setDynamicClusters((prev) => ({
+        ...prev,
+        [seeded.cluster_id as string]: seeded,
+      }));
+    }
+
+    // 2. BACKGROUND ENHANCEMENT:
+    // Query Gemini to discover additional job synonyms/allied trade variations.
     const fetchJobCluster = async () => {
       setIsSynthesizingCluster(true);
       try {
@@ -443,6 +476,7 @@ export default function SmartProfiling({
           requirements: currentJobOrder.requirements || [],
           certifications: currentJobOrder.certifications || [],
           country: currentJobOrder.country,
+          refresh: clusterRetryTick > 0,
         });
         if (isMounted && res.data) {
           setActiveJobCluster(res.data);
@@ -453,14 +487,42 @@ export default function SmartProfiling({
           }));
         }
       } catch (err) {
-        console.warn('Could not load AI cluster for job order:', err);
+        console.warn('Could not load AI related job family from server; retaining built-in trade catalog:', err);
+        if (isMounted) {
+          // If we already seeded from the built-in catalog, preserve it!
+          const fallbackMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+          if (fallbackMatch?.data) {
+            const preserved: OccupationalClusterData = {
+              ...fallbackMatch.data,
+              cluster_id: fallbackMatch.id || fallbackMatch.data.cluster_id,
+              ai_powered: false,
+              engine: 'Built-in Trade Catalog',
+            };
+            setActiveJobCluster(preserved);
+            setDynamicClusters((prev) => ({ ...prev, [preserved.cluster_id as string]: preserved }));
+          } else {
+            const posLower = pos.toLowerCase();
+            const basic: OccupationalClusterData = {
+              cluster_id: `basic_${posLower.replace(/[^a-z0-9]+/g, '_')}`,
+              name: `${currentJobOrder.position} (exact matches only)`,
+              roles: posLower ? [posLower] : [],
+              skills: (currentJobOrder.requirements || []).map((s: string) => String(s).toLowerCase()),
+              certifications: (currentJobOrder.certifications || []).map((c: string) => String(c).toLowerCase()),
+              description: 'Related-job suggestions are unavailable right now, so only closely matching job titles and skills are counted.',
+              ai_powered: false,
+              engine: 'Basic Matching',
+            };
+            setActiveJobCluster(basic);
+            setDynamicClusters((prev) => ({ ...prev, [basic.cluster_id as string]: basic }));
+          }
+        }
       } finally {
         if (isMounted) setIsSynthesizingCluster(false);
       }
     };
     fetchJobCluster();
     return () => { isMounted = false; };
-  }, [currentJobOrder?.position, currentJobOrder?.country]);
+  }, [currentJobOrder?.position, currentJobOrder?.country, clusterRetryTick]);
 
   // ── Dynamic Evaluation Templates (Supabase Database + Job-Specific Filters) ──────────────
   const [localTemplates, setLocalTemplates] = useState<any[]>(evaluationTemplates || []);
@@ -2571,7 +2633,124 @@ export default function SmartProfiling({
           )}
 
           {/* Allied Trade Recognition Active Tag & Informative Description */}
-          {isSynthesizingCluster ? (
+          {activeJobCluster ? (
+            <div className="mt-3 p-3.5 bg-gradient-to-r from-teal-50/90 via-sky-50/60 to-indigo-50/50 rounded-xl border border-teal-200/80 shadow-2xs transition-all duration-200">
+              {/* Header row: badge + title on left, status + modern action button on right */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#174D60] text-white shadow-2xs">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Related Job Family</span>
+                  </span>
+                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm tracking-tight">
+                    {activeJobCluster.name}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Matching Engine Badge */}
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border shadow-2xs ${
+                      isSynthesizingCluster
+                        ? 'text-sky-800 bg-sky-50/90 border-sky-200 animate-pulse'
+                        : activeJobCluster.ai_powered
+                        ? 'text-teal-800 bg-white/90 border-teal-200'
+                        : 'text-amber-800 bg-amber-50/90 border-amber-200'
+                    }`}
+                    title={
+                      isSynthesizingCluster
+                        ? 'Synthesizing related job titles with Gemini AI...'
+                        : activeJobCluster.ai_powered
+                        ? 'Gemini AI suggested related job titles. Match scores are strictly calculated by deterministic rules.'
+                        : 'Matching based on standard DMW/POEA occupational trade catalog.'
+                    }
+                  >
+                    {isSynthesizingCluster ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin" />
+                        <span>Enhancing with AI...</span>
+                      </>
+                    ) : activeJobCluster.ai_powered ? (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                        <span>AI-Assisted Matching</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Standard Trade Catalog</span>
+                      </>
+                    )}
+                  </span>
+
+                  {/* Modernized "Try AI Again" / "Refresh AI" Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => setClusterRetryTick((n) => n + 1)}
+                    disabled={isSynthesizingCluster}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all duration-200 shadow-2xs cursor-pointer select-none active:scale-95 ${
+                      isSynthesizingCluster
+                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
+                        : activeJobCluster.ai_powered
+                        ? 'bg-white hover:bg-teal-50 text-[#174D60] border border-teal-200/90 hover:border-teal-300 hover:shadow-xs'
+                        : 'bg-[#20637A] hover:bg-[#174D60] text-white border border-[#174D60] hover:shadow-xs'
+                    }`}
+                    title={
+                      activeJobCluster.ai_powered
+                        ? 'Re-run Gemini AI to discover additional related roles'
+                        : 'Enhance this trade family with Gemini AI to discover allied job titles and synonyms'
+                    }
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isSynthesizingCluster
+                          ? 'animate-spin text-slate-400'
+                          : activeJobCluster.ai_powered
+                          ? 'text-[#20637A]'
+                          : 'text-amber-200'
+                      }`}
+                    />
+                    <span>
+                      {isSynthesizingCluster
+                        ? 'Enhancing...'
+                        : activeJobCluster.ai_powered
+                        ? 'Re-analyze with AI'
+                        : 'Try AI Again'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Description and allied trade roles */}
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                {activeJobCluster.description}
+              </p>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-bold text-slate-700">Related Roles:</span>
+                  {(activeJobCluster.roles || []).slice(0, 7).map((r: string, idx: number) => (
+                    <span
+                      key={idx}
+                      className="bg-white/95 px-2 py-0.5 rounded text-slate-700 border border-slate-200 font-medium shadow-2xs"
+                    >
+                      {r}
+                    </span>
+                  ))}
+                  {(activeJobCluster.roles || []).length > 7 && (
+                    <span className="text-slate-400 font-semibold">
+                      +{(activeJobCluster.roles || []).length - 7} more
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-[10px] text-slate-400 flex items-center gap-1 ml-auto" title="Scores strictly follow POEA/DMW fixed qualification rules">
+                  <ShieldCheck className="w-3 h-3 text-teal-600 flex-shrink-0" />
+                  <span>POEA/DMW Rule-Based Scoring</span>
+                </span>
+              </div>
+            </div>
+          ) : isSynthesizingCluster ? (
             <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-1">
                 <Skeleton className="h-5 w-28 rounded-full bg-teal-200/60" />
@@ -2579,59 +2758,27 @@ export default function SmartProfiling({
               </div>
               <Skeleton className="h-5 w-36 rounded-md bg-teal-200/60 flex-shrink-0" />
             </div>
-          ) : activeJobCluster ? (
-            <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#20637A] text-white shadow-2xs">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Related Job Family</span>
-                  </span>
-                  <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
-                    {activeJobCluster.name}
-                  </span>
-                </div>
-                <span className="text-[11px] font-semibold text-teal-800 bg-white/80 px-2 py-0.5 rounded-md border border-teal-200">
-                  ⚡ Related Skills Matching Active
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                {activeJobCluster.description}
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
-                <span className="font-bold text-slate-700">Related Job Positions Included:</span>
-                {(activeJobCluster.roles || []).slice(0, 6).map((r: string, idx: number) => (
-                  <span key={idx} className="bg-white/90 px-2 py-0.5 rounded text-slate-700 border border-slate-200/80 font-medium">
-                    {r}
-                  </span>
-                ))}
-                {(activeJobCluster.roles || []).length > 6 && (
-                  <span className="text-slate-400 font-semibold">+{(activeJobCluster.roles || []).length - 6} more</span>
-                )}
-              </div>
-            </div>
           ) : null}
         </div>
 
         {/* Ranked Candidate Table */}
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse min-w-[1100px] table-fixed">
+          <table className="w-full border-collapse min-w-[1000px] table-fixed">
             <thead>
               <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-3 text-center align-middle w-[5%] min-w-[50px]">#</th>
-                <th className="py-3 px-4 text-left align-middle w-[25%] min-w-[220px]">Applicant</th>
-                <th className="py-3 px-3 text-center align-middle w-[11%] min-w-[100px]">Match Score</th>
-                <th className="py-3 px-3 text-center align-middle w-[13%] min-w-[125px]">Recommendation</th>
-                <th className="py-3 px-3 text-center align-middle w-[11%] min-w-[100px]">Experience</th>
-                <th className="py-3 px-3 text-center align-middle w-[10%] min-w-[95px]">Certificates</th>
-                <th className="py-3 px-3 text-center align-middle w-[13%] min-w-[130px]">Skills & Exams</th>
-                <th className="py-3 px-3 text-center align-middle w-[12%] min-w-[130px]">Actions</th>
+                <th className="py-3 px-3 text-center align-middle w-[5%] min-w-[45px]">#</th>
+                <th className="py-3 px-4 text-left align-middle w-[28%] min-w-[240px]">Applicant</th>
+                <th className="py-3 px-3 text-center align-middle w-[12%] min-w-[100px]">Match Score</th>
+                <th className="py-3 px-3 text-center align-middle w-[15%] min-w-[130px]">Recommendation</th>
+                <th className="py-3 px-3 text-center align-middle w-[14%] min-w-[110px]">Experience</th>
+                <th className="py-3 px-3 text-center align-middle w-[14%] min-w-[125px]">Skills & Exams</th>
+                <th className="py-3 px-3 text-center align-middle w-[12%] min-w-[120px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {!currentJobOrder ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-slate-500 font-medium">
+                  <td colSpan={7} className="py-16 text-center text-slate-500 font-medium">
                     <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center mx-auto mb-3 text-sky-600 shadow-2xs">
                       <Briefcase className="w-6 h-6" />
                     </div>
@@ -2645,7 +2792,7 @@ export default function SmartProfiling({
                 </tr>
               ) : rankedCandidates.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
+                  <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
                     <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="text-slate-800 font-bold text-sm mb-1">
                       {pipelineScope === 'profiling'
@@ -2736,16 +2883,13 @@ export default function SmartProfiling({
                             </p>
                             {mismatchInfo && (
                               <div
-                                className="mt-1 flex items-start gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 border border-amber-200/90 text-[10px] text-amber-900 leading-tight"
-                                title="Notice: Candidate applied for a different job order or role upon registration. Recommended based on compatible background credentials, but not their original selection."
+                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 border border-amber-200/90 text-[10px] text-amber-900 leading-tight"
+                                title={`Originally applied for ${mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'another role'}. Recommended here based on related skill match.`}
                               >
-                                <AlertCircle className="w-3 h-3 text-amber-600 flex-shrink-0 mt-0.5" />
-                                <div>
-                                  <span className="font-bold text-amber-800">Different Job Chosen:</span>{' '}
-                                  <span>
-                                    Originally applied for <strong>{mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'another role'}</strong>. Included here because their skills match this position.
-                                  </span>
-                                </div>
+                                <Info className="w-2.5 h-2.5 text-amber-600 flex-shrink-0" />
+                                <span>
+                                  Original Choice: <strong className="font-semibold text-amber-950">{mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'Other Job'}</strong>
+                                </span>
                               </div>
                             )}
                             {candidate.genderCriteria?.isMismatch && (
@@ -2829,83 +2973,73 @@ export default function SmartProfiling({
                         )}
                       </td>
 
-                      {/* 6. Key Certifications */}
-                      <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
-                        {candidate.certificationsCount === 0
-                          ? 'None'
-                          : candidate.certificationsCount === 1
-                            ? '1 Cert'
-                            : `${candidate.certificationsCount} Certs`}
-                      </td>
-
-                      {/* 7. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
+                      {/* 6. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
                       <td className="py-4 px-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                         {(() => {
                           const isExpanded = expandedExamApplicantIds.has(candidate.applicant.id);
                           return (
-                            <div className="space-y-1.5 max-w-[240px] mx-auto text-left">
-                              {/* General Assessment Baseline / Overview Card */}
-                              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-slate-50/80 border border-slate-200">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    Exam Average
+                            <div className="space-y-1 max-w-[210px] mx-auto text-left">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                  Exam Score
+                                </span>
+                                {candidate.hasRecordedAssessments ? (
+                                  <span className="text-xs font-black text-slate-900 font-mono">
+                                    {candidate.assessmentScore}% Avg
                                   </span>
-                                  {candidate.hasRecordedAssessments ? (
-                                    <span className="text-xs font-black text-slate-900 font-mono">
-                                      {candidate.assessmentScore}% Avg
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                      Pending
-                                    </span>
-                                  )}
-                                </div>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    Pending
+                                  </span>
+                                )}
+                              </div>
 
-                                {/* Clearance Status Badge */}
-                                <div>
-                                  {candidate.clearanceStatus === 'cleared' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                      <span>All {candidate.takenExams.length} Exams Passed</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'pending_job_specific' && (
-                                    <span
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"
-                                      title={`Pending mandated test: ${candidate.pendingJobSpecificTestNames.join(', ')}`}
-                                    >
-                                      <Clock className="w-3 h-3 text-amber-600" />
-                                      <span>Job Exam Pending: {candidate.pendingJobSpecificTestNames[0]}</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'pending_general' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                                      <Clock className="w-3 h-3 text-slate-500" />
-                                      <span>Assessments Pending</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'failed' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
-                                      <AlertCircle className="w-3 h-3 text-red-600" />
-                                      <span>Clearance Failed</span>
-                                    </span>
-                                  )}
-                                </div>
+                              {/* Clearance Status Badge */}
+                              <div>
+                                {candidate.clearanceStatus === 'cleared' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                    <span>All {candidate.takenExams.length} Exams Passed</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'pending_job_specific' && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-[200px]"
+                                    title={`Pending mandated test: ${candidate.pendingJobSpecificTestNames.join(', ')}`}
+                                  >
+                                    <Clock className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                    <span className="truncate">Exam: {candidate.pendingJobSpecificTestNames[0]}</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'pending_general' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                    <Clock className="w-3 h-3 text-slate-500" />
+                                    <span>Assessments Pending</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'failed' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                                    <AlertCircle className="w-3 h-3 text-red-600" />
+                                    <span>Clearance Failed</span>
+                                  </span>
+                                )}
+                              </div>
 
-                                {/* Interactive Toggle Button to View All Taken Exams */}
+                              {/* Interactive Toggle Button to View All Taken Exams */}
+                              {candidate.takenExams && candidate.takenExams.length > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => toggleExamExpanded(candidate.applicant.id)}
-                                  className="w-full mt-0.5 flex items-center justify-between text-[10px] font-bold text-[#20637A] hover:text-[#184F62] bg-white hover:bg-sky-50/50 border border-sky-200/60 rounded px-2 py-1 transition-all cursor-pointer shadow-2xs"
+                                  className="w-full mt-1 flex items-center justify-between text-[10px] font-bold text-[#20637A] hover:text-[#174D60] hover:bg-sky-50/60 rounded px-1.5 py-0.5 transition-all cursor-pointer"
                                 >
                                   <span>
                                     {isExpanded
-                                      ? 'Hide Taken Exams'
-                                      : `View All Taken Exams (${candidate.takenExams.length})`}
+                                      ? 'Hide exam list'
+                                      : `View exams (${candidate.takenExams.length})`}
                                   </span>
                                   <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                                 </button>
-                              </div>
+                              )}
 
                               {/* Expanded Taken Exams List */}
                               {isExpanded && (

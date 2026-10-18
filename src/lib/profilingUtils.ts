@@ -12,8 +12,169 @@ export interface OccupationalClusterData {
   engine?: string;
 }
 
-// Dynamic cluster store fallback
-export const OCCUPATIONAL_CLUSTERS: Record<string, OccupationalClusterData> = {};
+// ── Built-in Occupational Clusters (Aligned with DMW / POEA Overseas Standards) ──
+export const OCCUPATIONAL_CLUSTERS: Record<string, OccupationalClusterData> = {
+  welding_metal_fabrication: {
+    cluster_id: 'welding_metal_fabrication',
+    name: 'Welding & Metal Fabrication',
+    roles: ['welder', 'pipe welder', 'structural welder', 'smaw welder', 'gtaw welder', 'mig welder', 'tig welder', '6g welder', 'fabricator', 'metal fabricator', 'boilermaker', 'steel fitter', 'pipefitter', 'rigger'],
+    skills: ['welding', 'smaw', 'gmaw', 'gtaw', 'tig welding', 'mig welding', '6g welding', 'blueprint reading', 'grinding', 'cutting', 'fitting', 'metal fabrication'],
+    certifications: ['welding nc ii', 'smaw nc ii', 'gmaw nc ii', 'gtaw nc ii', 'welding nc i', 'cswip', 'aws certification'],
+    description: 'Fabrication, structural assembly, and specialized pipe/plate welding across construction, shipyards, and industrial projects.',
+  },
+  painting_coating: {
+    cluster_id: 'painting_coating',
+    name: 'Painting & Surface Coating',
+    roles: ['painter', 'industrial painter', 'spray painter', 'sandblaster', 'blaster painter', 'coating applicator', 'surface preparation', 'wall painter'],
+    skills: ['painting', 'spray painting', 'sandblasting', 'surface preparation', 'coating', 'protective coating', 'airless spraying'],
+    certifications: ['painting nc ii', 'construction painting nc ii', 'nace', 'bgas'],
+    description: 'Industrial blasting, protective coatings, and commercial surface painting.',
+  },
+  electrical: {
+    cluster_id: 'electrical',
+    name: 'Electrical Installation & Maintenance',
+    roles: ['electrician', 'electrical technician', 'industrial electrician', 'building electrician', 'wireman', 'electrical installer', 'lineman', 'cable jointer', 'electrical maintenance'],
+    skills: ['electrical wiring', 'wiring', 'circuit', 'panel installation', 'electrical maintenance', 'troubleshooting', 'conduit bending', 'cable pulling'],
+    certifications: ['electrical installation and maintenance nc ii', 'eim nc ii', 'eim nc iii', 'registered master electrician', 'rme', 'peso'],
+    description: 'Residential, commercial, and industrial electrical wiring, power distribution, and equipment servicing.',
+  },
+  instrumentation_control: {
+    cluster_id: 'instrumentation_control',
+    name: 'Instrumentation & Automation',
+    roles: ['instrumentation technician', 'instrument technician', 'control technician', 'automation technician', 'calibration technician', 'plc technician', 'mechatronics technician'],
+    skills: ['instrument calibration', 'plc programming', 'loop checking', 'sensors', 'transmitters', 'control valves', 'automation', 'troubleshooting'],
+    certifications: ['instrumentation and control servicing nc ii', 'mechatronics servicing nc ii', 'mechatronics servicing nc iii'],
+    description: 'Process automation, sensors, PLC control loops, and field instrument calibration.',
+  },
+  plumbing_piping: {
+    cluster_id: 'plumbing_piping',
+    name: 'Plumbing & Piping',
+    roles: ['plumber', 'pipefitter', 'pipe fitter', 'plumbing technician', 'piping installer', 'sanitary installer', 'drainage technician'],
+    skills: ['plumbing', 'pipe fitting', 'piping', 'water systems', 'drainage', 'pipe threading', 'soldering', 'leak repair'],
+    certifications: ['plumbing nc ii', 'plumbing nc i', 'master plumber'],
+    description: 'Potable water, sewage, sanitary drainage, and structural pipe layout systems.',
+  },
+  carpentry_masonry_construction: {
+    cluster_id: 'carpentry_masonry_construction',
+    name: 'Carpentry, Masonry & Construction',
+    roles: ['carpenter', 'formwork carpenter', 'finish carpenter', 'mason', 'bricklayer', 'tile setter', 'tiler', 'scaffolder', 'steel fixer', 'concrete worker', 'construction worker', 'plasterer', 'rebar worker'],
+    skills: ['carpentry', 'formwork', 'masonry', 'tiling', 'scaffolding', 'concrete', 'plastering', 'rebar fixing', 'construction'],
+    certifications: ['carpentry nc ii', 'masonry nc ii', 'tile setting nc ii', 'scaffolding nc ii', 'reinforcing steel fixing nc ii'],
+    description: 'Civil structural trades including formwork, masonry, reinforcement steel fixing, and interior finishes.',
+  },
+  mechanical_maintenance: {
+    cluster_id: 'mechanical_maintenance',
+    name: 'Mechanical & Maintenance',
+    roles: ['mechanic', 'machinist', 'maintenance technician', 'millwright', 'auto mechanic', 'diesel mechanic', 'heavy equipment mechanic', 'hvac technician', 'refrigeration technician', 'air conditioning technician', 'chiller technician'],
+    skills: ['mechanical maintenance', 'machining', 'lathe', 'milling', 'hvac', 'refrigeration', 'chiller systems', 'engine repair', 'preventive maintenance'],
+    certifications: ['shielded metal arc welding', 'automotive servicing nc ii', 'refrigeration and airconditioning nc ii', 'rac servicing nc ii', 'commercial rac nc iii', 'heavy equipment servicing nc ii', 'machining nc ii'],
+    description: 'Mechanical plant equipment, rotating machinery, automotive engines, and commercial HVAC/refrigeration systems.',
+  },
+  heavy_equipment_driving: {
+    cluster_id: 'heavy_equipment_driving',
+    name: 'Heavy Equipment & Driving',
+    roles: ['driver', 'truck driver', 'trailer truck driver', 'heavy truck driver', 'heavy equipment operator', 'forklift operator', 'crane operator', 'mobile crane operator', 'tower crane operator', 'excavator operator', 'bulldozer operator', 'bus driver', 'delivery driver', 'storekeeper'],
+    skills: ['driving', 'heavy equipment operation', 'forklift', 'crane operation', 'excavator', 'bulldozer', 'logistics', 'warehousing', 'defensive driving'],
+    certifications: ["professional driver's license", 'heavy equipment operation nc ii', 'forklift operator nc ii', 'driving nc ii', 'driving nc iii'],
+    description: 'Earthmoving machinery, crane lifting operations, commercial fleet transport, and warehouse logistics.',
+  },
+  healthcare_nursing: {
+    cluster_id: 'healthcare_nursing',
+    name: 'Healthcare, Nursing & Medical Support',
+    roles: ['staff nurse', 'registered nurse', 'nurse', 'clinic nurse', 'ward nurse', 'icu nurse', 'operating room nurse', 'er nurse', 'charge nurse', 'medical technologist', 'laboratory technician', 'radiologic technologist', 'x-ray technician', 'physical therapist', 'pharmacy technician', 'dental assistant'],
+    skills: ['patient care', 'vital signs', 'phlebotomy', 'medication administration', 'infection control', 'iv therapy', 'clinical charting', 'triage', 'wound care', 'bls', 'acls', 'laboratory analysis', 'sterilization'],
+    certifications: ['prc nursing license', 'registered nurse', 'prometric', 'dha', 'haad', 'scfhs', 'nclex-rn', 'bls', 'acls', 'prc medical technologist', 'prc radiologic technologist'],
+    description: 'Hospital wards, intensive care, clinical diagnostic laboratories, and overseas patient medical support.',
+  },
+  caregiving_health_support: {
+    cluster_id: 'caregiving_health_support',
+    name: 'Caregiving & Health Support',
+    roles: ['caregiver', 'elderly caregiver', 'nurse aide', 'nursing aide', 'health care assistant', 'healthcare worker', 'patient care assistant', 'home care aide', 'home health aide'],
+    skills: ['caregiving', 'patient care', 'elderly care', 'vital signs', 'first aid', 'bedside care', 'mobility assistance', 'hygiene assistance', 'medication monitoring'],
+    certifications: ['caregiving nc ii', 'health care services nc ii', 'cpr', 'first aid', 'basic life support'],
+    description: 'Assisted living, residential elder care, home health assistance, and patient daily living support.',
+  },
+  hospitality_food_service: {
+    cluster_id: 'hospitality_food_service',
+    name: 'Hospitality & Food Service',
+    roles: ['cook', 'chef', 'commis', 'commis chef', 'line cook', 'chef de partie', 'baker', 'pastry cook', 'waiter', 'waitress', 'bartender', 'barista', 'kitchen staff', 'kitchen steward', 'food server', 'food and beverage attendant'],
+    skills: ['cooking', 'culinary', 'food preparation', 'baking', 'bartending', 'food safety', 'customer service', 'food and beverage', 'table service'],
+    certifications: ['cookery nc ii', 'commercial cooking nc iii', 'bread and pastry production nc ii', 'bartending nc ii', 'food and beverage services nc ii', 'food safety', 'haccp'],
+    description: 'Commercial kitchen cookery, bakery, bar service, and front-of-house hospitality operations.',
+  },
+  housekeeping_cleaning: {
+    cluster_id: 'housekeeping_cleaning',
+    name: 'Housekeeping & Cleaning',
+    roles: ['housekeeper', 'cleaner', 'janitor', 'room attendant', 'hotel room attendant', 'domestic helper', 'household service worker', 'laundry attendant', 'custodian', 'nanny', 'babysitter'],
+    skills: ['housekeeping', 'cleaning', 'laundry', 'sanitation', 'room preparation', 'bed making', 'child care', 'household chores'],
+    certifications: ['housekeeping nc ii', 'household services nc ii', 'first aid'],
+    description: 'Hotel accommodation, institutional environmental cleaning, and overseas household service work.',
+  },
+  factory_production: {
+    cluster_id: 'factory_production',
+    name: 'Factory & Production',
+    roles: ['production worker', 'assembler', 'machine operator', 'packer', 'quality inspector', 'factory worker', 'line worker', 'production operator', 'electronics assembler', 'smt operator', 'semiconductor operator', 'cnc operator'],
+    skills: ['assembly', 'electronics assembly', 'packing', 'quality inspection', 'production line', 'machine operation', 'smt', '5s', 'soldering'],
+    certifications: ['electronics products assembly and servicing nc ii', 'mechatronics servicing nc ii', 'machining nc ii'],
+    description: 'High-volume factory assembly lines, electronics manufacturing, SMT placement, and packaging.',
+  },
+  oil_gas_offshore: {
+    cluster_id: 'oil_gas_offshore',
+    name: 'Oil, Gas & Offshore Operations',
+    roles: ['roustabout', 'roughneck', 'rig floorhand', 'derrickman', 'offshore rigger', 'offshore pipefitter', 'hydrojetting operator', 'tank cleaner', 'offshore scaffolder'],
+    skills: ['rigging', 'drilling operations', 'pipe handling', 'confined space entry', 'h2s safety', 'hydrojetting', 'sandblasting', 'high pressure washing'],
+    certifications: ['bosiet', 'huet', 'opito rigger', 'h2s awareness', 'confined space entry nc ii', 'offshore safety passport'],
+    description: 'Offshore drilling platforms, refinery maintenance, and heavy rig operations.',
+  },
+  agriculture_farming: {
+    cluster_id: 'agriculture_farming',
+    name: 'Agriculture, Farming & Food Processing',
+    roles: ['agricultural worker', 'greenhouse worker', 'farm worker', 'farm laborer', 'crop worker', 'livestock caretaker', 'poultry worker', 'dairy farm worker', 'fruit picker', 'butcher', 'meat cutter', 'fish processing worker'],
+    skills: ['crop cultivation', 'greenhouse maintenance', 'harvesting', 'animal husbandry', 'livestock feeding', 'meat cutting', 'meat processing', 'sorting and packing'],
+    certifications: ['agricultural crops production nc ii', 'animal production nc ii', 'slaughtering operations nc ii', 'food processing nc ii'],
+    description: 'Overseas agricultural farms, protected greenhouses, livestock facilities, and food processing plants.',
+  },
+  office_admin_support: {
+    cluster_id: 'office_admin_support',
+    name: 'Office Administration & Clerical Support',
+    roles: ['document controller', 'data entry clerk', 'administrative assistant', 'office clerk', 'site clerk', 'project clerk', 'accounting clerk', 'bookkeeper', 'customer service representative', 'call center agent', 'receptionist'],
+    skills: ['data entry', 'document control', 'record keeping', 'customer service', 'microsoft office', 'typing', 'bookkeeping', 'filing', 'clerical support'],
+    certifications: ['computer systems servicing nc ii', 'bookkeeping nc iii', 'civil service eligibility'],
+    description: 'Project site document control, clerical office management, record administration, and customer service.',
+  },
+  aviation_ground_handling: {
+    cluster_id: 'aviation_ground_handling',
+    name: 'Aviation & Airport Ground Support',
+    roles: ['ramp agent', 'aircraft ground handler', 'baggage handler', 'cargo handler', 'aircraft cabin cleaner', 'gse operator', 'ramp serviceman'],
+    skills: ['ground handling', 'baggage sorting', 'aircraft marshalling', 'cargo loading', 'cabin cleaning', 'gse operation', 'airport safety'],
+    certifications: ['iata dgr', 'aviation ground handling', 'airside driving permit'],
+    description: 'Airport ramp operations, baggage handling, aircraft turnover cleaning, and ground support equipment.',
+  },
+  maritime_seabased: {
+    cluster_id: 'maritime_seabased',
+    name: 'Maritime & Seabased Operations',
+    roles: ['seaman', 'seafarer', 'able seaman', 'ordinary seaman', 'bosun', 'oiler', 'wiper', 'ship fitter', 'ship cook', 'messman', 'deckhand'],
+    skills: ['seamanship', 'navigation watch', 'cargo handling', 'engine maintenance', 'line handling', 'shipboard safety', 'ship maintenance'],
+    certifications: ["stcw '95", 'stcw 2010', 'sirb', "seaman's book", 'basic training', "ship's catering nc ii"],
+    description: 'Ocean-going cargo vessels, passenger ships, and deck/engine department operations.',
+  },
+  garments_textile: {
+    cluster_id: 'garments_textile',
+    name: 'Garments, Textile & Apparel',
+    roles: ['sewer', 'garment sewer', 'industrial sewer', 'sewing machine operator', 'pattern maker', 'textile cutter', 'tailor', 'dressmaker', 'garment qc'],
+    skills: ['industrial sewing', 'garment assembly', 'pattern cutting', 'stitching', 'fabric cutting', 'sewing machine operation', 'apparel inspection'],
+    certifications: ['dressmaking nc ii', 'tailoring nc ii'],
+    description: 'Industrial garment assembly, commercial apparel manufacturing, and textile finishing.',
+  },
+  security_services: {
+    cluster_id: 'security_services',
+    name: 'Security & Asset Protection',
+    roles: ['security guard', 'security officer', 'guard', 'watchman', 'cctv operator', 'surveillance officer', 'access control officer'],
+    skills: ['security', 'surveillance', 'patrol', 'access control', 'incident reporting', 'cctv monitoring', 'emergency response'],
+    certifications: ['security guard license', 'security services nc i', 'security services nc ii', 'sosia license'],
+    description: 'Commercial building protection, access control checkpoints, and CCTV security monitoring.',
+  },
+};
 
 export function normalizeTokens(text: string): Set<string> {
   if (!text || typeof text !== 'string') return new Set();
@@ -28,18 +189,35 @@ export function normalizeTokens(text: string): Set<string> {
   return new Set(tokens);
 }
 
+// Words that describe a kind/level of work but not a specific job family.
+// Sharing only these (e.g. "operator") must never make two jobs look related.
+const GENERIC_JOB_WORDS = new Set([
+  'worker', 'operator', 'assistant', 'helper', 'technician', 'general', 'staff',
+  'crew', 'personnel', 'attendant', 'officer', 'specialist', 'laborer', 'labourer',
+  'skilled', 'unskilled', 'trainee', 'apprentice',
+]);
+
+/** Like normalizeTokens, but drops generic words so only job-specific words are compared. */
+export function specificTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  normalizeTokens(text).forEach((t) => {
+    if (!GENERIC_JOB_WORDS.has(t)) out.add(t);
+  });
+  return out;
+}
+
 export function findClusterForText(text: string, clustersMap?: Record<string, any>): { id: string; data: any } | null {
   if (!text) return null;
   const activeClusters = (clustersMap && Object.keys(clustersMap).length > 0) ? clustersMap : OCCUPATIONAL_CLUSTERS;
   const textLower = text.toLowerCase();
-  const tokens = normalizeTokens(text);
+  const tokens = specificTokens(text);
   for (const [clusterId, clusterData] of Object.entries(activeClusters)) {
     if (textLower.includes(clusterId) || textLower.includes((clusterData.name || '').toLowerCase())) {
       return { id: clusterId, data: clusterData };
     }
     for (const role of (clusterData.roles || [])) {
       if (textLower.includes(role.toLowerCase())) return { id: clusterId, data: clusterData };
-      const roleTokens = normalizeTokens(role);
+      const roleTokens = specificTokens(role);
       let match = false;
       for (const t of tokens) {
         if (roleTokens.has(t)) { match = true; break; }
@@ -240,8 +418,8 @@ export function isJobRelatedExperience(
   if (posLower.includes(tradeLower) || tradeLower.includes(posLower)) return true;
 
   // 2. Token overlap & trade stem matching (e.g. "electrical" vs "electrician", "welding" vs "welder")
-  const posTokens = normalizeTokens(posLower);
-  const tradeTokens = normalizeTokens(tradeLower);
+  const posTokens = specificTokens(posLower);
+  const tradeTokens = specificTokens(tradeLower);
   for (const tt of tradeTokens) {
     if (posTokens.has(tt)) return true;
     for (const pt of posTokens) {
@@ -260,7 +438,7 @@ export function isJobRelatedExperience(
     const clusterRoles = targetCluster.data?.roles || [];
     for (const r of clusterRoles) {
       if (posLower.includes(r.toLowerCase())) return true;
-      const rTokens = normalizeTokens(r);
+      const rTokens = specificTokens(r);
       for (const t of rTokens) {
         if (posTokens.has(t)) return true;
       }

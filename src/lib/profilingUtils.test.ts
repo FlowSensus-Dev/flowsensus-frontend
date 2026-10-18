@@ -8,6 +8,8 @@ import {
   saveScoringRules,
   getCategoryCandidateExplanation,
   ScoringCategoryRules,
+  findClusterForText,
+  specificTokens,
 } from './profilingUtils';
 
 
@@ -23,6 +25,36 @@ describe('Experience Separation (Item 6)', () => {
     expect(isJobRelatedExperience('Fast Food Cashier', 'Electrician')).toBe(false);
     expect(isJobRelatedExperience('Barista', 'Heavy Equipment Operator')).toBe(false);
     expect(isJobRelatedExperience('Administrative Assistant', 'Plumber')).toBe(false);
+  });
+
+  it('does not treat two jobs as related just because they share a generic word', () => {
+    // Previously the shared word "operator" made these look like the same job family
+    expect(isJobRelatedExperience('Machine Operator', 'Crane Operator')).toBe(false);
+    expect(isJobRelatedExperience('Production Worker', 'Construction Worker')).toBe(false);
+    expect(isJobRelatedExperience('Warehouse Helper', 'Kitchen Helper')).toBe(false);
+    // Real overlaps still work
+    expect(isJobRelatedExperience('Forklift Operator', 'Forklift Driver')).toBe(true);
+  });
+
+  it('specificTokens drops generic words only', () => {
+    expect([...specificTokens('Heavy Equipment Operator')].sort()).toEqual(['equipment', 'heavy']);
+    expect(specificTokens('General Worker').size).toBe(0);
+  });
+
+  it('findClusterForText ignores generic-word-only overlaps but keeps real matches', () => {
+    const clusters = {
+      welding: { name: 'Welding', roles: ['pipe welder', 'machine operator'], skills: [], certifications: [] },
+    };
+    expect(findClusterForText('Crane Operator', clusters)).toBeNull();
+    expect(findClusterForText('Structural Welder', clusters)?.id).toBe('welding');
+  });
+
+  it('findClusterForText finds built-in DMW overseas clusters when no custom map is passed', () => {
+    expect(findClusterForText('Staff Nurse')?.id).toBe('healthcare_nursing');
+    expect(findClusterForText('Greenhouse Worker')?.id).toBe('agriculture_farming');
+    expect(findClusterForText('Roustabout')?.id).toBe('oil_gas_offshore');
+    expect(findClusterForText('Document Controller')?.id).toBe('office_admin_support');
+    expect(findClusterForText('6G Welder')?.id).toBe('welding_metal_fabrication');
   });
 
   it('formats experience duration into human-readable years and months', () => {
