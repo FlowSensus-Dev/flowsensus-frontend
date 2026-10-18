@@ -26,10 +26,13 @@ import {
   Building2,
   ChevronDown,
   RotateCcw,
+  RefreshCw,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { ApplicantRecord, ActivityLog, WorkflowState } from '../../types';
+import { ApplicantRecord, ActivityLog, WorkflowState, UserRole } from '../../types';
 import { api } from '../../../lib/api';
+import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 import { Skeleton } from '../ui/skeleton';
 import SearchableJobOrderSelector from '../SearchableJobOrderSelector';
 import ApplicantProfile from './ApplicantProfile';
@@ -43,12 +46,25 @@ import {
   TakenExamRecord,
   RankedCandidate,
   getCategoryCandidateExplanation,
+  calculateExperienceBreakdown,
+  isJobRelatedExperience,
+  ScoringCategoryRules,
+  DEFAULT_SCORING_RULES,
+  loadScoringRules,
+  saveScoringRules,
+  fetchAgencyScoringRules,
+  saveAgencyScoringRulesRemote,
+  ScoringCategoryWeights,
+  ScoringThresholds,
 } from '../../../lib/profilingUtils';
 
 interface SmartProfilingProps {
   showToast: (message: string) => void;
   applicants?: ApplicantRecord[];
   currentUserName: string;
+  currentUserRole?: UserRole;
+  currentUserRoles?: UserRole[];
+  isSuperAdmin?: boolean;
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   selectedApplicantId?: string;
   onSelectApplicant?: (applicantId: string) => void;
@@ -64,6 +80,9 @@ export default function SmartProfiling({
   showToast,
   applicants = [],
   currentUserName,
+  currentUserRole,
+  currentUserRoles,
+  isSuperAdmin = false,
   addActivityLog,
   selectedApplicantId,
   onSelectApplicant,
@@ -94,6 +113,8 @@ export default function SmartProfiling({
   const [expandedExamApplicantIds, setExpandedExamApplicantIds] = useState<Set<string>>(new Set());
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
   const [activeJobCluster, setActiveJobCluster] = useState<OccupationalClusterData | null>(null);
+  // Bumped when staff click "Try AI again" so the job family is re-requested (bypassing the short cache)
+  const [clusterRetryTick, setClusterRetryTick] = useState(0);
   const [isSynthesizingCluster, setIsSynthesizingCluster] = useState<boolean>(false);
 
   // Return Candidate to Previous Phase State
@@ -102,6 +123,155 @@ export default function SmartProfiling({
   const [returnCategory, setReturnCategory] = useState<string>('Medical / Fitness Clearance Issue');
   const [returnNotes, setReturnNotes] = useState<string>('');
   const [isSubmittingReturn, setIsSubmittingReturn] = useState<boolean>(false);
+
+  // Endorsement Confirmation & Reassignment Safeguard State
+  const [candidateToEndorse, setCandidateToEndorse] = useState<RankedCandidate | null>(null);
+  const [endorseConfirmInput, setEndorseConfirmInput] = useState<string>('');
+  const [endorseJustificationNotes, setEndorseJustificationNotes] = useState<string>('');
+  const [isSubmittingEndorse, setIsSubmittingEndorse] = useState<boolean>(false);
+
+  // Recalculate & Sync State in Candidate Review Drawer (Item 5)
+  const [isRecalculatingDrawer, setIsRecalculatingDrawer] = useState<boolean>(false);
+
+  // Admin Scoring & Category Rules State (Item 4)
+  const [scoringRules, setScoringRules] = useState<ScoringCategoryRules>(() => loadScoringRules(agencyProfile?.agency_id));
+  const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
+  const [draftWeights, setDraftWeights] = useState<ScoringCategoryWeights>(scoringRules.weights);
+  const [draftThresholds, setDraftThresholds] = useState<ScoringThresholds>(scoringRules.thresholds);
+
+  // Management Role Gate (Security Requirement)
+  const isManagementUser = useMemo(() => {
+    if (isSuperAdmin) return true;
+    const roleLower = (currentUserRole || '').toLowerCase();
+    const rolesList = (currentUserRoles || []).map((r) => String(r).toLowerCase());
+    const managementKeywords = ['management', 'admin', 'agency admin', 'super admin', 'superadmin', 'manager', 'executive management'];
+    if (managementKeywords.includes(roleLower)) return true;
+    if (rolesList.some((r) => managementKeywords.includes(r))) return true;
+    return false;
+  }, [isSuperAdmin, currentUserRole, currentUserRoles]);
+
+  // Load authoritative scoring rules from Supabase / Backend API on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadRemoteRules() {
+      try {
+        const remoteRules = await fetchAgencyScoringRules(agencyProfile?.agency_id);
+        if (isMounted) {
+          setScoringRules(remoteRules);
+          setDraftWeights(remoteRules.weights);
+          setDraftThresholds(remoteRules.thresholds);
+        }
+      } catch (e) {
+        console.warn('Failed to load remote scoring rules:', e);
+      }
+    }
+    loadRemoteRules();
+    return () => {
+      isMounted = false;
+    };
+  }, [agencyProfile?.agency_id]);
+
+
+  const handleOpenRulesModal = () => {
+    setDraftWeights({ ...scoringRules.weights });
+    setDraftThresholds({ ...scoringRules.thresholds });
+    setShowRulesModal(true);
+  };
+
+  const draftTotalPoints = useMemo(() => {
+    return (
+      Number(draftWeights.roleMatch || 0) +
+      Number(draftWeights.certifications || 0) +
+      Number(draftWeights.experience || 0) +
+      Number(draftWeights.skills || 0) +
+      Number(draftWeights.overseas || 0)
+    );
+  }, [draftWeights]);
+
+  const isDraftValid = useMemo(() => {
+    return (
+      draftTotalPoints === 100 &&
+      Number(draftThresholds.recommended) > Number(draftThresholds.furtherReview) &&
+      Number(draftThresholds.furtherReview) >= 50 &&
+      Number(draftThresholds.recommended) <= 99 &&
+      draftWeights.roleMatch >= 0 &&
+      draftWeights.certifications >= 0 &&
+      draftWeights.experience >= 0 &&
+      draftWeights.skills >= 0 &&
+      draftWeights.overseas >= 0
+    );
+  }, [draftTotalPoints, draftThresholds, draftWeights]);
+
+  const handleSaveRules = async () => {
+    if (!isDraftValid) return;
+    if (!isManagementUser) {
+      showToast('Permission Denied: Only Management or Administrator can modify scoring rules.');
+      return;
+    }
+    const updated: ScoringCategoryRules = {
+      weights: {
+        roleMatch: Number(draftWeights.roleMatch),
+        certifications: Number(draftWeights.certifications),
+        experience: Number(draftWeights.experience),
+        skills: Number(draftWeights.skills),
+        overseas: Number(draftWeights.overseas),
+      },
+      thresholds: {
+        recommended: Number(draftThresholds.recommended),
+        furtherReview: Number(draftThresholds.furtherReview),
+      },
+      lastUpdated: new Date().toISOString(),
+      updatedBy: currentUserName || 'Management User',
+    };
+
+    setScoringRules(updated);
+    setShowRulesModal(false);
+
+    // Persist to Supabase database via backend endpoint (enforces Management authority on server)
+    const result = await saveAgencyScoringRulesRemote(updated, agencyProfile?.agency_id);
+    if (result.success) {
+      showToast('Scoring and category rules saved to database and synchronized across the agency.');
+    } else {
+      showToast(`Saved locally. Server sync note: ${result.error}`);
+    }
+
+    addActivityLog({
+      applicantId: 'AGENCY_CONFIG',
+      department: 'Management',
+      action: 'Updated Scoring & Category Rules',
+      details: `Role: ${updated.weights.roleMatch}pts, Certs: ${updated.weights.certifications}pts, Exp: ${updated.weights.experience}pts, Skills: ${updated.weights.skills}pts, Overseas: ${updated.weights.overseas}pts | Thresholds: Recommended >= ${updated.thresholds.recommended}%, Further Review >= ${updated.thresholds.furtherReview}%`,
+      performedBy: currentUserName || 'Management User',
+    });
+  };
+
+  const handleResetDefaults = () => {
+    if (!isManagementUser) {
+      showToast('Permission Denied: Only Management or Administrator can reset scoring rules.');
+      return;
+    }
+    setDraftWeights({ ...DEFAULT_SCORING_RULES.weights });
+    setDraftThresholds({ ...DEFAULT_SCORING_RULES.thresholds });
+    showToast('Reset to standard default scoring weights (100 pts balanced).');
+  };
+
+  const handleRecalculateCurrentCandidate = async () => {
+    if (!activeModalCandidate) return;
+    const targetId = activeModalCandidate.applicant.id;
+    setIsRecalculatingDrawer(true);
+    try {
+      const res = await api.get(`/applicants/${targetId}`);
+      if (res.data) {
+        const freshApplicant = mapApplicantFromApi(res.data);
+        updateApplicant?.(targetId, freshApplicant);
+        showToast?.(`Details updated and readiness score recalculated for ${freshApplicant.name}.`);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh applicant:', err);
+      showToast?.('Could not refresh candidate details from database.');
+    } finally {
+      setIsRecalculatingDrawer(false);
+    }
+  };
 
   const toggleExamExpanded = (appId: string) => {
     setExpandedExamApplicantIds((prev) => {
@@ -119,7 +289,9 @@ export default function SmartProfiling({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (candidateToReturn) {
+        if (showRulesModal) {
+          setShowRulesModal(false);
+        } else if (candidateToReturn) {
           setCandidateToReturn(null);
         } else if (overlayApplicant) {
           setOverlayApplicant(null);
@@ -130,7 +302,7 @@ export default function SmartProfiling({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [candidateToReturn, overlayApplicant, activeModalCandidate]);
+  }, [showRulesModal, candidateToReturn, overlayApplicant, activeModalCandidate]);
 
   // 1. Fetch live job orders with vacancy counts
   useEffect(() => {
@@ -249,10 +421,44 @@ export default function SmartProfiling({
     );
   }, [jobOrders, selectedJobOrderId]);
 
-  // Fetch or synthesize the AI Trade Cluster for the active job order via Gemini Flash
+  // Load the "related job family" for the active job order.
+  // AI (Gemini) only *suggests* related job titles. We optimistically seed with the built-in DMW
+  // occupational trade catalog immediately (0ms latency), then enrich in the background with AI.
+  // If AI is slow or offline, the recruiter is never blocked and retains the full trade cluster.
   useEffect(() => {
     if (!currentJobOrder?.position) return;
     let isMounted = true;
+    const pos = String(currentJobOrder.position || '').trim();
+
+    // 1. INSTANT OPTIMISTIC SEEDING (0ms):
+    // Only seed with built-in rules if we don't already have an active cluster for this job order position.
+    // When the recruiter clicks "Re-analyze with AI" (clusterRetryTick > 0), DO NOT overwrite or flash
+    // the current trade family — keep it visible and simply let the button show the loading spinner.
+    const isRetry = clusterRetryTick > 0;
+    if (!isRetry) {
+      const initialMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+      if (initialMatch?.data) {
+        const seeded: OccupationalClusterData = {
+          ...initialMatch.data,
+          cluster_id: initialMatch.id || initialMatch.data.cluster_id,
+          ai_powered: false,
+          engine: 'Built-in Rules',
+        };
+        setActiveJobCluster((prev) => {
+          if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase())) {
+            return prev;
+          }
+          return seeded;
+        });
+        setDynamicClusters((prev) => ({
+          ...prev,
+          [seeded.cluster_id as string]: seeded,
+        }));
+      }
+    }
+
+    // 2. BACKGROUND ENHANCEMENT:
+    // Query Gemini to discover additional job synonyms/allied trade variations.
     const fetchJobCluster = async () => {
       setIsSynthesizingCluster(true);
       try {
@@ -262,6 +468,7 @@ export default function SmartProfiling({
           requirements: currentJobOrder.requirements || [],
           certifications: currentJobOrder.certifications || [],
           country: currentJobOrder.country,
+          refresh: isRetry,
         });
         if (isMounted && res.data) {
           setActiveJobCluster(res.data);
@@ -272,14 +479,42 @@ export default function SmartProfiling({
           }));
         }
       } catch (err) {
-        console.warn('Could not load AI cluster for job order:', err);
+        console.warn('Could not load AI related job family from server; retaining built-in trade catalog:', err);
+        if (isMounted) {
+          // If we already have a valid cluster for this position, preserve it!
+          setActiveJobCluster((prev) => {
+            if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase())) {
+              return prev;
+            }
+            const fallbackMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+            if (fallbackMatch?.data) {
+              return {
+                ...fallbackMatch.data,
+                cluster_id: fallbackMatch.id || fallbackMatch.data.cluster_id,
+                ai_powered: false,
+                engine: 'Built-in Trade Catalog',
+              };
+            }
+            const posLower = pos.toLowerCase();
+            return {
+              cluster_id: `basic_${posLower.replace(/[^a-z0-9]+/g, '_')}`,
+              name: `${currentJobOrder.position} (exact matches only)`,
+              roles: posLower ? [posLower] : [],
+              skills: (currentJobOrder.requirements || []).map((s: string) => String(s).toLowerCase()),
+              certifications: (currentJobOrder.certifications || []).map((c: string) => String(c).toLowerCase()),
+              description: 'Related-job suggestions are unavailable right now, so only closely matching job titles and skills are counted.',
+              ai_powered: false,
+              engine: 'Basic Matching',
+            };
+          });
+        }
       } finally {
         if (isMounted) setIsSynthesizingCluster(false);
       }
     };
     fetchJobCluster();
     return () => { isMounted = false; };
-  }, [currentJobOrder?.position, currentJobOrder?.country]);
+  }, [currentJobOrder?.position, currentJobOrder?.country, clusterRetryTick]);
 
   // ── Dynamic Evaluation Templates (Supabase Database + Job-Specific Filters) ──────────────
   const [localTemplates, setLocalTemplates] = useState<any[]>(evaluationTemplates || []);
@@ -460,6 +695,13 @@ export default function SmartProfiling({
     const jobPos = (currentJobOrder?.position || '').trim();
     const jobCountry = (currentJobOrder?.country || '').trim();
     const minYears = Number(currentJobOrder?.minExperience || 1);
+
+    const { weights: categoryWeights, thresholds: categoryThresholds } = scoringRules;
+    const maxRoleWeight = categoryWeights.roleMatch;
+    const maxCertWeight = categoryWeights.certifications;
+    const maxExpWeight = categoryWeights.experience;
+    const maxSkillWeight = categoryWeights.skills;
+    const maxOverseasWeight = categoryWeights.overseas;
 
     const targetClusterInfo = jobPos ? findClusterForText(jobPos, dynamicClusters) : null;
     const targetClusterId = targetClusterInfo?.id;
@@ -716,7 +958,7 @@ export default function SmartProfiling({
       const appClusterInfo = findClusterForText(appRole, dynamicClusters);
       const appClusterId = appClusterInfo?.id;
 
-      // ── 1. Role / Position Match (Max: 30 pts) ──────────────────────────
+      // ── 1. Role / Position Match (Max: maxRoleWeight pts) ──────────────────────────
       const targetTokens = normalizeTokens(jobPos);
       const appRoleTokens = normalizeTokens(appRole);
 
@@ -742,26 +984,26 @@ export default function SmartProfiling({
       }
 
       if (!jobPos) {
-        roleScore = 30;
+        roleScore = maxRoleWeight;
       } else if (hasTargetInRole) {
-        roleScore = 30;
+        roleScore = maxRoleWeight;
         strengths.push(`Target position '${jobPos}' directly matches candidate applied role '${appRole}'`);
       } else if (hasTargetInHistory) {
-        roleScore = 25;
+        roleScore = Math.round(maxRoleWeight * (25 / 30) * 10) / 10;
         strengths.push(`Prior work history directly matches target position '${jobPos}'`);
       } else if (targetClusterId && appClusterId && targetClusterId === appClusterId) {
-        roleScore = 20; // Related Trade Cluster credit
-        strengths.push(`Allied trade background: '${appRole}' aligns with '${jobPos}' in the ${targetClusterData?.name} cluster (20/30 pts credit)`);
+        roleScore = Math.round(maxRoleWeight * (20 / 30) * 10) / 10; // Related Job Family credit
+        strengths.push(`Related work background: '${appRole}' aligns with '${jobPos}' in the ${targetClusterData?.name} job family (${roleScore}/${maxRoleWeight} pts credit)`);
       } else if (targetClusterId && historyPositions.some((hp) => findClusterForText(hp, dynamicClusters)?.id === targetClusterId)) {
-        roleScore = 16;
-        strengths.push(`Candidate prior employment history aligns with the ${targetClusterData?.name} cluster (16/30 pts credit)`);
+        roleScore = Math.round(maxRoleWeight * (16 / 30) * 10) / 10;
+        strengths.push(`Candidate prior employment history aligns with the ${targetClusterData?.name} cluster (${roleScore}/${maxRoleWeight} pts credit)`);
       } else {
         roleScore = 0;
         const clusterNote = targetClusterData ? ` (${targetClusterData.name})` : '';
         gaps.push(`Role mismatch: candidate profile ('${appRole || 'Unspecified'}') does not match target position '${jobPos}'${clusterNote}`);
       }
 
-      // ── 2. Required Certifications (Max: 25 pts) ────────────────────────
+      // ── 2. Required Certifications (Max: maxCertWeight pts) ────────────────────────
       const jobCertsRaw: string[] = Array.isArray(currentJobOrder?.certifications) ? currentJobOrder.certifications : [];
       
       const appCertsRawSet = new Set<string>();
@@ -786,11 +1028,11 @@ export default function SmartProfiling({
       let certScore = 0;
 
       if (jobCertsRaw.length === 0) {
-        certScore = 25;
+        certScore = maxCertWeight;
         strengths.push('No mandatory certifications required for this position');
       } else {
         let totalCertPts = 0;
-        const ptsPerCert = 25.0 / jobCertsRaw.length;
+        const ptsPerCert = maxCertWeight / jobCertsRaw.length;
 
         for (const jc of jobCertsRaw) {
           const jcLower = jc.toLowerCase();
@@ -839,18 +1081,19 @@ export default function SmartProfiling({
             strengths.push(`Holds required certification: ${jc}`);
           } else if (isAlliedMatch) {
             totalCertPts += ptsPerCert * 0.7; // 70% allied transfer credit
-            strengths.push(`Holds allied credential in ${targetClusterData?.name}: ${matchedCertName} (70% transfer credit)`);
+            strengths.push(`Holds related qualification in ${targetClusterData?.name}: ${matchedCertName} (70% matching credit)`);
           } else {
             gaps.push(`Missing required certification: ${jc}`);
           }
         }
-        certScore = Math.min(25, Math.round(totalCertPts * 10) / 10);
+        certScore = Math.min(maxCertWeight, Math.round(totalCertPts * 10) / 10);
       }
 
-      // ── 3. Experience / Education Foundation (Max: 20 pts) ──────────────
+      // ── 3. Experience / Education Foundation (Max: maxExpWeight pts) (Item 6) ────────
       const isFirstTimeApplicant = history.length === 0;
       let expScore = 0;
       let totalExperienceYears = 0;
+      let jobRelatedExperienceYears = 0;
 
       if (isFirstTimeApplicant) {
         // First-Time Applicant track per UC-02
@@ -863,51 +1106,48 @@ export default function SmartProfiling({
 
         if (roleScore > 0) {
           if (hasCollegeOrTvet) {
-            expScore = 20.0;
+            expScore = maxExpWeight;
             strengths.push('First-time applicant — no prior work experience (not a disqualifying factor); completed certified institutional TVET / tertiary education');
           } else {
-            expScore = 15.0;
+            expScore = Math.round(maxExpWeight * 0.75 * 10) / 10;
             strengths.push('First-time applicant — no prior work experience (not a disqualifying factor); secondary educational foundation verified');
           }
         } else {
-          expScore = 5.0;
+          expScore = Math.round(maxExpWeight * 0.25 * 10) / 10;
           gaps.push(`First-time applicant's educational preparation is in an unrelated field ('${appRole || 'Unspecified'}'); position requires vocational alignment in '${jobPos}'`);
         }
       } else {
-        for (const item of history) {
-          const rec = item as any;
-          const startYear = parseInt((rec.startDate || rec.dateStarted || '').slice(0, 4), 10);
-          const endYear = !rec.endDate || rec.endDate.toLowerCase() === 'present' || rec.isPresent
-            ? new Date().getFullYear()
-            : parseInt((rec.endDate || rec.dateEnded || '').slice(0, 4), 10);
-          if (!isNaN(startYear) && !isNaN(endYear) && endYear >= startYear) {
-            totalExperienceYears += Math.max(1, endYear - startYear);
-          } else {
-            totalExperienceYears += 1;
-          }
-        }
+        const expBreakdown = calculateExperienceBreakdown(history, jobPos, dynamicClusters);
+        totalExperienceYears = expBreakdown.totalYears;
+        jobRelatedExperienceYears = expBreakdown.jobRelatedYears;
+        const unrelatedYears = expBreakdown.unrelatedYears;
 
-        if (roleScore > 0) {
-          if (totalExperienceYears >= minYears + 2) {
-            expScore = 20.0;
-            strengths.push(`Total experience of ${totalExperienceYears} years exceeds required ${minYears} years`);
-          } else if (totalExperienceYears >= minYears) {
-            expScore = 15.0;
-            strengths.push(`Total experience of ${totalExperienceYears} years meets required ${minYears} years`);
-          } else if (totalExperienceYears > 0) {
-            expScore = Math.round((totalExperienceYears / Math.max(1, minYears)) * 10);
-            gaps.push(`Experience duration gap: has ${totalExperienceYears} year(s), job order requires ${minYears} years`);
-          } else {
-            expScore = 0;
-            gaps.push(`No recorded employment history; job order requires ${minYears} years`);
+        if (jobRelatedExperienceYears >= minYears + 2) {
+          expScore = maxExpWeight;
+          strengths.push(`Job-related experience of ${expBreakdown.jobRelatedDisplay} exceeds required ${minYears} years in '${jobPos}'`);
+        } else if (jobRelatedExperienceYears >= minYears) {
+          expScore = Math.round(maxExpWeight * 0.75 * 10) / 10;
+          strengths.push(`Job-related experience of ${expBreakdown.jobRelatedDisplay} meets required ${minYears} years in '${jobPos}'`);
+        } else if (jobRelatedExperienceYears > 0) {
+          // Partial job-related experience: earns partial trade credit + modest baseline for unrelated work
+          const tradeCredit = Math.round((jobRelatedExperienceYears / Math.max(1, minYears)) * (maxExpWeight * 0.6));
+          const maxUnrelatedCap = Math.round(maxExpWeight * 0.25);
+          const baselineCredit = Math.min(maxUnrelatedCap, Math.round(unrelatedYears * 1.5));
+          const maxPartialCap = Math.round(maxExpWeight * 0.7);
+          expScore = Math.min(maxPartialCap, Math.max(Math.min(maxUnrelatedCap, 5), tradeCredit + baselineCredit));
+          gaps.push(`Job-related experience gap: has ${expBreakdown.jobRelatedDisplay}, job order requires ${minYears} years`);
+          if (unrelatedYears > 0) {
+            strengths.push(`Additional workplace background: ${expBreakdown.unrelatedDisplay} in other industries provides general baseline credit (+${baselineCredit} pts)`);
           }
         } else {
-          expScore = Math.min(5, Math.round((totalExperienceYears / Math.max(1, minYears)) * 5));
-          gaps.push(`Candidate's ${totalExperienceYears} years experience is in an unrelated field ('${appRole || 'Unspecified'}'); position requires ${minYears} years in '${jobPos}'`);
+          // Zero job-related experience: non-trade background earns modest general baseline credit
+          const maxUnrelatedCap = Math.round(maxExpWeight * 0.25);
+          expScore = Math.min(maxUnrelatedCap, Math.max(0, Math.round(totalExperienceYears)));
+          gaps.push(`Past career duration of ${totalExperienceYears} years is in other industries; position requires ${minYears} years directly in '${jobPos}'`);
         }
       }
 
-      // ── 4. Skills & Requirements Overlap (Max: 15 pts) ───────────────────
+      // ── 4. Skills & Requirements Overlap (Max: maxSkillWeight pts) ───────────────────
       const appSkills: string[] = Array.isArray(applicant.skills) ? applicant.skills : [];
       const targetKeywords = new Set<string>();
       targetTokens.forEach((t) => targetKeywords.add(t));
@@ -936,20 +1176,20 @@ export default function SmartProfiling({
 
       let skillScore = 0;
       if (matchedSkills.length >= 2) {
-        skillScore = 15.0;
-        strengths.push(`Matched core trade competencies: ${matchedSkills.slice(0, 3).join(', ')}`);
+        skillScore = maxSkillWeight;
+        strengths.push(`Matched required work skills: ${matchedSkills.slice(0, 3).join(', ')}`);
       } else if (matchedSkills.length === 1) {
-        skillScore = 10.0;
-        strengths.push(`Matched core trade competency: ${matchedSkills[0]}`);
+        skillScore = Math.round(maxSkillWeight * (10 / 15) * 10) / 10;
+        strengths.push(`Matched required work skill: ${matchedSkills[0]}`);
       } else {
         skillScore = 0;
-        if (jobPos) gaps.push(`No matching trade skills found for '${jobPos}'`);
+        if (jobPos) gaps.push(`No matching work skills found for '${jobPos}'`);
       }
 
-      // ── 5. Overseas / Destination Readiness (Max: 10 pts) ──────────────
+      // ── 5. Overseas / Destination Readiness (Max: maxOverseasWeight pts) ──────────────
       let overseasScore = 0;
       if (isFirstTimeApplicant) {
-        overseasScore = 7.0;
+        overseasScore = Math.round(maxOverseasWeight * 0.7 * 10) / 10;
         strengths.push('First-time applicant — pristine deployment record (eligible for overseas placement)');
       } else {
         let hasDestExp = false;
@@ -967,13 +1207,13 @@ export default function SmartProfiling({
         });
 
         if (hasDestExp) {
-          overseasScore = 10.0;
+          overseasScore = maxOverseasWeight;
           strengths.push(`Prior overseas employment experience in target destination (${jobCountry})`);
         } else if (hasOverseasExp) {
-          overseasScore = 7.0;
+          overseasScore = Math.round(maxOverseasWeight * 0.7 * 10) / 10;
           strengths.push('Prior overseas employment experience');
         } else if (history.length > 0) {
-          overseasScore = 3.0;
+          overseasScore = Math.round(maxOverseasWeight * 0.3 * 10) / 10;
           if (jobCountry) gaps.push(`Local experience only; no overseas experience in target destination (${jobCountry})`);
         } else {
           overseasScore = 0;
@@ -1117,38 +1357,74 @@ export default function SmartProfiling({
       // Overall Readiness Score
       const readinessScore = Math.min(100, Math.max(0, Math.round(roleScore + certScore + expScore + skillScore + overseasScore)));
 
-      // Three-tier analytical classification: ≥90% = Recommended, 75–89% = For Further Review, <75% = Not Recommended
-      // Score thresholds ALWAYS take priority. Pending exam states only add warning notes.
-      let classification: 'Recommended' | 'For Further Review' | 'Not Recommended';
+      // Four-tier analytical classification (Panelist 2 Recommendation - Item 3 & 4):
+      // >= recommended% = Recommended, furtherReview-(recommended-1)% = For Further Review, 50-(furtherReview-1)% / remediable = For Consideration, <50% / unqualified = Not Recommended
+      let classification: 'Recommended' | 'For Further Review' | 'For Consideration' | 'Not Recommended';
       const failureReasons: string[] = [];
+      let considerationReason: string | undefined = undefined;
 
-      // Step 1: Determine score-based classification first (always authoritative)
-      if (readinessScore >= 90) {
+      // Step 1: Determine score-based classification first using dynamic thresholds
+      if (readinessScore >= categoryThresholds.recommended) {
         classification = 'Recommended';
-      } else if (readinessScore >= 75) {
+      } else if (readinessScore >= categoryThresholds.furtherReview) {
         classification = 'For Further Review';
       } else {
         classification = 'Not Recommended';
       }
 
-      // Step 2: Hard overrides only for outright exam failures
+      // Step 2: Assessment clearance overrides
       if (clearanceStatus === 'failed') {
-        // Candidate failed one or more recorded examination gates — override to Not Recommended
         classification = 'Not Recommended';
         failedExamDescriptions.forEach((d) => failureReasons.push(`Failed assessment requirement: ${d}`));
       } else if (clearanceStatus === 'pending_job_specific') {
-        // Pending job-specific exam: cap at 'For Further Review' max (can't be Recommended yet)
         if (classification === 'Recommended') classification = 'For Further Review';
         failureReasons.push(
           `Job-Order Specific Exam pending: Candidate must complete "${pendingJobSpecificTestNames.join(', ')}" mandated for ${jobPos} before final endorsement.`
         );
       } else if (clearanceStatus === 'pending_general') {
-        // Pending general exam: note it but do NOT change score-based classification
         failureReasons.push('Assessment examination clearance pending (candidate has not yet completed evaluation testing)');
       }
 
-      if (readinessScore < 75 && !failureReasons.some((r) => r.includes('Readiness score'))) {
-        failureReasons.push(`Readiness score (${readinessScore}%) is below the 75% threshold for ${jobPos}`);
+      // Step 3: Panelist 2 Recommendation — 4th Tier: "For Consideration"
+      // Softens "Not Recommended" to "For Consideration" for candidates with fixable hurdles
+      if (classification === 'Not Recommended') {
+        const hasTradeBackground = (roleScore > 0 || jobRelatedExperienceYears > 0 || matchedSkills.length > 0);
+        const hasPermanentMedicalDisqualification = String(medicalStatus?.status || '').toLowerCase().includes('unfit') ||
+          String(medicalStatus?.status || '').toLowerCase().includes('disqualified') ||
+          String(medicalStatus?.status || '').toLowerCase().includes('permanent');
+        const hasDisciplinaryBlock = applicant.status === 'Processing Stopped' || applicant.isStopped;
+        const isPermanentlyDisqualified = (!hasTradeBackground && readinessScore < 50) || hasPermanentMedicalDisqualification || hasDisciplinaryBlock;
+
+        if (!isPermanentlyDisqualified) {
+          const hasAuthorizedRetake = takenExamsList.some((te: any) => te.retake_allowed || (te as any).retakeAllowed) ||
+            Boolean((applicant as any).testScores?.retakeAllowed);
+          const hasRenewableExpiredDoc = expiredDocs.length > 0;
+          const hasMedicalInProgress = String(medicalStatus?.status || '').toLowerCase().includes('in progress') ||
+            String(medicalStatus?.status || '').toLowerCase().includes('pending') ||
+            String(medicalStatus?.status || '').toLowerCase().includes('referral');
+          const isEligibleScoreWithTrade = readinessScore >= 50 && readinessScore < categoryThresholds.furtherReview && hasTradeBackground;
+
+          if (hasAuthorizedRetake) {
+            classification = 'For Consideration';
+            considerationReason = 'Exam retake authorized; eligible for endorsement once the re-test is completed.';
+          } else if (hasRenewableExpiredDoc && hasTradeBackground) {
+            classification = 'For Consideration';
+            const docNames = expiredDocs.map((d) => d.name).slice(0, 2).join(', ');
+            considerationReason = `Candidate has good job experience; waiting for document renewal (${docNames}).`;
+          } else if (hasMedicalInProgress && hasTradeBackground) {
+            classification = 'For Consideration';
+            considerationReason = 'Candidate has good job experience; medical clearance is currently in progress.';
+          } else if (isEligibleScoreWithTrade) {
+            classification = 'For Consideration';
+            considerationReason = 'Candidate has good job experience; waiting for exam retake or updated clearance.';
+          }
+        }
+      }
+
+      if (classification === 'For Consideration' && considerationReason) {
+        failureReasons.push(`For Consideration: ${considerationReason}`);
+      } else if (readinessScore < categoryThresholds.furtherReview && classification === 'Not Recommended' && !failureReasons.some((r) => r.includes('Readiness score'))) {
+        failureReasons.push(`Readiness score (${readinessScore}%) is below the ${categoryThresholds.furtherReview}% review threshold for ${jobPos}`);
       }
 
       // ── 7. Job-Order Specific Requirements Audit (Documents & Certifications) ──
@@ -1241,6 +1517,8 @@ export default function SmartProfiling({
         classification,
         clearanceStatus,
         totalExperienceYears,
+        jobRelatedExperienceYears,
+        considerationReason,
         certificationsCount: appCertsRaw.length,
         techScore,
         iqScore,
@@ -1289,11 +1567,12 @@ export default function SmartProfiling({
       };
     });
 
-    // Sorting: Tier (Recommended > Review > Not Recommended) -> Readiness Score desc -> Experience desc
-    const tierWeight = {
+    // Sorting: Tier (Recommended > Review > For Consideration > Not Recommended) -> Readiness Score desc -> Experience desc
+    const tierWeight: Record<string, number> = {
       Recommended: 0,
       'For Further Review': 1,
-      'Not Recommended': 2,
+      'For Consideration': 2,
+      'Not Recommended': 3,
     };
 
     evaluated.sort((a, b) => {
@@ -1307,12 +1586,24 @@ export default function SmartProfiling({
       ...cand,
       rank: index + 1,
     }));
-  }, [eligibleCandidates, currentJobOrder, dynamicClusters, dynamicGateDefinitions]);
+  }, [eligibleCandidates, currentJobOrder, dynamicClusters, dynamicGateDefinitions, scoringRules]);
+
+  // Keep activeModalCandidate synchronized with refreshed data
+  useEffect(() => {
+    if (!activeModalCandidate) return;
+    const updated = rankedCandidates.find(
+      (c) => String(c.applicant.id) === String(activeModalCandidate.applicant.id)
+    );
+    if (updated) {
+      setActiveModalCandidate(updated);
+    }
+  }, [rankedCandidates]);
 
   // KPI Header Counts
   const totalEvaluated = rankedCandidates.length;
   const recommendedCount = rankedCandidates.filter((c) => c.classification === 'Recommended').length;
   const reviewCount = rankedCandidates.filter((c) => c.classification === 'For Further Review').length;
+  const forConsiderationCount = rankedCandidates.filter((c) => c.classification === 'For Consideration').length;
   const notRecommendedCount = rankedCandidates.filter((c) => c.classification === 'Not Recommended').length;
 
   // ── Scope filter counts for Applicant Profiling ───────────────────────────
@@ -1340,8 +1631,8 @@ export default function SmartProfiling({
     setOverlayApplicant(applicant);
   };
 
-  // Handler: Endorse / Forward candidate to CV Encoding (executed from inside Review Details modal)
-  const handleEndorseCandidate = async (candidate: RankedCandidate) => {
+  // Handler: Initiate Endorsement with Safeguards & Confirmation Modal
+  const initiateEndorsement = (candidate: RankedCandidate) => {
     // Stage barrier: Endorsement is only allowed for candidates in the Profiling stage
     if (!isApplicantInProfiling(candidate.applicant)) {
       showToast(`⚠️ Endorsement Not Available: Candidate is in '${candidate.applicant.status || 'Active Pool'}' stage. Only applicants in 'Applicant Profiling' stage can be endorsed to CV Encoding.`);
@@ -1355,37 +1646,92 @@ export default function SmartProfiling({
       return;
     }
 
+    setCandidateToEndorse(candidate);
+    setEndorseConfirmInput('');
+    setEndorseJustificationNotes('');
+  };
+
+  // Handler: Confirm Endorse and execute Job Order Reassignment if mismatched
+  const handleConfirmEndorse = async () => {
+    if (!candidateToEndorse || isSubmittingEndorse) return;
+
+    const candidate = candidateToEndorse;
+    const mismatchInfo = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
+    const isReassignment = Boolean(mismatchInfo);
+
+    if (isReassignment && endorseConfirmInput.trim().toUpperCase() !== 'CONFIRM') {
+      showToast('Safety Check: Please type CONFIRM to authorize reassigning this candidate to this Job Order.');
+      return;
+    }
+
+    setIsSubmittingEndorse(true);
     try {
+      const isUnderConsideration = candidate.classification === 'For Consideration' || candidate.classification === 'For Further Review';
+      const notesSummary = endorseJustificationNotes.trim();
+
+      const phaseDesc = isReassignment
+        ? `Reassigned & Endorsed to ${currentJobOrder?.position || 'Job Order'} (#${currentJobOrder?.id || ''})`
+        : `Endorsed to ${currentJobOrder?.position || 'Job Order'} (#${currentJobOrder?.id || ''})`;
+
+      const updates: Partial<ApplicantRecord> = {
+        status: 'CV Encoding',
+        phase: 3,
+        phaseDescription: phaseDesc,
+      };
+
+      if (isReassignment && currentJobOrder) {
+        updates.jobOrder = currentJobOrder.id;
+        updates.selectedJobOrderId = String(currentJobOrder.realId || currentJobOrder.id);
+        updates.appliedRole = currentJobOrder.position;
+        updates.appliedPosition = currentJobOrder.position;
+      }
+
       if (updateApplicant) {
-        updateApplicant(candidate.applicant.id, {
-          status: 'CV Encoding',
-          phase: 3,
-          phaseDescription: `Endorsed to ${currentJobOrder?.position || 'Job Order'} (#${currentJobOrder?.id || ''})`,
-        });
+        updateApplicant(candidate.applicant.id, updates);
       }
 
       try {
-        await api.put(`/applicants/${candidate.applicant.id}`, {
+        const backendPayload: any = {
           application_id: candidate.applicant.applicationId,
           application_status: 'CV Encoding',
           current_phase: 3,
-        });
+          phase_description: phaseDesc,
+        };
+        if (isReassignment && currentJobOrder) {
+          if (currentJobOrder.realId) {
+            backendPayload.job_order_id = Number(currentJobOrder.realId);
+          }
+          backendPayload.job_order_code = currentJobOrder.id;
+          backendPayload.applied_role = currentJobOrder.position;
+        }
+        await api.put(`/applicants/${candidate.applicant.id}`, backendPayload);
       } catch (apiErr) {
         console.warn('Backend update failed (continuing with local state):', apiErr);
       }
 
+      let details = `Candidate endorsed to Job Order: ${currentJobOrder?.position} (#${currentJobOrder?.id}). Readiness: ${candidate.readinessScore}%, Classification: ${candidate.classification}.`;
+      if (isReassignment) {
+        details += ` [Safeguard Confirmed: Reassigned from ${mismatchInfo?.chosenJobOrder || mismatchInfo?.chosenRole || 'previous order'} to ${currentJobOrder?.position}]`;
+      }
+      if (isUnderConsideration) {
+        details += ` [Endorsed Under Consideration: ${candidate.considerationReason || 'Managerial override'}${notesSummary ? ` | Note: ${notesSummary}` : ''}]`;
+      }
+
       addActivityLog({
         applicantId: String(candidate.applicant.id),
-        action: 'Endorsed for CV Encoding',
-        performedBy: currentUserName,
+        action: isReassignment ? 'Reassigned & Endorsed for CV Encoding' : 'Endorsed for CV Encoding',
+        performedBy: currentUserName || 'Recruitment Staff',
         department: 'Recruitment',
-        details: `Candidate endorsed to Job Order: ${currentJobOrder?.position} (#${currentJobOrder?.id}). Readiness Score: ${candidate.readinessScore}%, Classification: ${candidate.classification}.`,
+        details,
       });
 
       showToast(`✓ ${candidate.applicant.name} endorsed to ${currentJobOrder?.position}. Forwarded to CV Encoding.`);
+      setCandidateToEndorse(null);
       setActiveModalCandidate(null);
     } catch (err) {
       showToast('Failed to endorse candidate. Please try again.');
+    } finally {
+      setIsSubmittingEndorse(false);
     }
   };
 
@@ -1635,7 +1981,7 @@ export default function SmartProfiling({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
-      doc.text('APPLIED TRADE ROLE:', margin + 3, y + 15.6);
+      doc.text('APPLIED POSITION / ROLE:', margin + 3, y + 15.6);
       doc.text('DESTINATION COUNTRY & VACANCIES:', margin + 93, y + 15.6);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
@@ -1661,7 +2007,7 @@ export default function SmartProfiling({
       // ── Optional Preference Notice ──
       const pdfMismatch = getJobOrderMismatchInfo(candidate.applicant, currentJobOrder);
       if (pdfMismatch) {
-        const mismatchMsg = cleanPdfText(`Applicant originally applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'a different job order'}. Evaluated against this position via allied trade cluster qualifications.`);
+        const mismatchMsg = cleanPdfText(`Applicant originally applied for ${pdfMismatch.chosenJobOrder || pdfMismatch.chosenRole || 'a different job order'}. Evaluated against this position based on related skills and background.`);
         const wrappedNotice = doc.splitTextToSize(mismatchMsg, contentWidth - 48);
         const noticeH = Math.max(8, 4 + (wrappedNotice.length * 3.6));
         checkPageBreak(noticeH + 4);
@@ -1720,43 +2066,43 @@ export default function SmartProfiling({
       const categories = [
         {
           num: '1',
-          name: 'Role & Trade Match',
+          name: 'Role & Job Match',
           score: candidate.categoryScores.roleMatch,
-          max: 30,
-          expl: getCategoryCandidateExplanation('roleMatch', candidate, currentJobOrder),
-          passed: candidate.categoryScores.roleMatch >= 16,
+          max: scoringRules.weights.roleMatch,
+          expl: getCategoryCandidateExplanation('roleMatch', candidate, currentJobOrder, scoringRules),
+          passed: candidate.categoryScores.roleMatch >= Math.round(scoringRules.weights.roleMatch * 0.5),
         },
         {
           num: '2',
           name: 'Required Certifications',
           score: candidate.categoryScores.certifications,
-          max: 25,
-          expl: getCategoryCandidateExplanation('certifications', candidate, currentJobOrder),
+          max: scoringRules.weights.certifications,
+          expl: getCategoryCandidateExplanation('certifications', candidate, currentJobOrder, scoringRules),
           passed: candidate.categoryScores.certifications > 0 || (!currentJobOrder?.certifications || currentJobOrder.certifications.length === 0),
         },
         {
           num: '3',
-          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Foundation' : 'Work Experience Duration',
+          name: candidate.isFirstTimeApplicant ? 'Institutional TVET / Education' : 'Related Work Experience',
           score: candidate.categoryScores.experience,
-          max: 20,
-          expl: getCategoryCandidateExplanation('experience', candidate, currentJobOrder),
-          passed: candidate.categoryScores.experience >= 15,
+          max: scoringRules.weights.experience,
+          expl: getCategoryCandidateExplanation('experience', candidate, currentJobOrder, scoringRules),
+          passed: candidate.categoryScores.experience >= Math.round(scoringRules.weights.experience * 0.75),
         },
         {
           num: '4',
-          name: 'Trade Skills & Competencies',
+          name: 'Practical Job Skills & Tools',
           score: candidate.categoryScores.skills,
-          max: 15,
-          expl: getCategoryCandidateExplanation('skills', candidate, currentJobOrder),
+          max: scoringRules.weights.skills,
+          expl: getCategoryCandidateExplanation('skills', candidate, currentJobOrder, scoringRules),
           passed: candidate.categoryScores.skills > 0,
         },
         {
           num: '5',
-          name: 'Overseas Deployment Readiness',
+          name: 'Overseas Work Experience',
           score: candidate.categoryScores.overseas,
-          max: 10,
-          expl: getCategoryCandidateExplanation('overseas', candidate, currentJobOrder),
-          passed: candidate.categoryScores.overseas >= 3,
+          max: scoringRules.weights.overseas,
+          expl: getCategoryCandidateExplanation('overseas', candidate, currentJobOrder, scoringRules),
+          passed: candidate.categoryScores.overseas >= Math.round(scoringRules.weights.overseas * 0.3),
         },
       ];
 
@@ -1823,7 +2169,11 @@ export default function SmartProfiling({
 
       const classText = candidate.classification === 'Recommended'
         ? 'RECOMMENDED'
-        : (candidate.classification === 'For Further Review' ? 'FOR FURTHER REVIEW' : 'NOT RECOMMENDED');
+        : candidate.classification === 'For Further Review'
+        ? 'FOR FURTHER REVIEW'
+        : candidate.classification === 'For Consideration'
+        ? 'FOR CONSIDERATION'
+        : 'NOT RECOMMENDED';
       doc.text(`JOB-FIT READINESS SCORE: ${candidate.readinessScore}% (${classText})`, margin + 4, y + 4.8);
 
       const statutorySummaryText = candidate.compliancePassed ? 'STATUTORY: PASSED (ALL CLEAR)' : 'STATUTORY: ACTION REQUIRED';
@@ -1851,7 +2201,7 @@ export default function SmartProfiling({
           passed: t.passed,
         }))
         : [
-          { label: 'Trade Skills Test', val: `${candidate.techScore}%`, req: `Min. ${dynamicGateDefinitions.skillsTpl.passingScore}%`, passed: candidate.techScore >= dynamicGateDefinitions.skillsTpl.passingScore },
+          { label: 'Practical Skills Assessment', val: `${candidate.techScore}%`, req: `Min. ${dynamicGateDefinitions.skillsTpl.passingScore}%`, passed: candidate.techScore >= dynamicGateDefinitions.skillsTpl.passingScore },
           { label: 'IQ / Aptitude Test', val: `${candidate.iqScore}%`, req: `Min. ${dynamicGateDefinitions.iqTpl.passingScore}%`, passed: candidate.iqScore >= dynamicGateDefinitions.iqTpl.passingScore },
           { label: 'Interview / Language', val: `${candidate.interviewScore}%`, req: `Min. ${dynamicGateDefinitions.langTpl.passingScore}%`, passed: candidate.interviewScore >= dynamicGateDefinitions.langTpl.passingScore },
           { label: 'Personality / EQ Gate', val: candidate.eqStatus, req: dynamicGateDefinitions.eqTpl.scoringType === 'pass_fail' ? 'Req: Suitable' : `Min. ${dynamicGateDefinitions.eqTpl.passingScore}%`, passed: candidate.eqStatus === 'Suitable' },
@@ -1941,7 +2291,7 @@ export default function SmartProfiling({
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
         doc.setTextColor(15, 23, 42);
-        doc.text('IV. EVALUATION FINDINGS & TRADE GAP ANALYSIS', margin + 3, y + 3.8);
+        doc.text('IV. EVALUATION FINDINGS & QUALIFICATION GAP ANALYSIS', margin + 3, y + 3.8);
 
         y += 5.5;
 
@@ -2148,35 +2498,55 @@ export default function SmartProfiling({
               )}
             </div>
 
-            {/* Audit Info button positioned neatly on the right */}
-            <div className="relative flex-shrink-0">
+            {/* Action buttons: Scoring & Category Rules + Audit Info */}
+            <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 type="button"
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
-                onClick={() => setShowTooltip(!showTooltip)}
-                className="text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs"
-                title="Assessment calculation details"
+                onClick={handleOpenRulesModal}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 hover:text-slate-900 transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-2xs"
+                title={
+                  isManagementUser
+                    ? 'Customize qualification category point weights and recommendation thresholds'
+                    : 'View qualification category point weights and recommendation standards (Management only can edit)'
+                }
               >
-                <Info className="w-3.5 h-3.5 text-slate-600" />
-                <span className="text-xs text-slate-700 font-bold">Audit Info</span>
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+                <span>Scoring & Category Rules</span>
+                {!isManagementUser && (
+                  <span className="text-[10px] text-slate-400 font-semibold">(View)</span>
+                )}
               </button>
 
-              {showTooltip && (
-                <div className="absolute right-0 top-9 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
-                  <p className="font-semibold text-slate-100 leading-snug">
-                    *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
-                  </p>
-                  <p className="text-slate-300 mt-1.5 text-[11px]">
-                    Classification: Recommended (≥90%), For Further Review (75%–89%), Not Recommended (&lt;75%).
-                  </p>
-                  {incompleteCandidates.length > 0 && (
-                    <p className="text-amber-400 mt-1.5 text-[11px]">
-                      {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
+              {/* Audit Info button positioned neatly on the right */}
+              <div className="relative flex-shrink-0">
+                <button
+                  type="button"
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                  onClick={() => setShowTooltip(!showTooltip)}
+                  className="text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs"
+                  title="Assessment calculation details"
+                >
+                  <Info className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="text-xs text-slate-700 font-bold">Audit Info</span>
+                </button>
+
+                {showTooltip && (
+                  <div className="absolute right-0 top-9 z-30 w-72 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+                    <p className="font-semibold text-slate-100 leading-snug">
+                      *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
                     </p>
-                  )}
-                </div>
-              )}
+                    <p className="text-slate-300 mt-1.5 text-[11px]">
+                      Classification: Recommended (&ge;{scoringRules.thresholds.recommended}%), For Further Review ({scoringRules.thresholds.furtherReview}%&ndash;{scoringRules.thresholds.recommended - 1}%), For Consideration (50%&ndash;{scoringRules.thresholds.furtherReview - 1}% or pending clearance/retake), Not Recommended (&lt;50% or unqualified).
+                    </p>
+                    {incompleteCandidates.length > 0 && (
+                      <p className="text-amber-400 mt-1.5 text-[11px]">
+                        {incompleteCandidates.length} profile(s) excluded due to incomplete assessment scores or pending evaluation.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2195,6 +2565,10 @@ export default function SmartProfiling({
               <span className="bg-amber-50 text-amber-800 px-3 py-1.5 rounded-lg border border-amber-200 shadow-xs flex items-center gap-1.5">
                 <span className="text-amber-700 font-medium">For Review:</span>
                 <strong className="font-black text-amber-950">{reviewCount}</strong>
+              </span>
+              <span className="bg-sky-50 text-sky-800 px-3 py-1.5 rounded-lg border border-sky-200 shadow-xs flex items-center gap-1.5">
+                <span className="text-sky-700 font-medium">For Consideration:</span>
+                <strong className="font-black text-sky-950">{forConsiderationCount}</strong>
               </span>
               <span className="bg-rose-50 text-rose-800 px-3 py-1.5 rounded-lg border border-rose-200 shadow-xs flex items-center gap-1.5">
                 <span className="text-rose-700 font-medium">Not Recommended:</span>
@@ -2246,7 +2620,115 @@ export default function SmartProfiling({
           )}
 
           {/* Allied Trade Recognition Active Tag & Informative Description */}
-          {isSynthesizingCluster ? (
+          {activeJobCluster ? (
+            <div className="mt-3 p-3.5 bg-gradient-to-r from-teal-50/90 via-sky-50/60 to-indigo-50/50 rounded-xl border border-teal-200/80 shadow-2xs transition-all duration-200">
+              {/* Header row: badge + title on left, status + modern action button on right */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#174D60] text-white shadow-2xs">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Related Job Family</span>
+                  </span>
+                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm tracking-tight">
+                    {activeJobCluster.name}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Matching Engine Badge */}
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border shadow-2xs transition-all ${
+                      activeJobCluster.ai_powered
+                        ? 'text-teal-800 bg-white/90 border-teal-200'
+                        : 'text-amber-800 bg-amber-50/90 border-amber-200'
+                    }`}
+                    title={
+                      activeJobCluster.ai_powered
+                        ? 'Gemini AI suggested related job titles. Match scores are strictly calculated by deterministic rules.'
+                        : 'Matching based on standard DMW/POEA occupational trade catalog.'
+                    }
+                  >
+                    {activeJobCluster.ai_powered ? (
+                      <>
+                        <Sparkles className={`w-3.5 h-3.5 text-teal-600 ${isSynthesizingCluster ? 'animate-pulse' : ''}`} />
+                        <span>AI-Assisted Matching</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Standard Trade Catalog</span>
+                      </>
+                    )}
+                  </span>
+
+                  {/* Modernized "Re-analyze with AI" / "Try AI Again" Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => setClusterRetryTick((n) => n + 1)}
+                    disabled={isSynthesizingCluster}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all duration-200 shadow-2xs select-none ${
+                      isSynthesizingCluster
+                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-80'
+                        : activeJobCluster.ai_powered
+                        ? 'bg-white hover:bg-teal-50 text-[#174D60] border border-teal-200/90 hover:border-teal-300 hover:shadow-xs cursor-pointer active:scale-95'
+                        : 'bg-[#20637A] hover:bg-[#174D60] text-white border border-[#174D60] hover:shadow-xs cursor-pointer active:scale-95'
+                    }`}
+                    title={
+                      activeJobCluster.ai_powered
+                        ? 'Re-run Gemini AI to discover additional related roles'
+                        : 'Enhance this trade family with Gemini AI to discover allied job titles and synonyms'
+                    }
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isSynthesizingCluster
+                          ? 'animate-spin text-teal-600'
+                          : activeJobCluster.ai_powered
+                          ? 'text-[#20637A]'
+                          : 'text-amber-200'
+                      }`}
+                    />
+                    <span>
+                      {isSynthesizingCluster
+                        ? 'Re-analyzing...'
+                        : activeJobCluster.ai_powered
+                        ? 'Re-analyze with AI'
+                        : 'Try AI Again'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Description and allied trade roles */}
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                {activeJobCluster.description}
+              </p>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-bold text-slate-700">Related Roles:</span>
+                  {(activeJobCluster.roles || []).slice(0, 7).map((r: string, idx: number) => (
+                    <span
+                      key={idx}
+                      className="bg-white/95 px-2 py-0.5 rounded text-slate-700 border border-slate-200 font-medium shadow-2xs"
+                    >
+                      {r}
+                    </span>
+                  ))}
+                  {(activeJobCluster.roles || []).length > 7 && (
+                    <span className="text-slate-400 font-semibold">
+                      +{(activeJobCluster.roles || []).length - 7} more
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-[10px] text-slate-400 flex items-center gap-1 ml-auto" title="Scores strictly follow POEA/DMW fixed qualification rules">
+                  <ShieldCheck className="w-3 h-3 text-teal-600 flex-shrink-0" />
+                  <span>POEA/DMW Rule-Based Scoring</span>
+                </span>
+              </div>
+            </div>
+          ) : isSynthesizingCluster ? (
             <div className="mt-3 p-3 bg-teal-50/60 rounded-xl border border-teal-200/60 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-1">
                 <Skeleton className="h-5 w-28 rounded-full bg-teal-200/60" />
@@ -2254,59 +2736,27 @@ export default function SmartProfiling({
               </div>
               <Skeleton className="h-5 w-36 rounded-md bg-teal-200/60 flex-shrink-0" />
             </div>
-          ) : activeJobCluster ? (
-            <div className="mt-3 p-3 bg-gradient-to-r from-teal-50/90 via-sky-50/70 to-indigo-50/60 rounded-xl border border-teal-200/80 shadow-2xs">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#20637A] text-white shadow-2xs">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Allied Trade Group</span>
-                  </span>
-                  <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
-                    {activeJobCluster.name}
-                  </span>
-                </div>
-                <span className="text-[11px] font-semibold text-teal-800 bg-white/80 px-2 py-0.5 rounded-md border border-teal-200">
-                  ⚡ Cross-Trade Recognition Active
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                {activeJobCluster.description}
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-teal-200/50 text-[11px] text-slate-500">
-                <span className="font-bold text-slate-700">Related Positions Accepted:</span>
-                {(activeJobCluster.roles || []).slice(0, 6).map((r: string, idx: number) => (
-                  <span key={idx} className="bg-white/90 px-2 py-0.5 rounded text-slate-700 border border-slate-200/80 font-medium">
-                    {r}
-                  </span>
-                ))}
-                {(activeJobCluster.roles || []).length > 6 && (
-                  <span className="text-slate-400 font-semibold">+{(activeJobCluster.roles || []).length - 6} more</span>
-                )}
-              </div>
-            </div>
           ) : null}
         </div>
 
         {/* Ranked Candidate Table */}
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse min-w-[1100px] table-fixed">
+          <table className="w-full border-collapse min-w-[1000px] table-fixed">
             <thead>
               <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                <th className="py-3.5 px-3 text-center align-middle w-[5%] min-w-[50px]">Rank</th>
-                <th className="py-3.5 px-4 text-left align-middle w-[25%] min-w-[220px]">Applicant & ID</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[100px]">Readiness Score (%)</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[12%] min-w-[120px]">Classification</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[95px]">Total Experience</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[10%] min-w-[95px]">Key Certifications</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[14%] min-w-[140px]">Assessment Summary</th>
-                <th className="py-3.5 px-3 text-center align-middle w-[14%] min-w-[140px]">Actions</th>
+                <th className="py-3 px-3 text-center align-middle w-[5%] min-w-[45px]">#</th>
+                <th className="py-3 px-4 text-left align-middle w-[28%] min-w-[240px]">Applicant</th>
+                <th className="py-3 px-3 text-center align-middle w-[12%] min-w-[100px]">Match Score</th>
+                <th className="py-3 px-3 text-center align-middle w-[15%] min-w-[130px]">Recommendation</th>
+                <th className="py-3 px-3 text-center align-middle w-[14%] min-w-[110px]">Experience</th>
+                <th className="py-3 px-3 text-center align-middle w-[14%] min-w-[125px]">Skills & Exams</th>
+                <th className="py-3 px-3 text-center align-middle w-[12%] min-w-[120px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {!currentJobOrder ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-slate-500 font-medium">
+                  <td colSpan={7} className="py-16 text-center text-slate-500 font-medium">
                     <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center mx-auto mb-3 text-sky-600 shadow-2xs">
                       <Briefcase className="w-6 h-6" />
                     </div>
@@ -2320,7 +2770,7 @@ export default function SmartProfiling({
                 </tr>
               ) : rankedCandidates.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
+                  <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
                     <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="text-slate-800 font-bold text-sm mb-1">
                       {pipelineScope === 'profiling'
@@ -2411,16 +2861,13 @@ export default function SmartProfiling({
                             </p>
                             {mismatchInfo && (
                               <div
-                                className="mt-1 flex items-start gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 border border-amber-200/90 text-[10px] text-amber-900 leading-tight"
-                                title="Notice: Candidate applied for a different job order or role upon registration. Recommended based on compatible background credentials, but not their original selection."
+                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 border border-amber-200/90 text-[10px] text-amber-900 leading-tight"
+                                title={`Originally applied for ${mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'another role'}. Recommended here based on related skill match.`}
                               >
-                                <AlertCircle className="w-3 h-3 text-amber-600 flex-shrink-0 mt-0.5" />
-                                <div>
-                                  <span className="font-bold text-amber-800">Job Order Mismatch:</span>{' '}
-                                  <span>
-                                    Applied for <strong>{mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'Different Order'}</strong> (not this Job Order). Recommended via allied qualifications, but applicant did not pick this order.
-                                  </span>
-                                </div>
+                                <Info className="w-2.5 h-2.5 text-amber-600 flex-shrink-0" />
+                                <span>
+                                  Original Choice: <strong className="font-semibold text-amber-950">{mismatchInfo.chosenJobOrder || mismatchInfo.chosenRole || 'Other Job'}</strong>
+                                </span>
                               </div>
                             )}
                             {candidate.genderCriteria?.isMismatch && (
@@ -2462,7 +2909,7 @@ export default function SmartProfiling({
                         </div>
                       </td>
 
-                      {/* 4. Classification Badge (Option 2: 80% / 60%) */}
+                      {/* 4. Classification Badge */}
                       <td className="py-4 px-3 text-center align-middle">
                         {candidate.classification === 'Recommended' && (
                           <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#10B981] text-white shadow-sm">
@@ -2474,6 +2921,11 @@ export default function SmartProfiling({
                             For Further Review
                           </span>
                         )}
+                        {candidate.classification === 'For Consideration' && (
+                          <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#0284C7] text-white shadow-sm" title={candidate.considerationReason || 'For Consideration'}>
+                            For Consideration
+                          </span>
+                        )}
                         {candidate.classification === 'Not Recommended' && (
                           <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#EF4444] text-white shadow-sm">
                             Not Recommended
@@ -2481,94 +2933,91 @@ export default function SmartProfiling({
                         )}
                       </td>
 
-                      {/* 5. Total Experience */}
+                      {/* 5. Total vs Job-Related Experience (Item 6) */}
                       <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
                         {candidate.isFirstTimeApplicant ? (
                           <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                             First-Time
                           </span>
                         ) : (
-                          `${candidate.totalExperienceYears} yrs`
+                          <div className="text-center">
+                            <span className="text-xs font-bold text-slate-900 block">
+                              {candidate.jobRelatedExperienceYears} yrs <span className="text-[10px] text-sky-700 font-semibold">(related)</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {candidate.totalExperienceYears} yrs total
+                            </span>
+                          </div>
                         )}
                       </td>
 
-                      {/* 6. Key Certifications */}
-                      <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
-                        {candidate.certificationsCount === 0
-                          ? 'None'
-                          : candidate.certificationsCount === 1
-                            ? '1 Cert'
-                            : `${candidate.certificationsCount} Certs`}
-                      </td>
-
-                      {/* 7. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
+                      {/* 6. Assessment Summary (Dynamic Baseline & Toggleable Taken Exams) */}
                       <td className="py-4 px-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                         {(() => {
                           const isExpanded = expandedExamApplicantIds.has(candidate.applicant.id);
                           return (
-                            <div className="space-y-1.5 max-w-[240px] mx-auto text-left">
-                              {/* General Assessment Baseline / Overview Card */}
-                              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-slate-50/80 border border-slate-200">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    Overall Exam Baseline
+                            <div className="space-y-1 max-w-[210px] mx-auto text-left">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                  Exam Score
+                                </span>
+                                {candidate.hasRecordedAssessments ? (
+                                  <span className="text-xs font-black text-slate-900 font-mono">
+                                    {candidate.assessmentScore}% Avg
                                   </span>
-                                  {candidate.hasRecordedAssessments ? (
-                                    <span className="text-xs font-black text-slate-900 font-mono">
-                                      {candidate.assessmentScore}% Avg
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                      Pending
-                                    </span>
-                                  )}
-                                </div>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    Pending
+                                  </span>
+                                )}
+                              </div>
 
-                                {/* Clearance Status Badge */}
-                                <div>
-                                  {candidate.clearanceStatus === 'cleared' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                      <span>Fully Cleared ({candidate.takenExams.length} Passed)</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'pending_job_specific' && (
-                                    <span
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"
-                                      title={`Pending mandated test: ${candidate.pendingJobSpecificTestNames.join(', ')}`}
-                                    >
-                                      <Clock className="w-3 h-3 text-amber-600" />
-                                      <span>Job Exam Pending: {candidate.pendingJobSpecificTestNames[0]}</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'pending_general' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                                      <Clock className="w-3 h-3 text-slate-500" />
-                                      <span>Assessments Pending</span>
-                                    </span>
-                                  )}
-                                  {candidate.clearanceStatus === 'failed' && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
-                                      <AlertCircle className="w-3 h-3 text-red-600" />
-                                      <span>Clearance Failed</span>
-                                    </span>
-                                  )}
-                                </div>
+                              {/* Clearance Status Badge */}
+                              <div>
+                                {candidate.clearanceStatus === 'cleared' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                    <span>All {candidate.takenExams.length} Exams Passed</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'pending_job_specific' && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 truncate max-w-[200px]"
+                                    title={`Pending mandated test: ${candidate.pendingJobSpecificTestNames.join(', ')}`}
+                                  >
+                                    <Clock className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                    <span className="truncate">Exam: {candidate.pendingJobSpecificTestNames[0]}</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'pending_general' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                    <Clock className="w-3 h-3 text-slate-500" />
+                                    <span>Assessments Pending</span>
+                                  </span>
+                                )}
+                                {candidate.clearanceStatus === 'failed' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                                    <AlertCircle className="w-3 h-3 text-red-600" />
+                                    <span>Clearance Failed</span>
+                                  </span>
+                                )}
+                              </div>
 
-                                {/* Interactive Toggle Button to View All Taken Exams */}
+                              {/* Interactive Toggle Button to View All Taken Exams */}
+                              {candidate.takenExams && candidate.takenExams.length > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => toggleExamExpanded(candidate.applicant.id)}
-                                  className="w-full mt-0.5 flex items-center justify-between text-[10px] font-bold text-[#20637A] hover:text-[#184F62] bg-white hover:bg-sky-50/50 border border-sky-200/60 rounded px-2 py-1 transition-all cursor-pointer shadow-2xs"
+                                  className="w-full mt-1 flex items-center justify-between text-[10px] font-bold text-[#20637A] hover:text-[#174D60] hover:bg-sky-50/60 rounded px-1.5 py-0.5 transition-all cursor-pointer"
                                 >
                                   <span>
                                     {isExpanded
-                                      ? 'Hide Taken Exams'
-                                      : `View All Taken Exams (${candidate.takenExams.length})`}
+                                      ? 'Hide exam list'
+                                      : `View exams (${candidate.takenExams.length})`}
                                   </span>
                                   <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                                 </button>
-                              </div>
+                              )}
 
                               {/* Expanded Taken Exams List */}
                               {isExpanded && (
@@ -2645,57 +3094,68 @@ export default function SmartProfiling({
                         })()}
                       </td>
 
-                      {/* 8. Row Actions: View Profile (Overlay), Review Details (Modal), & Endorse (Only for Profiling stage) */}
-                      <td className="py-4 px-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col items-center justify-center gap-1.5 w-full">
-                          <button
-                            onClick={() => handleOpenProfileOverlay(candidate.applicant)}
-                            className="w-[124px] py-1.5 px-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
-                            title="Open candidate profile in full overlay"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                            <span className="whitespace-nowrap">View Profile</span>
-                          </button>
-
+                      {/* 8. Row Actions */}
+                      <td className="py-3 px-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-1.5 w-[130px] mx-auto">
+                          {/* Primary Action Button */}
                           <button
                             onClick={() => setActiveModalCandidate(candidate)}
-                            className="w-[124px] py-1.5 px-2 bg-[#20637A] hover:bg-[#184F62] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
-                            title="Inspect readiness breakdown and review for CV encoding"
+                            className="w-full py-1.5 px-2 bg-[#20637A] hover:bg-[#184F62] text-white font-bold text-xs rounded-lg transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                            title="Inspect candidate qualifications and scoring breakdown"
                           >
                             <FileText className="w-3.5 h-3.5 text-white/90 flex-shrink-0" />
                             <span className="whitespace-nowrap">Review Details</span>
                           </button>
 
-                          {/* Endorse Button: Strictly available ONLY for candidates in the 'Applicant Profiling' stage */}
+                          {/* Quick Endorse Action (Only for candidates in Profiling stage) */}
                           {isApplicantInProfiling(candidate.applicant) && candidate.classification !== 'Not Recommended' && (
                             <button
-                              onClick={() => handleEndorseCandidate(candidate)}
+                              onClick={() => initiateEndorsement(candidate)}
                               disabled={!candidate.compliancePassed || candidate.expiredDocs.length > 0}
-                              className="w-[124px] py-1.5 px-2 bg-[#10B981] hover:bg-[#059669] text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className={`w-full py-1 px-2 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                candidate.classification === 'For Consideration'
+                                  ? 'bg-amber-600 hover:bg-amber-700'
+                                  : 'bg-[#10B981] hover:bg-[#059669]'
+                              }`}
                               title={
                                 !candidate.compliancePassed || candidate.expiredDocs.length > 0
                                   ? 'Endorsement blocked: Candidate has expired document(s)'
+                                  : candidate.classification === 'For Consideration'
+                                  ? 'Review and endorse candidate under consideration'
                                   : 'Endorse candidate directly to CV Encoding'
                               }
                             >
-                              <Send className="w-3.5 h-3.5 flex-shrink-0" />
-                              <span className="whitespace-nowrap">Endorse</span>
+                              <Send className="w-3 h-3 flex-shrink-0" />
+                              <span className="whitespace-nowrap">
+                                {candidate.classification === 'For Consideration' ? 'Review & Endorse' : 'Endorse Candidate'}
+                              </span>
                             </button>
                           )}
 
-                          {/* Return Phase Button: Strictly available for candidates in the 'Applicant Profiling' stage */}
-                          {isApplicantInProfiling(candidate.applicant) && (
+                          {/* Compact Secondary Actions: Profile & Return */}
+                          <div className="grid grid-cols-2 gap-1 w-full pt-0.5">
                             <button
-                              onClick={() => {
-                                setCandidateToReturn(candidate.applicant);
-                              }}
-                              className="w-[124px] py-1.5 px-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
-                              title="Return candidate to Medical Clearance (Phase 2) or Initial Screening (Phase 1)"
+                              onClick={() => handleOpenProfileOverlay(candidate.applicant)}
+                              className="py-1 px-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-[10px] rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1"
+                              title="Open full applicant profile"
                             >
-                              <RotateCcw className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
-                              <span className="whitespace-nowrap">Return Phase</span>
+                              <Eye className="w-2.5 h-2.5 text-slate-500" />
+                              <span>Profile</span>
                             </button>
-                          )}
+
+                            {isApplicantInProfiling(candidate.applicant) && (
+                              <button
+                                onClick={() => {
+                                  setCandidateToReturn(candidate.applicant);
+                                }}
+                                className="py-1 px-1 bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-slate-600 hover:text-amber-800 font-semibold text-[10px] rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1"
+                                title="Return candidate to Medical Clearance or Initial Screening"
+                              >
+                                <RotateCcw className="w-2.5 h-2.5 text-amber-600" />
+                                <span>Return</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -2786,7 +3246,7 @@ export default function SmartProfiling({
                         <span>Notice: Job Order Preference Mismatch (Candidate Picked Different Role)</span>
                       </p>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
-                        This applicant originally applied for <strong>{modalMismatch.chosenJobOrder || modalMismatch.chosenRole || 'a different job order/position'}</strong>, rather than <strong>{currentJobOrder?.position} (#{currentJobOrder?.id})</strong>. Even though the candidate has a strong readiness score ({activeModalCandidate.readinessScore}%) based on their qualifications and related trade experience, note that this candidate did not select this specific job order when they registered. Please verify with the candidate if they are willing to be considered for this employer and position.
+                        This applicant originally applied for <strong>{modalMismatch.chosenJobOrder || modalMismatch.chosenRole || 'a different job order/position'}</strong>, rather than <strong>{currentJobOrder?.position} (#{currentJobOrder?.id})</strong>. Even though the candidate has a strong readiness score ({activeModalCandidate.readinessScore}%) based on their qualifications and related job experience, note that this candidate did not select this specific job order when they registered. Please verify with the candidate if they are willing to be considered for this employer and position.
                       </p>
                     </div>
                   </div>
@@ -2851,26 +3311,50 @@ export default function SmartProfiling({
               {/* Job-Order Readiness Score Card */}
               <div className="p-4 rounded-xl border bg-slate-50/70 border-slate-200">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Job-Order Readiness Score</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Job-Order Readiness Score</span>
+                    <button
+                      type="button"
+                      onClick={handleRecalculateCurrentCandidate}
+                      disabled={isRecalculatingDrawer}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      title="Re-check database for newest documents, certifications, and test scores"
+                    >
+                      <RefreshCw size={12} className={isRecalculatingDrawer ? 'animate-spin' : ''} />
+                      {isRecalculatingDrawer ? 'Recalculating...' : 'Update Details / Recalculate'}
+                    </button>
+                  </div>
                   <span className="font-mono font-black text-2xl text-slate-900">{activeModalCandidate.readinessScore}%</span>
                 </div>
                 <div className="flex items-center gap-2 mb-3">
                   <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${activeModalCandidate.classification === 'Recommended'
-                      ? 'bg-[#10B981] text-white'
-                      : activeModalCandidate.classification === 'For Further Review'
+                    className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      activeModalCandidate.classification === 'Recommended'
+                        ? 'bg-[#10B981] text-white'
+                        : activeModalCandidate.classification === 'For Further Review'
                         ? 'bg-[#F59E0B] text-slate-950'
+                        : activeModalCandidate.classification === 'For Consideration'
+                        ? 'bg-[#0284C7] text-white'
                         : 'bg-[#EF4444] text-white'
-                      }`}
+                    }`}
                   >
                     {activeModalCandidate.classification}
                   </span>
                   <span className="text-xs text-slate-500">
-                    {!activeModalCandidate.hasRecordedAssessments && 'Candidate background qualifies, but examination assessments are pending.'}
-                    {activeModalCandidate.hasRecordedAssessments && !activeModalCandidate.allGatesPass && 'Exam clearance blocked: candidate failed one or more mandatory examination gates.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && 'Exceeds 90% readiness threshold and passed all examination checks.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && 'Meets 75%-89% readiness threshold for recruiter review.'}
-                    {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && 'Below 75% readiness threshold for this position.'}
+                    {activeModalCandidate.classification === 'For Consideration' && (
+                      <span className="text-sky-800 font-medium">
+                        {activeModalCandidate.considerationReason || 'Candidate has good practical skills; waiting for updated clearance or test retake.'}
+                      </span>
+                    )}
+                    {activeModalCandidate.classification !== 'For Consideration' && (
+                      <>
+                        {!activeModalCandidate.hasRecordedAssessments && 'Candidate background qualifies, but examination assessments are pending.'}
+                        {activeModalCandidate.hasRecordedAssessments && !activeModalCandidate.allGatesPass && 'Exam clearance blocked: candidate failed one or more mandatory examination gates.'}
+                        {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && `Exceeds ${scoringRules.thresholds.recommended}% readiness threshold and passed all examination checks.`}
+                        {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && `Meets ${scoringRules.thresholds.furtherReview}%–${scoringRules.thresholds.recommended - 1}% readiness threshold for recruiter review.`}
+                        {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && `Below ${scoringRules.thresholds.furtherReview}% readiness threshold for this position.`}
+                      </>
+                    )}
                   </span>
                 </div>
 
@@ -2884,7 +3368,7 @@ export default function SmartProfiling({
                   <div className="bg-white rounded-lg border border-slate-200 overflow-hidden text-xs transition-all">
                     <div className="p-2.5 flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-700">1. Role & Trade Match</span>
+                        <span className="font-semibold text-slate-700">1. Role & Job Match</span>
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'roleMatch' ? null : 'roleMatch')}
@@ -2901,11 +3385,11 @@ export default function SmartProfiling({
                         <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-[#20637A] h-full rounded-full"
-                            style={{ width: `${(activeModalCandidate.categoryScores.roleMatch / 30) * 100}%` }}
+                            style={{ width: `${Math.min(100, (activeModalCandidate.categoryScores.roleMatch / Math.max(1, scoringRules.weights.roleMatch)) * 100)}%` }}
                           />
                         </div>
                         <span className="font-mono font-bold text-slate-900 w-16 text-right">
-                          {activeModalCandidate.categoryScores.roleMatch} / 30 pts
+                          {activeModalCandidate.categoryScores.roleMatch} / {scoringRules.weights.roleMatch} pts
                         </span>
                       </div>
                     </div>
@@ -2913,19 +3397,19 @@ export default function SmartProfiling({
                     {expandedCategoryHelp === 'roleMatch' && (
                       <div className="px-3.5 pb-3 pt-1 border-t border-slate-100 bg-slate-50/80 text-[11px] space-y-2 animate-in fade-in duration-150">
                         <div>
-                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max 30 pts):</p>
+                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.roleMatch} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
-                            <li><strong className="text-slate-800">30 pts:</strong> Direct Applied Role match (applied position exactly matches job order)</li>
-                            <li><strong className="text-slate-800">25 pts:</strong> Work History match (held this exact position in previous employment)</li>
-                            <li><strong className="text-slate-800">20 pts:</strong> Allied Trade Cluster match in applied role (transfer credit in same trade family)</li>
-                            <li><strong className="text-slate-800">16 pts:</strong> Allied Trade Cluster match in past employment history</li>
-                            <li><strong className="text-slate-800">0 pts:</strong> Unrelated trade or unspecified background</li>
+                            <li><strong className="text-slate-800">{scoringRules.weights.roleMatch} pts:</strong> Direct Applied Role match (applied position exactly matches job order)</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.roleMatch * (25 / 30))} pts:</strong> Work History match (held this exact position in previous employment)</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.roleMatch * (20 / 30))} pts:</strong> Related Job Family match in applied role (matching credit in same job family)</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.roleMatch * (16 / 30))} pts:</strong> Related Job Family match in past employment history</li>
+                            <li><strong className="text-slate-800">0 pts:</strong> Unrelated background or different job field</li>
                           </ul>
                         </div>
                         <div className="p-2.5 bg-white rounded-lg border border-slate-200">
                           <p className="font-bold text-[#20637A] text-[10px] uppercase tracking-wider">Candidate Score Breakdown:</p>
                           <p className="text-slate-700 mt-0.5 leading-relaxed">
-                            {getCategoryCandidateExplanation('roleMatch', activeModalCandidate, currentJobOrder)}
+                            {getCategoryCandidateExplanation('roleMatch', activeModalCandidate, currentJobOrder, scoringRules)}
                           </p>
                         </div>
                       </div>
@@ -2953,11 +3437,11 @@ export default function SmartProfiling({
                         <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-[#20637A] h-full rounded-full"
-                            style={{ width: `${(activeModalCandidate.categoryScores.certifications / 25) * 100}%` }}
+                            style={{ width: `${Math.min(100, (activeModalCandidate.categoryScores.certifications / Math.max(1, scoringRules.weights.certifications)) * 100)}%` }}
                           />
                         </div>
                         <span className="font-mono font-bold text-slate-900 w-16 text-right">
-                          {activeModalCandidate.categoryScores.certifications} / 25 pts
+                          {activeModalCandidate.categoryScores.certifications} / {scoringRules.weights.certifications} pts
                         </span>
                       </div>
                     </div>
@@ -2965,18 +3449,18 @@ export default function SmartProfiling({
                     {expandedCategoryHelp === 'certifications' && (
                       <div className="px-3.5 pb-3 pt-1 border-t border-slate-100 bg-slate-50/80 text-[11px] space-y-2 animate-in fade-in duration-150">
                         <div>
-                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max 25 pts):</p>
+                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.certifications} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
-                            <li><strong className="text-slate-800">25 pts:</strong> Holds all required certifications or no mandatory certs specified</li>
-                            <li><strong className="text-slate-800">Pro-rated:</strong> (25 / N) points per required credential held</li>
-                            <li><strong className="text-slate-800">Allied Transfer Credit:</strong> 70% credit value for allied credentials in same trade family</li>
-                            <li><strong className="text-slate-800">0 pts:</strong> Missing required credentials without allied alternatives</li>
+                            <li><strong className="text-slate-800">{scoringRules.weights.certifications} pts:</strong> Holds all required certifications or no mandatory certs specified</li>
+                            <li><strong className="text-slate-800">Pro-rated:</strong> ({scoringRules.weights.certifications} / N) points per required credential held</li>
+                            <li><strong className="text-slate-800">Related Credentials Credit:</strong> 70% credit value for related qualifications in same job family</li>
+                            <li><strong className="text-slate-800">0 pts:</strong> Missing required credentials without related alternatives</li>
                           </ul>
                         </div>
                         <div className="p-2.5 bg-white rounded-lg border border-slate-200">
                           <p className="font-bold text-[#20637A] text-[10px] uppercase tracking-wider">Candidate Score Breakdown:</p>
                           <p className="text-slate-700 mt-0.5 leading-relaxed">
-                            {getCategoryCandidateExplanation('certifications', activeModalCandidate, currentJobOrder)}
+                            {getCategoryCandidateExplanation('certifications', activeModalCandidate, currentJobOrder, scoringRules)}
                           </p>
                         </div>
                       </div>
@@ -2988,7 +3472,7 @@ export default function SmartProfiling({
                     <div className="p-2.5 flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-slate-700">
-                          3. {activeModalCandidate.isFirstTimeApplicant ? 'Institutional TVET / Education' : 'Work Experience Duration'}
+                          3. {activeModalCandidate.isFirstTimeApplicant ? 'Institutional TVET / Education' : 'Related Work Experience'}
                         </span>
                         <button
                           type="button"
@@ -3006,11 +3490,11 @@ export default function SmartProfiling({
                         <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-[#20637A] h-full rounded-full"
-                            style={{ width: `${(activeModalCandidate.categoryScores.experience / 20) * 100}%` }}
+                            style={{ width: `${Math.min(100, (activeModalCandidate.categoryScores.experience / Math.max(1, scoringRules.weights.experience)) * 100)}%` }}
                           />
                         </div>
                         <span className="font-mono font-bold text-slate-900 w-16 text-right">
-                          {activeModalCandidate.categoryScores.experience} / 20 pts
+                          {activeModalCandidate.categoryScores.experience} / {scoringRules.weights.experience} pts
                         </span>
                       </div>
                     </div>
@@ -3018,18 +3502,18 @@ export default function SmartProfiling({
                     {expandedCategoryHelp === 'experience' && (
                       <div className="px-3.5 pb-3 pt-1 border-t border-slate-100 bg-slate-50/80 text-[11px] space-y-2 animate-in fade-in duration-150">
                         <div>
-                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max 20 pts):</p>
+                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.experience} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
-                            <li><strong className="text-slate-800">20 pts:</strong> Experience exceeds requirement by 2+ years (or aligned TVET/tertiary for first-time applicants)</li>
-                            <li><strong className="text-slate-800">15 pts:</strong> Meets exact required years (or verified secondary foundation for first-time applicants)</li>
+                            <li><strong className="text-slate-800">{scoringRules.weights.experience} pts:</strong> Experience exceeds requirement by 2+ years (or vocational / college degree in related field for first-time applicants)</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.experience * 0.75)} pts:</strong> Meets exact required years (or verified secondary foundation for first-time applicants)</li>
                             <li><strong className="text-slate-800">Partial:</strong> Pro-rated duration if related</li>
-                            <li><strong className="text-slate-800">Max 5 pts:</strong> Non-aligned experience duration in unrelated trade</li>
+                            <li><strong className="text-slate-800">Max {Math.round(scoringRules.weights.experience * 0.25)} pts:</strong> Experience duration in other fields/industries</li>
                           </ul>
                         </div>
                         <div className="p-2.5 bg-white rounded-lg border border-slate-200">
                           <p className="font-bold text-[#20637A] text-[10px] uppercase tracking-wider">Candidate Score Breakdown:</p>
                           <p className="text-slate-700 mt-0.5 leading-relaxed">
-                            {getCategoryCandidateExplanation('experience', activeModalCandidate, currentJobOrder)}
+                            {getCategoryCandidateExplanation('experience', activeModalCandidate, currentJobOrder, scoringRules)}
                           </p>
                         </div>
                       </div>
@@ -3040,7 +3524,7 @@ export default function SmartProfiling({
                   <div className="bg-white rounded-lg border border-slate-200 overflow-hidden text-xs transition-all">
                     <div className="p-2.5 flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-700">4. Trade Skills & Competencies</span>
+                        <span className="font-semibold text-slate-700">4. Practical Job Skills & Tools</span>
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'skills' ? null : 'skills')}
@@ -3057,11 +3541,11 @@ export default function SmartProfiling({
                         <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-[#20637A] h-full rounded-full"
-                            style={{ width: `${(activeModalCandidate.categoryScores.skills / 15) * 100}%` }}
+                            style={{ width: `${Math.min(100, (activeModalCandidate.categoryScores.skills / Math.max(1, scoringRules.weights.skills)) * 100)}%` }}
                           />
                         </div>
                         <span className="font-mono font-bold text-slate-900 w-16 text-right">
-                          {activeModalCandidate.categoryScores.skills} / 15 pts
+                          {activeModalCandidate.categoryScores.skills} / {scoringRules.weights.skills} pts
                         </span>
                       </div>
                     </div>
@@ -3069,17 +3553,17 @@ export default function SmartProfiling({
                     {expandedCategoryHelp === 'skills' && (
                       <div className="px-3.5 pb-3 pt-1 border-t border-slate-100 bg-slate-50/80 text-[11px] space-y-2 animate-in fade-in duration-150">
                         <div>
-                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max 15 pts):</p>
+                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.skills} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
-                            <li><strong className="text-slate-800">15 pts:</strong> Matched 2 or more core trade competencies or cluster skills</li>
-                            <li><strong className="text-slate-800">10 pts:</strong> Matched 1 core trade competency</li>
-                            <li><strong className="text-slate-800">0 pts:</strong> No matching trade competencies detected in profile skills</li>
+                            <li><strong className="text-slate-800">{scoringRules.weights.skills} pts:</strong> Matched 2 or more core practical skills or related abilities</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.skills * (10 / 15))} pts:</strong> Matched 1 core practical skill</li>
+                            <li><strong className="text-slate-800">0 pts:</strong> No matching practical skills detected in profile skills</li>
                           </ul>
                         </div>
                         <div className="p-2.5 bg-white rounded-lg border border-slate-200">
                           <p className="font-bold text-[#20637A] text-[10px] uppercase tracking-wider">Candidate Score Breakdown:</p>
                           <p className="text-slate-700 mt-0.5 leading-relaxed">
-                            {getCategoryCandidateExplanation('skills', activeModalCandidate, currentJobOrder)}
+                            {getCategoryCandidateExplanation('skills', activeModalCandidate, currentJobOrder, scoringRules)}
                           </p>
                         </div>
                       </div>
@@ -3090,7 +3574,7 @@ export default function SmartProfiling({
                   <div className="bg-white rounded-lg border border-slate-200 overflow-hidden text-xs transition-all">
                     <div className="p-2.5 flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-700">5. Overseas Deployment Readiness</span>
+                        <span className="font-semibold text-slate-700">5. Overseas Work Experience</span>
                         <button
                           type="button"
                           onClick={() => setExpandedCategoryHelp(expandedCategoryHelp === 'overseas' ? null : 'overseas')}
@@ -3107,11 +3591,11 @@ export default function SmartProfiling({
                         <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-[#20637A] h-full rounded-full"
-                            style={{ width: `${(activeModalCandidate.categoryScores.overseas / 10) * 100}%` }}
+                            style={{ width: `${Math.min(100, (activeModalCandidate.categoryScores.overseas / Math.max(1, scoringRules.weights.overseas)) * 100)}%` }}
                           />
                         </div>
                         <span className="font-mono font-bold text-slate-900 w-16 text-right">
-                          {activeModalCandidate.categoryScores.overseas} / 10 pts
+                          {activeModalCandidate.categoryScores.overseas} / {scoringRules.weights.overseas} pts
                         </span>
                       </div>
                     </div>
@@ -3119,18 +3603,18 @@ export default function SmartProfiling({
                     {expandedCategoryHelp === 'overseas' && (
                       <div className="px-3.5 pb-3 pt-1 border-t border-slate-100 bg-slate-50/80 text-[11px] space-y-2 animate-in fade-in duration-150">
                         <div>
-                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max 10 pts):</p>
+                          <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.overseas} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
-                            <li><strong className="text-slate-800">10 pts:</strong> Verified prior overseas experience in target destination country</li>
-                            <li><strong className="text-slate-800">7 pts:</strong> Prior overseas experience in other countries (or first-time applicant neutral baseline)</li>
-                            <li><strong className="text-slate-800">3 pts:</strong> Local / domestic Philippine employment experience only</li>
+                            <li><strong className="text-slate-800">{scoringRules.weights.overseas} pts:</strong> Verified prior overseas work experience in target destination country</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.7)} pts:</strong> Prior overseas work experience in other countries (or first-time applicant neutral baseline)</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.3)} pts:</strong> Domestic Philippine work experience only</li>
                             <li><strong className="text-slate-800">0 pts:</strong> No recorded work history</li>
                           </ul>
                         </div>
                         <div className="p-2.5 bg-white rounded-lg border border-slate-200">
                           <p className="font-bold text-[#20637A] text-[10px] uppercase tracking-wider">Candidate Score Breakdown:</p>
                           <p className="text-slate-700 mt-0.5 leading-relaxed">
-                            {getCategoryCandidateExplanation('overseas', activeModalCandidate, currentJobOrder)}
+                            {getCategoryCandidateExplanation('overseas', activeModalCandidate, currentJobOrder, scoringRules)}
                           </p>
                         </div>
                       </div>
@@ -3496,12 +3980,20 @@ export default function SmartProfiling({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handleEndorseCandidate(activeModalCandidate)}
-                    className="h-9 px-4 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+                    onClick={() => initiateEndorsement(activeModalCandidate)}
+                    className={`h-9 px-4 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap ${
+                      activeModalCandidate.classification === 'For Consideration'
+                        ? 'bg-amber-600 hover:bg-amber-700'
+                        : 'bg-[#10B981] hover:bg-[#059669]'
+                    }`}
                     title="Endorse candidate and forward to CV Encoding"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Endorse Candidate to CV Encoding</span>
+                    <span>
+                      {activeModalCandidate.classification === 'For Consideration'
+                        ? 'Review & Endorse Anyway'
+                        : 'Endorse Candidate to CV Encoding'}
+                    </span>
                   </button>
                 )}
               </div>
@@ -3671,6 +4163,266 @@ export default function SmartProfiling({
         </div>
       )}
 
+      {/* Endorsement Confirmation & Job Order Reassignment Safeguard Modal Dialog */}
+      {candidateToEndorse && (() => {
+        const isUnderConsideration =
+          candidateToEndorse.classification === 'For Consideration' ||
+          candidateToEndorse.classification === 'For Further Review';
+        const mismatchInfo = getJobOrderMismatchInfo(candidateToEndorse.applicant, currentJobOrder);
+        const isReassignment = Boolean(mismatchInfo);
+        const isConfirmInputValid = !isReassignment || endorseConfirmInput.trim().toUpperCase() === 'CONFIRM';
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+            onClick={() => !isSubmittingEndorse && setCandidateToEndorse(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full p-6 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      isUnderConsideration
+                        ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                        : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                    }`}
+                  >
+                    {isUnderConsideration ? <AlertCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-900 text-base">
+                      {isUnderConsideration ? 'Confirm Endorsement (Under Consideration)' : 'Confirm Candidate Endorsement'}
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      {candidateToEndorse.applicant.name} • {candidateToEndorse.applicant.applicantCode || `#APP-${candidateToEndorse.applicant.id}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !isSubmittingEndorse && setCandidateToEndorse(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Modal Body */}
+              <div className="py-4 space-y-4 overflow-y-auto flex-1 pr-1">
+                {/* Target Job Order Banner */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Target Job Order</p>
+                    <p className="text-sm font-bold text-slate-900 mt-0.5">
+                      {currentJobOrder?.position || 'Target Position'} <span className="text-slate-500 font-mono text-xs">(#{currentJobOrder?.id})</span>
+                    </p>
+                    <p className="text-xs text-slate-600">{currentJobOrder?.employer || 'Foreign Employer'}</p>
+                  </div>
+                  <div className="text-right">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                        candidateToEndorse.classification === 'Recommended'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : candidateToEndorse.classification === 'For Consideration'
+                          ? 'bg-sky-100 text-sky-800 border border-sky-300'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}
+                    >
+                      {candidateToEndorse.classification}
+                    </span>
+                    <p className="text-xs font-black text-slate-800 mt-1">
+                      Readiness: <span className={isUnderConsideration ? 'text-amber-700' : 'text-emerald-700'}>{candidateToEndorse.readinessScore}%</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Under Consideration Warning & Factor Breakdown */}
+                {isUnderConsideration && (
+                  <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h5 className="font-bold text-xs text-amber-900">
+                          Candidate Is Under Consideration (Not Fully Cleared)
+                        </h5>
+                        <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                          This candidate does not meet the optimal passing score for this position, but has transferable skills. Review the evaluation factors below before endorsing.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Identified Factors & Gaps */}
+                    <div className="bg-white/90 rounded-lg p-3 border border-amber-200/80 space-y-1.5 text-xs text-slate-700">
+                      <p className="font-bold text-[11px] uppercase tracking-wider text-amber-900">
+                        Identified Factors & Readiness Gaps:
+                      </p>
+                      {candidateToEndorse.considerationReason && (
+                        <p className="text-xs text-slate-800 flex items-start gap-1.5">
+                          <span className="text-amber-600 font-bold">•</span>
+                          <span><strong>Primary Consideration:</strong> {candidateToEndorse.considerationReason}</span>
+                        </p>
+                      )}
+                      {candidateToEndorse.gaps && candidateToEndorse.gaps.length > 0 ? (
+                        candidateToEndorse.gaps.map((gap, idx) => (
+                          <p key={idx} className="text-xs text-slate-700 flex items-start gap-1.5">
+                            <span className="text-amber-600 font-bold">•</span>
+                            <span>{gap}</span>
+                          </p>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">
+                          Candidate readiness score ({candidateToEndorse.readinessScore}%) is within the For Consideration range.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Point Scores Summary */}
+                    <div className="grid grid-cols-5 gap-1.5 text-center">
+                      <div className="bg-white/90 p-2 rounded-lg border border-amber-200/60">
+                        <p className="text-[10px] text-slate-500 font-semibold truncate">Role</p>
+                        <p className="text-xs font-bold text-slate-800 mt-0.5">{candidateToEndorse.categoryScores.roleMatch} pts</p>
+                      </div>
+                      <div className="bg-white/90 p-2 rounded-lg border border-amber-200/60">
+                        <p className="text-[10px] text-slate-500 font-semibold truncate">Certs</p>
+                        <p className="text-xs font-bold text-slate-800 mt-0.5">{candidateToEndorse.categoryScores.certifications} pts</p>
+                      </div>
+                      <div className="bg-white/90 p-2 rounded-lg border border-amber-200/60">
+                        <p className="text-[10px] text-slate-500 font-semibold truncate">Exp</p>
+                        <p className="text-xs font-bold text-slate-800 mt-0.5">{candidateToEndorse.categoryScores.experience} pts</p>
+                      </div>
+                      <div className="bg-white/90 p-2 rounded-lg border border-amber-200/60">
+                        <p className="text-[10px] text-slate-500 font-semibold truncate">Skills</p>
+                        <p className="text-xs font-bold text-slate-800 mt-0.5">{candidateToEndorse.categoryScores.skills} pts</p>
+                      </div>
+                      <div className="bg-white/90 p-2 rounded-lg border border-amber-200/60">
+                        <p className="text-[10px] text-slate-500 font-semibold truncate">Overseas</p>
+                        <p className="text-xs font-bold text-slate-800 mt-0.5">{candidateToEndorse.categoryScores.overseas} pts</p>
+                      </div>
+                    </div>
+
+                    {/* Optional Staff Remarks for Under Consideration */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                        Endorsement Remarks / Justification (Optional):
+                      </label>
+                      <input
+                        type="text"
+                        value={endorseJustificationNotes}
+                        onChange={(e) => setEndorseJustificationNotes(e.target.value)}
+                        placeholder="e.g. Endorsed with client pre-approval for apprentice trade role..."
+                        className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Job Order Reassignment Safeguard */}
+                {isReassignment && (
+                  <div className="bg-rose-50/90 border-2 border-rose-300 rounded-xl p-4 space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldAlert className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h5 className="font-bold text-xs text-rose-950 flex items-center gap-1.5">
+                          <span>Job Order Reassignment Safeguard</span>
+                          <span className="text-[10px] bg-rose-200 text-rose-900 px-1.5 py-0.2 rounded font-black uppercase">Required Action</span>
+                        </h5>
+                        <p className="text-[11px] text-rose-900 mt-1 leading-relaxed">
+                          This candidate originally applied for{' '}
+                          <strong className="text-rose-950 underline decoration-rose-400">
+                            {mismatchInfo?.chosenJobOrder || mismatchInfo?.chosenRole || 'Another Job Order'}
+                          </strong>
+                          . Endorsing them will reassign their application to{' '}
+                          <strong className="text-slate-900">
+                            {currentJobOrder?.position} (#{currentJobOrder?.id})
+                          </strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Type CONFIRM Input Box */}
+                    <div className="bg-white rounded-lg p-3 border border-rose-200 space-y-2">
+                      <label className="block text-xs font-bold text-slate-800">
+                        To protect against accidental reassignments, type <span className="font-black text-rose-600 font-mono tracking-wider">CONFIRM</span> below to authorize:
+                      </label>
+                      <input
+                        type="text"
+                        value={endorseConfirmInput}
+                        onChange={(e) => setEndorseConfirmInput(e.target.value)}
+                        placeholder="Type CONFIRM to authorize reassignment"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono font-bold tracking-wider text-slate-900 placeholder:text-slate-400 placeholder:font-sans placeholder:tracking-normal focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-500"
+                      />
+                      {endorseConfirmInput.trim().toUpperCase() === 'CONFIRM' ? (
+                        <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>✓ Reassignment authorized. Candidate will be assigned to {currentJobOrder?.position}.</span>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-slate-500">
+                          The endorse button is locked until you type <strong className="text-slate-700">CONFIRM</strong> above.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Standard Message for Recommended Candidates without Mismatch */}
+                {!isUnderConsideration && !isReassignment && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-start gap-2.5">
+                    <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="font-bold text-xs text-emerald-950">
+                        Ready for CV Encoding Forwarding
+                      </h5>
+                      <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
+                        Candidate meets recommended criteria and statutory clearance checks. They will be forwarded to Phase 3 (CV Encoding) for client presentation package preparation.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => !isSubmittingEndorse && setCandidateToEndorse(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmEndorse}
+                  disabled={!isConfirmInputValid || isSubmittingEndorse}
+                  className={`px-4 py-2 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isUnderConsideration
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
+                >
+                  {isSubmittingEndorse ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isSubmittingEndorse
+                      ? 'Processing...'
+                      : isUnderConsideration
+                      ? 'Endorse Anyway'
+                      : 'Confirm Endorsement'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Candidate Profile Overlay Modal */}
       {overlayApplicant && (
         <div
@@ -3720,6 +4472,450 @@ export default function SmartProfiling({
                 showToast={showToast}
                 updateApplicant={updateApplicant ? (id, data) => updateApplicant(id, data) : undefined}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Candidate Scoring & Category Rules Modal (Item 4) */}
+      {showRulesModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5 animate-in fade-in duration-200"
+          onClick={() => setShowRulesModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#20637A]/10 border border-[#20637A]/20 flex items-center justify-center text-[#20637A] shadow-xs">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 tracking-tight">
+                    Candidate Scoring & Category Rules
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Adjust point weights and recommendation standards for your agency.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRulesModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                title="Close (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+              {/* Management Access Control Notice */}
+              {!isManagementUser ? (
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3 text-xs text-amber-950 shadow-2xs">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-900">View-Only Access (Management Controlled)</p>
+                    <p className="text-amber-800 leading-relaxed">
+                      You are viewing your agency&apos;s active qualification category point weights and recommendation standards. Only authorized <strong>Management</strong> and <strong>Administrator</strong> accounts have permission to modify and save scoring rules.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Friendly Note Banner for Management */
+                <div className="p-3.5 bg-sky-50 border border-sky-200 rounded-xl flex items-start gap-3 text-xs text-sky-950">
+                  <Info className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-sky-900">100-Point Balanced System</p>
+                    <p className="text-sky-800 leading-relaxed">
+                      Set how much importance FlowSensus gives to each qualification area. The 5 categories below must add up to exactly <strong>100 points</strong> before saving.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Section 1: Category Weights */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <span>1. Qualification Category Weights</span>
+                  </h4>
+                  <span className="text-[11px] text-slate-500 font-medium">Must equal 100 points total</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {/* Category 1: Role & Job Match */}
+                  <div className="p-3 bg-slate-50 hover:bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">Role & Job Match</span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Default: 30 pts)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Matches applicant applied role or past job titles to this target position.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        disabled={!isManagementUser}
+                        value={draftWeights.roleMatch}
+                        onChange={(e) =>
+                          setDraftWeights({
+                            ...draftWeights,
+                            roleMatch: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          })
+                        }
+                        className={`w-16 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-slate-500">pts</span>
+                    </div>
+                  </div>
+
+                  {/* Category 2: Required Certifications */}
+                  <div className="p-3 bg-slate-50 hover:bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">Required Certifications</span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Default: 25 pts)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        TESDA certificates (NC II), professional licenses, and mandatory credentials.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        disabled={!isManagementUser}
+                        value={draftWeights.certifications}
+                        onChange={(e) =>
+                          setDraftWeights({
+                            ...draftWeights,
+                            certifications: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          })
+                        }
+                        className={`w-16 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-slate-500">pts</span>
+                    </div>
+                  </div>
+
+                  {/* Category 3: Related Work Experience */}
+                  <div className="p-3 bg-slate-50 hover:bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">Related Work Experience</span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Default: 20 pts)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Years of job experience in this specific role (or vocational training for first-time jobseekers).
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        disabled={!isManagementUser}
+                        value={draftWeights.experience}
+                        onChange={(e) =>
+                          setDraftWeights({
+                            ...draftWeights,
+                            experience: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          })
+                        }
+                        className={`w-16 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-slate-500">pts</span>
+                    </div>
+                  </div>
+
+                  {/* Category 4: Practical Job Skills & Tools */}
+                  <div className="p-3 bg-slate-50 hover:bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">Practical Job Skills & Tools</span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Default: 15 pts)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Hands-on work skills and equipment proficiency required by the employer.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        disabled={!isManagementUser}
+                        value={draftWeights.skills}
+                        onChange={(e) =>
+                          setDraftWeights({
+                            ...draftWeights,
+                            skills: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          })
+                        }
+                        className={`w-16 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-slate-500">pts</span>
+                    </div>
+                  </div>
+
+                  {/* Category 5: Overseas Work Experience */}
+                  <div className="p-3 bg-slate-50 hover:bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">Overseas Work Experience</span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Default: 10 pts)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Past overseas employment history or destination country experience.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        disabled={!isManagementUser}
+                        value={draftWeights.overseas}
+                        onChange={(e) =>
+                          setDraftWeights({
+                            ...draftWeights,
+                            overseas: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          })
+                        }
+                        className={`w-16 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-right ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold text-slate-500">pts</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live 100-Point Validation Counter Card */}
+                <div
+                  className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                    draftTotalPoints === 100
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : draftTotalPoints < 100
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {draftTotalPoints === 100 ? (
+                      <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle
+                        className={`w-5 h-5 flex-shrink-0 ${
+                          draftTotalPoints < 100 ? 'text-amber-600' : 'text-rose-600'
+                        }`}
+                      />
+                    )}
+                    <div>
+                      <p className="text-xs font-bold leading-tight">
+                        {draftTotalPoints === 100 && 'Total: 100 / 100 Points — Balanced & Ready to Save'}
+                        {draftTotalPoints < 100 &&
+                          `Total: ${draftTotalPoints} / 100 Points (Add ${100 - draftTotalPoints} more point${100 - draftTotalPoints > 1 ? 's' : ''})`}
+                        {draftTotalPoints > 100 &&
+                          `Total: ${draftTotalPoints} / 100 Points (${draftTotalPoints - 100} point${draftTotalPoints - 100 > 1 ? 's' : ''} over 100)`}
+                      </p>
+                      <p className="text-[11px] opacity-80 mt-0.5">
+                        {draftTotalPoints === 100 && 'All qualification categories equal 100 points.'}
+                        {draftTotalPoints < 100 && 'Please increase points in any category to reach exactly 100.'}
+                        {draftTotalPoints > 100 && 'Please reduce points in any category to equal exactly 100.'}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-sm font-mono font-black px-2.5 py-1 rounded-lg ${
+                      draftTotalPoints === 100
+                        ? 'bg-emerald-100 text-emerald-950'
+                        : draftTotalPoints < 100
+                        ? 'bg-amber-100 text-amber-950'
+                        : 'bg-rose-100 text-rose-950'
+                    }`}
+                  >
+                    {draftTotalPoints} / 100
+                  </span>
+                </div>
+              </div>
+
+              {/* Section 2: Recommendation Standards (Thresholds) */}
+              <div className="space-y-3 pt-3 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                    2. Recommendation Standards (Thresholds)
+                  </h4>
+                  <span className="text-[11px] text-slate-500 font-medium">Cutoff percentages</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Recommended Threshold */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        Recommended (Top Matches)
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">Default: 90%</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Minimum score required to receive top-tier &quot;Recommended&quot; badge.
+                    </p>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <input
+                        type="number"
+                        min={Number(draftThresholds.furtherReview) + 1}
+                        max={99}
+                        disabled={!isManagementUser}
+                        value={draftThresholds.recommended}
+                        onChange={(e) =>
+                          setDraftThresholds({
+                            ...draftThresholds,
+                            recommended: Math.max(
+                              Number(draftThresholds.furtherReview) + 1,
+                              Math.min(99, Number(e.target.value) || 90)
+                            ),
+                          })
+                        }
+                        className={`w-20 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-bold text-slate-600">% or higher</span>
+                    </div>
+                  </div>
+
+                  {/* For Further Review Threshold */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        For Further Review (Pool)
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">Default: 75%</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Minimum score for recruiter review pool (below Recommended).
+                    </p>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <input
+                        type="number"
+                        min={50}
+                        max={Number(draftThresholds.recommended) - 1}
+                        disabled={!isManagementUser}
+                        value={draftThresholds.furtherReview}
+                        onChange={(e) =>
+                          setDraftThresholds({
+                            ...draftThresholds,
+                            furtherReview: Math.max(
+                              50,
+                              Math.min(Number(draftThresholds.recommended) - 1, Number(e.target.value) || 75)
+                            ),
+                          })
+                        }
+                        className={`w-20 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold ${
+                          isManagementUser
+                            ? 'bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#20637A]/30 focus:border-[#20637A]'
+                            : 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                      />
+                      <span className="text-xs font-bold text-slate-600">% to {draftThresholds.recommended - 1}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-sky-50/80 border border-sky-200/80 rounded-xl text-sky-950 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-sky-900">
+                    <Info className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                    <span>How &quot;For Consideration&quot; Works (50% to {draftThresholds.furtherReview - 1}%)</span>
+                  </div>
+                  <p className="text-[11px] text-sky-800 leading-relaxed pl-5.5">
+                    Instead of turning away applicants who fall just below the review cutoff, the system highlights them under <strong className="text-sky-900">&quot;For Consideration&quot;</strong>. These are promising candidates with practical trade background who may simply need an expired document renewed, an assessment retake, or basic skills coaching before they can be endorsed to foreign employers.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0">
+              {isManagementUser ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleResetDefaults}
+                    className="px-3.5 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                    title="Restore standard 30 / 25 / 20 / 15 / 10 weights and 90% / 75% thresholds"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset to Standard Defaults</span>
+                  </button>
+
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowRulesModal(false)}
+                      className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveRules}
+                      disabled={!isDraftValid}
+                      className="px-5 py-2 bg-[#20637A] hover:bg-[#184e60] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Save & Apply Rules</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Scoring rule edits are restricted to Management & Administrator roles</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRulesModal(false)}
+                    className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Close View
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -351,7 +351,7 @@ function LandingPage({
             <div className="hidden md:block absolute left-[calc(50%-1px)] top-8 bottom-8 w-px bg-slate-200" />
             {[
               { phase: "01", title: "Applicant Registration", desc: "Detailed applicant intake with personal information, work history, and skills assessment.", side: "left", color: "#0EA5E9" },
-              { phase: "02", title: "Screening & Medical", desc: "English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
+              { phase: "02", title: "Screening & Medical", desc: "English proficiency, practical skills evaluations, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
               { phase: "03", title: "CV Encoding", desc: "Readiness engine evaluates 7 criteria. Management approves for employer submission.", side: "left", color: "#F59E0B" },
               { phase: "04", title: "Employer Endorsement", desc: "Foreign employer selects candidates. Interview scheduling and endorsement tracking.", side: "right", color: "#10B981" },
               { phase: "05", title: "Final Deployment", desc: "Document validation, expense tracking, visa processing, and departure monitoring.", side: "left", color: "#EF4444" },

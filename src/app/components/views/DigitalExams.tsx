@@ -888,7 +888,7 @@ export default function DigitalExams({
                 </p>
               </div>
               <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-sky-700 font-semibold flex items-center gap-1">
-                ✓ Best for: Employer-specific quizzes, safety briefings, extra trade tests
+                ✓ Best for: Employer-specific quizzes, safety briefings, specialized practical tests
               </div>
             </div>
           </div>

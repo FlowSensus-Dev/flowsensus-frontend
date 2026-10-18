@@ -1196,7 +1196,7 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 <input
                   value={editing.name}
                   onChange={e => setEditing(p => (p ? { ...p, name: e.target.value } : p))}
-                  placeholder="e.g. Passport, NBI Clearance, PEOS Certificate, Trade Test"
+                  placeholder="e.g. Passport, NBI Clearance, PEOS Certificate, Practical Skills Certificate"
                   className="w-full px-3.5 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9]"
                 />
               </div>

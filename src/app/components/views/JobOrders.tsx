@@ -8,6 +8,15 @@ import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 import { JobOrder, EmployerProfile } from '../../types';
 
 import { api } from '../../../lib/api';
+import { OCCUPATIONAL_CLUSTERS } from '../../../lib/profilingUtils';
+
+const STANDARD_POSITIONS = Array.from(
+  new Set(
+    Object.values(OCCUPATIONAL_CLUSTERS).flatMap(c => c.roles).map(r =>
+      r.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    )
+  )
+).sort();
 
 const STATUS_META: Record<JobOrder['status'], { label: string; color: string; icon: React.ReactNode }> = {
   open: { label: 'Open', color: '#10B981', icon: <CheckCircle2 size={13} /> },
@@ -384,6 +393,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     </div>
   );
 
+  const matchedCluster = editing?.position
+    ? Object.values(OCCUPATIONAL_CLUSTERS).find(c => {
+        const p = (editing.position || '').toLowerCase().trim();
+        return c.roles.some(r => r.toLowerCase() === p || p.includes(r.toLowerCase()));
+      })
+    : null;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -621,8 +637,68 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                   <input value={editing.code} onChange={e => setEditing(p => p ? { ...p, code: e.target.value } : p)} placeholder="e.g. JO-2026-0055" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Position / Job Title *</label>
-                  <input value={editing.position} onChange={e => setEditing(p => p ? { ...p, position: e.target.value } : p)} placeholder="e.g. Industrial Welder" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Position / Job Title *</label>
+                    <span className="text-[10px] text-slate-400 font-medium">DMW Overseas Catalog</span>
+                  </div>
+                  <input
+                    list="position-catalog"
+                    value={editing.position}
+                    onChange={e => setEditing(p => p ? { ...p, position: e.target.value } : p)}
+                    placeholder="e.g. Staff Nurse, 6G Welder, Commis Chef"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+                  />
+                  <datalist id="position-catalog">
+                    {STANDARD_POSITIONS.map(pos => (
+                      <option key={pos} value={pos} />
+                    ))}
+                  </datalist>
+                  {matchedCluster && (
+                    <div className="mt-1.5 flex items-center justify-between text-xs bg-sky-50 border border-sky-100 rounded-md px-2.5 py-1 text-sky-800">
+                      <span className="truncate mr-2">
+                        <span className="font-semibold text-sky-900">DMW Category:</span> {matchedCluster.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentReqs = new Set((editing.requirements || []).map(r => r.toLowerCase()));
+                          const currentCerts = new Set((editing.certifications || []).map(c => c.toLowerCase()));
+                          const newDetailed = [...(editing.detailedRequirements || [])];
+                          const newReqs = [...(editing.requirements || [])];
+                          const newCerts = [...(editing.certifications || [])];
+
+                          matchedCluster.skills.slice(0, 5).forEach(s => {
+                            const cap = s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                            if (!currentReqs.has(s.toLowerCase())) {
+                              newDetailed.push({ name: cap, category: 'DOCUMENT', isMandatory: true });
+                              newReqs.push(cap);
+                              currentReqs.add(s.toLowerCase());
+                            }
+                          });
+
+                          matchedCluster.certifications.slice(0, 3).forEach(c => {
+                            const cap = c.toUpperCase();
+                            if (!currentCerts.has(c.toLowerCase())) {
+                              newDetailed.push({ name: cap, category: 'CERTIFICATION', isMandatory: true });
+                              newCerts.push(cap);
+                              currentCerts.add(c.toLowerCase());
+                            }
+                          });
+
+                          setEditing(p => p ? {
+                            ...p,
+                            requirements: newReqs,
+                            certifications: newCerts,
+                            detailedRequirements: newDetailed,
+                          } : p);
+                          showToast(`Applied standard skills & credentials for ${matchedCluster.name}`);
+                        }}
+                        className="text-[11px] font-semibold text-sky-700 hover:text-sky-900 underline whitespace-nowrap"
+                      >
+                        + Apply Standard Skills & Certs
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
