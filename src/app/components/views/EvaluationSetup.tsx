@@ -65,7 +65,7 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
     moduleName: 'Screening Panel',
     assignedRoles: ['Recruitment', 'Management'],
     isActive: true,
-    description: 'Candidate preliminary screening, trade test scores, aptitude assessments, and evaluation interview scoring.'
+    description: 'Candidate preliminary screening, practical skills assessments, aptitude tests, and interview scoring.'
   },
   {
     moduleKey: 'digital-exams',

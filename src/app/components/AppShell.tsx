@@ -521,6 +521,9 @@ export default function AppShell({
             showToast={showToastNotification}
             applicants={applicants}
             currentUserName={currentUserName}
+            currentUserRole={currentUserRole}
+            currentUserRoles={currentUserRoles}
+            isSuperAdmin={isSuperAdmin}
             addActivityLog={addActivityLog}
             selectedApplicantId={selectedApplicantId || undefined}
             onSelectApplicant={setSelectedApplicantId}
