@@ -171,17 +171,6 @@ export default function SmartProfiling({
     };
   }, [agencyProfile?.agency_id]);
 
-  const isCustomRulesActive = useMemo(() => {
-    return (
-      scoringRules.weights.roleMatch !== DEFAULT_SCORING_RULES.weights.roleMatch ||
-      scoringRules.weights.certifications !== DEFAULT_SCORING_RULES.weights.certifications ||
-      scoringRules.weights.experience !== DEFAULT_SCORING_RULES.weights.experience ||
-      scoringRules.weights.skills !== DEFAULT_SCORING_RULES.weights.skills ||
-      scoringRules.weights.overseas !== DEFAULT_SCORING_RULES.weights.overseas ||
-      scoringRules.thresholds.recommended !== DEFAULT_SCORING_RULES.thresholds.recommended ||
-      scoringRules.thresholds.furtherReview !== DEFAULT_SCORING_RULES.thresholds.furtherReview
-    );
-  }, [scoringRules]);
 
   const handleOpenRulesModal = () => {
     setDraftWeights({ ...scoringRules.weights });
@@ -442,27 +431,30 @@ export default function SmartProfiling({
     const pos = String(currentJobOrder.position || '').trim();
 
     // 1. INSTANT OPTIMISTIC SEEDING (0ms):
-    // Immediately seed with the built-in DMW occupational cluster so candidate rankings,
-    // match scores, and related roles display immediately without waiting for AI.
-    const initialMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
-    if (initialMatch?.data) {
-      const seeded: OccupationalClusterData = {
-        ...initialMatch.data,
-        cluster_id: initialMatch.id || initialMatch.data.cluster_id,
-        ai_powered: false,
-        engine: 'Built-in Rules',
-      };
-      // Only replace activeJobCluster if we don't already have an AI-enhanced cluster for this exact job order
-      setActiveJobCluster((prev) => {
-        if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase()) && prev.ai_powered && clusterRetryTick === 0) {
-          return prev;
-        }
-        return seeded;
-      });
-      setDynamicClusters((prev) => ({
-        ...prev,
-        [seeded.cluster_id as string]: seeded,
-      }));
+    // Only seed with built-in rules if we don't already have an active cluster for this job order position.
+    // When the recruiter clicks "Re-analyze with AI" (clusterRetryTick > 0), DO NOT overwrite or flash
+    // the current trade family — keep it visible and simply let the button show the loading spinner.
+    const isRetry = clusterRetryTick > 0;
+    if (!isRetry) {
+      const initialMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+      if (initialMatch?.data) {
+        const seeded: OccupationalClusterData = {
+          ...initialMatch.data,
+          cluster_id: initialMatch.id || initialMatch.data.cluster_id,
+          ai_powered: false,
+          engine: 'Built-in Rules',
+        };
+        setActiveJobCluster((prev) => {
+          if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase())) {
+            return prev;
+          }
+          return seeded;
+        });
+        setDynamicClusters((prev) => ({
+          ...prev,
+          [seeded.cluster_id as string]: seeded,
+        }));
+      }
     }
 
     // 2. BACKGROUND ENHANCEMENT:
@@ -476,7 +468,7 @@ export default function SmartProfiling({
           requirements: currentJobOrder.requirements || [],
           certifications: currentJobOrder.certifications || [],
           country: currentJobOrder.country,
-          refresh: clusterRetryTick > 0,
+          refresh: isRetry,
         });
         if (isMounted && res.data) {
           setActiveJobCluster(res.data);
@@ -489,20 +481,22 @@ export default function SmartProfiling({
       } catch (err) {
         console.warn('Could not load AI related job family from server; retaining built-in trade catalog:', err);
         if (isMounted) {
-          // If we already seeded from the built-in catalog, preserve it!
-          const fallbackMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
-          if (fallbackMatch?.data) {
-            const preserved: OccupationalClusterData = {
-              ...fallbackMatch.data,
-              cluster_id: fallbackMatch.id || fallbackMatch.data.cluster_id,
-              ai_powered: false,
-              engine: 'Built-in Trade Catalog',
-            };
-            setActiveJobCluster(preserved);
-            setDynamicClusters((prev) => ({ ...prev, [preserved.cluster_id as string]: preserved }));
-          } else {
+          // If we already have a valid cluster for this position, preserve it!
+          setActiveJobCluster((prev) => {
+            if (prev && prev.roles?.some((r: string) => r.toLowerCase() === pos.toLowerCase())) {
+              return prev;
+            }
+            const fallbackMatch = findClusterForText(pos, dynamicClusters) || findClusterForText(pos, OCCUPATIONAL_CLUSTERS);
+            if (fallbackMatch?.data) {
+              return {
+                ...fallbackMatch.data,
+                cluster_id: fallbackMatch.id || fallbackMatch.data.cluster_id,
+                ai_powered: false,
+                engine: 'Built-in Trade Catalog',
+              };
+            }
             const posLower = pos.toLowerCase();
-            const basic: OccupationalClusterData = {
+            return {
               cluster_id: `basic_${posLower.replace(/[^a-z0-9]+/g, '_')}`,
               name: `${currentJobOrder.position} (exact matches only)`,
               roles: posLower ? [posLower] : [],
@@ -512,9 +506,7 @@ export default function SmartProfiling({
               ai_powered: false,
               engine: 'Basic Matching',
             };
-            setActiveJobCluster(basic);
-            setDynamicClusters((prev) => ({ ...prev, [basic.cluster_id as string]: basic }));
-          }
+          });
         }
       } finally {
         if (isMounted) setIsSynthesizingCluster(false);
@@ -2523,11 +2515,6 @@ export default function SmartProfiling({
                 {!isManagementUser && (
                   <span className="text-[10px] text-slate-400 font-semibold">(View)</span>
                 )}
-                {isCustomRulesActive && (
-                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    Custom
-                  </span>
-                )}
               </button>
 
               {/* Audit Info button positioned neatly on the right */}
@@ -2650,29 +2637,20 @@ export default function SmartProfiling({
                 <div className="flex items-center gap-2">
                   {/* Matching Engine Badge */}
                   <span
-                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border shadow-2xs ${
-                      isSynthesizingCluster
-                        ? 'text-sky-800 bg-sky-50/90 border-sky-200 animate-pulse'
-                        : activeJobCluster.ai_powered
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border shadow-2xs transition-all ${
+                      activeJobCluster.ai_powered
                         ? 'text-teal-800 bg-white/90 border-teal-200'
                         : 'text-amber-800 bg-amber-50/90 border-amber-200'
                     }`}
                     title={
-                      isSynthesizingCluster
-                        ? 'Synthesizing related job titles with Gemini AI...'
-                        : activeJobCluster.ai_powered
+                      activeJobCluster.ai_powered
                         ? 'Gemini AI suggested related job titles. Match scores are strictly calculated by deterministic rules.'
                         : 'Matching based on standard DMW/POEA occupational trade catalog.'
                     }
                   >
-                    {isSynthesizingCluster ? (
+                    {activeJobCluster.ai_powered ? (
                       <>
-                        <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin" />
-                        <span>Enhancing with AI...</span>
-                      </>
-                    ) : activeJobCluster.ai_powered ? (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                        <Sparkles className={`w-3.5 h-3.5 text-teal-600 ${isSynthesizingCluster ? 'animate-pulse' : ''}`} />
                         <span>AI-Assisted Matching</span>
                       </>
                     ) : (
@@ -2683,17 +2661,17 @@ export default function SmartProfiling({
                     )}
                   </span>
 
-                  {/* Modernized "Try AI Again" / "Refresh AI" Action Button */}
+                  {/* Modernized "Re-analyze with AI" / "Try AI Again" Action Button */}
                   <button
                     type="button"
                     onClick={() => setClusterRetryTick((n) => n + 1)}
                     disabled={isSynthesizingCluster}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all duration-200 shadow-2xs cursor-pointer select-none active:scale-95 ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all duration-200 shadow-2xs select-none ${
                       isSynthesizingCluster
-                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
+                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-80'
                         : activeJobCluster.ai_powered
-                        ? 'bg-white hover:bg-teal-50 text-[#174D60] border border-teal-200/90 hover:border-teal-300 hover:shadow-xs'
-                        : 'bg-[#20637A] hover:bg-[#174D60] text-white border border-[#174D60] hover:shadow-xs'
+                        ? 'bg-white hover:bg-teal-50 text-[#174D60] border border-teal-200/90 hover:border-teal-300 hover:shadow-xs cursor-pointer active:scale-95'
+                        : 'bg-[#20637A] hover:bg-[#174D60] text-white border border-[#174D60] hover:shadow-xs cursor-pointer active:scale-95'
                     }`}
                     title={
                       activeJobCluster.ai_powered
@@ -2704,7 +2682,7 @@ export default function SmartProfiling({
                     <RefreshCw
                       className={`w-3.5 h-3.5 ${
                         isSynthesizingCluster
-                          ? 'animate-spin text-slate-400'
+                          ? 'animate-spin text-teal-600'
                           : activeJobCluster.ai_powered
                           ? 'text-[#20637A]'
                           : 'text-amber-200'
@@ -2712,7 +2690,7 @@ export default function SmartProfiling({
                     />
                     <span>
                       {isSynthesizingCluster
-                        ? 'Enhancing...'
+                        ? 'Re-analyzing...'
                         : activeJobCluster.ai_powered
                         ? 'Re-analyze with AI'
                         : 'Try AI Again'}

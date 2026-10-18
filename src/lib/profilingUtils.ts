@@ -209,26 +209,53 @@ export function specificTokens(text: string): Set<string> {
 export function findClusterForText(text: string, clustersMap?: Record<string, any>): { id: string; data: any } | null {
   if (!text) return null;
   const activeClusters = (clustersMap && Object.keys(clustersMap).length > 0) ? clustersMap : OCCUPATIONAL_CLUSTERS;
-  const textLower = text.toLowerCase();
+  const textLower = text.toLowerCase().trim();
   const tokens = specificTokens(text);
+
+  let bestMatch: { id: string; data: any; score: number } | null = null;
+
   for (const [clusterId, clusterData] of Object.entries(activeClusters)) {
-    if (textLower.includes(clusterId) || textLower.includes((clusterData.name || '').toLowerCase())) {
-      return { id: clusterId, data: clusterData };
+    let score = 0;
+    const clusterName = (clusterData.name || '').toLowerCase();
+    if (textLower === clusterId.toLowerCase() || textLower === clusterName) {
+      score = Math.max(score, 30);
+    } else if (textLower.includes(clusterId) || textLower.includes(clusterName)) {
+      score = Math.max(score, 15);
     }
+
     for (const role of (clusterData.roles || [])) {
-      if (textLower.includes(role.toLowerCase())) return { id: clusterId, data: clusterData };
-      const roleTokens = specificTokens(role);
-      let match = false;
-      for (const t of tokens) {
-        if (roleTokens.has(t)) { match = true; break; }
+      const rLower = String(role).toLowerCase().trim();
+      if (rLower === textLower) {
+        score = Math.max(score, 25);
+        continue;
       }
-      if (match) return { id: clusterId, data: clusterData };
+      if (textLower.includes(rLower) || rLower.includes(textLower)) {
+        score = Math.max(score, 12);
+        continue;
+      }
+      const roleTokens = specificTokens(rLower);
+      let overlapCount = 0;
+      for (const t of tokens) {
+        if (roleTokens.has(t)) overlapCount++;
+      }
+      if (overlapCount > 0) {
+        score = Math.max(score, 3 + overlapCount * 2);
+      }
     }
+
     for (const sk of (clusterData.skills || [])) {
-      if (textLower.includes(sk.toLowerCase())) return { id: clusterId, data: clusterData };
+      const skLower = String(sk).toLowerCase().trim();
+      if (skLower && textLower.includes(skLower)) {
+        score = Math.max(score, 8);
+      }
+    }
+
+    if (score > (bestMatch?.score || 0)) {
+      bestMatch = { id: clusterId, data: clusterData, score };
     }
   }
-  return null;
+
+  return bestMatch ? { id: bestMatch.id, data: bestMatch.data } : null;
 }
 
 // ── Applicant Profiling Stage Detection Helper ──────────────────────────────────
