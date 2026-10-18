@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Clock, User, DollarSign, ShieldAlert, CheckCircle2, OctagonX,
-  FileCheck, FileX, ChevronUp, MapPin, Phone, Mail, Globe,
+  FileCheck, FileX, ChevronUp, ChevronDown, MapPin, Phone, Mail, Globe,
   Briefcase, GraduationCap, Award, Languages,
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
   Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
   ArrowLeft, ChevronLeft, ChevronRight, Edit2,
-  HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2, RefreshCw
+  HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2, RefreshCw,
+  UserCheck, Filter
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
@@ -69,6 +70,112 @@ function durationLabel(months: number) {
   if (months < 12) return `${months} mo`;
   const y = Math.floor(months / 12), m = months % 12;
   return m > 0 ? `${y} yr ${m} mo` : `${y} yr`;
+}
+
+// ─── Activity History Filter & Milestone Helpers ─────────────────────────────
+const SENSITIVE_AUDIT_KEYS = new Set([
+  'auth_id', 'password', 'password_hash', 'token', 'jwt', 'refresh_token',
+  'secret', 'api_key', 'session_id', 'user_agent', 'ip_address', 'request_id',
+  'tenant_id', 'schema', 'table_name', 'table_structure', 'db_version',
+  'internal_id', 'raw_payload', 'metadata', 'user_id', 'actor_user_id',
+  'client_id', 'sync_at', 'sync_version', 'updated_at', 'created_at', 'id',
+  'applicant_id', 'agency_id', 'system_performance'
+]);
+
+export function isStaffAction(log: any): boolean {
+  if (!log) return false;
+  const actorName = String(log.actor_name || log.performed_by || log.performedBy || '').trim().toUpperCase();
+  const actorRole = String(log.actor_role || log.department || '').trim().toUpperCase();
+  const source = String(log.source || '').trim().toUpperCase();
+  const action = String(log.action || '').trim().toUpperCase();
+  const desc = String(log.description || log.details || '').toLowerCase();
+
+  // Exclude automated system executions, database triggers, background crons, bots
+  if (
+    !actorName ||
+    actorName === 'SYSTEM' ||
+    actorName.includes('SYSTEM') ||
+    actorName.includes('TRIGGER') ||
+    actorName.includes('CRON') ||
+    actorName.includes('BOT') ||
+    actorName.includes('AUTOMATED')
+  ) {
+    return false;
+  }
+
+  if (
+    actorRole === 'SYSTEM' ||
+    actorRole.includes('SYSTEM') ||
+    actorRole.includes('TRIGGER') ||
+    actorRole.includes('CRON') ||
+    actorRole.includes('BOT') ||
+    actorRole.includes('AUTOMATED') ||
+    actorRole === 'DB_TRIGGER'
+  ) {
+    return false;
+  }
+
+  if (
+    source === 'SYSTEM' ||
+    source.includes('SYSTEM') ||
+    source === 'TRIGGER' ||
+    source.includes('TRIGGER') ||
+    source === 'CRON' ||
+    source === 'BACKGROUND'
+  ) {
+    return false;
+  }
+
+  // Exclude logs mentioning system performance, table structure, or schema internals
+  if (
+    action.includes('PERFORMANCE') ||
+    action.includes('SCHEMA') ||
+    action.includes('MIGRATION') ||
+    action.includes('TABLE_STRUCTURE') ||
+    action.includes('SYSTEM_') ||
+    action.includes('DATABASE') ||
+    action.includes('TRIGGER')
+  ) {
+    return false;
+  }
+
+  if (
+    desc.includes('system performance') ||
+    desc.includes('table structure') ||
+    desc.includes('schema') ||
+    desc.includes('auth_id') ||
+    desc.includes('database migration') ||
+    desc.includes('system trigger') ||
+    desc.includes('automated trigger')
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function getMeaningfulChanges(changes: any): [string, any][] {
+  if (!changes || typeof changes !== 'object') return [];
+  return Object.entries(changes).filter(([k, d]: [string, any]) => {
+    const kLower = k.toLowerCase();
+    if (
+      SENSITIVE_AUDIT_KEYS.has(kLower) ||
+      kLower.includes('auth') ||
+      kLower.includes('password') ||
+      kLower.includes('token') ||
+      kLower.includes('table') ||
+      kLower.includes('schema') ||
+      kLower.includes('system') ||
+      kLower.includes('performance') ||
+      kLower.includes('_id') ||
+      kLower === 'id'
+    ) {
+      return false;
+    }
+    const oldV = d?.old;
+    const newV = d?.new;
+    return oldV !== newV;
+  });
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -172,6 +279,26 @@ export default function ApplicantProfile({
   // ── Per-Applicant Activity History Timeline ─────────────────────────────
   const [applicantTimeline, setApplicantTimeline] = useState<any[]>([]);
   const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+
+  const displayedTimelineLogs = useMemo(() => {
+    const all = (applicantTimeline.length > 0 ? applicantTimeline : activityLogs.map(l => ({
+      audit_log_id: l.audit_log_id || 0,
+      occurred_at: l.timestamp,
+      actor_name: l.performedBy || 'Staff User',
+      actor_role: 'Staff',
+      action: l.action,
+      module: l.department || 'Operations',
+      description: l.details || '',
+      reason: (l as any).reason,
+      changes: (l as any).changes,
+      prev_handler_name: (l as any).prev_handler_name,
+      new_handler_name: (l as any).new_handler_name,
+      source: (l as any).source,
+    })));
+    // STRICT: Only include actions performed by staff members on this applicant.
+    // Exclude automated system executions, database triggers, and performance logs.
+    return all.filter(isStaffAction);
+  }, [applicantTimeline, activityLogs]);
 
   useEffect(() => {
     if (!applicantProp?.id) return;
@@ -1806,14 +1933,21 @@ export default function ApplicantProfile({
 
       {/* ── Activity History ──────────────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-24 pt-6 space-y-4 pb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Clock size={16} className="text-[#0EA5E9]" />
-            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity History</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="text-[#0EA5E9]" />
+              <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity History</h3>
+              {displayedTimelineLogs.length > 0 && (
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  {displayedTimelineLogs.length}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              Staff actions, evaluations, and stage updates for this applicant
+            </p>
           </div>
-          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
-            {applicantTimeline.length > 0 ? `${applicantTimeline.length} Events` : `${activityLogs.length} Events`}
-          </span>
         </div>
 
         {isTimelineLoading ? (
@@ -1821,42 +1955,57 @@ export default function ApplicantProfile({
             <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
             <p className="text-xs font-semibold text-slate-500">Loading applicant audit timeline...</p>
           </div>
-        ) : (applicantTimeline.length === 0 && activityLogs.length === 0) ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">
-            No activity history recorded for this applicant
+        ) : displayedTimelineLogs.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center space-y-2">
+            <Clock className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="text-sm font-medium text-slate-500">
+              No staff activity recorded for this applicant
+            </p>
           </div>
         ) : (
           <div className="relative pl-6">
             <div className="absolute left-[11px] top-3 bottom-3 w-px bg-slate-200" />
-            <div className="space-y-4">
-              {(applicantTimeline.length > 0 ? applicantTimeline : activityLogs.map(l => ({
-                audit_log_id: l.audit_log_id || 0,
-                occurred_at: l.timestamp,
-                actor_name: l.performedBy || 'Staff User',
-                actor_role: 'Staff',
-                action: l.action,
-                module: l.department || 'Operations',
-                description: l.details || '',
-              }))).map((log: any, idx: number) => {
+            <div className="space-y-3.5">
+              {displayedTimelineLogs.map((log: any, idx: number) => {
                 const act = (log.action || '').toUpperCase();
-                const isClaim = act.includes('CLAIM') || act.includes('REASSIGN') || act.includes('POOL');
-                const isStatus = act.includes('STATUS') || act.includes('APPROV') || act.includes('PASS');
-                const isAlert = act.includes('RETURN') || act.includes('REJECT') || act.includes('FLAG');
+                const desc = (log.description || log.details || '').toLowerCase();
+                const isClaim = act.includes('CLAIM') || act.includes('REASSIGN') || act.includes('POOL') || act.includes('ASSIGN');
+                const isStatus = act.includes('STATUS') || act.includes('APPROV') || act.includes('PASS') || act.includes('VERIF') || act.includes('CLEARED');
+                const isAlert = act.includes('RETURN') || act.includes('REJECT') || act.includes('FLAG') || act.includes('STOP');
+                const isJob = act.includes('ENDORSE') || act.includes('DEPLOY') || act.includes('JOB') || desc.includes('job order');
 
                 let badgeColor = 'bg-sky-50 text-sky-700 border-sky-200';
-                if (isStatus || act.includes('VERIF')) badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                if (isClaim) badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
-                if (isAlert) badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+                let dotColor = 'bg-sky-500';
+                if (isStatus) {
+                  badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                  dotColor = 'bg-emerald-500';
+                } else if (isClaim) {
+                  badgeColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                  dotColor = 'bg-indigo-500';
+                } else if (isAlert) {
+                  badgeColor = 'bg-rose-50 text-rose-800 border-rose-200';
+                  dotColor = 'bg-rose-500';
+                } else if (isJob) {
+                  badgeColor = 'bg-teal-50 text-teal-800 border-teal-200';
+                  dotColor = 'bg-teal-600';
+                }
+
+                const meaningfulChanges = getMeaningfulChanges(log.changes);
+
+                // Human-readable action label
+                const formattedAction = log.action
+                  ? log.action.replace(/_/g, ' ')
+                  : 'Activity Updated';
 
                 return (
                   <div key={log.audit_log_id || idx} className="relative">
-                    <div className="absolute -left-6 top-3 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white shadow-xs" />
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2 hover:border-slate-300 transition-colors shadow-2xs">
+                    <div className={`absolute -left-6 top-3 w-3 h-3 rounded-full ${dotColor} border-2 border-white shadow-xs`} />
+                    <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 space-y-2 hover:border-slate-300 transition-colors shadow-2xs">
                       {/* Top Header */}
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded border ${badgeColor}`}>
-                            {log.action?.replace(/_/g, ' ')}
+                            {formattedAction}
                           </span>
                           <span className="text-xs font-bold text-[#0F172A]">
                             {log.actor_name || log.performedBy || 'Staff User'}
@@ -1873,51 +2022,53 @@ export default function ApplicantProfile({
                           )}
                         </div>
                         <span className="text-[11px] text-slate-400 flex items-center gap-1 flex-shrink-0">
-                          <Clock size={11} /> {new Date(log.occurred_at || log.timestamp).toLocaleString('en-PH')}
+                          <Clock size={11} /> {new Date(log.occurred_at || log.timestamp).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
                         </span>
                       </div>
 
                       {/* Description Sentence */}
-                      <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                        {log.description || log.details}
-                      </p>
+                      {(log.description || log.details) && (
+                        <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                          {log.description || log.details}
+                        </p>
+                      )}
 
-                      {/* Handler Handoff Line */}
-                      {(log.prev_handler_name || log.new_handler_name) && (
-                        <div className="p-2 bg-slate-50 border border-slate-200/80 rounded-lg text-xs flex items-center gap-2">
-                          <span className="font-bold text-slate-600">Handler:</span>
-                          <span className="text-slate-500">
-                            {(log.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.prev_handler_name) || 'Unassigned'} → <strong className="text-slate-800">{(log.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.new_handler_name) || 'Unassigned'}</strong>
+                      {/* Handler Handoff Line (Only when an actual handoff between different handlers happened!) */}
+                      {log.prev_handler_name && log.new_handler_name && log.prev_handler_name !== log.new_handler_name && (
+                        <div className="p-2 bg-indigo-50/60 border border-indigo-100 rounded-lg text-xs flex items-center gap-2 text-indigo-950">
+                          <UserCheck className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                          <span className="font-bold text-indigo-900">Handler:</span>
+                          <span className="text-indigo-700">
+                            {(log.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.prev_handler_name) || 'Unassigned'} → <strong className="text-indigo-950">{(log.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.new_handler_name) || 'Unassigned'}</strong>
                           </span>
                         </div>
                       )}
 
-                      {/* Reason / Remarks if present */}
+                      {/* Reason / Remarks if present (Highlighted prominently) */}
                       {log.reason && (
-                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-1.5">
+                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-950 flex items-start gap-2">
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <span className="font-bold">Reason / Remarks:</span> {log.reason}
+                          <div className="leading-snug">
+                            <span className="font-extrabold text-amber-900">Remarks / Reason:</span> {log.reason}
                           </div>
                         </div>
                       )}
 
-                      {/* Changes Diff if present */}
-                      {log.changes && Object.keys(log.changes).length > 0 && (
-                        <div className="pt-2 border-t border-slate-100">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                            Fields Changed:
+                      {/* Meaningful Business Changes Chips (Clean, informative, NO raw DB JSON diffs) */}
+                      {meaningfulChanges.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                            Updated:
                           </span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-                            {Object.entries(log.changes).map(([f, d]: [string, any]) => (
-                              <div key={f} className="p-1.5 bg-slate-50 rounded border border-slate-200 flex items-center justify-between font-mono">
-                                <span className="text-slate-600 font-semibold">{f}:</span>
-                                <span className="text-slate-800">
-                                  <span className="text-rose-600">{String(d?.old ?? 'null')}</span> → <span className="text-emerald-600 font-bold">{String(d?.new ?? 'null')}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                          {meaningfulChanges.map(([f, d]: [string, any]) => (
+                            <span key={f} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-slate-50 border border-slate-200 text-slate-700">
+                              <span className="font-semibold capitalize">{f.replace(/_/g, ' ')}:</span>
+                              {d?.old !== null && d?.old !== undefined && (
+                                <span className="text-slate-400 line-through text-[10px]">{String(d.old)}</span>
+                              )}
+                              <span className="font-bold text-slate-900">{String(d?.new ?? 'None')}</span>
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
