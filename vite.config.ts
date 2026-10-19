@@ -35,8 +35,8 @@ export default defineConfig({
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
   build: {
-    // Raise warning threshold to 1200kB (suitable for enterprise dashboard with PDF export & charts)
-    chunkSizeWarningLimit: 1200,
+    // Raise warning threshold to 2500kB (suitable for comprehensive ERP/HR recruitment dashboard)
+    chunkSizeWarningLimit: 2500,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
