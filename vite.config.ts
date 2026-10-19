@@ -81,22 +81,8 @@ export default defineConfig({
           if (id.includes('node_modules/react-router')) {
             return 'vendor-router';
           }
-          // ── Heavy app views (split individually) ─────────────────────────
-          if (id.includes('/views/Registration')) return 'view-registration';
-          if (id.includes('/views/ApplicantProfile')) return 'view-profile';
-          if (id.includes('/views/UserManagement')) return 'view-users';
-          if (id.includes('/views/DocumentOCR')) return 'view-ocr';
-          if (id.includes('/views/PredictiveForecast')) return 'view-forecast';
-          if (id.includes('/views/EvaluationSetup')) return 'view-evaluation';
-          if (id.includes('/views/JobOrders')) return 'view-joborders';
-          if (id.includes('/views/EmployerProfiles')) return 'view-employers';
-          if (id.includes('/views/SmartProfiling')) return 'view-profiling';
-          if (id.includes('/views/Screening')) return 'view-screening';
-          if (id.includes('/views/RequirementsSetup')) return 'view-requirements';
-          if (id.includes('/views/UserProfile')) return 'view-userprofile';
-          if (id.includes('/views/ApplicantList')) return 'view-applicantlist';
-          // ── SuperAdmin dashboard ──────────────────────────────────────────
-          if (id.includes('SuperAdminDashboard')) return 'view-superadmin';
+          // ── Only split large third-party vendor libraries in node_modules ──
+          // Application source code (/src/) should not be manually split to prevent circular chunk dependencies
         },
       },
     },
