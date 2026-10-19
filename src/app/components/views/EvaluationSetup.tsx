@@ -531,6 +531,17 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
             passing_score: resolvedPassingScore,
             category: examCategory,
           } : ex));
+
+          // Also trigger immediate assignment sync for existing candidates
+          const targetJoIds = (applicableJobOrders || [])
+            .map(x => String(x).trim())
+            .filter(Boolean);
+
+          await api.post('/exam-module/assign', {
+            template_id: digitalExamTemplateId,
+            assign_all: targetJoIds.length === 0,
+            job_order_ids: targetJoIds.length > 0 ? targetJoIds : undefined,
+          });
         } catch (syncErr) {
           console.warn('Bidirectional exam link sync warning:', syncErr);
         }
