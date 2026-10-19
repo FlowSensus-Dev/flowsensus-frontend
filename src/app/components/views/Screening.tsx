@@ -68,13 +68,14 @@ interface ScreeningProps {
 }
 
 const TEST_TYPE_THEMES: Record<string, { label: string; bg: string; border: string; text: string; bar: string; icon: any }> = {
-  skills: { label: 'Skills / Aptitude', bg: 'bg-[#F59E0B]/5', border: 'border-[#F59E0B]/20', text: 'text-[#F59E0B]', bar: 'bg-[#F59E0B]', icon: Wrench },
+  general: { label: 'General Knowledge', bg: 'bg-[#0284C7]/5', border: 'border-[#0284C7]/20', text: 'text-[#0284C7]', bar: 'bg-[#0284C7]', icon: BookOpen },
+  skills: { label: 'Trade & Technical Skills', bg: 'bg-[#F59E0B]/5', border: 'border-[#F59E0B]/20', text: 'text-[#F59E0B]', bar: 'bg-[#F59E0B]', icon: Wrench },
   language: { label: 'Language Proficiency', bg: 'bg-[#10B981]/5', border: 'border-[#10B981]/20', text: 'text-[#10B981]', bar: 'bg-[#10B981]', icon: Languages },
-  eq: { label: 'EQ / Personality', bg: 'bg-[#EC4899]/5', border: 'border-[#EC4899]/20', text: 'text-[#EC4899]', bar: 'bg-[#EC4899]', icon: Heart },
+  eq: { label: 'Personality / EQ', bg: 'bg-[#EC4899]/5', border: 'border-[#EC4899]/20', text: 'text-[#EC4899]', bar: 'bg-[#EC4899]', icon: Heart },
   iq: { label: 'IQ / Aptitude', bg: 'bg-[#8B5CF6]/5', border: 'border-[#8B5CF6]/20', text: 'text-[#8B5CF6]', bar: 'bg-[#8B5CF6]', icon: Brain },
-  medical: { label: 'Medical Review', bg: 'bg-[#EF4444]/5', border: 'border-[#EF4444]/20', text: 'text-[#EF4444]', bar: 'bg-[#EF4444]', icon: Stethoscope },
+  medical: { label: 'Medical & Safety', bg: 'bg-[#EF4444]/5', border: 'border-[#EF4444]/20', text: 'text-[#EF4444]', bar: 'bg-[#EF4444]', icon: Stethoscope },
   interview: { label: 'Interview', bg: 'bg-[#0EA5E9]/5', border: 'border-[#0EA5E9]/20', text: 'text-[#0EA5E9]', bar: 'bg-[#0EA5E9]', icon: MessageSquare },
-  custom: { label: 'Custom Assessment', bg: 'bg-[#64748B]/5', border: 'border-[#64748B]/20', text: 'text-[#64748B]', bar: 'bg-[#64748B]', icon: Sliders },
+  custom: { label: 'Custom / Other', bg: 'bg-[#64748B]/5', border: 'border-[#64748B]/20', text: 'text-[#64748B]', bar: 'bg-[#64748B]', icon: Sliders },
 };
 
 // Fallback Standardized Passing Criteria

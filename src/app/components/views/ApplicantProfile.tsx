@@ -4,7 +4,7 @@ import {
   FileCheck, FileX, ChevronUp, ChevronDown, MapPin, Phone, Mail, Globe,
   Briefcase, GraduationCap, Award, Languages,
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
-  Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
+  Clock3, TrendingDown, GitMerge, Timer, Calendar, BadgeCheck, X,
   ArrowLeft, ChevronLeft, ChevronRight, Edit2,
   HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2, RefreshCw,
   UserCheck, Filter
@@ -18,7 +18,7 @@ import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPre
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
   gap:                  { label: 'Employment Gap',       icon: <Clock3 size={14} />,       color: '#F59E0B' },
-  short_stint:          { label: 'Short Tenure',         icon: <Zap size={14} />,           color: '#F97316' },
+  short_stint:          { label: 'Short Tenure',         icon: <Timer size={14} />,        color: '#F97316' },
   red_flag_resignation: { label: 'Resignation Red Flag', icon: <ShieldAlert size={14} />,   color: '#EF4444' },
   overlap:              { label: 'Date Overlap',         icon: <GitMerge size={14} />,      color: '#8B5CF6' },
   demotion:             { label: 'Possible Demotion',    icon: <TrendingDown size={14} />,  color: '#EC4899' },

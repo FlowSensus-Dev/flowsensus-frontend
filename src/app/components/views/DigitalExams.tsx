@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { ExamSimulatorModal } from './ExamPortal';
+import { EXAM_CATEGORIES, evalTypeToExamCategory, examCategoryToEvalType } from '../../utils/examCategoryMapping';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,15 +84,7 @@ interface Props {
 
 // ── Constants & Helpers ────────────────────────────────────────────────────────
 
-const CATEGORIES = [
-  'General Knowledge',
-  'English Proficiency',
-  'IQ / Aptitude',
-  'Trade & Technical Skills',
-  'Personality / EQ',
-  'Medical & Safety',
-  'Other'
-];
+const CATEGORIES = [...EXAM_CATEGORIES];
 
 function newQuestion(order: number): ExamQuestion {
   return {
@@ -453,7 +446,8 @@ export default function DigitalExams({
       const t: ExamTemplate = res.data;
       setSelectedTemplate(t);
       const linkedEval = (evaluationTemplates || []).find((ev: any) =>
-        Number(ev.digitalExamTemplateId || ev.digital_exam_template_id) === tmpl.template_id
+        Number(ev.digitalExamTemplateId || ev.digital_exam_template_id) === tmpl.template_id ||
+        (tmpl.evaluation_template_id && (Number(ev.test_template_id || ev.id) === Number(tmpl.evaluation_template_id)))
       );
       const resolvedEvalId = t.evaluation_template_id
         ? String(t.evaluation_template_id)
@@ -603,13 +597,29 @@ export default function DigitalExams({
 
       // Link with evaluation if selected
       if (evalTemplateId) {
+        const totalPts = cleanQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
         try {
           await api.put(`/evaluations/templates/${evalTemplateId}`, {
             exam_mode: 'digital',
             digital_exam_template_id: templateId,
+            max_score: totalPts,
+            passing_score: form.passing_score ? Number(form.passing_score) : 60,
+            test_type: examCategoryToEvalType(form.category),
           });
         } catch {
           // Non-blocking
+        }
+      } else if (purposeMode === 'standalone') {
+        const linked = evaluationTemplates.find(e => Number(e.digital_exam_template_id || e.digitalExamTemplateId) === templateId);
+        if (linked) {
+          try {
+            await api.put(`/evaluations/templates/${linked.test_template_id || linked.id}`, {
+              exam_mode: 'paper',
+              digital_exam_template_id: null,
+            });
+          } catch {
+            // Non-blocking
+          }
         }
       }
 
@@ -790,7 +800,7 @@ export default function DigitalExams({
         <div className="bg-white border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-2xs">
           <span className="text-slate-500">Screening Linked:</span>
           <span className="font-bold text-purple-600">
-            {templates.filter((t) => Boolean(t.evaluation_template_id)).length}
+            {templates.filter((t) => Boolean(t.evaluation_template_id) || evaluationTemplates.some(e => Number(e.digital_exam_template_id || e.digitalExamTemplateId) === t.template_id)).length}
           </span>
         </div>
       </div>
@@ -952,8 +962,15 @@ export default function DigitalExams({
               ) : (
                 filteredTemplates.map((t) => {
                   const matchedEval = t.evaluation_template_id
-                    ? evaluationTemplates.find((e) => e.test_template_id === t.evaluation_template_id)
-                    : null;
+                    ? (evaluationTemplates.find((e) => e.test_template_id === t.evaluation_template_id || Number(e.id) === Number(t.evaluation_template_id))
+                        || evaluationTemplates.find((e: any) => Number(e.digital_exam_template_id || e.digitalExamTemplateId) === t.template_id))
+                    : evaluationTemplates.find((e: any) =>
+                        Number(e.digital_exam_template_id || e.digitalExamTemplateId) === t.template_id
+                      );
+
+                  const totalPts = (t as any).total_points !== undefined && (t as any).total_points > 0
+                    ? (t as any).total_points
+                    : ((t as any).questions_count || t.questions?.length || null);
 
                   return (
                     <tr
@@ -968,6 +985,12 @@ export default function DigitalExams({
                         <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
                           <span className="font-medium text-slate-700">{t.category || 'General'}</span>
                           <span className="text-slate-300">•</span>
+                          {totalPts !== null && (
+                            <>
+                              <span className="font-semibold text-slate-700">{totalPts} questions ({totalPts} pts)</span>
+                              <span className="text-slate-300">•</span>
+                            </>
+                          )}
                           <span>{t.passing_score ?? 60}% pass mark</span>
                           <span className="text-slate-300">•</span>
                           <span>{t.time_limit_mins ? `${t.time_limit_mins} mins` : 'No time limit'}</span>
@@ -978,10 +1001,9 @@ export default function DigitalExams({
                       <td className="px-4 py-3.5 text-center">
                         {matchedEval ? (
                           <span
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200"
+                            className="inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200"
                             title={`Scores automatically sync to ${matchedEval.name} (${matchedEval.weight_percentage}% of screening scorecard)`}
                           >
-                            <ClipboardCheck size={11} className="text-violet-600" />
                             Screening: {matchedEval.name} ({matchedEval.weight_percentage}%)
                           </span>
                         ) : (
@@ -1225,6 +1247,12 @@ export default function DigitalExams({
                         </select>
                         <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
+                      {purposeMode === 'screening' && form.evaluation_template_id && (
+                        <div className="text-[11px] text-violet-700 font-medium mt-1 flex items-center gap-1.5">
+                          <RefreshCw size={11} className="shrink-0 text-violet-600" />
+                          <span>Saving will align the linked screening requirement category to <strong>{examCategoryToEvalType(form.category)}</strong>.</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1399,7 +1427,12 @@ export default function DigitalExams({
                                           key={ev.test_template_id}
                                           type="button"
                                           onClick={() => {
-                                            setForm((f) => ({ ...f, evaluation_template_id: String(ev.test_template_id) }));
+                                            setForm((f) => ({
+                                              ...f,
+                                              evaluation_template_id: String(ev.test_template_id),
+                                              passing_score: ev.passing_score !== undefined ? String(ev.passing_score) : f.passing_score,
+                                              category: evalTypeToExamCategory(ev.test_type),
+                                            }));
                                             setIsPurposeDropdownOpen(false);
                                           }}
                                           className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between transition-colors border-b border-slate-100 last:border-b-0 ${
@@ -1503,6 +1536,12 @@ export default function DigitalExams({
                           Minimum percentage required to pass this exam.
                         </span>
                       </div>
+                      {purposeMode === 'screening' && form.evaluation_template_id && (
+                        <div className="text-[11px] text-violet-700 font-medium mt-1 flex items-center gap-1.5">
+                          <RefreshCw size={11} className="shrink-0 text-violet-600" />
+                          <span>Linked: saving this passing score will sync with the linked screening evaluation.</span>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1775,7 +1814,7 @@ export default function DigitalExams({
                             const isLinked = Boolean(t.evaluation_template_id);
                             return (
                               <option key={t.template_id} value={t.template_id}>
-                                {isLinked ? '⚡ [Screening Test] ' : '📋 [Standalone] '}
+                                {isLinked ? '[Screening Test] ' : '[Standalone] '}
                                 {t.title} ({t.category || 'General'} • Pass: {t.passing_score ?? 60}%)
                               </option>
                             );

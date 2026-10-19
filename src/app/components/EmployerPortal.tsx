@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LogOut, Star, Clock, CheckCircle2, BarChart3, Send,
   ChevronRight, Building2, Globe, Layers, TrendingUp,
-  MessageSquare, Zap, ThumbsUp, Users, MapPin, Mail,
+  MessageSquare, Compass, ThumbsUp, Users, MapPin, Mail,
   BadgeCheck, AlertCircle, Activity, Award, ArrowLeft,
   Shield, Briefcase, Calendar, Phone, FileText,
 } from 'lucide-react';
@@ -191,7 +191,7 @@ const OVERALL_LABELS = ['', 'Unsatisfactory', 'Needs Improvement', 'Meets Expect
 const PERFORMANCE_CRITERIA = [
   { key: 'work_performance', label: 'Work Performance', icon: TrendingUp },
   { key: 'communication', label: 'Communication', icon: MessageSquare },
-  { key: 'adaptability', label: 'Adaptability', icon: Zap },
+  { key: 'adaptability', label: 'Adaptability', icon: Compass },
   { key: 'attitude', label: 'Attitude', icon: ThumbsUp },
 ];
 

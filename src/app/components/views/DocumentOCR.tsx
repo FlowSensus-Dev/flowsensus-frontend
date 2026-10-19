@@ -2951,9 +2951,9 @@ export default function DocumentOCR({
                                 <Sparkles className="w-4 h-4 text-[#0EA5E9]" />
                                 <span>AI OCR Assistant</span>
                               </h4>
-                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                              <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                ⚡ Powered by Google Gemini Vision AI
+                                Powered by Google Gemini Vision OCR
                               </span>
                             </div>
 

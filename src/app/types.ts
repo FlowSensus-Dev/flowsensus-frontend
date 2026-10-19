@@ -449,7 +449,7 @@ export interface DocumentRequirement {
 export interface EvaluationTest {
   id: string;
   name: string;
-  type: 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
+  type: 'general' | 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
   description: string;
   maxScore: number;
   passingScore: number;

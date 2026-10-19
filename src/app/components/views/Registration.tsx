@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   UserPlus, CheckCircle, AlertTriangle, Camera, Plus, Trash2,
   X, Flag, ShieldAlert, AlertCircle,
-  Clock, TrendingDown, GitMerge, Zap, MessageSquare, CheckCircle2,
+  Clock, TrendingDown, GitMerge, Timer, MessageSquare, CheckCircle2,
   Save, User, FileCheck, Upload, Briefcase, Loader2,
   GraduationCap, Award, BookOpen, Languages as LanguagesIcon, ArrowDown,
   HeartHandshake, Share2, Globe, Users, Check, ExternalLink, Search,
@@ -111,7 +111,7 @@ function analyzeEmployment(records: EmploymentRecord[]): EmploymentFlag[] {
 
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
   gap: { label: 'Employment Gap', icon: <Clock size={15} />, color: '#F59E0B' },
-  short_stint: { label: 'Short Tenure', icon: <Zap size={15} />, color: '#F97316' },
+  short_stint: { label: 'Short Tenure', icon: <Timer size={15} />, color: '#F97316' },
   red_flag_resignation: { label: 'Resignation Red Flag', icon: <ShieldAlert size={15} />, color: '#EF4444' },
   overlap: { label: 'Date Overlap', icon: <GitMerge size={15} />, color: '#8B5CF6' },
   demotion: { label: 'Possible Demotion', icon: <TrendingDown size={15} />, color: '#EC4899' },
