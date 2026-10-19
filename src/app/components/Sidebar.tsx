@@ -29,9 +29,11 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
+  BookOpen,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
+import { hasAccessToView } from '../../lib/accessControl';
 import Logo from './Logo';
 
 interface SidebarProps {
@@ -82,6 +84,7 @@ export default function Sidebar({
       items: [
         { id: 'registration', label: 'Registration', icon: UserPlus, roles: ['Recruitment', 'Management'] },
         { id: 'screening', label: 'Screening Panel', icon: Microscope, roles: ['Recruitment', 'Management'] },
+        { id: 'digital-exams', label: 'Digital Exams', icon: BookOpen, roles: ['Recruitment', 'Admin', 'Management'] },
         { id: 'profiling', label: 'Applicant Profiling', icon: Sparkles, roles: ['Recruitment', 'Admin', 'Management'] },
       ],
     },
@@ -129,7 +132,7 @@ export default function Sidebar({
         { id: 'evaluation', label: 'Evaluation & Workflow', icon: SlidersHorizontal, roles: ['Management'] },
         { id: 'manager', label: 'CV & Employer Hub', icon: CheckSquare, roles: ['Management'] },
         { id: 'forecast', label: 'Predictive Timeline', icon: TrendingUp, roles: ['Management'] },
-        { id: 'history', label: 'Deployment History', icon: History, roles: ['Management'] },
+        { id: 'history', label: 'Audit Log', icon: History, roles: ['Admin', 'Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
         { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
       ],
@@ -141,26 +144,7 @@ export default function Sidebar({
     : [currentUserRole];
 
   const hasItemAccess = (item: NavItem): boolean => {
-    if (isSuperAdmin) return true; // Super Admin has universal access
-    if (userRolesList.includes('Management')) return true; // Management has universal access
-
-    // Universal modules
-    if (item.id === 'dashboard' || item.id === 'applicants') return true;
-
-    // Excluded Management-only modules
-    if (['evaluation', 'forecast', 'history', 'reports', 'users'].includes(item.id)) {
-      return false; // Checked Management above
-    }
-
-    // Dynamic database workflow module permissions
-    if (workflowPermissions && workflowPermissions[item.id]) {
-      const allowedRoles = workflowPermissions[item.id];
-      return allowedRoles.some((r) => userRolesList.includes(r));
-    }
-
-    // Default static role fallback
-    if (item.roles === 'All') return true;
-    return item.roles.some((r) => userRolesList.includes(r));
+    return hasAccessToView(item.id, userRolesList, isSuperAdmin, workflowPermissions);
   };
 
   const rolesDisplayText = isSuperAdmin

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Search, Bell, LogOut, Info, Crown, Loader2, Lock } from 'lucide-react';
-import { UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
+import { UserRole, ViewType, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord, EvaluationTest } from '../types';
 import { api } from '../../lib/api';
+import { supabase } from '../../lib/supabase';
 import Sidebar from './Sidebar';
 import Dashboard from './views/Dashboard';
 import ApplicantList from './views/ApplicantList';
@@ -30,29 +31,12 @@ import RequirementsSetup from './views/RequirementsSetup';
 import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
+import DigitalExams from './views/DigitalExams';
+import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
-export type ViewType =
-  | 'dashboard'
-  | 'applicants'
-  | 'registration'
-  | 'screening'
-  | 'profiling'
-  | 'cv'
-  | 'endorsement'
-  | 'fittowork'
-  | 'ocr'
-  | 'alerts'
-  | 'expense'
-  | 'manager'
-  | 'forecast'
-  | 'users'
-  | 'history'
-  | 'reports'
-  | 'profile'
-  | 'requirements'
-  | 'evaluation'
-  | 'joborders'
-  | 'employers';
+import { hasAccessToView } from '../../lib/accessControl';
+
+export type { ViewType };
 
 interface AppShellProps {
   currentUserRole: UserRole;
@@ -67,7 +51,9 @@ interface AppShellProps {
   activityLogs: ActivityLog[];
   addActivityLog: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
   expenses: ExpenseRecord[];
+  expensesLoaded?: boolean;
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
@@ -76,6 +62,8 @@ interface AppShellProps {
   globalStaff?: any[];
   globalRoles?: any[];
   globalPipelineForecast?: any;
+  onJobOrdersChange?: (orders: any[]) => void;
+  onEmployersChange?: (employers: any[]) => void;
 }
 
 export default function AppShell({
@@ -91,7 +79,9 @@ export default function AppShell({
   activityLogs,
   addActivityLog,
   expenses,
+  expensesLoaded,
   addExpense,
+  updateExpense,
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
@@ -100,6 +90,8 @@ export default function AppShell({
   globalStaff,
   globalRoles,
   globalPipelineForecast,
+  onJobOrdersChange,
+  onEmployersChange,
 }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -167,6 +159,81 @@ export default function AppShell({
     }
   }, [applicants, selectedApplicantId]);
 
+  // Global Auto-Sync for Phase-based Expenses
+  const processedPhases = useRef<Set<string>>(new Set());
+  
+  useEffect(() => {
+    if (!applicantsLoaded || !expensesLoaded || !expenses) return;
+    
+    // Fetch current rates to use when logging
+    const rates = getStoredRates();
+    
+    applicants.forEach(app => {
+      // Phase 3 (Medical Cleared) -> Medical Package
+      if (app.phase >= 3) {
+        const medicalKey = `${app.id}-medical`;
+        if (!processedPhases.current.has(medicalKey)) {
+          const hasMedicalExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Medical'));
+          if (!hasMedicalExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Medical Package (Fit-to-Work)',
+              amount: rates.medical,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated medical fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(medicalKey);
+        }
+      }
+      
+      // Phase 5 (Processing - Passporting, OEC) -> Document Processing
+      if (app.phase >= 5) {
+        const oecKey = `${app.id}-oec`;
+        if (!processedPhases.current.has(oecKey)) {
+          const hasOecExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('OEC'));
+          if (!hasOecExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'OEC Processing',
+              amount: rates.oec,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(oecKey);
+        }
+
+        const passportKey = `${app.id}-passport`;
+        if (!processedPhases.current.has(passportKey)) {
+          const hasPassportExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Passport'));
+          if (!hasPassportExpense) {
+            addExpense({
+              applicantId: app.id,
+              purpose: 'Passport Processing',
+              amount: rates.passport,
+              currency: 'PESO',
+              type: 'expense',
+              remarks: 'Automated processing fee from phase change.',
+              status: 'draft',
+              date: new Date().toISOString().split('T')[0],
+              recordedBy: 'System Auto-Trigger'
+            });
+          }
+          processedPhases.current.add(passportKey);
+        }
+      }
+    });
+  }, [applicants, expenses, addExpense, applicantsLoaded]);
+
   const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
 
@@ -222,6 +289,26 @@ export default function AppShell({
     fetchWorkflowPerms();
   }, []);
 
+  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
+    ? currentUserRoles
+    : (currentUserRole ? [currentUserRole] : []);
+
+  // Determine if active user roles have finished resolving from session
+  const isRolesLoaded = Boolean(isSuperAdmin || (userRolesList.length > 0 && userRolesList[0] !== ''));
+
+  // Authoritative URL & Real-time Access Guard:
+  // If the user navigates directly to an unauthorized URL or if permissions are revoked in real time,
+  // ensure they cannot access modules they lack permission for.
+  useEffect(() => {
+    // Wait until user roles have loaded before making authorization decisions
+    if (!isRolesLoaded) return;
+
+    if (!hasAccessToView(currentView, userRolesList, isSuperAdmin, workflowPermissions)) {
+      showToastNotification(`Access restricted: You do not have permission to access the ${currentView} module.`);
+      navigate('/app/dashboard', { replace: true });
+    }
+  }, [currentView, workflowPermissions, currentUserRole, currentUserRoles, isSuperAdmin, isRolesLoaded, navigate]);
+
   const showToastNotification = (message: string) => {
     setToastMessage(message);
     setShowToast(true);
@@ -243,6 +330,42 @@ export default function AppShell({
 
   const renderView = () => {
     const isApplicantsLoading = applicantsLoaded === false;
+
+    // While roles are loading on cold page reload, show subtle spinner rather than false-positive access denied
+    if (!isRolesLoaded && currentView !== 'dashboard' && currentView !== 'applicants' && currentView !== 'profile') {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+          <p className="text-sm font-medium">Verifying access permissions...</p>
+        </div>
+      );
+    }
+
+    // Enforce immediate client-side barrier against broken access control / URL tampering
+    if (isRolesLoaded && !hasAccessToView(currentView, userRolesList, isSuperAdmin, workflowPermissions)) {
+      return (
+        <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+            <Lock size={26} className="text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 tracking-tight">Access Restricted</h2>
+          <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+            You do not have permission to access the <span className="font-semibold text-slate-900 capitalize">{currentView}</span> module.
+          </p>
+          <div className="mt-3 py-1.5 px-3 bg-slate-50 rounded-lg inline-block border border-slate-200 text-xs text-slate-600 font-mono">
+            Assigned Role{userRolesList.length > 1 ? 's' : ''}: <span className="font-semibold text-slate-800">{userRolesList.join(', ')}</span>
+          </div>
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={() => handleNavigate('dashboard')}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition-all duration-150 cursor-pointer flex items-center gap-2"
+            >
+              <span>Return to Dashboard</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     switch (currentView) {
       case 'dashboard':
@@ -282,7 +405,7 @@ export default function AppShell({
                   <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
                 </div>
                 <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} />
+                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} />
                 </div>
               </div>
             </div>
@@ -316,6 +439,8 @@ export default function AppShell({
                 applicants={applicants}
                 expenses={expenses}
                 onNavigate={handleNavigate}
+                onViewApplicant={handleViewApplicant}
+                onSelectApplicant={setSelectedApplicantId}
                 onAddExpense={addExpense}
                 isLoading={isApplicantsLoading}
               />
@@ -357,6 +482,7 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             onEditApplicant={() => setCurrentView('registration')}
+            currentUserRole={currentUserRole}
           />
         );
       case 'registration':
@@ -370,6 +496,7 @@ export default function AppShell({
             addApplicant={addApplicant}
             applicants={applicants}
             globalJobOrders={globalJobOrders}
+            addExpense={addExpense}
           />
         );
       case 'screening':
@@ -394,6 +521,9 @@ export default function AppShell({
             showToast={showToastNotification}
             applicants={applicants}
             currentUserName={currentUserName}
+            currentUserRole={currentUserRole}
+            currentUserRoles={currentUserRoles}
+            isSuperAdmin={isSuperAdmin}
             addActivityLog={addActivityLog}
             selectedApplicantId={selectedApplicantId || undefined}
             onSelectApplicant={setSelectedApplicantId}
@@ -443,6 +573,7 @@ export default function AppShell({
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            addExpense={addExpense}
           />
         );
       case 'ocr':
@@ -454,21 +585,44 @@ export default function AppShell({
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            updateApplicant={updateApplicant}
+            onNavigate={(view: string) => setCurrentView(view as any)}
           />
         );
       case 'alerts':
-        return <ComplianceAlerts applicants={applicants} showToast={showToastNotification} />;
+        return (
+          <ComplianceAlerts
+            applicants={applicants}
+            showToast={showToastNotification}
+            onNavigate={(view: string, applicantId?: string) => {
+              if (applicantId) {
+                setSelectedApplicantId(applicantId);
+              }
+              setCurrentView(view as any);
+            }}
+          />
+        );
       case 'expense':
         return (
           <ExpenseLedger
             workflow={workflow}
             expenses={expenses}
             addExpense={addExpense}
+            updateExpense={updateExpense}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}
             selectedApplicantId={selectedApplicantId || undefined}
             applicants={applicants}
+            onViewApplicant={handleViewApplicant}
+            onSelectApplicant={setSelectedApplicantId}
+          />
+        );
+      case 'accounting-settings':
+        return (
+          <AccountingSettings
+            onBack={() => handleNavigate('dashboard')}
+            showToast={showToastNotification}
           />
         );
       case 'manager':
@@ -482,12 +636,13 @@ export default function AppShell({
             addActivityLog={addActivityLog}
             updateApplicant={updateApplicant}
             selectedApplicantId={selectedApplicantId || undefined}
-            onNavigate={(v) => setActiveView(v)}
+            onNavigate={(v) => setCurrentView(v as any)}
           />
         );
       case 'forecast':
         return (
           <PredictiveForecast
+            canEditAgencySettings={userRolesList.includes('Management')}
             applicants={applicants}
             applicantsLoaded={applicantsLoaded}
             selectedApplicantId={selectedApplicantId || undefined}
@@ -497,7 +652,7 @@ export default function AppShell({
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
-        return <OperationalReports applicants={applicants} activityLogs={activityLogs} expenses={expenses} />;
+        return <OperationalReports />;
       case 'users':
         return (
           <UserManagement
@@ -520,30 +675,7 @@ export default function AppShell({
         );
       case 'requirements':
         return <RequirementsSetup showToast={showToastNotification} currentUserName={currentUserName} />;
-      case 'evaluation': {
-        const userRolesList = (currentUserRoles && currentUserRoles.length > 0)
-          ? currentUserRoles
-          : [currentUserRole];
-        const canAccess = isSuperAdmin || userRolesList.includes('Management');
-        if (!canAccess) {
-          return (
-            <div className="p-8 max-w-lg mx-auto mt-16 text-center bg-white rounded-2xl border border-red-200 shadow-sm">
-              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Lock size={22} />
-              </div>
-              <h2 className="text-lg font-bold text-slate-800">Access Restricted</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                The Evaluation & Workflow configuration module is restricted exclusively to the Management role.
-              </p>
-              <button
-                onClick={() => handleNavigate('dashboard')}
-                className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                Return to Dashboard
-              </button>
-            </div>
-          );
-        }
+      case 'evaluation':
         return (
           <EvaluationSetup
             showToast={showToastNotification}
@@ -553,7 +685,14 @@ export default function AppShell({
             globalJobOrders={globalJobOrders}
           />
         );
-      }
+      case 'digital-exams':
+        return (
+          <DigitalExams
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            globalJobOrders={globalJobOrders}
+          />
+        );
       case 'joborders':
         return (
           <JobOrders
@@ -561,6 +700,8 @@ export default function AppShell({
             currentUserName={currentUserName}
             globalJobOrders={globalJobOrders}
             globalEmployers={globalEmployers}
+            onJobOrdersChange={onJobOrdersChange}
+            onEmployersChange={onEmployersChange}
           />
         );
       case 'employers':
@@ -569,6 +710,7 @@ export default function AppShell({
             showToast={showToastNotification}
             currentUserName={currentUserName}
             globalEmployers={globalEmployers}
+            onEmployersChange={onEmployersChange}
           />
         );
       default:

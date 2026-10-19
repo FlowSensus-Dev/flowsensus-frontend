@@ -8,6 +8,15 @@ import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 import { JobOrder, EmployerProfile } from '../../types';
 
 import { api } from '../../../lib/api';
+import { OCCUPATIONAL_CLUSTERS } from '../../../lib/profilingUtils';
+
+const STANDARD_POSITIONS = Array.from(
+  new Set(
+    Object.values(OCCUPATIONAL_CLUSTERS).flatMap(c => c.roles).map(r =>
+      r.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    )
+  )
+).sort();
 
 const STATUS_META: Record<JobOrder['status'], { label: string; color: string; icon: React.ReactNode }> = {
   open: { label: 'Open', color: '#10B981', icon: <CheckCircle2 size={13} /> },
@@ -30,6 +39,8 @@ interface Props {
   currentUserName: string;
   globalJobOrders?: any[];
   globalEmployers?: any[];
+  onJobOrdersChange?: (orders: any[]) => void;
+  onEmployersChange?: (employers: any[]) => void;
 }
 
 const mapJobOrderFromApi = (jo: any): JobOrder => ({
@@ -50,27 +61,42 @@ const mapJobOrderFromApi = (jo: any): JobOrder => ({
     : (Array.isArray(jo.required_skills) && jo.required_skills.length > 0
         ? jo.required_skills
         : (Array.isArray(jo.job_order_requirement)
-            ? jo.job_order_requirement.map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+            ? jo.job_order_requirement.filter((r: any) => ((r.requirement?.category || r.category || 'DOCUMENT').toUpperCase() !== 'CERTIFICATION')).map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
             : [])),
   minExperience: jo.min_experience_years || 1,
   genderPreference: (jo.gender_preference || jo.genderPreference || 'Any') as 'Any' | 'Male' | 'Female',
   minAge: jo.min_age ?? jo.minAge ?? 21,
   maxAge: jo.max_age ?? jo.maxAge ?? 45,
-  certifications: Array.isArray(jo.required_certifications) ? jo.required_certifications : (Array.isArray(jo.certifications) ? jo.certifications : []),
-  detailedRequirements: Array.isArray(jo.job_order_requirements)
+  certifications: Array.isArray(jo.certifications) && jo.certifications.length > 0
+    ? jo.certifications
+    : (Array.isArray(jo.required_certifications) && jo.required_certifications.length > 0
+        ? jo.required_certifications
+        : (Array.isArray(jo.job_order_requirement)
+            ? jo.job_order_requirement.filter((r: any) => ((r.requirement?.category || r.category || '').toUpperCase() === 'CERTIFICATION')).map((r: any) => r.requirement?.requirement_name || r.requirement_name).filter(Boolean)
+            : [])),
+  detailedRequirements: Array.isArray(jo.job_order_requirements) && jo.job_order_requirements.length > 0
     ? jo.job_order_requirements.map((r: any) => ({
-        name: r.requirement?.requirement_name || r.requirement_name,
-        category: r.category || r.requirement?.category || 'DOCUMENT',
-        isMandatory: r.is_mandatory ?? true
+        name: r.requirement?.requirement_name || r.requirement_name || (typeof r === 'string' ? r : ''),
+        category: (((r.category || r.requirement?.category || 'DOCUMENT').toUpperCase() === 'CERTIFICATION') ? 'CERTIFICATION' : 'DOCUMENT') as 'DOCUMENT' | 'CERTIFICATION',
+        isMandatory: r.is_mandatory ?? r.isMandatory ?? true
       }))
-    : [],
+    : (Array.isArray(jo.job_order_requirement) && jo.job_order_requirement.length > 0
+        ? jo.job_order_requirement.map((r: any) => ({
+            name: r.requirement?.requirement_name || r.requirement_name || '',
+            category: (((r.requirement?.category || r.category || 'DOCUMENT').toUpperCase() === 'CERTIFICATION') ? 'CERTIFICATION' : 'DOCUMENT') as 'DOCUMENT' | 'CERTIFICATION',
+            isMandatory: r.is_mandatory ?? true
+          }))
+        : [
+            ...(Array.isArray(jo.requirements) ? jo.requirements.map((name: string) => ({ name, category: 'DOCUMENT' as const, isMandatory: true })) : []),
+            ...(Array.isArray(jo.certifications) ? jo.certifications.map((name: string) => ({ name, category: 'CERTIFICATION' as const, isMandatory: true })) : [])
+          ]),
   status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
   datePosted: jo.date_posted || '',
   deadline: jo.application_deadline || jo.deadline || '',
   notes: jo.clean_notes || jo.notes || '',
 });
 
-export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers }: Props) {
+export default function JobOrders({ showToast, currentUserName, globalJobOrders, globalEmployers, onJobOrdersChange, onEmployersChange }: Props) {
   const [orders, setOrders] = useState<JobOrder[]>(() => {
     return (globalJobOrders && Array.isArray(globalJobOrders) && globalJobOrders.length > 0)
       ? globalJobOrders.map(mapJobOrderFromApi)
@@ -100,21 +126,21 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   }, [globalJobOrders]);
 
   // ── Fetch Live Data on Mount & Refresh ────────────────────────────────────
-  const fetchLiveJobOrders = useCallback(async () => {
+  const fetchLiveJobOrders = useCallback(async (force = false) => {
       try {
-        if (!globalJobOrders || globalJobOrders.length === 0) {
+        if (!globalJobOrders || globalJobOrders.length === 0 || force) {
           setIsLoading(true);
         }
         const [ordersRes, empRes] = await Promise.allSettled([
-          globalJobOrders && globalJobOrders.length > 0 ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
-          globalEmployers && globalEmployers.length > 0 ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
+          (!force && globalJobOrders && globalJobOrders.length > 0) ? Promise.resolve({ data: globalJobOrders }) : api.get('/job-orders'),
+          (!force && globalEmployers && globalEmployers.length > 0) ? Promise.resolve({ data: globalEmployers }) : api.get('/employers'),
         ]);
 
         if (empRes.status === 'fulfilled' && Array.isArray(empRes.value.data) && empRes.value.data.length > 0) {
           const liveEmps: EmployerProfile[] = empRes.value.data.map((e: any) => ({
             id: String(e.employer_id),
             companyName: e.company_name,
-            country: e.country?.country_name || (typeof e.country === 'string' ? e.country : '') || 'International',
+            country: e.country?.country_name || (typeof e.country === 'string' ? e.country : '') || e.country_name || 'International',
             industry: e.industry || 'General',
             contactPerson: e.contact_person || '',
             contactEmail: e.contact_email || '',
@@ -130,11 +156,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             createdAt: e.created_at || '',
           }));
           setEmployers(liveEmps);
+          if (force && onEmployersChange) onEmployersChange(empRes.value.data);
         }
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value.data) && ordersRes.value.data.length > 0) {
           const mapped: JobOrder[] = ordersRes.value.data.map(mapJobOrderFromApi);
           setOrders(mapped);
+          if (force && onJobOrdersChange) onJobOrdersChange(ordersRes.value.data);
         }
       } catch (err) {
         console.warn('Could not fetch live job orders, retaining default orders:', err);
@@ -155,7 +183,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         }
       } catch (err) {}
     },
-    [globalJobOrders, globalEmployers]
+    [globalJobOrders, globalEmployers, onJobOrdersChange, onEmployersChange]
   );
 
   useEffect(() => {
@@ -177,7 +205,29 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   };
 
   const openEdit = (o: JobOrder) => {
-    setEditing({ ...o, requirements: [...o.requirements], certifications: [...o.certifications], detailedRequirements: o.detailedRequirements ? [...o.detailedRequirements] : [] });
+    const detailed = [...(o.detailedRequirements || [])];
+    const existingNames = new Set(detailed.map(d => d.name.toLowerCase()));
+
+    (o.requirements || []).forEach(rName => {
+      if (rName && !existingNames.has(rName.toLowerCase())) {
+        detailed.push({ name: rName, category: 'DOCUMENT', isMandatory: true });
+        existingNames.add(rName.toLowerCase());
+      }
+    });
+
+    (o.certifications || []).forEach(cName => {
+      if (cName && !existingNames.has(cName.toLowerCase())) {
+        detailed.push({ name: cName, category: 'CERTIFICATION', isMandatory: true });
+        existingNames.add(cName.toLowerCase());
+      }
+    });
+
+    setEditing({
+      ...o,
+      requirements: o.requirements ? [...o.requirements] : [],
+      certifications: o.certifications ? [...o.certifications] : [],
+      detailedRequirements: detailed,
+    });
     setIsNew(false);
     setReqInput('');
     setCertInput('');
@@ -200,10 +250,34 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
     const finalCountry = (editing.country || '').trim() || (empObj ? empObj.country : 'International');
+
+    // Auto-commit any non-empty input from reqInput or certInput so typing without clicking + is not lost
+    const finalDetailed = [...(editing.detailedRequirements || [])];
+    const finalReqs = [...(editing.requirements || [])];
+    const finalCerts = [...(editing.certifications || [])];
+
+    if (reqInput.trim()) {
+      const v = reqInput.trim();
+      if (!finalDetailed.some(r => r.name.toLowerCase() === v.toLowerCase())) {
+        finalDetailed.push({ name: v, category: 'DOCUMENT', isMandatory: reqIsMandatory });
+        if (!finalReqs.includes(v)) finalReqs.push(v);
+      }
+    }
+    if (certInput.trim()) {
+      const v = certInput.trim();
+      if (!finalDetailed.some(r => r.name.toLowerCase() === v.toLowerCase())) {
+        finalDetailed.push({ name: v, category: 'CERTIFICATION', isMandatory: certIsMandatory });
+        if (!finalCerts.includes(v)) finalCerts.push(v);
+      }
+    }
+
     const updatedEditing: JobOrder = {
       ...editing,
       employerName: empObj ? empObj.companyName : editing.employerName,
       country: finalCountry,
+      requirements: finalReqs,
+      certifications: finalCerts,
+      detailedRequirements: finalDetailed,
     };
 
     const payload = {
@@ -225,9 +299,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
       deadline: editing.deadline || undefined,
       notes: editing.notes,
-      requirements: editing.requirements,
-      certifications: editing.certifications,
-      job_order_requirements: editing.detailedRequirements?.map(r => ({
+      requirements: finalReqs,
+      certifications: finalCerts,
+      job_order_requirements: finalDetailed.map(r => ({
         requirement_name: r.name,
         category: r.category,
         is_mandatory: r.isMandatory
@@ -238,14 +312,16 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       if (isNew) {
         const res = await api.post('/job-orders', payload);
         const createdId = res.data?.job_order_id ? String(res.data.job_order_id) : updatedEditing.id;
-        setOrders(p => [...p, { ...updatedEditing, id: createdId }]);
+        const newOrder = res.data ? mapJobOrderFromApi(res.data) : { ...updatedEditing, id: createdId };
+        setOrders(p => [...p, newOrder]);
       } else {
-        await api.put(`/job-orders/${editing.id}`, payload);
-        setOrders(p => p.map(o => o.id === editing.id ? updatedEditing : o));
+        const res = await api.put(`/job-orders/${editing.id}`, payload);
+        const updatedOrder = res.data ? mapJobOrderFromApi(res.data) : updatedEditing;
+        setOrders(p => p.map(o => o.id === editing.id ? updatedOrder : o));
       }
       showToast(`Job Order "${updatedEditing.code || updatedEditing.position}" ${isNew ? 'created' : 'updated'}`);
       setEditing(null);
-      fetchLiveJobOrders();
+      await fetchLiveJobOrders(true);
     } catch (err: any) {
       console.warn('Backend save error:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Unknown error occurred';
@@ -265,8 +341,8 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setOrders(p => p.filter(o => o.id !== id));
     try {
       await api.delete(`/job-orders/${id}`);
-      showToast(`"${o?.code} ${o?.position}" deleted from database`);
-      fetchLiveJobOrders();
+      showToast(`"${o?.code} ${o?.position}" deleted successfully`);
+      await fetchLiveJobOrders(true);
     } catch (err) {
       console.warn('Backend delete error, removed locally:', err);
       showToast(`"${o?.code} ${o?.position}" removed`);
@@ -281,7 +357,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setEditing(p => p ? {
       ...p,
       detailedRequirements: [...(p.detailedRequirements || []), { name: v, category, isMandatory }],
-      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...p[category === 'DOCUMENT' ? 'requirements' : 'certifications'], v]
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...(p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []), v]
     } : p);
     if (category === 'DOCUMENT') { setReqInput(''); setReqIsMandatory(true); }
     else { setCertInput(''); setCertIsMandatory(true); }
@@ -291,7 +367,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setEditing(p => p ? {
       ...p,
       detailedRequirements: (p.detailedRequirements || []).filter(r => r.name !== val),
-      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: p[category === 'DOCUMENT' ? 'requirements' : 'certifications'].filter(x => x !== val)
+      [category === 'DOCUMENT' ? 'requirements' : 'certifications']: (p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []).filter(x => x !== val)
     } : p);
   };
 
@@ -316,6 +392,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       {[1, 2, 3, 4, 5].map(n => <Star key={n} size={11} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'} />)}
     </div>
   );
+
+  const matchedCluster = editing?.position
+    ? Object.values(OCCUPATIONAL_CLUSTERS).find(c => {
+        const p = (editing.position || '').toLowerCase().trim();
+        return c.roles.some(r => r.toLowerCase() === p || p.includes(r.toLowerCase()));
+      })
+    : null;
 
   return (
     <div className="space-y-6">
@@ -554,8 +637,68 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                   <input value={editing.code} onChange={e => setEditing(p => p ? { ...p, code: e.target.value } : p)} placeholder="e.g. JO-2026-0055" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Position / Job Title *</label>
-                  <input value={editing.position} onChange={e => setEditing(p => p ? { ...p, position: e.target.value } : p)} placeholder="e.g. Industrial Welder" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Position / Job Title *</label>
+                    <span className="text-[10px] text-slate-400 font-medium">DMW Overseas Catalog</span>
+                  </div>
+                  <input
+                    list="position-catalog"
+                    value={editing.position}
+                    onChange={e => setEditing(p => p ? { ...p, position: e.target.value } : p)}
+                    placeholder="e.g. Staff Nurse, 6G Welder, Commis Chef"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+                  />
+                  <datalist id="position-catalog">
+                    {STANDARD_POSITIONS.map(pos => (
+                      <option key={pos} value={pos} />
+                    ))}
+                  </datalist>
+                  {matchedCluster && (
+                    <div className="mt-1.5 flex items-center justify-between text-xs bg-sky-50 border border-sky-100 rounded-md px-2.5 py-1 text-sky-800">
+                      <span className="truncate mr-2">
+                        <span className="font-semibold text-sky-900">DMW Category:</span> {matchedCluster.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentReqs = new Set((editing.requirements || []).map(r => r.toLowerCase()));
+                          const currentCerts = new Set((editing.certifications || []).map(c => c.toLowerCase()));
+                          const newDetailed = [...(editing.detailedRequirements || [])];
+                          const newReqs = [...(editing.requirements || [])];
+                          const newCerts = [...(editing.certifications || [])];
+
+                          matchedCluster.skills.slice(0, 5).forEach(s => {
+                            const cap = s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                            if (!currentReqs.has(s.toLowerCase())) {
+                              newDetailed.push({ name: cap, category: 'DOCUMENT', isMandatory: true });
+                              newReqs.push(cap);
+                              currentReqs.add(s.toLowerCase());
+                            }
+                          });
+
+                          matchedCluster.certifications.slice(0, 3).forEach(c => {
+                            const cap = c.toUpperCase();
+                            if (!currentCerts.has(c.toLowerCase())) {
+                              newDetailed.push({ name: cap, category: 'CERTIFICATION', isMandatory: true });
+                              newCerts.push(cap);
+                              currentCerts.add(c.toLowerCase());
+                            }
+                          });
+
+                          setEditing(p => p ? {
+                            ...p,
+                            requirements: newReqs,
+                            certifications: newCerts,
+                            detailedRequirements: newDetailed,
+                          } : p);
+                          showToast(`Applied standard skills & credentials for ${matchedCluster.name}`);
+                        }}
+                        className="text-[11px] font-semibold text-sky-700 hover:text-sky-900 underline whitespace-nowrap"
+                      >
+                        + Apply Standard Skills & Certs
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
@@ -695,7 +838,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 <div className="flex flex-wrap gap-2 items-center">
                   <input list="doc-catalog" value={reqInput} onChange={e => setReqInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('DOCUMENT', reqInput, reqIsMandatory); } }} placeholder="Select or type document..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                   <datalist id="doc-catalog">
-                    {catalogRequirements.filter(r => r.category === 'DOCUMENT').map(r => (
+                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() !== 'CERTIFICATION').map(r => (
                       <option key={r.requirement_id} value={r.requirement_name} />
                     ))}
                   </datalist>
@@ -721,7 +864,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 <div className="flex flex-wrap gap-2 items-center">
                   <input list="cert-catalog" value={certInput} onChange={e => setCertInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('CERTIFICATION', certInput, certIsMandatory); } }} placeholder="Select or type certification..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
                   <datalist id="cert-catalog">
-                    {catalogRequirements.filter(r => r.category === 'CERTIFICATION').map(r => (
+                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() === 'CERTIFICATION').map(r => (
                       <option key={r.requirement_id} value={r.requirement_name} />
                     ))}
                   </datalist>

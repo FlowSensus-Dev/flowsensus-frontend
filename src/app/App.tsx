@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from "react-router";
 import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
 import ApplicantPortal from "./components/ApplicantPortal";
-import EmployerPortal from "./components/EmployerPortal";
 import {
   UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord,
   CertificateRecord, TrainingRecord, LanguageRecord, IdentificationRecord,
@@ -105,12 +104,12 @@ function LandingPage({
               <Layers size={16} className="text-white" />
             </div>
             <span className="text-white font-bold text-lg tracking-tight">
-              Flow<span className="text-[#0EA5E9]">Sensus</span>
+              FLOW<span className="text-[#0EA5E9]">SENSUS</span>
             </span>
           </div>
           <div className="hidden md:flex items-center gap-8 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
-            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            <a href="#included" className="hover:text-white transition-colors">What's Included</a>
             <a href="#how" className="hover:text-white transition-colors">How It Works</a>
           </div>
           <div className="flex items-center gap-3">
@@ -136,7 +135,7 @@ function LandingPage({
                   Sign In
                 </button>
                 <button
-                  onClick={onRegister}
+                  onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
                   className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
                 >
                   Get Started
@@ -151,7 +150,7 @@ function LandingPage({
         {mobileOpen && (
           <div className="md:hidden bg-[#0F172A] border-t border-white/10 px-6 py-4 flex flex-col gap-4 text-sm text-slate-400">
             <a href="#features" onClick={() => setMobileOpen(false)}>Features</a>
-            <a href="#pricing" onClick={() => setMobileOpen(false)}>Pricing</a>
+            <a href="#included" onClick={() => setMobileOpen(false)}>What's Included</a>
             <a href="#how" onClick={() => setMobileOpen(false)}>How It Works</a>
             {currentUser ? (
               <>
@@ -178,7 +177,7 @@ function LandingPage({
             <div>
               <div className="inline-flex items-center gap-2 bg-[#0EA5E9]/10 border border-[#0EA5E9]/30 rounded-full px-4 py-1.5 mb-8">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#0EA5E9] animate-pulse" />
-                <span className="text-[#0EA5E9] text-xs font-medium tracking-wide uppercase">Multi-Tenancy Platform — Now Available</span>
+                <span className="text-[#0EA5E9] text-xs font-medium tracking-wide uppercase">Now Accepting Agency Partners</span>
               </div>
               <h1 className="font-['Libre_Baskerville',serif] text-4xl lg:text-5xl font-bold text-white leading-[1.15] mb-6">
                 The complete system for<br />
@@ -186,7 +185,7 @@ function LandingPage({
                 agencies.
               </h1>
               <p className="text-slate-400 text-lg leading-relaxed mb-10 max-w-lg">
-                FlowSensus manages your entire 5-phase deployment lifecycle — from applicant registration
+                FLOWSENSUS manages your entire 5-phase deployment lifecycle — from applicant registration
                 through final boarding — with role-based workflows built specifically for POEA-licensed agencies.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
@@ -208,24 +207,42 @@ function LandingPage({
                 ) : (
                   <>
                     <button
-                      onClick={onRegister}
+                      onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
                       className="flex items-center justify-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-7 py-3.5 rounded-lg transition-colors text-base"
                     >
-                      Create Your Workspace <ArrowRight size={18} />
+                      Get Started <ArrowRight size={18} />
                     </button>
                     <button
                       onClick={onSignIn}
                       className="flex items-center justify-center gap-2 border border-white/20 text-white hover:bg-white/5 font-medium px-7 py-3.5 rounded-lg transition-colors text-base"
                     >
-                      Sign In to Your Tenant
+                      Agency Login
                     </button>
                   </>
                 )}
               </div>
-              <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
-                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> No credit card required</span>
-                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Subdomain provisioned instantly</span>
-                <span className="flex items-center gap-1.5"><Check size={14} className="text-[#0EA5E9]" /> Cancel any time</span>
+              <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3">
+                  <Shield size={18} className="text-[#0EA5E9] flex-shrink-0" />
+                  <div>
+                    <div className="text-white font-medium text-sm">POEA/DMW</div>
+                    <div className="text-slate-500 text-xs">Licensed agencies only</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3">
+                  <Building2 size={18} className="text-[#0EA5E9] flex-shrink-0" />
+                  <div>
+                    <div className="text-white font-medium text-sm">Dedicated</div>
+                    <div className="text-slate-500 text-xs">Subdomain workspace</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3">
+                  <CheckCircle2 size={18} className="text-[#0EA5E9] flex-shrink-0" />
+                  <div>
+                    <div className="text-white font-medium text-sm">24 Hours</div>
+                    <div className="text-slate-500 text-xs">Provisioned within</div>
+                  </div>
+                </div>
               </div>
             </div>
             {/* App mockup */}
@@ -280,15 +297,14 @@ function LandingPage({
 
         {/* Stats bar */}
         <div className="max-w-7xl mx-auto mt-16 relative">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-white/10 rounded-xl overflow-hidden border border-white/10">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-white/10 rounded-xl overflow-hidden border border-white/10">
             {[
-              { val: "180+", label: "Agencies onboarded" },
-              { val: "42,000+", label: "Workers deployed" },
-              { val: "28", label: "Countries served" },
-              { val: "99.7%", label: "System uptime" },
+              { val: "5-Phase", label: "Deployment Workflow" },
+              { val: "4 Roles", label: "Staff Access Levels" },
+              { val: "POEA-Ready", label: "Fully Compliant" },
             ].map((s) => (
-              <div key={s.label} className="bg-[#1E293B] px-6 py-5 text-center">
-                <div className="font-['Libre_Baskerville',serif] text-2xl font-bold text-white">{s.val}</div>
+              <div key={s.label} className="bg-[#1E293B] px-6 py-5 text-center flex flex-col justify-center h-full">
+                <div className="font-['Libre_Baskerville',serif] text-xl font-bold text-white leading-tight">{s.val}</div>
                 <div className="text-slate-500 text-xs mt-1">{s.label}</div>
               </div>
             ))}
@@ -335,7 +351,7 @@ function LandingPage({
             <div className="hidden md:block absolute left-[calc(50%-1px)] top-8 bottom-8 w-px bg-slate-200" />
             {[
               { phase: "01", title: "Applicant Registration", desc: "Detailed applicant intake with personal information, work history, and skills assessment.", side: "left", color: "#0EA5E9" },
-              { phase: "02", title: "Screening & Medical", desc: "English proficiency, trade tests, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
+              { phase: "02", title: "Screening & Medical", desc: "English proficiency, practical skills evaluations, IQ/aptitude, and full medical clearance validation.", side: "right", color: "#8B5CF6" },
               { phase: "03", title: "CV Encoding", desc: "Readiness engine evaluates 7 criteria. Management approves for employer submission.", side: "left", color: "#F59E0B" },
               { phase: "04", title: "Employer Endorsement", desc: "Foreign employer selects candidates. Interview scheduling and endorsement tracking.", side: "right", color: "#10B981" },
               { phase: "05", title: "Final Deployment", desc: "Document validation, expense tracking, visa processing, and departure monitoring.", side: "left", color: "#EF4444" },
@@ -359,7 +375,7 @@ function LandingPage({
       </section>
 
       {/* What's included */}
-      <section id="pricing" className="py-24 px-6 bg-[#0F172A]">
+      <section id="included" className="py-24 px-6 bg-[#0F172A]">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <div className="text-[#0EA5E9] text-xs font-semibold tracking-widest uppercase mb-3">Everything Included</div>
@@ -367,7 +383,7 @@ function LandingPage({
               One workspace. Everything your<br />agency needs to deploy.
             </h2>
             <p className="text-slate-400 text-lg max-w-xl mx-auto">
-              Every FlowSensus tenant comes fully equipped — no add-ons, no feature tiers, no surprises.
+              Every FLOWSENSUS tenant comes fully equipped — no add-ons, no feature tiers, no surprises.
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
@@ -393,54 +409,73 @@ function LandingPage({
           </div>
 
           {/* CTA inside dark section */}
-          <div className="max-w-2xl mx-auto text-center bg-gradient-to-br from-[#0EA5E9]/20 to-[#0EA5E9]/5 rounded-2xl border border-[#0EA5E9]/20 p-10">
-            <div className="w-14 h-14 rounded-2xl bg-[#0EA5E9] flex items-center justify-center mx-auto mb-5">
-              <Layers size={24} className="text-white" />
+          <div id="contact" className="max-w-4xl mx-auto bg-gradient-to-br from-[#0EA5E9]/20 to-[#0EA5E9]/5 rounded-2xl border border-[#0EA5E9]/20 p-10 mt-20">
+            <div className="text-center mb-10">
+              <div className="w-14 h-14 rounded-2xl bg-[#0EA5E9] flex items-center justify-center mx-auto mb-5">
+                <Layers size={24} className="text-white" />
+              </div>
+              <h3 className="font-['Libre_Baskerville',serif] text-3xl font-bold text-white mb-3">
+                Ready to partner with us?
+              </h3>
+              <p className="text-slate-400 text-sm leading-relaxed max-w-xl mx-auto">
+                Submit your agency details and let our team set up your dedicated workspace.
+              </p>
             </div>
-            <h3 className="font-['Libre_Baskerville',serif] text-2xl font-bold text-white mb-3">
-              Ready to get started?
-            </h3>
-            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-              Register your agency in under 5 minutes. Upload your logo, set your brand color,
-              create your admin account — and your workspace is live.
-            </p>
-            <button
-              onClick={onRegister}
-              className="inline-flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-8 py-4 rounded-xl transition-colors text-base"
-            >
-              Create Your Agency Workspace <ArrowRight size={18} />
-            </button>
-            <p className="text-slate-500 text-xs mt-4">No credit card required during setup</p>
-          </div>
-        </div>
-      </section>
 
-      {/* CTA + Footer */}
-      <section className="py-20 px-6 bg-white">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid md:grid-cols-3 gap-6 mb-16">
-            {[
-              { step: "01", title: "Register your agency", desc: "Fill in your agency details, upload your logo, and create your admin account." },
-              { step: "02", title: "Workspace is provisioned", desc: "We generate your Tenant ID and spin up your dedicated subdomain instantly." },
-              { step: "03", title: "Invite your team", desc: "Add Recruitment, Admin, Accounting, and Management staff with the right roles." },
-            ].map((s) => (
-              <div key={s.step} className="flex gap-4">
-                <div className="font-['JetBrains_Mono',monospace] text-2xl font-bold text-[#0EA5E9] flex-shrink-0 leading-tight">{s.step}</div>
+            <div className="grid md:grid-cols-2 gap-8 text-left">
+              <div className="bg-[#1E293B] rounded-xl p-8 border border-white/5">
+                <h4 className="text-white font-semibold mb-6 flex items-center gap-2"><Mail size={20} className="text-[#0EA5E9]" /> Direct Contact</h4>
+
+                <div className="mb-6">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Email Us</div>
+                  <a href="mailto:innov8.capstone35@gmail.com" className="text-[#0EA5E9] font-medium text-lg hover:underline block mb-1">innov8.capstone35@gmail.com</a>
+                  <div className="text-slate-500 text-xs">For new agency partnership inquiries</div>
+                </div>
+
                 <div>
-                  <h4 className="font-semibold text-[#0F172A] mb-1">{s.title}</h4>
-                  <p className="text-slate-500 text-sm leading-relaxed">{s.desc}</p>
+                  <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Platform Support</div>
+                  <div className="text-white font-medium mb-1">Platform Super Admin Team</div>
+                  <div className="text-slate-500 text-xs">Technical onboarding and workspace provisioning</div>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="text-center">
-            <button
-              onClick={onRegister}
-              className="inline-flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold px-8 py-4 rounded-xl transition-colors text-base"
-            >
-              Get Started Now <ArrowRight size={18} />
-            </button>
-            <p className="text-slate-400 text-sm mt-4">Join 180+ agencies already on FlowSensus</p>
+
+              <div className="bg-[#1E293B] rounded-xl p-8 border border-white/5">
+                <h4 className="text-white font-semibold mb-6 flex items-center gap-2"><CheckCircle2 size={20} className="text-[#0EA5E9]" /> Onboarding Process</h4>
+
+                <div className="space-y-6">
+                  <div className="flex gap-4">
+                    <div className="font-['JetBrains_Mono',monospace] text-[#0EA5E9] font-bold text-lg mt-0.5">01</div>
+                    <div className="flex-1">
+                      <div className="text-slate-300 text-sm leading-relaxed mb-3">
+                        Submit your agency details to our email. Please include:
+                      </div>
+                      <ul className="space-y-2">
+                        <li className="flex items-center gap-2 text-xs text-slate-400">
+                          <Check size={14} className="text-[#0EA5E9]" /> Agency Name
+                        </li>
+                        <li className="flex items-center gap-2 text-xs text-slate-400">
+                          <Check size={14} className="text-[#0EA5E9]" /> General Manager's Name
+                        </li>
+                        <li className="flex items-center gap-2 text-xs text-slate-400">
+                          <Check size={14} className="text-[#0EA5E9]" /> POEA / DMW License No.
+                        </li>
+                        <li className="flex items-center gap-2 text-xs text-slate-400">
+                          <Check size={14} className="text-[#0EA5E9]" /> Corporate Email Address
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="font-['JetBrains_Mono',monospace] text-[#0EA5E9] font-bold text-lg mt-0.5">02</div>
+                    <div className="text-slate-300 text-sm leading-relaxed">Our team verifies your agency accreditation within 24 hours</div>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="font-['JetBrains_Mono',monospace] text-[#0EA5E9] font-bold text-lg mt-0.5">03</div>
+                    <div className="text-slate-300 text-sm leading-relaxed">Your workspace is provisioned and login credentials are sent to your GM</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -451,10 +486,10 @@ function LandingPage({
             <div className="w-6 h-6 rounded bg-[#0EA5E9] flex items-center justify-center">
               <Layers size={12} className="text-white" />
             </div>
-            <span className="text-white font-semibold">Flow<span className="text-[#0EA5E9]">Sensus</span></span>
+            <span className="text-white font-semibold">FLOW<span className="text-[#0EA5E9]">SENSUS</span></span>
             <span className="ml-2 text-slate-500">Overseas Deployment Management</span>
           </div>
-          <span>© 2026 FlowSensus. All rights reserved.</span>
+          <span>© 2026 FLOWSENSUS. All rights reserved.</span>
         </div>
       </footer>
     </div>
@@ -512,7 +547,7 @@ function RegistrationWizard({ onBack, onComplete }: {
               : <Layers size={14} className="text-white" />
             }
           </div>
-          <span className="text-white font-bold tracking-tight">Flow<span style={{ color: form.accentColor }}>Sensus</span></span>
+          <span className="text-white font-bold tracking-tight">FLOW<span style={{ color: form.accentColor }}>SENSUS</span></span>
           <span className="text-slate-600 text-sm ml-2 hidden sm:block">/ Agency Registration</span>
         </div>
         <button onClick={onBack} className="text-slate-400 hover:text-white text-sm flex items-center gap-1 transition-colors">
@@ -526,9 +561,8 @@ function RegistrationWizard({ onBack, onComplete }: {
           <div className="absolute left-0 right-0 top-[18px] h-px bg-slate-200 z-0" />
           {STEPS.map((s) => (
             <div key={s.id} className="relative z-10 flex flex-col items-center gap-1.5 cursor-pointer" onClick={() => s.id < step && setStep(s.id)}>
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all border-2 ${
-                step > s.id ? "text-white border-transparent" : step === s.id ? "bg-white text-[#0EA5E9] border-[#0EA5E9]" : "bg-white border-slate-200 text-slate-400"
-              }`} style={step > s.id ? { background: form.accentColor, borderColor: form.accentColor } : step === s.id ? { borderColor: form.accentColor, color: form.accentColor } : {}}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all border-2 ${step > s.id ? "text-white border-transparent" : step === s.id ? "bg-white text-[#0EA5E9] border-[#0EA5E9]" : "bg-white border-slate-200 text-slate-400"
+                }`} style={step > s.id ? { background: form.accentColor, borderColor: form.accentColor } : step === s.id ? { borderColor: form.accentColor, color: form.accentColor } : {}}>
                 {step > s.id ? <Check size={15} /> : s.id}
               </div>
               <span className={`text-xs hidden sm:block whitespace-nowrap ${step >= s.id ? "text-[#0F172A] font-medium" : "text-slate-400"}`}>{s.label}</span>
@@ -606,9 +640,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   </label>
                   <div
                     onClick={() => document.getElementById("dmw-upload")?.click()}
-                    className={`relative border-2 border-dashed rounded-xl p-5 cursor-pointer transition-all ${
-                      form.dmwLicenseUrl ? "border-[#10B981] bg-[#10B981]/5" : "border-slate-200 hover:border-[#0EA5E9] bg-white hover:bg-[#0EA5E9]/3"
-                    }`}
+                    className={`relative border-2 border-dashed rounded-xl p-5 cursor-pointer transition-all ${form.dmwLicenseUrl ? "border-[#10B981] bg-[#10B981]/5" : "border-slate-200 hover:border-[#0EA5E9] bg-white hover:bg-[#0EA5E9]/3"
+                      }`}
                   >
                     <input
                       id="dmw-upload" type="file" accept="image/*,.pdf" className="hidden"
@@ -651,7 +684,7 @@ function RegistrationWizard({ onBack, onComplete }: {
           {step === 2 && (
             <div>
               <h2 className="font-['Libre_Baskerville',serif] text-2xl font-bold text-[#0F172A] mb-2">Brand your workspace</h2>
-              <p className="text-slate-500 text-sm mb-8">Upload your agency logo and pick an accent color. This will appear across your FlowSensus tenant — login screen, reports, and navigation.</p>
+              <p className="text-slate-500 text-sm mb-8">Upload your agency logo and pick an accent color. This will appear across your FLOWSENSUS tenant — login screen, reports, and navigation.</p>
 
               {/* Live preview */}
               <div className="mb-8 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
@@ -691,9 +724,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   <ImagePlus size={15} className="text-slate-400" /> Agency Logo <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <div
-                  className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-                    dragOver ? "border-[#0EA5E9] bg-[#0EA5E9]/5" : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
+                  className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${dragOver ? "border-[#0EA5E9] bg-[#0EA5E9]/5" : "border-slate-200 hover:border-slate-300 bg-white"
+                    }`}
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleLogoFile(f); }}
@@ -733,9 +765,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                       key={c.value}
                       title={c.name}
                       onClick={() => set("accentColor", c.value)}
-                      className={`w-9 h-9 rounded-full border-2 transition-all ${
-                        form.accentColor === c.value ? "border-[#0F172A] scale-110 shadow-md" : "border-transparent hover:scale-105"
-                      }`}
+                      className={`w-9 h-9 rounded-full border-2 transition-all ${form.accentColor === c.value ? "border-[#0F172A] scale-110 shadow-md" : "border-transparent hover:scale-105"
+                        }`}
                       style={{ background: c.value }}
                     />
                   ))}
@@ -798,10 +829,9 @@ function RegistrationWizard({ onBack, onComplete }: {
                   </div>
                   {form.adminPassword && (
                     <div className="mt-2 flex gap-1">
-                      {[1,2,3,4].map((n) => (
-                        <div key={n} className={`h-1 flex-1 rounded-full transition-colors ${
-                          form.adminPassword.length >= n * 3 ? n <= 2 ? "bg-red-400" : n === 3 ? "bg-yellow-400" : "bg-[#10B981]" : "bg-slate-200"
-                        }`} />
+                      {[1, 2, 3, 4].map((n) => (
+                        <div key={n} className={`h-1 flex-1 rounded-full transition-colors ${form.adminPassword.length >= n * 3 ? n <= 2 ? "bg-red-400" : n === 3 ? "bg-yellow-400" : "bg-[#10B981]" : "bg-slate-200"
+                          }`} />
                       ))}
                     </div>
                   )}
@@ -810,9 +840,8 @@ function RegistrationWizard({ onBack, onComplete }: {
                   <label className="block text-sm font-medium text-[#0F172A] mb-1.5">Confirm Password <span className="text-red-400">*</span></label>
                   <div className="relative">
                     <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type="password" value={form.adminConfirm} onChange={(e) => set("adminConfirm", e.target.value)} placeholder="Re-enter your password" className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white ${
-                      form.adminConfirm && form.adminPassword !== form.adminConfirm ? "border-red-300" : "border-slate-200 focus:border-[#0EA5E9]"
-                    }`} />
+                    <input type="password" value={form.adminConfirm} onChange={(e) => set("adminConfirm", e.target.value)} placeholder="Re-enter your password" className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 bg-white ${form.adminConfirm && form.adminPassword !== form.adminConfirm ? "border-red-300" : "border-slate-200 focus:border-[#0EA5E9]"
+                      }`} />
                   </div>
                   {form.adminConfirm && form.adminPassword !== form.adminConfirm && (
                     <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
@@ -907,9 +936,8 @@ function RegistrationWizard({ onBack, onComplete }: {
             <button
               onClick={() => step === 4 ? onComplete(form) : setStep(step + 1)}
               disabled={!canAdvance()}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all text-white ${
-                canAdvance() ? "opacity-100 hover:opacity-90" : "opacity-40 cursor-not-allowed"
-              }`}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all text-white ${canAdvance() ? "opacity-100 hover:opacity-90" : "opacity-40 cursor-not-allowed"
+                }`}
               style={{ background: canAdvance() ? form.accentColor : "#94a3b8" }}
             >
               {step === 4 ? "Launch My Workspace" : "Continue"} <ChevronRight size={16} />
@@ -988,9 +1016,8 @@ function ProvisioningScreen({ form, onDone }: { form: FormData; onDone: () => vo
 
             <div className="space-y-3">
               {PROVISION_STEPS.map((s, i) => (
-                <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-                  i > current ? "opacity-30" : ""
-                }`}>
+                <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${i > current ? "opacity-30" : ""
+                  }`}>
                   <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                     {completed.includes(i) ? (
                       <CheckCircle2 size={18} className="text-[#10B981]" />
@@ -1115,6 +1142,7 @@ export default function App() {
   const [applicantsLoaded, setApplicantsLoaded] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [expensesLoaded, setExpensesLoaded] = useState(false);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -1131,17 +1159,69 @@ export default function App() {
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
+  const liveIsApplicant = useRef(false);
+  const isApplicantUser = (u: any) => {
+    const am = u?.app_metadata || {};
+    const um = u?.user_metadata || {};
+    const roles = [am.role, um.role, ...(Array.isArray(am.roles) ? am.roles : []), ...(Array.isArray(um.roles) ? um.roles : [])]
+      .map((r: any) => String(r || '').toLowerCase());
+    return roles.includes('applicant') || Boolean(am.applicant_code || um.applicant_code);
+  };
 
   const syncLiveSession = (userId: string | null) => {
     if (!liveSession.current.ready || liveSession.current.userId !== userId) {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
-      setApplicants([]);
-      setApplicantsLoaded(false);
-      setActivityLogs([]);
-      setExpenses([]);
-      setGlobalJobOrders(null);
-      setGlobalEmployers(null);
+
+      // Hydrate from sessionStorage cache for instant 0ms dashboard render (Stale-While-Revalidate)
+      let hasCachedApplicants = false;
+      if (userId) {
+        try {
+          const cachedAppsJson = sessionStorage.getItem(`fs_cache_applicants_${userId}`);
+          if (cachedAppsJson) {
+            const cachedApps = JSON.parse(cachedAppsJson);
+            if (Array.isArray(cachedApps) && cachedApps.length > 0) {
+              setApplicants(cachedApps);
+              setApplicantsLoaded(true);
+              hasCachedApplicants = true;
+            }
+          }
+          const cachedLogsJson = sessionStorage.getItem(`fs_cache_logs_${userId}`);
+          if (cachedLogsJson) {
+            const cachedLogs = JSON.parse(cachedLogsJson);
+            if (Array.isArray(cachedLogs)) setActivityLogs(cachedLogs);
+          }
+          const cachedExpJson = sessionStorage.getItem(`fs_cache_expenses_${userId}`);
+          if (cachedExpJson) {
+            const cachedExp = JSON.parse(cachedExpJson);
+            if (Array.isArray(cachedExp)) {
+              setExpenses(cachedExp);
+              setExpensesLoaded(true);
+            }
+          }
+          const cachedJoJson = sessionStorage.getItem(`fs_cache_jos_${userId}`);
+          if (cachedJoJson) {
+            const cachedJo = JSON.parse(cachedJoJson);
+            if (Array.isArray(cachedJo)) setGlobalJobOrders(cachedJo);
+          }
+          const cachedEmpJson = sessionStorage.getItem(`fs_cache_emps_${userId}`);
+          if (cachedEmpJson) {
+            const cachedEmp = JSON.parse(cachedEmpJson);
+            if (Array.isArray(cachedEmp)) setGlobalEmployers(cachedEmp);
+          }
+        } catch (e) {
+          // Ignore cache parse errors
+        }
+      }
+
+      if (!hasCachedApplicants) {
+        setApplicants([]);
+        setApplicantsLoaded(false);
+        setActivityLogs([]);
+        setExpenses([]);
+        setGlobalJobOrders(null);
+        setGlobalEmployers(null);
+      }
       setGlobalStaff(null);
       setGlobalRoles(null);
       setGlobalPipelineForecast(null);
@@ -1149,8 +1229,9 @@ export default function App() {
   };
 
   const fetchLiveBackendData = async () => {
-    if (!liveMounted.current || !liveSession.current.userId) return;
+    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current) return;
     const generation = liveSession.current.generation;
+    const currentUserId = liveSession.current.userId;
     const requestId = ++liveRequestId.current;
     const isCurrent = () => liveMounted.current &&
       generation === liveSession.current.generation && requestId === liveRequestId.current;
@@ -1161,6 +1242,13 @@ export default function App() {
         if (!isCurrent()) return;
         if (applicantsRes.data && Array.isArray(applicantsRes.data)) {
           const liveMapped: ApplicantRecord[] = applicantsRes.data.map(mapApplicantFromApi);
+          // Persist to session cache for instant future loads
+          try {
+            if (currentUserId) {
+              sessionStorage.setItem(`fs_cache_applicants_${currentUserId}`, JSON.stringify(liveMapped));
+            }
+          } catch (e) { }
+
           // Merge: preserve locally-set currentHandler if backend returns Unassigned Pool
           // This handles the case where the handler is a superadmin / non-app_user account
           // whose name can't be resolved from current_handler_user_id FK join.
@@ -1173,10 +1261,16 @@ export default function App() {
               if (
                 local &&
                 local.currentHandler &&
+                local.currentHandler !== 'Unassigned' &&
                 local.currentHandler !== 'Unassigned Pool' &&
                 local.currentHandler !== 'System Agent' &&
-                (live.currentHandler === 'Unassigned Pool' || live.currentHandler === 'System Agent')
+                (live.currentHandler === 'Unassigned' || live.currentHandler === 'Unassigned Pool' || live.currentHandler === 'System Agent')
               ) {
+                // If applicant status changed (e.g. returned to Screening, Medical, or Pool),
+                // do not keep the previous handler — respect the unassigned state immediately
+                if (local.status !== live.status) {
+                  return live;
+                }
                 // Backend lost the handler name — keep the local value
                 return { ...live, currentHandler: local.currentHandler };
               }
@@ -1195,33 +1289,48 @@ export default function App() {
       });
 
     // 2. Fetch all other module resources in parallel concurrently
+    const activeRoles: string[] = (currentUserRoles && currentUserRoles.length > 0)
+      ? currentUserRoles
+      : [currentUserRole];
+    const canManageStaff = isSuperAdmin || activeRoles.includes('Management') || activeRoles.includes('Admin');
+
     Promise.allSettled([
       api.get('/audit-logs'),
       api.get('/financial/records'),
       api.get('/job-orders'),
       api.get('/employers'),
-      api.get('/users'),
+      canManageStaff ? api.get('/users') : Promise.resolve({ data: [] }),
       api.get('/users/roles'),
       api.get('/forecasting/pipeline')
     ]).then(([logsRes, expRes, joRes, empRes, staffRes, rolesRes, forecastRes]) => {
       if (!isCurrent()) return;
 
       // Process logs
-      if (logsRes.status === 'fulfilled' && logsRes.value.data && Array.isArray(logsRes.value.data) && logsRes.value.data.length > 0) {
-        const liveLogs: ActivityLog[] = logsRes.value.data.map((l: any) => ({
-          audit_log_id: l.audit_log_id,
-          applicant_id: l.applicant_id,
-          performed_by: l.performed_by,
-          created_at: l.created_at,
-          id: `LOG-${l.audit_log_id}`,
-          applicantId: l.applicant_id ? String(l.applicant_id) : '',
-          action: l.action,
-          performedBy: l.performed_by || 'System User',
-          department: l.department,
-          details: l.details,
-          timestamp: l.created_at || new Date().toISOString(),
-        }));
-        setActivityLogs(liveLogs);
+      if (logsRes.status === 'fulfilled' && logsRes.value.data) {
+        const rawList = Array.isArray(logsRes.value.data)
+          ? logsRes.value.data
+          : (logsRes.value.data.items && Array.isArray(logsRes.value.data.items) ? logsRes.value.data.items : []);
+        if (rawList.length > 0) {
+          const liveLogs: ActivityLog[] = rawList.map((l: any) => ({
+            audit_log_id: l.audit_log_id || l.id,
+            applicant_id: l.applicant_id,
+            performed_by: l.actor_name || l.performed_by || 'Staff User',
+            created_at: l.occurred_at || l.created_at,
+            id: `LOG-${l.audit_log_id || l.id}`,
+            applicantId: l.applicant_id ? String(l.applicant_id) : '',
+            action: l.action,
+            performedBy: l.actor_name || l.performed_by || 'Staff User',
+            department: l.module || l.department || 'Operations',
+            details: l.description || l.details || '',
+            timestamp: l.occurred_at || l.created_at || new Date().toISOString(),
+          }));
+          setActivityLogs(liveLogs);
+          try {
+            if (currentUserId) {
+              sessionStorage.setItem(`fs_cache_logs_${currentUserId}`, JSON.stringify(liveLogs));
+            }
+          } catch (e) { }
+        }
       } else if (logsRes.status === 'rejected') {
         console.warn('Backend audit logs unavailable:', logsRes.reason);
       }
@@ -1230,30 +1339,86 @@ export default function App() {
 
       // Process expenses
       if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
-        const liveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
+        const rawLiveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
           id: `EXP-${r.financial_record_id}`,
           applicantId: String(r.applicant_id),
-          category: r.category || 'processing',
-          type: r.payment_type || 'Processing Fee',
+          purpose: r.payment_type || r.transaction_type || r.description || 'General Expense',
           amount: r.amount || 0,
-          description: r.description || r.payment_type || '',
+          currency: (r.currency === 'USD' ? 'DOLLAR' : 'PESO') as 'PESO' | 'DOLLAR',
+          type: (r.category === 'cash_advance' ? 'cash_advance' : (r.category === 'deduction' ? 'deduction' : 'expense')) as 'expense' | 'cash_advance' | 'deduction',
+          remarks: r.description || '',
+          status: (r.status || 'approved') as 'draft' | 'approved',
           date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
           recordedBy: r.recorded_by_name || 'Mark Tan',
-          paymentMethod: 'Bank Transfer',
-          paidBy: 'Agency',
-          notes: r.description || '',
           timestamp: r.created_at || new Date().toISOString(),
         }));
+
+        // Self-correcting logic: Filter and delete corrupted auto-sync records and duplicates
+        const badExpenses = rawLiveExpenses.filter(e => e.purpose === 'expense');
+        
+        const seenMedical = new Set<string>();
+        const seenOec = new Set<string>();
+        const seenPassport = new Set<string>();
+        const duplicates: ExpenseRecord[] = [];
+        
+        const validExpenses = rawLiveExpenses.filter(e => {
+          if (e.purpose === 'expense') return false; // Handled by badExpenses
+          
+          if (e.purpose.includes('Medical')) {
+            if (seenMedical.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenMedical.add(e.applicantId);
+          }
+          
+          if (e.purpose.includes('OEC')) {
+            if (seenOec.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenOec.add(e.applicantId);
+          }
+          
+          if (e.purpose.includes('Passport')) {
+            if (seenPassport.has(e.applicantId)) {
+              duplicates.push(e);
+              return false;
+            }
+            seenPassport.add(e.applicantId);
+          }
+          
+          return true;
+        });
+
+        const liveExpenses = validExpenses;
         setExpenses(liveExpenses);
+        setExpensesLoaded(true);
+        try {
+          if (currentUserId) {
+            sessionStorage.setItem(`fs_cache_expenses_${currentUserId}`, JSON.stringify(liveExpenses));
+          }
+        } catch (e) { }
       } else if (expRes.status === 'rejected') {
         console.warn('Backend financial records unavailable:', expRes.reason);
+        setExpensesLoaded(true); // Fallback to allow app to proceed even if fetch fails
       }
-      
+
       if (!isCurrent()) return;
 
       // Populate global shared context to prevent duplicate fetches in child views
-      if (joRes.status === 'fulfilled' && joRes.value.data) setGlobalJobOrders(joRes.value.data);
-      if (empRes.status === 'fulfilled' && empRes.value.data) setGlobalEmployers(empRes.value.data);
+      if (joRes.status === 'fulfilled' && joRes.value.data) {
+        setGlobalJobOrders(joRes.value.data);
+        try {
+          if (currentUserId) sessionStorage.setItem(`fs_cache_jos_${currentUserId}`, JSON.stringify(joRes.value.data));
+        } catch (e) { }
+      }
+      if (empRes.status === 'fulfilled' && empRes.value.data) {
+        setGlobalEmployers(empRes.value.data);
+        try {
+          if (currentUserId) sessionStorage.setItem(`fs_cache_emps_${currentUserId}`, JSON.stringify(empRes.value.data));
+        } catch (e) { }
+      }
       if (staffRes.status === 'fulfilled' && staffRes.value.data) setGlobalStaff(staffRes.value.data);
       if (rolesRes.status === 'fulfilled' && rolesRes.value.data) setGlobalRoles(rolesRes.value.data);
       if (forecastRes.status === 'fulfilled' && forecastRes.value.data) setGlobalPipelineForecast(forecastRes.value.data);
@@ -1265,23 +1430,11 @@ export default function App() {
     liveMounted.current = true;
     const checkSession = async () => {
       try {
-        // SECURITY CHECK: Verify "Remember Me" policy
-        const rememberMe = localStorage.getItem('fs_remember_me');
-        const sessionActive = sessionStorage.getItem('fs_session_active');
-        if (rememberMe === 'false' && !sessionActive) {
-          // Browser was closed and reopened, but the user did not opt into "Remember Me".
-          // Invalidate the session immediately to prevent unauthorized access.
-          await supabase.auth.signOut();
-          localStorage.removeItem('fs_remember_me');
-          sessionStorage.removeItem('fs_session_active');
-          syncLiveSession(null);
-          return;
-        }
-
         const { data: { session } } = await supabase.auth.getSession();
         if (!liveMounted.current) return;
         const userId = session?.user?.id ?? null;
         if (liveSession.current.ready && liveSession.current.userId !== userId) return;
+        liveIsApplicant.current = isApplicantUser(session?.user);
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
@@ -1300,6 +1453,25 @@ export default function App() {
           } else {
             const userMeta = session.user.user_metadata || {};
             const appMeta = session.user.app_metadata || {};
+
+            const isApplicant =
+              (appMeta.role || userMeta.role || '').toLowerCase() === 'applicant' ||
+              (Array.isArray(appMeta.roles) && appMeta.roles.map((r: any) => String(r).toLowerCase()).includes('applicant')) ||
+              (Array.isArray(userMeta.roles) && userMeta.roles.map((r: any) => String(r).toLowerCase()).includes('applicant')) ||
+              Boolean(appMeta.applicant_code || userMeta.applicant_code);
+
+            if (isApplicant) {
+              setIsSuperAdmin(false);
+              setCurrentUserRole("Applicant");
+              setCurrentUserRoles(["Applicant"]);
+              setCurrentUserName(userMeta.full_name || email || "Applicant");
+              setLoggedInApplicantId(String(appMeta.applicant_id || userMeta.applicant_id || ""));
+              if (window.location.pathname === '/app') {
+                navigateTo("app");
+              }
+              return;
+            }
+
             let roles: UserRole[] = [];
             if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
               roles = userMeta.roles;
@@ -1331,9 +1503,13 @@ export default function App() {
     checkSession();
 
     // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+      liveIsApplicant.current = isApplicantUser(session?.user);
       syncLiveSession(session?.user?.id ?? null);
-      if (session?.user) {
+      if (session?.user && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
+        if (event === 'SIGNED_IN' && !liveIsApplicant.current) {
+          api.post('/users/record-login', {}).catch(() => { });
+        }
         const generation = liveSession.current.generation;
         // Defer requests: the API interceptor calls Supabase session methods.
         setTimeout(() => {
@@ -1358,13 +1534,39 @@ export default function App() {
     }
   }, [view]);
 
-  // Background polling disabled to prevent UI interruptions and state wipes while typing
-  // Manual refreshing or websockets should be used instead.
-  useEffect(() => {
-    // No-op
-  }, [view]);
+  // ── Global Supabase Realtime Subscriptions (Live Candidate & Audit Sync) ──
+  // Removed global postgres_changes subscription to prevent massive request loops (11.6k requests) 
+  // triggered by background jobs or other users continuously updating tables.
+
+  const dedupeWindow = useRef<Record<string, number>>({});
 
   const addActivityLog = async (log: Omit<ActivityLog, "id" | "timestamp">) => {
+    const actionLower = log.action.toLowerCase();
+    
+    // Explicit allowlist of important event keywords
+    const allowedEvents = [
+      "login", "logout", "create", "update", "delete", "upload", "submit", "approve", "reject", "resolve", "dismiss",
+      "assign", "register", "encode", "add", "remove", "change", "proceed", "return", "review", "generate",
+      "endorse", "mark", "draft", "clear", "stop", "turnover", "claim", "release", "re-endorse", "block",
+      "provision", "restore", "revoke", "deactivate", "unblock", "download", "revert", "recorded", "saved", "passed", "completed"
+    ];
+    
+    const isSensitiveView = ["passport", "medical", "contract", "oec"].some(doc => actionLower.includes(doc)) && 
+                            ["view", "open", "preview"].some(verb => actionLower.includes(verb));
+
+    const isAllowed = allowedEvents.some(term => actionLower.includes(term)) || isSensitiveView;
+
+    if (!isAllowed) return;
+
+    // Deduplication window (e.g. 10 seconds)
+    const dedupeKey = `${log.performedBy}-${log.action}-${log.applicantId || 'global'}`;
+    const now = Date.now();
+    if (dedupeWindow.current[dedupeKey] && now - dedupeWindow.current[dedupeKey] < 10000) {
+      return; // Skip if logged within the last 10s
+    }
+    dedupeWindow.current[dedupeKey] = now;
+
+
     const timestamp = new Date().toISOString();
     const tempId = `LOG-${Date.now()}`;
     setActivityLogs((prev) => [{ ...log, id: tempId, timestamp }, ...prev]);
@@ -1407,10 +1609,10 @@ export default function App() {
   ) => {
     // Record session persistence preference
     if (rememberMe) {
-      localStorage.setItem('fs_remember_me', 'true');
+      sessionStorage.setItem('fs_remember_me', 'true');
       sessionStorage.setItem('fs_session_active', '1');
     } else {
-      localStorage.setItem('fs_remember_me', 'false');
+      sessionStorage.setItem('fs_remember_me', 'false');
       sessionStorage.setItem('fs_session_active', '1');
     }
 
@@ -1419,31 +1621,55 @@ export default function App() {
       setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
+      setIsSuperAdmin(false);
       setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
       showAppView("app");
     }
     setCurrentUserRole(role);
     setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
-    addActivityLog({ applicantId: applicantId || "", action: "User Login", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+    else setLoggedInApplicantId("");
+    if (role !== "Applicant") {
+      addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
+    }
 
     // Ensure live applicant data is immediately retrieved upon login
     fetchLiveBackendData();
   };
 
   const handleLogout = async () => {
+    // Record audit event before tearing down auth session
+    try {
+      await addActivityLog({
+        applicantId: "",
+        action: "LOGOUT",
+        performedBy: currentUserName,
+        department: currentUserRole || "Operations",
+        details: `${currentUserName} logged out`
+      });
+    } catch (e) {
+      console.warn("Logout audit skipped:", e);
+    }
+
     syncLiveSession(null);
-    localStorage.removeItem('fs_remember_me');
+    sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
+    try {
+      Object.keys(sessionStorage).forEach((k) => {
+        if (k.startsWith('fs_cache_')) sessionStorage.removeItem(k);
+      });
+    } catch (e) { }
     try {
       await supabase.auth.signOut();
     } catch (err) {
       console.error("Sign out error:", err);
     }
-    addActivityLog({ applicantId: "", action: "User Logout", performedBy: currentUserName, department: currentUserRole, details: `${currentUserName} logged out` });
+
     setApplicants([]);
+    setApplicantsLoaded(false);
     setActivityLogs([]);
     setExpenses([]);
+    setExpensesLoaded(false);
     setLoggedInApplicantId("");
     setIsSuperAdmin(false);
     setCurrentUserRole("");
@@ -1474,20 +1700,54 @@ export default function App() {
     setApplicants((prev) => [newApplicant, ...prev.filter((a) => a.id !== newApplicant.id)]);
   };
   const addExpense = async (expense: Omit<ExpenseRecord, "id">) => {
-    const tempId = `EXP-${Date.now()}`;
+    const tempId = `EXP-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     setExpenses((prev) => [{ ...expense, id: tempId }, ...prev]);
 
     try {
       const applicantIdInt = parseInt(expense.applicantId, 10) || 1;
       await api.post('/financial/records', {
         applicant_id: applicantIdInt,
-        payment_type: expense.type || expense.category || 'Processing Fee',
+        payment_type: expense.purpose || 'Processing Fee',
         amount: expense.amount,
+        currency: expense.currency === 'DOLLAR' ? 'USD' : 'PHP',
         recorded_by: 1,
       });
     } catch (err) {
       console.warn('Could not persist expense to backend:', err);
     }
+  };
+
+  const updateExpense = async (id: string, updates: Partial<ExpenseRecord>) => {
+    setExpenses((prev) => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    try {
+      if (!id.startsWith('EXP-new-')) {
+        const dbId = id.replace('EXP-', '');
+        await api.put(`/financial/records/${dbId}`, {
+          payment_type: updates.purpose,
+          amount: updates.amount,
+          currency: updates.currency === 'DOLLAR' ? 'USD' : 'PHP',
+          description: updates.remarks,
+        });
+      }
+    } catch (err) {
+      console.warn('Could not update expense on backend:', err);
+    }
+  };
+
+  const handleJobOrdersChange = (jos: any[]) => {
+    setGlobalJobOrders(jos);
+    try {
+      const userId = liveSession.current.userId;
+      if (userId) sessionStorage.setItem(`fs_cache_jos_${userId}`, JSON.stringify(jos));
+    } catch (e) { }
+  };
+
+  const handleEmployersChange = (emps: any[]) => {
+    setGlobalEmployers(emps);
+    try {
+      const userId = liveSession.current.userId;
+      if (userId) sessionStorage.setItem(`fs_cache_emps_${userId}`, JSON.stringify(emps));
+    } catch (e) { }
   };
 
   // ── Inactivity / Idle Session Security Timeout (30 min) ───────────────────
@@ -1599,39 +1859,47 @@ export default function App() {
       );
     }
 
+    if (currentUserRole === "Applicant") {
+      return (
+        <ApplicantPortal
+          onLogout={handleLogout}
+          applicantId={loggedInApplicantId}
+          applicantName={currentUserName}
+        />
+      );
+    }
+
     return (
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {currentUserRole === "Applicant" ? (
-            <ApplicantPortal onLogout={handleLogout} />
-          ) : currentUserRole === "Employer" ? (
-            <EmployerPortal onLogout={handleLogout} />
-          ) : (
-            <AppShell
-              currentUserRole={currentUserRole}
-              currentUserRoles={currentUserRoles}
-              currentUserName={currentUserName}
-              workflow={workflow}
-              updateWorkflow={updateWorkflow}
-              applicants={applicants}
-              applicantsLoaded={applicantsLoaded}
-              updateApplicant={updateApplicant}
-              addApplicant={addApplicant}
-              activityLogs={activityLogs}
-              addActivityLog={addActivityLog}
-              expenses={expenses}
-              addExpense={addExpense}
-              onLogout={handleLogout}
-              isSuperAdmin={isSuperAdmin}
-              onSuperAdminDashboard={() => showAppView('super-admin')}
-              globalJobOrders={globalJobOrders || undefined}
-              globalEmployers={globalEmployers || undefined}
-              globalStaff={globalStaff || undefined}
-              globalRoles={globalRoles || undefined}
-              globalPipelineForecast={globalPipelineForecast || undefined}
-            />
-          )}
+          <AppShell
+            currentUserRole={currentUserRole}
+            currentUserRoles={currentUserRoles}
+            currentUserName={currentUserName}
+            workflow={workflow}
+            updateWorkflow={updateWorkflow}
+            applicants={applicants}
+            applicantsLoaded={applicantsLoaded}
+            updateApplicant={updateApplicant}
+            addApplicant={addApplicant}
+            activityLogs={activityLogs}
+            addActivityLog={addActivityLog}
+            expenses={expenses}
+            expensesLoaded={expensesLoaded}
+            addExpense={addExpense}
+            updateExpense={updateExpense}
+            onLogout={handleLogout}
+            isSuperAdmin={isSuperAdmin}
+            onSuperAdminDashboard={() => showAppView('super-admin')}
+            globalJobOrders={globalJobOrders || undefined}
+            globalEmployers={globalEmployers || undefined}
+            onJobOrdersChange={handleJobOrdersChange}
+            onEmployersChange={handleEmployersChange}
+            globalStaff={globalStaff || undefined}
+            globalRoles={globalRoles || undefined}
+            globalPipelineForecast={globalPipelineForecast || undefined}
+          />
         </div>
       </div>
     );

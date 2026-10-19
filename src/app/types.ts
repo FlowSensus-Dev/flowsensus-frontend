@@ -1,5 +1,30 @@
 export type UserRole = 'Recruitment' | 'Admin' | 'Accounting' | 'Management' | 'Applicant' | 'Employer' | '';
 
+export type ViewType =
+  | 'dashboard'
+  | 'applicants'
+  | 'registration'
+  | 'screening'
+  | 'profiling'
+  | 'cv'
+  | 'endorsement'
+  | 'fittowork'
+  | 'ocr'
+  | 'alerts'
+  | 'expense'
+  | 'manager'
+  | 'forecast'
+  | 'users'
+  | 'history'
+  | 'reports'
+  | 'profile'
+  | 'requirements'
+  | 'evaluation'
+  | 'joborders'
+  | 'employers'
+  | 'accounting-settings'
+  | 'digital-exams';
+
 export interface WorkflowState {
   screeningPassed: boolean;
   medicalCleared: boolean;
@@ -112,6 +137,11 @@ export interface ApplicantRecord {
   medicalReferralClinic?: string;
   medicalReferralDate?: string;
   clinicReferralId?: number;
+
+  // Deployment tracking & Compliance
+  actualDeploymentDate?: string;
+  predictedDeploymentDate?: string;
+  passportExpirationDate?: string;
 }
 
 export interface Clinic {
@@ -127,6 +157,10 @@ export interface Clinic {
   email?: string;
   accreditationStatus?: string;
   accreditation_status?: string;
+  facilityType?: string;
+  facility_type?: string;
+  licenseRef?: string;
+  license_ref?: string;
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;
@@ -224,6 +258,7 @@ export interface EmploymentRecord {
   country: string;
   isPresent: boolean;
   reasonForLeaving: string;
+  isOverseas?: boolean;
 }
 
 export type EmploymentFlagType = 'gap' | 'short_stint' | 'red_flag_resignation' | 'overlap' | 'demotion';
@@ -260,18 +295,26 @@ export interface DocumentRecord {
 export interface ExpenseRecord {
   id: string;
   applicantId: string;
-  type?: string;
+  purpose: string;
   amount: number;
+  currency: 'PESO' | 'DOLLAR';
+  type: 'expense' | 'cash_advance' | 'deduction';
+  remarks?: string;
   description?: string;
+  status: 'draft' | 'approved';
   date?: string;
   recordedBy?: string;
-  category?: 'processing_fee' | 'visa' | 'medical' | 'cash_advance' | 'other' | string;
-  paymentMethod?: string;
-  paidBy?: 'Agency' | 'Applicant' | 'Employer' | string;
-  notes?: string;
   timestamp?: string;
 }
 
+export interface ApplicantLedgerSummary {
+  applicantId: string;
+  targetCurrency: string;
+  exchangeRateUsdToPhp: number;
+  accommodationPerDay: number;
+  accommodationDays: number;
+  remittance: number;
+}
 export interface DynamicTestScore {
   id?: string;
   templateId?: string;
@@ -389,9 +432,11 @@ export interface DocumentRequirement {
   id: string;
   name: string;
   description: string;
+  category?: 'DOCUMENT' | 'CERTIFICATION' | 'MEDICAL' | 'OTHER';
   isRequired: boolean;
   applicantTypes: string[];
-  jobCategories: string[];
+  jobOrders: number[];
+  jobCategories?: string[];
   expiryTracked: boolean;
   validityMonths?: number;
   validityDays?: number;
@@ -404,7 +449,7 @@ export interface DocumentRequirement {
 export interface EvaluationTest {
   id: string;
   name: string;
-  type: 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
+  type: 'general' | 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
   description: string;
   maxScore: number;
   passingScore: number;
@@ -413,6 +458,8 @@ export interface EvaluationTest {
   scoringGuide: string;
   scoringType?: 'numeric' | 'pass_fail';
   applicableJobOrders?: string[]; // IDs or codes of applicable job orders. If empty or undefined, applies to all applicants.
+  examMode?: 'paper' | 'digital'; // 'paper' = physical/manual entry; 'digital' = online exam in portal
+  digitalExamTemplateId?: number | null; // Linked digital exam template ID from Digital Exam module
 }
 
 export interface WorkflowPhase {
@@ -431,8 +478,9 @@ export interface WorkflowModuleAccess {
   id?: number | string;
   moduleKey: string;
   moduleName: string;
-  phaseNumber: number;
-  phaseName: string;
+  phaseNumber?: number;
+  phaseName?: string;
+  category?: string;
   assignedRoles: UserRole[];
   isActive: boolean;
   description: string;
@@ -446,6 +494,10 @@ export interface ActivityLog {
   department: string;
   timestamp: string;
   details: string;
+  audit_log_id?: number;
+  applicant_id?: number;
+  performed_by?: string;
+  created_at?: string;
 }
 
 export interface StaffAccount {
@@ -481,5 +533,7 @@ export interface ApplicationForecastResponse {
   days_spent_in_current_stage?: number | null;
   stage_breakdown: Record<string, number>;
   record?: ApplicationForecastRecord | null;
+  pipeline_estimated_remaining_days?: number | null;
+  estimate_basis?: 'pipeline_forecast' | null;
   limitations: string[];
 }

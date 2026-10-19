@@ -1,21 +1,24 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Clock, User, DollarSign, ShieldAlert, CheckCircle2, OctagonX,
-  FileCheck, FileX, ChevronUp, MapPin, Phone, Mail, Globe,
+  FileCheck, FileX, ChevronUp, ChevronDown, MapPin, Phone, Mail, Globe,
   Briefcase, GraduationCap, Award, Languages,
   IdCard, BarChart3, MessageSquare, AlertTriangle, Flag,
-  Clock3, TrendingDown, GitMerge, Zap, Calendar, BadgeCheck, X,
+  Clock3, TrendingDown, GitMerge, Timer, Calendar, BadgeCheck, X,
   ArrowLeft, ChevronLeft, ChevronRight, Edit2,
-  HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2
+  HeartHandshake, Share2, ExternalLink, Users, Check, Trash2, Loader2, RefreshCw,
+  UserCheck, Filter
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
+import { calculateExperienceBreakdown } from '../../../lib/profilingUtils';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
+import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPreview';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
   gap:                  { label: 'Employment Gap',       icon: <Clock3 size={14} />,       color: '#F59E0B' },
-  short_stint:          { label: 'Short Tenure',         icon: <Zap size={14} />,           color: '#F97316' },
+  short_stint:          { label: 'Short Tenure',         icon: <Timer size={14} />,        color: '#F97316' },
   red_flag_resignation: { label: 'Resignation Red Flag', icon: <ShieldAlert size={14} />,   color: '#EF4444' },
   overlap:              { label: 'Date Overlap',         icon: <GitMerge size={14} />,      color: '#8B5CF6' },
   demotion:             { label: 'Possible Demotion',    icon: <TrendingDown size={14} />,  color: '#EC4899' },
@@ -55,7 +58,7 @@ const SECTIONS = [
   { id: 'ids',         label: 'IDs & Docs',     icon: <IdCard size={13} /> },
   { id: 'scores',      label: 'Test Scores',    icon: <BarChart3 size={13} /> },
   { id: 'finances',    label: 'Financials',     icon: <DollarSign size={13} /> },
-  { id: 'activity',    label: 'Activity',       icon: <Clock size={13} /> },
+  { id: 'activity',    label: 'Activity History', icon: <Clock size={13} /> },
 ];
 
 function monthsBetween(a: string, b: string) {
@@ -68,6 +71,112 @@ function durationLabel(months: number) {
   if (months < 12) return `${months} mo`;
   const y = Math.floor(months / 12), m = months % 12;
   return m > 0 ? `${y} yr ${m} mo` : `${y} yr`;
+}
+
+// ─── Activity History Filter & Milestone Helpers ─────────────────────────────
+const SENSITIVE_AUDIT_KEYS = new Set([
+  'auth_id', 'password', 'password_hash', 'token', 'jwt', 'refresh_token',
+  'secret', 'api_key', 'session_id', 'user_agent', 'ip_address', 'request_id',
+  'tenant_id', 'schema', 'table_name', 'table_structure', 'db_version',
+  'internal_id', 'raw_payload', 'metadata', 'user_id', 'actor_user_id',
+  'client_id', 'sync_at', 'sync_version', 'updated_at', 'created_at', 'id',
+  'applicant_id', 'agency_id', 'system_performance'
+]);
+
+export function isStaffAction(log: any): boolean {
+  if (!log) return false;
+  const actorName = String(log.actor_name || log.performed_by || log.performedBy || '').trim().toUpperCase();
+  const actorRole = String(log.actor_role || log.department || '').trim().toUpperCase();
+  const source = String(log.source || '').trim().toUpperCase();
+  const action = String(log.action || '').trim().toUpperCase();
+  const desc = String(log.description || log.details || '').toLowerCase();
+
+  // Exclude automated system executions, database triggers, background crons, bots
+  if (
+    !actorName ||
+    actorName === 'SYSTEM' ||
+    actorName.includes('SYSTEM') ||
+    actorName.includes('TRIGGER') ||
+    actorName.includes('CRON') ||
+    actorName.includes('BOT') ||
+    actorName.includes('AUTOMATED')
+  ) {
+    return false;
+  }
+
+  if (
+    actorRole === 'SYSTEM' ||
+    actorRole.includes('SYSTEM') ||
+    actorRole.includes('TRIGGER') ||
+    actorRole.includes('CRON') ||
+    actorRole.includes('BOT') ||
+    actorRole.includes('AUTOMATED') ||
+    actorRole === 'DB_TRIGGER'
+  ) {
+    return false;
+  }
+
+  if (
+    source === 'SYSTEM' ||
+    source.includes('SYSTEM') ||
+    source === 'TRIGGER' ||
+    source.includes('TRIGGER') ||
+    source === 'CRON' ||
+    source === 'BACKGROUND'
+  ) {
+    return false;
+  }
+
+  // Exclude logs mentioning system performance, table structure, or schema internals
+  if (
+    action.includes('PERFORMANCE') ||
+    action.includes('SCHEMA') ||
+    action.includes('MIGRATION') ||
+    action.includes('TABLE_STRUCTURE') ||
+    action.includes('SYSTEM_') ||
+    action.includes('DATABASE') ||
+    action.includes('TRIGGER')
+  ) {
+    return false;
+  }
+
+  if (
+    desc.includes('system performance') ||
+    desc.includes('table structure') ||
+    desc.includes('schema') ||
+    desc.includes('auth_id') ||
+    desc.includes('database migration') ||
+    desc.includes('system trigger') ||
+    desc.includes('automated trigger')
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function getMeaningfulChanges(changes: any): [string, any][] {
+  if (!changes || typeof changes !== 'object') return [];
+  return Object.entries(changes).filter(([k, d]: [string, any]) => {
+    const kLower = k.toLowerCase();
+    if (
+      SENSITIVE_AUDIT_KEYS.has(kLower) ||
+      kLower.includes('auth') ||
+      kLower.includes('password') ||
+      kLower.includes('token') ||
+      kLower.includes('table') ||
+      kLower.includes('schema') ||
+      kLower.includes('system') ||
+      kLower.includes('performance') ||
+      kLower.includes('_id') ||
+      kLower === 'id'
+    ) {
+      return false;
+    }
+    const oldV = d?.old;
+    const newV = d?.new;
+    return oldV !== newV;
+  });
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -85,6 +194,7 @@ interface ApplicantProfileProps {
   hasNext?: boolean;
   applicantIndexText?: string;
   onEdit?: () => void;
+  currentUserRole?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -102,13 +212,17 @@ export default function ApplicantProfile({
   hasNext,
   applicantIndexText,
   onEdit,
+  currentUserRole,
 }: ApplicantProfileProps) {
+  const isAccounting = currentUserRole === 'Accounting';
+
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+  const [examSummaries, setExamSummaries] = useState<DigitalExamSummaryItem[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichedData, setEnrichedData] = useState<ApplicantRecord | null>(null);
 
@@ -136,6 +250,75 @@ export default function ApplicantProfile({
     ? { ...applicantProp, ...enrichedData }
     : applicantProp;
 
+  // ── Recalculate / Update Details (Item 5) ─────────────────────────────────
+  const [isRecalculating, setIsRecalculating] = useState(false);
+
+  const handleRecalculateApplicant = async () => {
+    if (!applicantProp?.id) return;
+    setIsRecalculating(true);
+    try {
+      const res = await api.get(`/applicants/${applicantProp.id}`);
+      if (res.data) {
+        const mapped = mapApplicantFromApi(res.data);
+        setEnrichedData(mapped);
+        updateApplicant?.(applicantProp.id, mapped);
+        showToast?.('Applicant details updated and readiness scores refreshed.');
+      }
+    } catch (err) {
+      console.warn('Failed to recalculate applicant details:', err);
+      showToast?.('Could not refresh applicant details from database.');
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
+  // ── Total vs Job-Related Experience Breakdown (Item 6) ───────────────────
+  const targetTrade = applicant?.role || applicant?.appliedRole || (applicant as any)?.position || '';
+  const experienceBreakdown = useMemo(() => {
+    return calculateExperienceBreakdown(applicant?.employmentHistory || [], targetTrade);
+  }, [applicant?.employmentHistory, targetTrade]);
+
+  // ── Per-Applicant Activity History Timeline ─────────────────────────────
+  const [applicantTimeline, setApplicantTimeline] = useState<any[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+
+  const displayedTimelineLogs = useMemo(() => {
+    const all = (applicantTimeline.length > 0 ? applicantTimeline : activityLogs.map(l => ({
+      audit_log_id: l.audit_log_id || 0,
+      occurred_at: l.timestamp,
+      actor_name: l.performedBy || 'Staff User',
+      actor_role: 'Staff',
+      action: l.action,
+      module: l.department || 'Operations',
+      description: l.details || '',
+      reason: (l as any).reason,
+      changes: (l as any).changes,
+      prev_handler_name: (l as any).prev_handler_name,
+      new_handler_name: (l as any).new_handler_name,
+      source: (l as any).source,
+    })));
+    // STRICT: Only include actions performed by staff members on this applicant.
+    // Exclude automated system executions, database triggers, and performance logs.
+    return all.filter(isStaffAction);
+  }, [applicantTimeline, activityLogs]);
+
+  useEffect(() => {
+    if (!applicantProp?.id) return;
+    setIsTimelineLoading(true);
+    api.get(`/audit-logs/applicant/${applicantProp.id}`)
+      .then(res => {
+        if (res.data && Array.isArray(res.data)) {
+          setApplicantTimeline(res.data);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load applicant activity history:', err);
+      })
+      .finally(() => {
+        setIsTimelineLoading(false);
+      });
+  }, [applicantProp?.id]);
+
   useEffect(() => {
     api.get('/evaluations/templates')
       .then(res => {
@@ -154,12 +337,44 @@ export default function ApplicantProfile({
             applicableJobOrders: Array.isArray(t.applicable_job_orders)
               ? t.applicable_job_orders
               : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+            examMode: t.exam_mode || t.examMode || 'paper',
+            digitalExamTemplateId: t.digital_exam_template_id ?? t.digitalExamTemplateId ?? null,
           }));
           setEvaluationTemplates(live.filter(t => t.isActive));
         }
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (applicant?.id) {
+      api.get(`/exam-module/applicant/${applicant.id}/exam-summary`)
+        .then(res => setExamSummaries(res.data || []))
+        .catch(() => setExamSummaries([]));
+    }
+  }, [applicant?.id]);
+
+  const findExamForTest = useCallback((testId: string, testName: string, testType?: string, digitalExamTemplateId?: number | null) => {
+    if (!examSummaries || examSummaries.length === 0) return null;
+    const numId = parseInt(testId.replace('ev-', ''), 10);
+    if (digitalExamTemplateId) {
+      const m = examSummaries.find(e => e.template_id === digitalExamTemplateId);
+      if (m) return m;
+    }
+    const byEvalId = examSummaries.find(e =>
+      e.evaluation_template_id && (Number(e.evaluation_template_id) === numId || String(e.evaluation_template_id) === String(testId))
+    );
+    if (byEvalId) return byEvalId;
+    const lowerName = (testName || '').toLowerCase().trim();
+    const byTitle = examSummaries.find(e => {
+      const t = (e.title || '').toLowerCase().trim();
+      return t === lowerName ||
+        (testType === 'language' && (t.includes('english') || t.includes('language'))) ||
+        (testType === 'iq' && (t.includes('aptitude') || t.includes('iq') || t.includes('cognitive'))) ||
+        (testType === 'skills' && (t.includes('trade') || t.includes('skills')));
+    });
+    return byTitle || null;
+  }, [examSummaries]);
 
   // Stop Processing
   const [showStopModal, setShowStopModal] = useState(false);
@@ -573,7 +788,7 @@ export default function ApplicantProfile({
             <div className="flex flex-wrap gap-2 mt-3">
               {/* Phase Badge */}
               <span className="text-xs px-3 py-1 bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/40 font-bold flex items-center gap-1.5">
-                <span>Phase {applicant.phase} - {PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
+                <span>{PHASE_TITLES[applicant.phase] || 'Registration & Screening'}</span>
               </span>
 
               {/* Status Badge */}
@@ -636,8 +851,17 @@ export default function ApplicantProfile({
               <p className="mt-0.5">{applicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
-            <div className="flex gap-2">
-              {applicant.status === 'Processing Stopped' && (
+            <div className="flex gap-2 items-center flex-wrap justify-end">
+              <button
+                onClick={handleRecalculateApplicant}
+                disabled={isRecalculating}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-sky-400/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 transition-all cursor-pointer font-medium disabled:opacity-50"
+                title="Re-check database for newest documents, certifications, and test scores"
+              >
+                <RefreshCw size={13} className={isRecalculating ? 'animate-spin' : ''} />
+                {isRecalculating ? 'Recalculating...' : 'Update Details / Recalculate'}
+              </button>
+              {!isAccounting && applicant.status === 'Processing Stopped' && (
                 <button
                   onClick={() => setShowDeleteModal(true)}
                   disabled={isDeleting}
@@ -646,7 +870,7 @@ export default function ApplicantProfile({
                   <Trash2 size={13} /> {isDeleting ? 'Deleting...' : 'Delete'}
                 </button>
               )}
-              {!(applicant.status === 'Processing Stopped') && updateApplicant && (
+              {!isAccounting && !(applicant.status === 'Processing Stopped') && updateApplicant && (
                 <button
                   onClick={() => setShowStopModal(true)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
@@ -687,18 +911,6 @@ export default function ApplicantProfile({
               );
             })}
           </div>
-
-          {onEdit && (
-            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
-              <button 
-                onClick={onEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-[#0EA5E9] hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-2xs text-xs font-semibold cursor-pointer"
-              >
-                <Edit2 size={13} />
-                <span>Update Details</span>
-              </button>
-            </div>
-          )}
         </div>
       </nav>
 
@@ -878,42 +1090,94 @@ export default function ApplicantProfile({
         ) : (applicant.employmentHistory || []).length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No employment history recorded</div>
         ) : (
-          <div className="space-y-3">
-            {(applicant.employmentHistory || []).map((rec, idx) => {
-              const start = rec.dateStarted || (rec as any).startDate || '';
-              const end = rec.dateEnded || (rec as any).endDate || '';
-              const duration = rec.isPresent
-                ? durationLabel(monthsBetween(start, new Date().toISOString().slice(0, 10)))
-                : (start && end ? durationLabel(monthsBetween(start, end)) : '');
-              const recFlags = flags.filter(f => (f.relatedJobIds || []).includes(rec.id));
-              const hasActiveFlag = recFlags.some(f => !f.dismissed);
+          <div className="space-y-4">
+            {/* Work Experience Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Total Work Experience</span>
+                  <span className="text-base font-black text-slate-900 mt-0.5 block">{experienceBreakdown.totalDisplay}</span>
+                  <span className="text-xs text-slate-400 block mt-0.5">Career duration across all past jobs</span>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 shadow-2xs">
+                  <Briefcase size={18} />
+                </div>
+              </div>
 
-              return (
-                <div key={rec.id} className={`bg-white rounded-xl border overflow-hidden transition-all ${hasActiveFlag ? 'border-amber-300' : 'border-slate-200'}`}>
-                  <div className="flex items-start gap-4 p-4">
-                    <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 flex-shrink-0 mt-0.5">
-                      {idx + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div>
-                          <p className="font-bold text-[#0F172A]">{rec.company}</p>
-                          <p className="text-sm text-slate-600">{rec.position}</p>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Employment History</span>
+                  <span className="text-base font-black text-slate-900 mt-0.5 block">
+                    {(applicant.employmentHistory || []).length} Position{(applicant.employmentHistory || []).length === 1 ? '' : 's'} Recorded
+                  </span>
+                  <span className="text-xs text-slate-500 block mt-0.5">
+                    {(() => {
+                      const ov = (applicant.employmentHistory || []).filter(h => {
+                        const c = (h.country || '').trim().toLowerCase();
+                        return Boolean((h as any).isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
+                      }).length;
+                      const ph = (applicant.employmentHistory || []).length - ov;
+                      if (ov > 0 && ph > 0) return `${ov} Overseas • ${ph} Domestic`;
+                      if (ov > 0) return `${ov} Overseas Position${ov > 1 ? 's' : ''}`;
+                      return `${ph} Domestic Position${ph > 1 ? 's' : ''}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 shadow-2xs">
+                  <Globe size={18} />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(applicant.employmentHistory || []).map((rec, idx) => {
+                const start = rec.dateStarted || (rec as any).startDate || '';
+                const end = rec.dateEnded || (rec as any).endDate || '';
+                const duration = rec.isPresent
+                  ? durationLabel(monthsBetween(start, new Date().toISOString().slice(0, 10)))
+                  : (start && end ? durationLabel(monthsBetween(start, end)) : '');
+                const recFlags = flags.filter(f => (f.relatedJobIds || []).includes(rec.id));
+                const hasActiveFlag = recFlags.some(f => !f.dismissed);
+
+                return (
+                  <div key={rec.id} className={`bg-white rounded-xl border overflow-hidden transition-all ${hasActiveFlag ? 'border-amber-300' : 'border-slate-200'}`}>
+                    <div className="flex items-start gap-4 p-4">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 flex-shrink-0 mt-0.5">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <p className="font-bold text-[#0F172A]">{rec.company}</p>
+                            <p className="text-sm text-slate-600">{rec.position}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {(() => {
+                              const c = (rec.country || '').trim().toLowerCase();
+                              const isOv = Boolean((rec as any).isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
+                              return (
+                                <span className={`text-[11px] font-medium border px-2 py-0.5 rounded-full ${
+                                  isOv ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>
+                                  {isOv ? '✈️ Overseas' : '🇵🇭 Domestic'}
+                                </span>
+                              );
+                            })()}
+                            {rec.isPresent && (
+                              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Current</span>
+                            )}
+                          </div>
                         </div>
-                        {rec.isPresent && (
-                          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Current</span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-500">
-                        <span className="flex items-center gap-1"><Globe size={11} /> {rec.country}</span>
-                        <span className="flex items-center gap-1"><Calendar size={11} /> {start} — {rec.isPresent ? 'Present' : (end || '—')}</span>
-                        {duration && <span className="font-semibold text-[#0F172A]">({duration})</span>}
-                        {rec.reasonForLeaving && !rec.isPresent && (
-                          <span className="text-slate-400">Left: {rec.reasonForLeaving}</span>
-                        )}
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-500">
+                          <span className="flex items-center gap-1"><Globe size={11} /> {rec.country}</span>
+                          <span className="flex items-center gap-1"><Calendar size={11} /> {start} — {rec.isPresent ? 'Present' : (end || '—')}</span>
+                          {duration && <span className="font-semibold text-[#0F172A]">({duration})</span>}
+                          {rec.reasonForLeaving && !rec.isPresent && (
+                            <span className="text-slate-400">Left: {rec.reasonForLeaving}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
                   {/* Flags on this record */}
                   {recFlags.length > 0 && (
@@ -1017,7 +1281,8 @@ export default function ApplicantProfile({
               );
             })}
           </div>
-        )}
+        </div>
+      )}
 
         {/* General / Standalone Employment Flags (e.g. career gaps not tied to a single employer) */}
         {(() => {
@@ -1151,20 +1416,59 @@ export default function ApplicantProfile({
 
         {/* Certificates */}
         {(() => {
-          const certs = (applicant.certificateRecords && applicant.certificateRecords.length > 0)
-            ? applicant.certificateRecords
-            : (Array.isArray(applicant.certifications) && applicant.certifications.length > 0)
-              ? applicant.certifications.map((c: any, idx: number) => ({
-                  id: `cert-fallback-${idx}`,
-                  title: typeof c === 'string' ? c : (c.title || c.name || 'Certificate'),
-                  issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || 'Accredited Issuer') : 'Accredited Issuer',
-                  serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
-                  noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
-                  competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
-                  expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'No expiry') : 'No expiry',
-                  proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
-                }))
-              : [];
+          const seenTitles = new Set<string>();
+          const certs: any[] = [];
+
+          // 1. Certificate records from applicant_certification
+          (applicant.certificateRecords || []).forEach((c: any) => {
+            const title = c.title || c.name || 'Certificate';
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push(c);
+            }
+          });
+
+          // 2. Direct certifications from CV encoding / profiling
+          (Array.isArray(applicant.certifications) ? applicant.certifications : []).forEach((c: any, idx: number) => {
+            const title = typeof c === 'string' ? c : (c.title || c.name || 'Certificate');
+            const clean = title.trim().toLowerCase();
+            if (clean && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-fallback-${idx}`,
+                title,
+                issuedBy: typeof c === 'object' ? (c.issuedBy || c.issued_by || (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer')) : (title.includes('TESDA') ? 'TESDA' : title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: typeof c === 'object' ? (c.serialNo || c.serial_no || '—') : '—',
+                noOfHours: typeof c === 'object' ? String(c.noOfHours || c.no_of_hours || '—') : '—',
+                competencyDateIssued: typeof c === 'object' ? (c.competencyDateIssued || c.issue_date || '—') : '—',
+                expiryDate: typeof c === 'object' ? (c.expiryDate || c.expiry_date || 'N/A') : 'N/A',
+                proofDocumentUrl: typeof c === 'object' ? (c.proofDocumentUrl || c.proof_url) : undefined
+              });
+            }
+          });
+
+          // 3. Certifications from Document & Regulatory Requirements
+          (applicant.requirements || []).forEach((r: any, idx: number) => {
+            const cat = String(r.category || '').toUpperCase();
+            const title = String(r.name || r.requirement_name || '').trim();
+            const clean = title.toLowerCase();
+            if (title && (cat === 'CERTIFICATION' || cat === 'CERTIFICATE') && !seenTitles.has(clean)) {
+              seenTitles.add(clean);
+              certs.push({
+                id: `cert-req-${r.applicant_req_id || idx}`,
+                title,
+                issuedBy: title.includes('TESDA') ? 'TESDA' : (title.includes('PRC') ? 'PRC' : 'Accredited Issuer'),
+                serialNo: r.applicant_req_id ? `REQ-${r.applicant_req_id}` : '—',
+                noOfHours: '—',
+                competencyDateIssued: r.issue_date || '—',
+                expiryDate: r.expiration_date && r.expiration_date !== 'No expiry' ? r.expiration_date : 'N/A',
+                proofDocumentUrl: r.file_url || r.document_url || r.proof_url,
+                verificationStatus: r.status || 'PENDING'
+              });
+            }
+          });
+
           if (certs.length === 0) return null;
           return (
             <div className="space-y-2">
@@ -1175,6 +1479,15 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-[#0F172A] text-sm">{row.title}</p>
+                        {row.verificationStatus && (
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                            String(row.verificationStatus).toUpperCase() === 'VERIFIED'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {row.verificationStatus}
+                          </span>
+                        )}
                         {row.proofDocumentUrl && (
                           <span className="flex items-center gap-1 text-xs text-[#10B981] bg-emerald-50 px-2 py-0.5 rounded-full"><FileCheck size={11} /> Proof uploaded</span>
                         )}
@@ -1186,7 +1499,7 @@ export default function ApplicantProfile({
                   <div className="grid grid-cols-3 gap-3 mt-2.5 text-xs text-slate-500">
                     <div><span className="text-slate-400">Hours: </span>{row.noOfHours || '—'}</div>
                     <div><span className="text-slate-400">Issued: </span>{row.competencyDateIssued || '—'}</div>
-                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate || 'No expiry'}</div>
+                    <div><span className="text-slate-400">Expires: </span>{row.expiryDate && row.expiryDate !== 'No expiry' ? row.expiryDate : 'N/A'}</div>
                   </div>
                 </div>
               ))}
@@ -1360,20 +1673,19 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{row.type}</p>
-                        {row.proofDocumentUrl
-                          ? <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
-                          : <span className="flex items-center gap-1 text-xs text-amber-500"><FileX size={11} /> No scan</span>
-                        }
+                        {row.proofDocumentUrl && (
+                          <span className="flex items-center gap-1 text-xs text-[#10B981]"><FileCheck size={11} /> Scan uploaded</span>
+                        )}
                       </div>
                       <code className="text-xs text-[#0EA5E9] font-mono">{row.identificationNo || '—'}</code>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      {row.expiryDate ? (
+                      {row.expiryDate && row.expiryDate !== 'No expiry' && row.expiryDate !== 'N/A' ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
                           {isExpired ? '⚠ Expired: ' : 'Exp: '}{row.expiryDate}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-400">No expiry</span>
+                        <span className="text-xs text-slate-400 font-medium">N/A</span>
                       )}
                     </div>
                   </div>
@@ -1384,7 +1696,10 @@ export default function ApplicantProfile({
         </div>
 
         {/* Regulatory & Compliance Requirements from Supabase */}
-        <div className="space-y-2">
+        <div className="space-y-2 relative">
+          {isAccounting && (
+            <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed pointer-events-auto" title="Read-only access"></div>
+          )}
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-1.5">
             <FileCheck size={13} className="text-[#0EA5E9]" /> Regulatory &amp; Compliance Clearances ({applicant.requirements?.length || 0})
           </p>
@@ -1395,8 +1710,11 @@ export default function ApplicantProfile({
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
               {(applicant.requirements || []).map((req, idx) => {
-                const isVerified = (req.status || '').toUpperCase() === 'VERIFIED' || (req.ocr_validation_status || '').toUpperCase() === 'PASSED';
-                const isExpired = req.expiration_date && new Date(req.expiration_date) < new Date();
+                const statusNormalized = (req.status || 'PENDING').toUpperCase();
+                const isVerified = statusNormalized === 'VERIFIED';
+                const isSubmitted = statusNormalized === 'SUBMITTED' || statusNormalized === 'UNDER_REVIEW';
+                const hasValidExpiry = Boolean(req.expiration_date && req.expiration_date !== 'No expiry' && req.expiration_date !== 'N/A');
+                const isExpired = Boolean(hasValidExpiry && req.expiration_date && new Date(req.expiration_date) < new Date());
                 return (
                   <div key={req.applicant_req_id || `req-${idx}`} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isVerified ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
@@ -1405,33 +1723,45 @@ export default function ApplicantProfile({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-[#0F172A]">{req.name}</p>
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                          {req.category}
-                        </span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          isVerified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {req.status}
-                        </span>
+                        {(() => {
+                          const cat = String(req.category || 'DOCUMENT').toUpperCase();
+                          const badgeCls =
+                            cat === 'CERTIFICATION' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            cat === 'MEDICAL' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            cat === 'OTHER' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            'bg-blue-50 text-blue-700 border-blue-200';
+                          return (
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${badgeCls}`}>
+                              {cat}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                         {req.issue_date && <span>Issued: {req.issue_date}</span>}
-                        {req.expiration_date && (
-                          <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
-                            Expires: {req.expiration_date} {isExpired && '(Expired)'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {req.ocr_validation_status && (
-                      <div className="text-right flex-shrink-0">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          req.ocr_validation_status.toUpperCase() === 'PASSED' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          OCR: {req.ocr_validation_status}
+                        <span>
+                          Expires:{' '}
+                          {hasValidExpiry ? (
+                            <span className={isExpired ? 'text-red-500 font-semibold' : ''}>
+                              {req.expiration_date} {isExpired && '(Expired)'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-medium">N/A</span>
+                          )}
                         </span>
                       </div>
-                    )}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                        isVerified
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : isSubmitted
+                          ? 'bg-amber-100 text-amber-800 border-amber-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {req.status || 'PENDING'}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -1444,7 +1774,7 @@ export default function ApplicantProfile({
       <div ref={el => { sectionRefs.current['scores'] = el; }} id="scores" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={16} className="text-[#0EA5E9]" />
-          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores</h3>
+          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores & Digital Assessments</h3>
         </div>
         {hasFlagWarning && !(applicant.status === 'Processing Stopped') && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-amber-700">
@@ -1452,22 +1782,48 @@ export default function ApplicantProfile({
             <span><strong>{activeFlags.length}</strong> unresolved employment flag{activeFlags.length > 1 ? 's' : ''}. Screening is blocked until resolved.</span>
           </div>
         )}
-        {applicant.testScores ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            {applicant.testScores.overallScore !== undefined && (
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Weighted Aggregate</span>
-                  <p className="text-xs text-slate-400">Calculated from agency evaluation scoring weights</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-black text-[#0EA5E9]">{applicant.testScores.overallScore}%</span>
-                  <span className={`block text-[11px] font-bold ${applicant.testScores.allPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {applicant.testScores.allPassed ? '✓ All Passing Marks Met' : '⚠️ Below Passing Benchmark'}
-                  </span>
-                </div>
+
+        {/* Digital Exam Results (Standalone or Screening-Linked) */}
+        {applicant?.id && (
+          <ScreeningExamPreview
+            applicantId={applicant.id}
+            showToast={showToast}
+            title="Candidate Digital Assessments"
+            hideIfEmpty={false}
+            onSummaryLoaded={setExamSummaries}
+          />
+        )}
+
+        {(() => {
+          const hasAnySubmittedExam = examSummaries.some(e => e.latest_attempt?.status === 'submitted');
+          const showScorecard = Boolean(applicant.testScores || hasAnySubmittedExam);
+          if (!showScorecard) {
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">
+                No evaluation test scores recorded yet
               </div>
-            )}
+            );
+          }
+
+          const overallScore = applicant.testScores?.overallScore;
+          const allPassed = applicant.testScores?.allPassed;
+
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              {overallScore !== undefined && (
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Weighted Aggregate</span>
+                    <p className="text-xs text-slate-400">Calculated from agency evaluation scoring weights</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-[#0EA5E9]">{overallScore}%</span>
+                    <span className={`block text-[11px] font-bold ${allPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {allPassed ? '✓ All Passing Marks Met' : '⚠️ Below Passing Benchmark'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
             {/* Dynamic test cards */}
             {(() => {
@@ -1489,20 +1845,29 @@ export default function ApplicantProfile({
                   const rawStatus = String(t.statusText || '').toLowerCase();
                   const isPF = t.scoringType === 'pass_fail' || rawStatus.includes('pass') || rawStatus.includes('fail') || t.type === 'medical' || String(t.name || '').toLowerCase().includes('medical');
 
+                  let val = t.score;
                   let passVal = t.passed;
+
+                  // Check if score is empty or zero, but a linked digital exam was completed
+                  const linkedExam = findExamForTest(t.id || t.templateId, t.name, t.type, t.digitalExamTemplateId);
+                  if ((val === undefined || val === null || val === 0) && linkedExam?.latest_attempt && linkedExam.latest_attempt.status === 'submitted') {
+                    val = linkedExam.latest_attempt.percentage ?? 0;
+                    passVal = linkedExam.latest_attempt.is_passing;
+                  }
+
                   if (typeof passVal !== 'boolean') {
                     if (isPF) {
-                      passVal = rawStatus.includes('pass') || rawStatus.includes('suit') || (typeof t.score === 'number' && t.score > 0);
-                    } else if (typeof t.score === 'number') {
-                      passVal = t.score >= (t.passingScore ?? 60);
+                      passVal = rawStatus.includes('pass') || rawStatus.includes('suit') || (typeof val === 'number' && val > 0);
+                    } else if (typeof val === 'number') {
+                      passVal = val >= (t.passingScore ?? 60);
                     }
-                  } else if (!isPF && typeof t.score === 'number' && typeof t.passingScore === 'number') {
-                    passVal = t.score >= t.passingScore;
+                  } else if (!isPF && typeof val === 'number' && typeof t.passingScore === 'number') {
+                    passVal = val >= t.passingScore;
                   }
 
                   testItems.push({
                     label: t.name,
-                    val: t.score,
+                    val,
                     pass: t.passingScore ?? 60,
                     max: t.maxScore || 100,
                     weight: typeof t.weight === 'number' ? t.weight : (typeof t.weight_percentage === 'number' ? t.weight_percentage : undefined),
@@ -1525,6 +1890,12 @@ export default function ApplicantProfile({
                     val = applicant.testScores?.iqAptitude;
                   } else if (applicant.testScores && (applicant.testScores as any)[t.id] !== undefined) {
                     val = (applicant.testScores as any)[t.id];
+                  }
+
+                  // Fallback to linked completed digital exam
+                  const linkedExam = findExamForTest(t.id, t.name, t.type, t.digitalExamTemplateId);
+                  if ((val === undefined || val === null || val === 0) && linkedExam?.latest_attempt && linkedExam.latest_attempt.status === 'submitted') {
+                    val = linkedExam.latest_attempt.percentage ?? 0;
                   }
 
                   let passVal: boolean | undefined = undefined;
@@ -1594,7 +1965,7 @@ export default function ApplicantProfile({
               });
             })()}
 
-            {applicant.testScores.personalityEQ && (
+            {applicant.testScores?.personalityEQ && (
               <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
                 <span className="text-sm text-slate-500 font-medium">Personality / EQ Interview</span>
                 <span className={`text-sm font-bold ${applicant.testScores.personalityEQ === 'Suitable' ? 'text-[#10B981]' : applicant.testScores.personalityEQ === 'Not Suitable' ? 'text-red-500' : 'text-slate-400'}`}>
@@ -1602,16 +1973,15 @@ export default function ApplicantProfile({
                 </span>
               </div>
             )}
-            {applicant.testScores.employerSpecific && (
+            {applicant.testScores?.employerSpecific && (
               <div className="bg-blue-50 rounded-lg px-4 py-2.5 text-sm text-[#0F172A]">
                 <span className="text-xs font-bold text-blue-500 uppercase">Employer-Specific Notes: </span>
                 {applicant.testScores.employerSpecific}
               </div>
             )}
           </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No test scores recorded yet</div>
-        )}
+        );
+      })()}
       </div>
 
       {/* ── Financials ────────────────────────────────────────────────────────── */}
@@ -1636,7 +2006,7 @@ export default function ApplicantProfile({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-[#0F172A]">{exp.type}</p>
-                  <p className="text-xs text-slate-500">{exp.description} · {exp.recordedBy}</p>
+                  <p className="text-xs text-slate-500">{exp.description || exp.purpose || exp.remarks} · {exp.recordedBy}</p>
                 </div>
                 <p className="text-base font-black text-[#0F172A] flex-shrink-0">₱{exp.amount.toLocaleString()}</p>
               </div>
@@ -1645,35 +2015,150 @@ export default function ApplicantProfile({
         )}
       </div>
 
-      {/* ── Activity ──────────────────────────────────────────────────────────── */}
+      {/* ── Activity History ──────────────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['activity'] = el; }} id="activity" className="scroll-mt-24 pt-6 space-y-4 pb-8">
-        <div className="flex items-center gap-2">
-          <Clock size={16} className="text-[#0EA5E9]" />
-          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity Log</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="text-[#0EA5E9]" />
+              <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Activity History</h3>
+              {displayedTimelineLogs.length > 0 && (
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  {displayedTimelineLogs.length}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              Staff actions, evaluations, and stage updates for this applicant
+            </p>
+          </div>
         </div>
-        {activityLogs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No activity logs</div>
+
+        {isTimelineLoading ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-8 text-center space-y-2">
+            <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">Loading applicant audit timeline...</p>
+          </div>
+        ) : displayedTimelineLogs.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center space-y-2">
+            <Clock className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="text-sm font-medium text-slate-500">
+              No staff activity recorded for this applicant
+            </p>
+          </div>
         ) : (
           <div className="relative pl-6">
             <div className="absolute left-[11px] top-3 bottom-3 w-px bg-slate-200" />
-            <div className="space-y-4">
-              {activityLogs.map(log => (
-                <div key={log.id} className="relative">
-                  <div className="absolute -left-6 top-2.5 w-3 h-3 rounded-full bg-[#0EA5E9] border-2 border-white" />
-                  <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide">{log.action}</p>
-                        <p className="text-sm font-semibold text-[#0F172A] mt-0.5">{log.performedBy}</p>
+            <div className="space-y-3.5">
+              {displayedTimelineLogs.map((log: any, idx: number) => {
+                const act = (log.action || '').toUpperCase();
+                const desc = (log.description || log.details || '').toLowerCase();
+                const isClaim = act.includes('CLAIM') || act.includes('REASSIGN') || act.includes('POOL') || act.includes('ASSIGN');
+                const isStatus = act.includes('STATUS') || act.includes('APPROV') || act.includes('PASS') || act.includes('VERIF') || act.includes('CLEARED');
+                const isAlert = act.includes('RETURN') || act.includes('REJECT') || act.includes('FLAG') || act.includes('STOP');
+                const isJob = act.includes('ENDORSE') || act.includes('DEPLOY') || act.includes('JOB') || desc.includes('job order');
+
+                let badgeColor = 'bg-sky-50 text-sky-700 border-sky-200';
+                let dotColor = 'bg-sky-500';
+                if (isStatus) {
+                  badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                  dotColor = 'bg-emerald-500';
+                } else if (isClaim) {
+                  badgeColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                  dotColor = 'bg-indigo-500';
+                } else if (isAlert) {
+                  badgeColor = 'bg-rose-50 text-rose-800 border-rose-200';
+                  dotColor = 'bg-rose-500';
+                } else if (isJob) {
+                  badgeColor = 'bg-teal-50 text-teal-800 border-teal-200';
+                  dotColor = 'bg-teal-600';
+                }
+
+                const meaningfulChanges = getMeaningfulChanges(log.changes);
+
+                // Human-readable action label
+                const formattedAction = log.action
+                  ? log.action.replace(/_/g, ' ')
+                  : 'Activity Updated';
+
+                return (
+                  <div key={log.audit_log_id || idx} className="relative">
+                    <div className={`absolute -left-6 top-3 w-3 h-3 rounded-full ${dotColor} border-2 border-white shadow-xs`} />
+                    <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 space-y-2 hover:border-slate-300 transition-colors shadow-2xs">
+                      {/* Top Header */}
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded border ${badgeColor}`}>
+                            {formattedAction}
+                          </span>
+                          <span className="text-xs font-bold text-[#0F172A]">
+                            {log.actor_name || log.performedBy || 'Staff User'}
+                          </span>
+                          {log.actor_role && (
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {log.actor_role}
+                            </span>
+                          )}
+                          {log.module && (
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              • {log.module}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1 flex-shrink-0">
+                          <Clock size={11} /> {new Date(log.occurred_at || log.timestamp).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </span>
                       </div>
-                      <span className="text-xs text-slate-400 flex items-center gap-1 flex-shrink-0">
-                        <Clock size={11} /> {new Date(log.timestamp).toLocaleString('en-PH')}
-                      </span>
+
+                      {/* Description Sentence */}
+                      {(log.description || log.details) && (
+                        <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                          {log.description || log.details}
+                        </p>
+                      )}
+
+                      {/* Handler Handoff Line (Only when an actual handoff between different handlers happened!) */}
+                      {log.prev_handler_name && log.new_handler_name && log.prev_handler_name !== log.new_handler_name && (
+                        <div className="p-2 bg-indigo-50/60 border border-indigo-100 rounded-lg text-xs flex items-center gap-2 text-indigo-950">
+                          <UserCheck className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                          <span className="font-bold text-indigo-900">Handler:</span>
+                          <span className="text-indigo-700">
+                            {(log.prev_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.prev_handler_name) || 'Unassigned'} → <strong className="text-indigo-950">{(log.new_handler_name === 'Unassigned Pool' ? 'Unassigned' : log.new_handler_name) || 'Unassigned'}</strong>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Reason / Remarks if present (Highlighted prominently) */}
+                      {log.reason && (
+                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-950 flex items-start gap-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="leading-snug">
+                            <span className="font-extrabold text-amber-900">Remarks / Reason:</span> {log.reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Meaningful Business Changes Chips (Clean, informative, NO raw DB JSON diffs) */}
+                      {meaningfulChanges.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                            Updated:
+                          </span>
+                          {meaningfulChanges.map(([f, d]: [string, any]) => (
+                            <span key={f} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-slate-50 border border-slate-200 text-slate-700">
+                              <span className="font-semibold capitalize">{f.replace(/_/g, ' ')}:</span>
+                              {d?.old !== null && d?.old !== undefined && (
+                                <span className="text-slate-400 line-through text-[10px]">{String(d.old)}</span>
+                              )}
+                              <span className="font-bold text-slate-900">{String(d?.new ?? 'None')}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{log.details}</p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -1745,7 +2230,7 @@ export default function ApplicantProfile({
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700 space-y-1">
                 <p className="font-semibold text-sm mb-1">Warning:</p>
                 <p>Are you sure you want to permanently delete the applicant <strong>{applicant?.name}</strong>?</p>
-                <p className="mt-2">Note: This is a soft-delete in the system. The record and associated photo are retained in the cloud database for compliance and audit trail purposes but will no longer appear in your active agency lists.</p>
+                <p className="mt-2">Note: The record and associated files are safely archived for regulatory compliance and audit trail purposes, but will no longer appear in active agency lists.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">

@@ -11,6 +11,7 @@ export interface JobOrderOption {
   employerName: string;
   available: number;
   requirements?: string[];
+  certifications?: string[];
   detailedRequirements?: any[];
   genderPreference?: string;
   minAge?: number;
@@ -195,6 +196,22 @@ export default function SearchableJobOrderSelector({
                     {selectedJobOrder.country}
                   </span>
                 </div>
+
+                {((selectedJobOrder.certifications && selectedJobOrder.certifications.length > 0) || (selectedJobOrder.requirements && selectedJobOrder.requirements.length > 0)) && (
+                  <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Must Have:</span>
+                    {(selectedJobOrder.certifications || []).map((c: string) => (
+                      <span key={c} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                        🏆 {c}
+                      </span>
+                    ))}
+                    {(selectedJobOrder.requirements || []).map((r: string) => (
+                      <span key={r} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                        📄 {r}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

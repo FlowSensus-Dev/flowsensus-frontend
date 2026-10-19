@@ -68,9 +68,9 @@ const ROLES: RoleOption[] = [
   },
   {
     role: 'Applicant',
-    label: 'Applicant Portal',
+    label: 'Applicant Accounts',
     icon: User,
-    description: 'Overseas worker portal for deployment milestone tracking',
+    description: 'Overseas worker account view for deployment milestone tracking',
     badgeColor: 'bg-teal-500 text-white',
   },
 ];

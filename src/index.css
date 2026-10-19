@@ -17,3 +17,17 @@ input::-webkit-credentials-auto-fill-button {
   position: absolute !important;
   right: 0 !important;
 }
+
+@keyframes ocrScanBeam {
+  0% {
+    top: 5%;
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 92%;
+    opacity: 0.9;
+  }
+}

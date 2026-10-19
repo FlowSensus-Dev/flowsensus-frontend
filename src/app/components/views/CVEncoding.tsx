@@ -238,8 +238,9 @@ export default function CVEncoding({
       'Under Employer Review', 'Deployed'].includes(currentApplicant.status)
   ));
 
-  const canSubmit = cvRecord && ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) && !isLocked;
-  const canSaveDraft = !isLocked && cvRecord?.status_code !== 'APPROVED';
+  const isEditable = !isLocked && (cvRecord?.status_code !== 'APPROVED' || currentApplicant?.status === 'CV Encoding');
+  const canSubmit = !isLocked && (!cvRecord || ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) || currentApplicant?.status === 'CV Encoding');
+  const canSaveDraft = isEditable;
 
   // Close overlay on Escape key
   useEffect(() => {
@@ -292,8 +293,8 @@ export default function CVEncoding({
     const nowIso = new Date().toISOString();
 
     const updates: Partial<ApplicantRecord> = {
-      currentHandler: 'Unassigned Pool',
-      phaseDescription: `Returned to unassigned CV Encoding queue pool by ${currentUserName}`
+      currentHandler: 'Unassigned',
+      phaseDescription: `Returned to unassigned CV Encoding queue by ${currentUserName}`
     };
 
     updateApplicant(applicantId, updates);
@@ -301,9 +302,9 @@ export default function CVEncoding({
     if (!isNaN(numericId)) {
       await api.put(`/applicants/${numericId}`, {
         application_id: app.applicationId,
-        current_handler: 'Unassigned Pool',
+        current_handler: 'Unassigned',
         phase_description: updates.phaseDescription,
-        statusChangeReason: `Returned to unassigned pool by ${currentUserName}`,
+        statusChangeReason: `Returned to unassigned by ${currentUserName}`,
         statusChangeSource: 'STAFF_ACTION',
         updated_at: nowIso
       }).catch(console.error);
@@ -317,7 +318,7 @@ export default function CVEncoding({
       details: `${currentUserName} returned applicant ${app.name} to the unassigned queue.`
     });
 
-    showToast(`Applicant ${app.name} returned to unassigned pool.`);
+    showToast(`Applicant ${app.name} returned to unassigned.`);
   };
 
   // ─── Load CV record whenever applicant changes ──────────────────────────────
@@ -332,6 +333,14 @@ export default function CVEncoding({
     try {
       const res = await api.get(`/cv/applicant/${applicantId}`);
       const rec: CvRecord | null = res.data || null;
+      if (rec && rec.status_code === 'APPROVED') {
+        const app = applicants.find(a => String(a.id) === String(applicantId));
+        if (app?.status === 'CV Encoding') {
+          // Candidate returned for revision - update to DRAFT so it can be re-encoded
+          api.patch(`/cv/${rec.cv_id}`, { statusCode: 'DRAFT' }).catch(console.error);
+          rec.status_code = 'DRAFT';
+        }
+      }
       setCvRecord(rec);
       if (rec?.custom_fields) {
         // Extract summary_override from custom_fields
@@ -379,7 +388,7 @@ export default function CVEncoding({
 
       if (cvRecord) {
         const res = await api.patch(`/cv/${cvRecord.cv_id}`, {
-          statusCode: cvRecord.status_code === 'REJECTED' ? 'DRAFT' : cvRecord.status_code,
+          statusCode: (cvRecord.status_code === 'REJECTED' || cvRecord.status_code === 'APPROVED') ? 'DRAFT' : cvRecord.status_code,
           customFields: customFieldsPayload,
           jobOrderId: effectiveJobOrderId,
         });
@@ -434,7 +443,7 @@ export default function CVEncoding({
       // Update applicant workflow status
       updateApplicant(selectedApplicantId, {
         status: 'Pending Manager Approval',
-        currentHandler: 'Management',
+        currentHandler: currentUserName,
         currentDepartment: 'Management',
         phaseDescription: 'CV submitted and awaiting management review',
       });
@@ -446,7 +455,7 @@ export default function CVEncoding({
           application_id: currentApplicant.applicationId,
           application_status: 'Pending Manager Approval',
           current_phase: 3,
-          current_handler: 'Management',
+          current_handler: currentUserName,
           current_department: 'Management',
           phase_description: 'CV submitted and awaiting management review',
           statusChangeReason: 'CV encoded and submitted for manager approval',
@@ -491,8 +500,8 @@ export default function CVEncoding({
       // 1. Update applicant state locally
       updateApplicant(applicantId, {
         status: 'Applicant Profiling',
-        phase: 2,
-        currentHandler: 'Unassigned Pool',
+        phase: 3,
+        currentHandler: 'Unassigned',
         currentDepartment: 'Recruitment',
         phaseDescription: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
       });
@@ -502,8 +511,8 @@ export default function CVEncoding({
         await api.put(`/applicants/${numericId}`, {
           application_id: currentApplicant.applicationId,
           application_status: 'Applicant Profiling',
-          current_phase: 2,
-          current_handler: 'Unassigned Pool',
+          current_phase: 3,
+          current_handler: 'Unassigned',
           current_department: 'Recruitment',
           phase_description: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
           statusChangeReason: `Returned from CV Encoding: ${reasonText}`,
@@ -606,7 +615,7 @@ export default function CVEncoding({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {cvRecord && <StatusBadge status={cvRecord.status_code} />}
+          {cvRecord && <StatusBadge status={currentApplicant?.status === 'CV Encoding' && cvRecord.status_code === 'APPROVED' ? 'DRAFT' : cvRecord.status_code} />}
           {currentApplicant && (
             <button
               onClick={() => setShowReturnModal(true)}
@@ -664,7 +673,7 @@ export default function CVEncoding({
                     <span className="text-xs text-slate-500 font-medium">({currentApplicant.role || currentApplicant.appliedRole || 'Candidate'})</span>
                   </div>
                   <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
-                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned Pool'}</strong></span>
+                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned'}</strong></span>
                     <span>•</span>
                     <span>Status: <strong className="text-slate-700 font-semibold">{currentApplicant.status || 'CV Encoding'}</strong></span>
                     <span>•</span>
@@ -677,7 +686,7 @@ export default function CVEncoding({
               <div className="flex items-center gap-2">
                 {(() => {
                   const isAssignedToMe = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
-                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
+                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned' || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
 
                   if (isAssignedToMe) {
                     return (
@@ -689,10 +698,10 @@ export default function CVEncoding({
                           type="button"
                           onClick={() => handleReleaseApplicant(currentApplicant)}
                           className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer font-medium"
-                          title="Release candidate back to unassigned pool"
+                          title="Release candidate back to unassigned"
                         >
                           <Undo2 className="w-3 h-3 inline mr-1" />
-                          Return to Pool
+                          Return to Unassigned
                         </button>
                       </div>
                     );
@@ -1029,7 +1038,7 @@ export default function CVEncoding({
               rows={4}
               value={summaryOverride}
               onChange={e => setSummaryOverride(e.target.value)}
-              disabled={cvRecord?.status_code === 'APPROVED'}
+              disabled={!isEditable}
               placeholder={`Experienced ${currentApplicant.role || 'professional'} seeking overseas employment opportunities...`}
               className="w-full border-2 border-slate-200 px-4 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400 transition-colors"
             />
@@ -1047,7 +1056,7 @@ export default function CVEncoding({
                   type="text"
                   value={field.key}
                   onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, key: e.target.value } : f))}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   placeholder="Field name"
                   className="w-1/3 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                 />
@@ -1055,13 +1064,13 @@ export default function CVEncoding({
                   type="text"
                   value={field.value}
                   onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   placeholder="Value"
                   className="flex-1 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                 />
                 <button
                   onClick={() => handleRemoveCustomField(idx)}
-                  disabled={cvRecord?.status_code === 'APPROVED'}
+                  disabled={!isEditable}
                   className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1069,7 +1078,7 @@ export default function CVEncoding({
               </div>
             ))}
 
-            {cvRecord?.status_code !== 'APPROVED' && (
+            {isEditable && (
               <div className="mt-3 border-t border-slate-100 pt-3">
                 <div className="flex gap-2 items-center">
                   <input
