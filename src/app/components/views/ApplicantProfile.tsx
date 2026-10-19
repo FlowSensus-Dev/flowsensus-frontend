@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
-import { calculateExperienceBreakdown, isJobRelatedExperience, formatExperienceDuration } from '../../../lib/profilingUtils';
+import { calculateExperienceBreakdown } from '../../../lib/profilingUtils';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
 import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPreview';
 
@@ -1091,7 +1091,7 @@ export default function ApplicantProfile({
           <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No employment history recorded</div>
         ) : (
           <div className="space-y-4">
-            {/* Total Work Experience vs Job-Related Experience Summary Cards (Item 6) */}
+            {/* Work Experience Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
                 <div>
@@ -1104,18 +1104,27 @@ export default function ApplicantProfile({
                 </div>
               </div>
 
-              <div className="bg-sky-50/70 border border-sky-200 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-2xs">
                 <div>
-                  <span className="text-[11px] font-bold text-sky-700 uppercase tracking-wider block">Job-Related Experience</span>
-                  <span className="text-base font-black text-sky-950 mt-0.5 block">
-                    {targetTrade ? `${formatExperienceDuration(experienceBreakdown.jobRelatedMonths)} as ${targetTrade}` : experienceBreakdown.jobRelatedDisplay}
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Employment History</span>
+                  <span className="text-base font-black text-slate-900 mt-0.5 block">
+                    {(applicant.employmentHistory || []).length} Position{(applicant.employmentHistory || []).length === 1 ? '' : 's'} Recorded
                   </span>
-                  <span className="text-xs text-sky-600/80 block mt-0.5">
-                    Duration strictly matching applied trade
+                  <span className="text-xs text-slate-500 block mt-0.5">
+                    {(() => {
+                      const ov = (applicant.employmentHistory || []).filter(h => {
+                        const c = (h.country || '').trim().toLowerCase();
+                        return Boolean((h as any).isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
+                      }).length;
+                      const ph = (applicant.employmentHistory || []).length - ov;
+                      if (ov > 0 && ph > 0) return `${ov} Overseas • ${ph} Domestic`;
+                      if (ov > 0) return `${ov} Overseas Position${ov > 1 ? 's' : ''}`;
+                      return `${ph} Domestic Position${ph > 1 ? 's' : ''}`;
+                    })()}
                   </span>
                 </div>
-                <div className="w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-200 flex items-center justify-center text-sky-600 shadow-2xs">
-                  <CheckCircle2 size={18} />
+                <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 shadow-2xs">
+                  <Globe size={18} />
                 </div>
               </div>
             </div>
@@ -1129,7 +1138,6 @@ export default function ApplicantProfile({
                   : (start && end ? durationLabel(monthsBetween(start, end)) : '');
                 const recFlags = flags.filter(f => (f.relatedJobIds || []).includes(rec.id));
                 const hasActiveFlag = recFlags.some(f => !f.dismissed);
-                const isRelated = isJobRelatedExperience(rec.position || '', targetTrade);
 
                 return (
                   <div key={rec.id} className={`bg-white rounded-xl border overflow-hidden transition-all ${hasActiveFlag ? 'border-amber-300' : 'border-slate-200'}`}>
@@ -1144,15 +1152,17 @@ export default function ApplicantProfile({
                             <p className="text-sm text-slate-600">{rec.position}</p>
                           </div>
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            {isRelated ? (
-                              <span className="text-[11px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <CheckCircle2 size={10} /> Job-Related
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-full">
-                                Other Industry
-                              </span>
-                            )}
+                            {(() => {
+                              const c = (rec.country || '').trim().toLowerCase();
+                              const isOv = Boolean((rec as any).isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
+                              return (
+                                <span className={`text-[11px] font-medium border px-2 py-0.5 rounded-full ${
+                                  isOv ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>
+                                  {isOv ? '✈️ Overseas' : '🇵🇭 Domestic'}
+                                </span>
+                              );
+                            })()}
                             {rec.isPresent && (
                               <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Current</span>
                             )}

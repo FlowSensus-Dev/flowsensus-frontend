@@ -687,6 +687,55 @@ export default function Registration({
   };
   const removeEmp = (id: string) => { setEmployment(p => p.filter(x => x.id !== id)); };
 
+  // ── Record Deletion Confirmation Modal State & Handler ────────────────────
+  const [recordToDelete, setRecordToDelete] = useState<{
+    type: 'certification' | 'training' | 'language' | 'employment' | 'education' | 'identification' | 'requirement' | 'skill';
+    idOrKey: string;
+    name: string;
+    sectionTitle: string;
+  } | null>(null);
+
+  const handleConfirmDeleteRecord = () => {
+    if (!recordToDelete) return;
+    const { type, idOrKey, name } = recordToDelete;
+
+    switch (type) {
+      case 'certification':
+        removeCert(idOrKey);
+        showToast(`Removed certificate: ${name}`);
+        break;
+      case 'training':
+        removeTraining(idOrKey);
+        showToast(`Removed training: ${name}`);
+        break;
+      case 'language':
+        removeLang(idOrKey);
+        showToast(`Removed language: ${name}`);
+        break;
+      case 'employment':
+        removeEmp(idOrKey);
+        showToast(`Removed employment record: ${name}`);
+        break;
+      case 'education':
+        removeEdu(idOrKey);
+        showToast(`Removed education record: ${name}`);
+        break;
+      case 'identification':
+        removeId(idOrKey);
+        showToast(`Removed ID: ${name}`);
+        break;
+      case 'requirement':
+        removeApplicantRequirement(idOrKey);
+        showToast(`Removed requirement: ${name}`);
+        break;
+      case 'skill':
+        removeSkill(idOrKey);
+        showToast(`Removed skill: ${name}`);
+        break;
+    }
+    setRecordToDelete(null);
+  };
+
   // ── Auto-Flag Engine (runs reactively on employment changes) ────────────────
   useEffect(() => {
     if (employment.length === 0) {
@@ -1237,36 +1286,36 @@ export default function Registration({
   const sections = [
     { id: 'personal', label: 'Personal Info' },
     { id: 'identifications', label: 'Identifications' },
-    { id: 'requirements', label: 'Requirements' },
     { id: 'education', label: 'Education' },
     { id: 'skills', label: 'Core Skills' },
     { id: 'certificates', label: 'Certificates' },
     { id: 'trainings', label: 'Trainings' },
     { id: 'languages', label: 'Languages' },
     { id: 'employment', label: 'Work Experience' },
+    { id: 'requirements', label: 'Document Checklist' },
   ];
 
   const STEP_TABS = [
     { step: 1, label: '[1] PERSONAL INFO', targetSectionId: 'personal' },
     { step: 2, label: '[2] IDENTIFICATIONS', targetSectionId: 'identifications' },
-    { step: 3, label: '[3] REQUIREMENTS', targetSectionId: 'requirements' },
-    { step: 4, label: '[4] EDUCATION', targetSectionId: 'education' },
-    { step: 5, label: '[5] CORE SKILLS', targetSectionId: 'skills' },
-    { step: 6, label: '[6] CERTIFICATES', targetSectionId: 'certificates' },
-    { step: 7, label: '[7] WORK EXPERIENCE', targetSectionId: 'employment' },
+    { step: 3, label: '[3] EDUCATION', targetSectionId: 'education' },
+    { step: 4, label: '[4] SKILLS & CERTS', targetSectionId: 'skills' },
+    { step: 5, label: '[5] TRAININGS & LANG', targetSectionId: 'trainings' },
+    { step: 6, label: '[6] WORK EXPERIENCE', targetSectionId: 'employment' },
+    { step: 7, label: '[7] DOCUMENT CHECKLIST', targetSectionId: 'requirements' },
   ];
 
   const currentStepNumber = useMemo(() => {
     switch (activeSection) {
       case 'personal': return 1;
       case 'identifications': return 2;
-      case 'requirements': return 3;
-      case 'education': return 4;
-      case 'skills': return 5;
-      case 'certificates':
-      case 'trainings': return 6;
-      case 'languages':
-      case 'employment': return 7;
+      case 'education': return 3;
+      case 'skills':
+      case 'certificates': return 4;
+      case 'trainings':
+      case 'languages': return 5;
+      case 'employment': return 6;
+      case 'requirements': return 7;
       default: return 1;
     }
   }, [activeSection]);
@@ -1826,7 +1875,21 @@ export default function Registration({
                     </td>
                     <td className={td}><input className={inp} value={row.identificationNo} onChange={e => setId(row.id, 'identificationNo', e.target.value)} placeholder="ID / Serial Number" /></td>
                     <td className={td}><input className={inp} type="date" value={row.expiryDate} onChange={e => setId(row.id, 'expiryDate', e.target.value)} /></td>
-                    <td className={td}><button onClick={() => removeId(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'identification',
+                          idOrKey: row.id,
+                          name: row.type ? `${row.type}${row.identificationNo ? ` (${row.identificationNo})` : ''}` : 'Identification',
+                          sectionTitle: 'Identifications',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title="Remove identification"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1840,219 +1903,6 @@ export default function Registration({
           <button onClick={addId} className="mt-3 flex items-center gap-1.5 text-sm text-[#0EA5E9] hover:text-[#0284C7] font-medium transition-colors">
             <Plus size={15} /> Add Identification
           </button>
-        </Section>
-      </div>
-
-      {/* ── Requirements & Document Clearances ─────────────────────────────────── */}
-      <div id="section-requirements" className="scroll-mt-28">
-        <Section
-          title="Document & Regulatory Requirements"
-          icon={<FileCheck size={16} />}
-          badge={<span className="text-xs text-slate-400 font-medium">{applicantRequirements.length} recorded</span>}
-        >
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <p className="text-xs text-slate-500">
-                Select requirements from the standard agency catalog or type custom preferred requirements (documents, medicals, clearances, or certificates).
-              </p>
-              {selectedJobOrderId && (() => {
-                const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
-                const detailed = jo?.detailedRequirements || [];
-                const certList = jo?.certifications || [];
-                const joReqs: { name: string; category: string }[] = [];
-                const seen = new Set<string>();
-
-                detailed.forEach((dr: any) => {
-                  const n = (typeof dr === 'string' ? dr : dr?.name || '').trim();
-                  if (n && !seen.has(n.toLowerCase())) {
-                    seen.add(n.toLowerCase());
-                    joReqs.push({ name: n, category: dr?.category || 'DOCUMENT' });
-                  }
-                });
-
-                (jo?.requirements || []).forEach((r: string) => {
-                  const n = (r || '').trim();
-                  if (n && !seen.has(n.toLowerCase())) {
-                    seen.add(n.toLowerCase());
-                    joReqs.push({ name: n, category: 'DOCUMENT' });
-                  }
-                });
-
-                certList.forEach((c: string) => {
-                  const n = (c || '').trim();
-                  if (n && !seen.has(n.toLowerCase())) {
-                    seen.add(n.toLowerCase());
-                    joReqs.push({ name: n, category: 'CERTIFICATION' });
-                  }
-                });
-
-                const missingReqs = joReqs.filter(r => !applicantRequirements.some(ar => ar.name.toLowerCase() === r.name.toLowerCase()));
-                if (missingReqs.length === 0) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      missingReqs.forEach(r => addApplicantRequirement(r.name, r.category as any, 'PENDING', true));
-                      showToast(`Added ${missingReqs.length} requirement(s) from Job Order ${jo?.code}.`);
-                    }}
-                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-blue-50 text-[#0EA5E9] hover:bg-blue-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
-                  >
-                    <Plus size={13} /> Import {missingReqs.length} Job Order Req{missingReqs.length > 1 ? 's' : ''}
-                  </button>
-                );
-              })()}
-            </div>
-
-            {/* Input row with datalist (Fetch all available in Supabase, or type preferred) */}
-            <div className="flex flex-wrap gap-2 items-center bg-slate-50/70 p-3 rounded-xl border border-slate-200">
-              <input
-                list="req-catalog-list"
-                value={reqInput}
-                onChange={e => setReqInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addApplicantRequirement(reqInput);
-                  }
-                }}
-                placeholder="Type or select a requirement (e.g. NBI Clearance, Medical, OWWA)..."
-                className="flex-1 min-w-[240px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
-              />
-              <datalist id="req-catalog-list">
-                {availableRequirements.map((r: any) => (
-                  <option key={r.requirement_id || r.requirement_name} value={r.requirement_name}>
-                    {r.category ? `(${r.category})` : ''}
-                  </option>
-                ))}
-              </datalist>
-
-              <select
-                value={reqCategory}
-                onChange={e => setReqCategory(e.target.value as any)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
-              >
-                <option value="DOCUMENT">Document</option>
-                <option value="CERTIFICATION">Certification</option>
-                <option value="MEDICAL">Medical</option>
-                <option value="OTHER">Other</option>
-              </select>
-
-              <select
-                value={reqStatus}
-                onChange={e => setReqStatus(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
-              >
-                <option value="PENDING">Pending</option>
-                <option value="SUBMITTED">Submitted</option>
-                <option value="VERIFIED">Verified</option>
-              </select>
-
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer px-1">
-                <input
-                  type="checkbox"
-                  checked={reqIsMandatory}
-                  onChange={e => setReqIsMandatory(e.target.checked)}
-                  className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
-                />
-                Mandatory
-              </label>
-
-              <button
-                type="button"
-                onClick={() => addApplicantRequirement(reqInput)}
-                className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0 shadow-sm cursor-pointer"
-              >
-                <Plus size={14} /> Add Requirement
-              </button>
-            </div>
-
-            {/* Checklist Table */}
-            {applicantRequirements.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className={th}>Requirement Name</th>
-                      <th className={th}>Category</th>
-                      <th className={th}>Type</th>
-                      <th className={th}>Status</th>
-                      <th className={th}>Expiration Date</th>
-                      <th className={th + ' w-10'}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {applicantRequirements.map((row) => (
-                      <tr key={row.name} className="border-b border-slate-100 hover:bg-slate-50/50">
-                        <td className={td}>
-                          <span className="font-semibold text-slate-800">{row.name}</span>
-                        </td>
-                        <td className={td}>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                            row.category === 'CERTIFICATION'
-                              ? 'bg-purple-50 text-purple-700 border-purple-200'
-                              : row.category === 'MEDICAL'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : row.category === 'OTHER'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-blue-50 text-blue-700 border-blue-200'
-                          }`}>
-                            {row.category || 'DOCUMENT'}
-                          </span>
-                        </td>
-                        <td className={td}>
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                            row.is_mandatory !== false ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {row.is_mandatory !== false ? 'Mandatory' : 'Optional'}
-                          </span>
-                        </td>
-                        <td className={td}>
-                          <select
-                            value={row.status || 'PENDING'}
-                            onChange={e => setApplicantReqField(row.name, 'status', e.target.value)}
-                            className={`text-xs px-2.5 py-1 rounded-lg border font-semibold ${
-                              (row.status || '').toUpperCase() === 'VERIFIED'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                : (row.status || '').toUpperCase() === 'SUBMITTED'
-                                ? 'bg-sky-50 text-sky-700 border-sky-300'
-                                : 'bg-amber-50 text-amber-700 border-amber-300'
-                            }`}
-                          >
-                            <option value="PENDING">Pending</option>
-                            <option value="SUBMITTED">Submitted</option>
-                            <option value="VERIFIED">Verified</option>
-                            <option value="REJECTED">Rejected</option>
-                          </select>
-                        </td>
-                        <td className={td}>
-                          <input
-                            type="date"
-                            value={row.expiration_date || ''}
-                            onChange={e => setApplicantReqField(row.name, 'expiration_date', e.target.value)}
-                            className="text-xs px-2 py-1 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
-                          />
-                        </td>
-                        <td className={td}>
-                          <button
-                            type="button"
-                            onClick={() => removeApplicantRequirement(row.name)}
-                            className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
-                            title={`Remove ${row.name}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-xs text-slate-400 italic py-4 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                No requirements recorded yet. Select or type a requirement above to add one.
-              </div>
-            )}
-          </div>
         </Section>
       </div>
 
@@ -2082,7 +1932,21 @@ export default function Registration({
                     <td className={td}><input className={inp} value={row.school} onChange={e => setEdu(row.id, 'school', e.target.value)} placeholder="School / University name" /></td>
                     <td className={td}><input className={inp} value={row.course} onChange={e => setEdu(row.id, 'course', e.target.value)} placeholder="Course or track" /></td>
                     <td className={td}><input className={inp} value={row.yearGraduated} onChange={e => setEdu(row.id, 'yearGraduated', e.target.value)} placeholder="YYYY or Ongoing" /></td>
-                    <td className={td}><button onClick={() => removeEdu(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'education',
+                          idOrKey: row.id,
+                          name: row.school ? `${row.level || 'Education'}: ${row.school}` : (row.level || 'Education Record'),
+                          sectionTitle: 'Educational Background',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title="Remove education level"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2146,7 +2010,12 @@ export default function Registration({
                     <span>{s}</span>
                     <button
                       type="button"
-                      onClick={() => removeSkill(s)}
+                      onClick={() => setRecordToDelete({
+                        type: 'skill',
+                        idOrKey: s,
+                        name: s,
+                        sectionTitle: 'Core Skills',
+                      })}
                       className="w-4 h-4 rounded-full inline-flex items-center justify-center hover:bg-[#0EA5E9]/30 text-[#0284C7] transition-colors cursor-pointer"
                       title={`Remove ${s}`}
                     >
@@ -2225,7 +2094,21 @@ export default function Registration({
                     <td className={td}><input className={inp} value={row.noOfHours} onChange={e => setCert(row.id, 'noOfHours', e.target.value)} placeholder="hrs" /></td>
                     <td className={td}><input className={inp} type="date" value={row.competencyDateIssued} onChange={e => setCert(row.id, 'competencyDateIssued', e.target.value)} /></td>
                     <td className={td}><input className={inp} type="date" value={row.expiryDate} onChange={e => setCert(row.id, 'expiryDate', e.target.value)} /></td>
-                    <td className={td}><button onClick={() => removeCert(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'certification',
+                          idOrKey: row.id,
+                          name: row.title || row.serialNo || 'Certificate Record',
+                          sectionTitle: 'Certifications / Licenses',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title={`Remove ${row.title || 'certificate'}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2267,7 +2150,21 @@ export default function Registration({
                     <td className={td}><input className={inp} value={row.noOfHours} onChange={e => setTraining(row.id, 'noOfHours', e.target.value)} placeholder="hrs" /></td>
                     <td className={td}><input className={inp} value={row.conductedBy} onChange={e => setTraining(row.id, 'conductedBy', e.target.value)} placeholder="Training provider" /></td>
                     <td className={td}><input className={inp} value={row.skillsAcquired} onChange={e => setTraining(row.id, 'skillsAcquired', e.target.value)} placeholder="Skills gained" /></td>
-                    <td className={td}><button onClick={() => removeTraining(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'training',
+                          idOrKey: row.id,
+                          name: row.trainingName || 'Training Record',
+                          sectionTitle: 'Trainings Attended',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title={`Remove ${row.trainingName || 'training'}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2312,7 +2209,21 @@ export default function Registration({
                     </td>
                     <td className={td}>{ratingBar(row.spokenRating, v => setLang(row.id, 'spokenRating', v))}</td>
                     <td className={td}>{ratingBar(row.writtenRating, v => setLang(row.id, 'writtenRating', v))}</td>
-                    <td className={td}><button onClick={() => removeLang(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'language',
+                          idOrKey: row.id,
+                          name: row.language || 'Language Record',
+                          sectionTitle: 'Language Proficiency',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title={`Remove ${row.language || 'language'}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2363,7 +2274,21 @@ export default function Registration({
                     <td className={td + ' text-center'}>
                       <input type="checkbox" checked={row.isPresent} onChange={e => setEmp(row.id, 'isPresent', e.target.checked)} />
                     </td>
-                    <td className={td}><button onClick={() => removeEmp(row.id)} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400"><Trash2 size={14} /></button></td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        onClick={() => setRecordToDelete({
+                          type: 'employment',
+                          idOrKey: row.id,
+                          name: row.company ? `${row.position || 'Position'} at ${row.company}` : (row.position || 'Employment Record'),
+                          sectionTitle: 'Employment History',
+                        })}
+                        className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                        title="Remove employment record"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2526,6 +2451,224 @@ export default function Registration({
             <span>Employment records are automatically evaluated in real time for career gaps, short stints, overlaps, and high-risk resignation keywords.</span>
           </div>
         )}
+      </div>
+
+      {/* ── Document Checklist & Regulatory Requirements (Review before final save) ── */}
+      <div id="section-requirements" className="scroll-mt-28">
+        <Section
+          title="Document Checklist & Regulatory Requirements"
+          icon={<FileCheck size={16} />}
+          badge={<span className="text-xs text-slate-400 font-medium">{applicantRequirements.length} recorded</span>}
+        >
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                Review and track the required physical or scanned documents submitted by the applicant for overseas deployment (such as NBI Clearance, Passport copy, PSA Birth Certificate, Medical, and license copies).
+              </p>
+              {selectedJobOrderId && (() => {
+                const jo = openJobOrders.find(j => j.id === selectedJobOrderId);
+                const detailed = jo?.detailedRequirements || [];
+                const certList = jo?.certifications || [];
+                const joReqs: { name: string; category: string }[] = [];
+                const seen = new Set<string>();
+
+                detailed.forEach((dr: any) => {
+                  const n = (typeof dr === 'string' ? dr : dr?.name || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: dr?.category || 'DOCUMENT' });
+                  }
+                });
+
+                (jo?.requirements || []).forEach((r: string) => {
+                  const n = (r || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: 'DOCUMENT' });
+                  }
+                });
+
+                certList.forEach((c: string) => {
+                  const n = (c || '').trim();
+                  if (n && !seen.has(n.toLowerCase())) {
+                    seen.add(n.toLowerCase());
+                    joReqs.push({ name: n, category: 'CERTIFICATION' });
+                  }
+                });
+
+                const missingReqs = joReqs.filter(r => !applicantRequirements.some(ar => ar.name.toLowerCase() === r.name.toLowerCase()));
+                if (missingReqs.length === 0) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      missingReqs.forEach(r => addApplicantRequirement(r.name, r.category as any, 'PENDING', true));
+                      showToast(`Added ${missingReqs.length} requirement(s) from Job Order ${jo?.code}.`);
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-blue-50 text-[#0EA5E9] hover:bg-blue-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
+                  >
+                    <Plus size={13} /> Import {missingReqs.length} Job Order Req{missingReqs.length > 1 ? 's' : ''}
+                  </button>
+                );
+              })()}
+            </div>
+
+            {/* Input row with datalist */}
+            <div className="flex flex-wrap gap-2 items-center bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+              <input
+                list="req-catalog-list"
+                value={reqInput}
+                onChange={e => setReqInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addApplicantRequirement(reqInput);
+                  }
+                }}
+                placeholder="Type or select a requirement (e.g. NBI Clearance, Medical, OWWA)..."
+                className="flex-1 min-w-[240px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+              />
+              <datalist id="req-catalog-list">
+                {availableRequirements.map((r: any) => (
+                  <option key={r.requirement_id || r.requirement_name} value={r.requirement_name}>
+                    {r.category ? `(${r.category})` : ''}
+                  </option>
+                ))}
+              </datalist>
+
+              <select
+                value={reqCategory}
+                onChange={e => setReqCategory(e.target.value as any)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
+              >
+                <option value="DOCUMENT">Document</option>
+                <option value="CERTIFICATION">Certification</option>
+                <option value="MEDICAL">Medical</option>
+                <option value="OTHER">Other</option>
+              </select>
+
+              <select
+                value={reqStatus}
+                onChange={e => setReqStatus(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 font-medium"
+              >
+                <option value="PENDING">Pending</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="VERIFIED">Verified</option>
+              </select>
+
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer px-1">
+                <input
+                  type="checkbox"
+                  checked={reqIsMandatory}
+                  onChange={e => setReqIsMandatory(e.target.checked)}
+                  className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                />
+                Mandatory
+              </label>
+
+              <button
+                type="button"
+                onClick={() => addApplicantRequirement(reqInput)}
+                className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0 shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Add Requirement
+              </button>
+            </div>
+
+            {/* Checklist Table */}
+            {applicantRequirements.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className={th}>Requirement Name</th>
+                      <th className={th}>Category</th>
+                      <th className={th}>Type</th>
+                      <th className={th}>Status</th>
+                      <th className={th}>Expiration Date</th>
+                      <th className={th + ' w-10'}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {applicantRequirements.map((row) => (
+                      <tr key={row.name} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className={td}>
+                          <span className="font-semibold text-slate-800">{row.name}</span>
+                        </td>
+                        <td className={td}>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                            row.category === 'CERTIFICATION'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
+                              : row.category === 'MEDICAL'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : row.category === 'OTHER'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}>
+                            {row.category || 'DOCUMENT'}
+                          </span>
+                        </td>
+                        <td className={td}>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            row.is_mandatory !== false ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {row.is_mandatory !== false ? 'Mandatory' : 'Optional'}
+                          </span>
+                        </td>
+                        <td className={td}>
+                          <select
+                            value={row.status || 'PENDING'}
+                            onChange={e => setApplicantReqField(row.name, 'status', e.target.value)}
+                            className={`text-xs px-2.5 py-1 rounded-lg border font-semibold ${
+                              (row.status || '').toUpperCase() === 'VERIFIED'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                : (row.status || '').toUpperCase() === 'SUBMITTED'
+                                ? 'bg-sky-50 text-sky-700 border-sky-300'
+                                : 'bg-amber-50 text-amber-700 border-amber-300'
+                            }`}
+                          >
+                            <option value="PENDING">Pending</option>
+                            <option value="SUBMITTED">Submitted</option>
+                            <option value="VERIFIED">Verified</option>
+                            <option value="REJECTED">Rejected</option>
+                          </select>
+                        </td>
+                        <td className={td}>
+                          <input
+                            type="date"
+                            value={row.expiration_date || ''}
+                            onChange={e => setApplicantReqField(row.name, 'expiration_date', e.target.value)}
+                            className="text-xs px-2 py-1 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                          />
+                        </td>
+                        <td className={td}>
+                          <button
+                            type="button"
+                            onClick={() => setRecordToDelete({
+                              type: 'requirement',
+                              idOrKey: row.name,
+                              name: row.name,
+                              sectionTitle: 'Document Requirements',
+                            })}
+                            className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded transition-colors text-slate-400 cursor-pointer"
+                            title={`Remove ${row.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 italic py-4 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                No requirements recorded yet. Select or type a requirement above to add one.
+              </div>
+            )}
+          </div>
+        </Section>
       </div>
 
       {/* Save / Register Button */}
@@ -2692,6 +2835,45 @@ export default function Registration({
               >
                 <RotateCcw size={13} />
                 <span>Discard & Revert</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Record Deletion Confirmation Modal ─────────────────────────────── */}
+      {recordToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0 shadow-xs">
+                <Trash2 size={20} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  Remove Record?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to remove <strong className="text-slate-800 font-semibold">&ldquo;{recordToDelete.name}&rdquo;</strong> from {recordToDelete.sectionTitle.toLowerCase()}? This record will be removed from this applicant&apos;s registration form.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setRecordToDelete(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteRecord}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer"
+              >
+                <Trash2 size={13} />
+                <span>Yes, Remove Record</span>
               </button>
             </div>
           </div>

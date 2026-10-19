@@ -254,6 +254,7 @@ export interface EmploymentRecord {
   country: string;
   isPresent: boolean;
   reasonForLeaving: string;
+  isOverseas?: boolean;
 }
 
 export type EmploymentFlagType = 'gap' | 'short_stint' | 'red_flag_resignation' | 'overlap' | 'demotion';
