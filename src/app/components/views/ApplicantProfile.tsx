@@ -13,6 +13,7 @@ import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 import { calculateExperienceBreakdown, isJobRelatedExperience, formatExperienceDuration } from '../../../lib/profilingUtils';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
+import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPreview';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
 const FLAG_META: Record<EmploymentFlagType, { label: string; icon: React.ReactNode; color: string }> = {
@@ -221,6 +222,7 @@ export default function ApplicantProfile({
   const [selectedQuickReason, setSelectedQuickReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
+  const [examSummaries, setExamSummaries] = useState<DigitalExamSummaryItem[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichedData, setEnrichedData] = useState<ApplicantRecord | null>(null);
 
@@ -335,12 +337,44 @@ export default function ApplicantProfile({
             applicableJobOrders: Array.isArray(t.applicable_job_orders)
               ? t.applicable_job_orders
               : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+            examMode: t.exam_mode || t.examMode || 'paper',
+            digitalExamTemplateId: t.digital_exam_template_id ?? t.digitalExamTemplateId ?? null,
           }));
           setEvaluationTemplates(live.filter(t => t.isActive));
         }
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (applicant?.id) {
+      api.get(`/exam-module/applicant/${applicant.id}/exam-summary`)
+        .then(res => setExamSummaries(res.data || []))
+        .catch(() => setExamSummaries([]));
+    }
+  }, [applicant?.id]);
+
+  const findExamForTest = useCallback((testId: string, testName: string, testType?: string, digitalExamTemplateId?: number | null) => {
+    if (!examSummaries || examSummaries.length === 0) return null;
+    const numId = parseInt(testId.replace('ev-', ''), 10);
+    if (digitalExamTemplateId) {
+      const m = examSummaries.find(e => e.template_id === digitalExamTemplateId);
+      if (m) return m;
+    }
+    const byEvalId = examSummaries.find(e =>
+      e.evaluation_template_id && (Number(e.evaluation_template_id) === numId || String(e.evaluation_template_id) === String(testId))
+    );
+    if (byEvalId) return byEvalId;
+    const lowerName = (testName || '').toLowerCase().trim();
+    const byTitle = examSummaries.find(e => {
+      const t = (e.title || '').toLowerCase().trim();
+      return t === lowerName ||
+        (testType === 'language' && (t.includes('english') || t.includes('language'))) ||
+        (testType === 'iq' && (t.includes('aptitude') || t.includes('iq') || t.includes('cognitive'))) ||
+        (testType === 'skills' && (t.includes('trade') || t.includes('skills')));
+    });
+    return byTitle || null;
+  }, [examSummaries]);
 
   // Stop Processing
   const [showStopModal, setShowStopModal] = useState(false);
@@ -1730,7 +1764,7 @@ export default function ApplicantProfile({
       <div ref={el => { sectionRefs.current['scores'] = el; }} id="scores" className="scroll-mt-24 pt-6 space-y-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={16} className="text-[#0EA5E9]" />
-          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores</h3>
+          <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Test Scores & Digital Assessments</h3>
         </div>
         {hasFlagWarning && !(applicant.status === 'Processing Stopped') && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-amber-700">
@@ -1738,22 +1772,48 @@ export default function ApplicantProfile({
             <span><strong>{activeFlags.length}</strong> unresolved employment flag{activeFlags.length > 1 ? 's' : ''}. Screening is blocked until resolved.</span>
           </div>
         )}
-        {applicant.testScores ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            {applicant.testScores.overallScore !== undefined && (
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Weighted Aggregate</span>
-                  <p className="text-xs text-slate-400">Calculated from agency evaluation scoring weights</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-black text-[#0EA5E9]">{applicant.testScores.overallScore}%</span>
-                  <span className={`block text-[11px] font-bold ${applicant.testScores.allPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {applicant.testScores.allPassed ? '✓ All Passing Marks Met' : '⚠️ Below Passing Benchmark'}
-                  </span>
-                </div>
+
+        {/* Digital Exam Results (Standalone or Screening-Linked) */}
+        {applicant?.id && (
+          <ScreeningExamPreview
+            applicantId={applicant.id}
+            showToast={showToast}
+            title="Candidate Digital Assessments"
+            hideIfEmpty={false}
+            onSummaryLoaded={setExamSummaries}
+          />
+        )}
+
+        {(() => {
+          const hasAnySubmittedExam = examSummaries.some(e => e.latest_attempt?.status === 'submitted');
+          const showScorecard = Boolean(applicant.testScores || hasAnySubmittedExam);
+          if (!showScorecard) {
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">
+                No evaluation test scores recorded yet
               </div>
-            )}
+            );
+          }
+
+          const overallScore = applicant.testScores?.overallScore;
+          const allPassed = applicant.testScores?.allPassed;
+
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              {overallScore !== undefined && (
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Weighted Aggregate</span>
+                    <p className="text-xs text-slate-400">Calculated from agency evaluation scoring weights</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-[#0EA5E9]">{overallScore}%</span>
+                    <span className={`block text-[11px] font-bold ${allPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {allPassed ? '✓ All Passing Marks Met' : '⚠️ Below Passing Benchmark'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
             {/* Dynamic test cards */}
             {(() => {
@@ -1775,20 +1835,29 @@ export default function ApplicantProfile({
                   const rawStatus = String(t.statusText || '').toLowerCase();
                   const isPF = t.scoringType === 'pass_fail' || rawStatus.includes('pass') || rawStatus.includes('fail') || t.type === 'medical' || String(t.name || '').toLowerCase().includes('medical');
 
+                  let val = t.score;
                   let passVal = t.passed;
+
+                  // Check if score is empty or zero, but a linked digital exam was completed
+                  const linkedExam = findExamForTest(t.id || t.templateId, t.name, t.type, t.digitalExamTemplateId);
+                  if ((val === undefined || val === null || val === 0) && linkedExam?.latest_attempt && linkedExam.latest_attempt.status === 'submitted') {
+                    val = linkedExam.latest_attempt.percentage ?? 0;
+                    passVal = linkedExam.latest_attempt.is_passing;
+                  }
+
                   if (typeof passVal !== 'boolean') {
                     if (isPF) {
-                      passVal = rawStatus.includes('pass') || rawStatus.includes('suit') || (typeof t.score === 'number' && t.score > 0);
-                    } else if (typeof t.score === 'number') {
-                      passVal = t.score >= (t.passingScore ?? 60);
+                      passVal = rawStatus.includes('pass') || rawStatus.includes('suit') || (typeof val === 'number' && val > 0);
+                    } else if (typeof val === 'number') {
+                      passVal = val >= (t.passingScore ?? 60);
                     }
-                  } else if (!isPF && typeof t.score === 'number' && typeof t.passingScore === 'number') {
-                    passVal = t.score >= t.passingScore;
+                  } else if (!isPF && typeof val === 'number' && typeof t.passingScore === 'number') {
+                    passVal = val >= t.passingScore;
                   }
 
                   testItems.push({
                     label: t.name,
-                    val: t.score,
+                    val,
                     pass: t.passingScore ?? 60,
                     max: t.maxScore || 100,
                     weight: typeof t.weight === 'number' ? t.weight : (typeof t.weight_percentage === 'number' ? t.weight_percentage : undefined),
@@ -1811,6 +1880,12 @@ export default function ApplicantProfile({
                     val = applicant.testScores?.iqAptitude;
                   } else if (applicant.testScores && (applicant.testScores as any)[t.id] !== undefined) {
                     val = (applicant.testScores as any)[t.id];
+                  }
+
+                  // Fallback to linked completed digital exam
+                  const linkedExam = findExamForTest(t.id, t.name, t.type, t.digitalExamTemplateId);
+                  if ((val === undefined || val === null || val === 0) && linkedExam?.latest_attempt && linkedExam.latest_attempt.status === 'submitted') {
+                    val = linkedExam.latest_attempt.percentage ?? 0;
                   }
 
                   let passVal: boolean | undefined = undefined;
@@ -1880,7 +1955,7 @@ export default function ApplicantProfile({
               });
             })()}
 
-            {applicant.testScores.personalityEQ && (
+            {applicant.testScores?.personalityEQ && (
               <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
                 <span className="text-sm text-slate-500 font-medium">Personality / EQ Interview</span>
                 <span className={`text-sm font-bold ${applicant.testScores.personalityEQ === 'Suitable' ? 'text-[#10B981]' : applicant.testScores.personalityEQ === 'Not Suitable' ? 'text-red-500' : 'text-slate-400'}`}>
@@ -1888,16 +1963,15 @@ export default function ApplicantProfile({
                 </span>
               </div>
             )}
-            {applicant.testScores.employerSpecific && (
+            {applicant.testScores?.employerSpecific && (
               <div className="bg-blue-50 rounded-lg px-4 py-2.5 text-sm text-[#0F172A]">
                 <span className="text-xs font-bold text-blue-500 uppercase">Employer-Specific Notes: </span>
                 {applicant.testScores.employerSpecific}
               </div>
             )}
           </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 py-10 text-center text-slate-400 text-sm">No test scores recorded yet</div>
-        )}
+        );
+      })()}
       </div>
 
       {/* ── Financials ────────────────────────────────────────────────────────── */}

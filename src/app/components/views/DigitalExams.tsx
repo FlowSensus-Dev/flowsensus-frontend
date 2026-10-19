@@ -15,8 +15,8 @@ import {
   Plus, BookOpen, Trash2, Edit3, ChevronRight,
   CheckCircle2, XCircle, Clock, Send, Eye,
   Loader2, X, Check, Minus, Search,
-  Link as LinkIcon, FileText, Zap, ToggleLeft, ToggleRight,
-  HelpCircle, AlertCircle, Info, Sparkles, ChevronDown, ChevronUp,
+  Link as LinkIcon, FileText, ClipboardCheck, Monitor, ToggleLeft, ToggleRight,
+  HelpCircle, AlertCircle, Info, RefreshCw, ChevronDown, ChevronUp,
   Globe, Building2, CheckSquare, Square, Users, Calendar
 } from 'lucide-react';
 import { api } from '../../../lib/api';
@@ -58,11 +58,14 @@ interface ExamTemplate {
 
 interface EvaluationTemplateOption {
   test_template_id: number;
+  id?: number | string;
   name: string;
   test_type: string;
   weight_percentage: number;
   passing_score: number;
   exam_mode?: string;
+  digitalExamTemplateId?: number | null;
+  digital_exam_template_id?: number | null;
 }
 
 interface JobOrder {
@@ -449,7 +452,14 @@ export default function DigitalExams({
       const res = await api.get(`/exam-module/templates/${tmpl.template_id}`);
       const t: ExamTemplate = res.data;
       setSelectedTemplate(t);
-      setPurposeMode(t.evaluation_template_id ? 'screening' : 'standalone');
+      const linkedEval = (evaluationTemplates || []).find((ev: any) =>
+        Number(ev.digitalExamTemplateId || ev.digital_exam_template_id) === tmpl.template_id
+      );
+      const resolvedEvalId = t.evaluation_template_id
+        ? String(t.evaluation_template_id)
+        : (linkedEval ? String(linkedEval.test_template_id || linkedEval.id) : '');
+
+      setPurposeMode(resolvedEvalId ? 'screening' : 'standalone');
       setForm({
         title: t.title,
         description: t.description || '',
@@ -460,7 +470,7 @@ export default function DigitalExams({
         randomize: Boolean(t.randomize),
         allow_review: Boolean(t.allow_review),
         is_active: Boolean(t.is_active),
-        evaluation_template_id: t.evaluation_template_id ? String(t.evaluation_template_id) : '',
+        evaluation_template_id: resolvedEvalId,
       });
       const loadedQuestions: ExamQuestion[] = (t.questions || []).map((q: any, qIdx: number) => {
         const rawChoices = (q.choices && Array.isArray(q.choices) && q.choices.length > 0)
@@ -501,7 +511,8 @@ export default function DigitalExams({
       setFormError('');
       setFormTab('info');
       setIsFormOpen(true);
-    } catch {
+    } catch (err) {
+      console.error('Failed to open exam for editing:', err);
       showToast('Could not load exam details.');
     }
   };
@@ -742,7 +753,7 @@ export default function DigitalExams({
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-[#0F172A]">Digital Exams</h1>
             <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
-              <Zap size={11} className="text-[#0EA5E9] fill-[#0EA5E9]" /> Online Examinations
+              <Monitor size={11} className="text-[#0EA5E9]" /> Online Examinations
             </span>
           </div>
           <p className="text-slate-500 text-sm mt-1">
@@ -857,7 +868,7 @@ export default function DigitalExams({
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">
-                    <Zap size={11} className="text-violet-600 fill-violet-600" /> 1. Official Screening Test (Linked)
+                    <ClipboardCheck size={11} className="text-violet-700" /> 1. Official Screening Test (Linked)
                   </span>
                 </div>
                 <div className="font-bold text-xs text-slate-900 mb-1">
@@ -970,7 +981,7 @@ export default function DigitalExams({
                             className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200"
                             title={`Scores automatically sync to ${matchedEval.name} (${matchedEval.weight_percentage}% of screening scorecard)`}
                           >
-                            <Zap size={11} className="text-violet-600 fill-violet-600" />
+                            <ClipboardCheck size={11} className="text-violet-600" />
                             Screening: {matchedEval.name} ({matchedEval.weight_percentage}%)
                           </span>
                         ) : (
@@ -1140,9 +1151,30 @@ export default function DigitalExams({
                   {/* Exam Title & Category Row */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                     <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                        Exam Name *
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                          Exam Name *
+                        </label>
+                        {purposeMode === 'screening' && form.evaluation_template_id && (() => {
+                          const selectedEval = evaluationTemplates.find(
+                            (ev) => String(ev.test_template_id) === String(form.evaluation_template_id)
+                          );
+                          if (selectedEval && form.title.trim() !== selectedEval.name.trim()) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setForm((f) => ({ ...f, title: selectedEval.name }))}
+                                className="text-[11px] font-bold text-violet-700 hover:text-violet-900 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1"
+                                title={`Set exam name to "${selectedEval.name}" to match the screening requirement`}
+                              >
+                                <RefreshCw size={11} className="text-violet-600" />
+                                <span>Sync title with: "{selectedEval.name}"</span>
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                       <input
                         type="text"
                         placeholder="e.g. Cognitive & Aptitude Test (IQ)"
@@ -1150,6 +1182,29 @@ export default function DigitalExams({
                         onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
                       />
+                      {purposeMode === 'screening' && form.evaluation_template_id && (() => {
+                        const selectedEval = evaluationTemplates.find(
+                          (ev) => String(ev.test_template_id) === String(form.evaluation_template_id)
+                        );
+                        if (!selectedEval) return null;
+                        const isSame = form.title.trim().toLowerCase() === selectedEval.name.trim().toLowerCase();
+                        return (
+                          <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-1">
+                            <span>
+                              Linked Screening Requirement: <strong className="text-violet-800">{selectedEval.name}</strong>
+                            </span>
+                            {isSame ? (
+                              <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                                <Check size={12} /> Title matches evaluation requirement
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">
+                                (Applicant portal will display both the exam title and requirement)
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div>
@@ -1236,7 +1291,7 @@ export default function DigitalExams({
                             <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                               purposeMode === 'screening' ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500'
                             }`}>
-                              <Zap size={14} className={purposeMode === 'screening' ? 'fill-white' : ''} />
+                              <ClipboardCheck size={14} className={purposeMode === 'screening' ? 'text-white' : 'text-slate-500'} />
                             </div>
                             <span className="font-bold text-xs text-slate-900">Official Screening Test</span>
                           </div>
@@ -1295,7 +1350,7 @@ export default function DigitalExams({
                                     <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
                                       selectedEval ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'
                                     }`}>
-                                      <Zap size={13} className={selectedEval ? 'fill-violet-700' : ''} />
+                                      <ClipboardCheck size={13} className={selectedEval ? 'text-violet-700' : 'text-amber-700'} />
                                     </div>
                                     {selectedEval ? (
                                       <div className="min-w-0 flex items-center gap-2 flex-wrap">
@@ -1355,7 +1410,7 @@ export default function DigitalExams({
                                             <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
                                               isSelected ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500'
                                             }`}>
-                                              <Zap size={12} className={isSelected ? 'fill-white' : ''} />
+                                              <ClipboardCheck size={12} className={isSelected ? 'text-white' : 'text-slate-500'} />
                                             </div>
                                             <div className="min-w-0">
                                               <div className="text-xs font-bold text-slate-900 truncate">
@@ -1395,9 +1450,9 @@ export default function DigitalExams({
                           if (selectedEval) {
                             return (
                               <div className="text-[11px] text-violet-800 bg-white/90 border border-violet-100 rounded-lg p-2.5 flex items-start gap-2">
-                                <Sparkles size={13} className="text-violet-600 shrink-0 mt-0.5" />
+                                <ClipboardCheck size={14} className="text-violet-600 shrink-0 mt-0.5" />
                                 <div>
-                                  <span className="font-bold">Auto-Score Sync:</span> When an applicant finishes this digital exam, their test score is automatically calculated and recorded directly to their <strong>{selectedEval.name}</strong> requirement ({selectedEval.weight_percentage}% of their official screening scorecard).
+                                  <span className="font-bold">Score Sync:</span> When an applicant finishes this digital exam, their test score is automatically calculated and recorded directly to their <strong>{selectedEval.name}</strong> requirement ({selectedEval.weight_percentage}% of their official screening scorecard).
                                 </div>
                               </div>
                             );
@@ -1686,7 +1741,7 @@ export default function DigitalExams({
                       <div className="mt-2.5 pt-2.5 border-t border-slate-200/70">
                         {linkedEval ? (
                           <div className="flex items-start gap-2 text-xs text-violet-900">
-                            <Zap size={14} className="text-violet-600 fill-violet-600 shrink-0 mt-0.5" />
+                            <ClipboardCheck size={14} className="text-violet-600 shrink-0 mt-0.5" />
                             <div>
                               <span className="font-bold">Official Screening Linked:</span> Automatically weights{' '}
                               <strong>{linkedEval.weight_percentage}%</strong> into{' '}
