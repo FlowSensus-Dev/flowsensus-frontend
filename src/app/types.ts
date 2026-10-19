@@ -157,6 +157,10 @@ export interface Clinic {
   email?: string;
   accreditationStatus?: string;
   accreditation_status?: string;
+  facilityType?: string;
+  facility_type?: string;
+  licenseRef?: string;
+  license_ref?: string;
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;

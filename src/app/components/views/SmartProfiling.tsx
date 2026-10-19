@@ -1442,7 +1442,7 @@ export default function SmartProfiling({
             considerationDetails = {
               type: 'medical_in_progress',
               fallShortCause: 'Needs medical clearance completed',
-              requiredRemedy: 'Obtain final Fit-to-Work medical clearance from accredited clinic',
+              requiredRemedy: 'Obtain final Fit-to-Work medical clearance from an authorized medical facility',
               shortReason: 'Needs medical clearance',
               whyNotFurtherReview: 'Fit-to-work clearance is currently pending clinic evaluation or hospital referral.',
               whyForConsideration: `Candidate has strong trade qualifications (${jobRelatedExperienceYears > 0 ? `${jobRelatedExperienceYears} yrs in-role` : 'verified skills'}) and no permanent medical disqualification.`,
