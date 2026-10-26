@@ -747,10 +747,10 @@ function ExamTaker({
                     </span>
                   </div>
 
-                  {/* Description / notes if available */}
+                  {/* Description / instructions if available */}
                   {examData.description && (
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-700 leading-relaxed">
-                      <span className="font-semibold text-slate-900 block mb-0.5">Note:</span>
+                      <span className="font-semibold text-slate-900 block mb-0.5">Instructions:</span>
                       {examData.description}
                     </div>
                   )}
