@@ -1,26 +1,11 @@
-# 🎨 FlowSensus - Frontend Application
 
-The user interface for **FlowSensus**, built with **React**, **Vite**, **Tailwind CSS**, and hosted on **Vercel**.
+  # FLOWSENSUS
 
----
+  This is a code bundle for FLOWSENSUS. The original project is available at https://www.figma.com/design/M9MAe8dUqFczXTQPcSuxMc/FLOWSENSUS.
 
-## 🚀 Tech Stack
+  ## Running the code
 
-* **Framework:** React + Vite
-* **Styling:** Tailwind CSS
-* **Deployment:** Vercel
+  Run `npm i` to install the dependencies.
 
----
-
-## 📁 Repository Structure
-
-* `src/` - React components, pages, and styles
-* `package.json` - Project dependencies & scripts
-* `README.md` - Documentation
-
----
-
-## 👥 Lead Maintainers
-
-* **Nadya** (Frontend UI/UX Lead)
-* **Lloyd** (Project Manager)
+  Run `npm run dev` to start the development server.
+  

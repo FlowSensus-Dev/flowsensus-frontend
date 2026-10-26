@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { api } from "../lib/api";
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -34,6 +35,7 @@ export default function LoginPage() {
     }
 
     console.log("Login successful! User ID:", data.user.id);
+    api.post('/users/record-login', {}).catch(err => console.warn('Could not record login timestamp:', err));
     navigate("/dashboard"); // Route to dashboard on success
   };
 
