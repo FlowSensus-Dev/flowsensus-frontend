@@ -264,23 +264,38 @@ export default function Screening({
 
   // ── Digital Exam integration state ──────────────────────────────────────────
   const [examSummaries, setExamSummaries] = useState<DigitalExamSummaryItem[]>([]);
+  const [examSummariesApplicantId, setExamSummariesApplicantId] = useState<string | number | null>(null);
   const [activeReviewAttemptId, setActiveReviewAttemptId] = useState<number | null>(null);
   const [manualOverrideMap, setManualOverrideMap] = useState<Record<string, boolean>>({});
   const [recorrectConfirmId, setRecorrectConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     setExamSummaries([]);
+    setExamSummariesApplicantId(null);
+    setManualOverrideMap({});
+    setRecorrectConfirmId(null);
     if (selectedApplicant?.id) {
-      api.get(`/exam-module/applicant/${selectedApplicant.id}/exam-summary`)
-        .then(res => setExamSummaries(res.data || []))
-        .catch(() => setExamSummaries([]));
+      const targetId = selectedApplicant.id;
+      api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+        .then(res => {
+          setExamSummaries(res.data || []);
+          setExamSummariesApplicantId(targetId);
+        })
+        .catch(() => {
+          setExamSummaries([]);
+          setExamSummariesApplicantId(targetId);
+        });
     } else {
       setExamSummaries([]);
+      setExamSummariesApplicantId(null);
     }
   }, [selectedApplicant?.id]);
 
   const findLinkedExam = useCallback((test: EvaluationTest): DigitalExamSummaryItem | null => {
-    if (!examSummaries || examSummaries.length === 0) return null;
+    // Strictly isolate exam summaries: only link if data belongs to currently selected applicant
+    if (!examSummaries || examSummaries.length === 0 || String(examSummariesApplicantId) !== String(selectedApplicant?.id)) {
+      return null;
+    }
     const testNumId = parseInt(test.id.replace('ev-', ''), 10);
 
     // 1. Direct link: test has digitalExamTemplateId
@@ -305,11 +320,13 @@ export default function Screening({
         (test.type === 'skills' && (eTitle.includes('trade') || eTitle.includes('skills')));
     });
     return matchByName || null;
-  }, [examSummaries]);
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id]);
 
   // Standalone digital exams (assigned to candidate but not linked to any Phase 1 evaluation)
   const standaloneExams = useMemo(() => {
-    if (!examSummaries || examSummaries.length === 0) return [];
+    if (!examSummaries || examSummaries.length === 0 || String(examSummariesApplicantId) !== String(selectedApplicant?.id)) {
+      return [];
+    }
     return examSummaries.filter(exam => {
       const isLinked = activeEvaluationTests.some(test => {
         const testNumId = parseInt(test.id.replace('ev-', ''), 10);
@@ -321,11 +338,11 @@ export default function Screening({
       });
       return !isLinked;
     });
-  }, [examSummaries, activeEvaluationTests]);
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id, activeEvaluationTests]);
 
 
 
-  // Synchronize dynamic scores whenever active applicant or active tests change
+  // Synchronize dynamic scores whenever active applicant changes
   useEffect(() => {
     if (selectedApplicant?.id !== initializedForApplicantId.current) {
       const initialRaw: Record<string, number | string> = {};
@@ -336,34 +353,13 @@ export default function Screening({
 
       activeEvaluationTests.forEach(test => {
         const stored = testsObj[test.id] || testsObj[test.name];
-        const linked = findLinkedExam(test);
-        const hasSubmittedExam = Boolean(linked?.latest_attempt && linked.latest_attempt.status === 'submitted');
 
         if (stored) {
           if (test.scoringType === 'pass_fail' || stored.scoringType === 'pass_fail') {
             initialPF[test.id] = (stored.passed || stored.score >= 100 || stored.statusText === 'Passed') ? 'Pass' : (stored.score === 0 ? 'Fail' : '');
           } else {
-            // If stored score is zero or empty, but applicant has a submitted digital exam, auto-populate from exam!
-            if ((stored.rawScore === undefined || stored.rawScore === 0 || stored.score === 0) && hasSubmittedExam && linked!.latest_attempt) {
-              const a = linked!.latest_attempt!;
-              initialRaw[test.id] = a.raw_score ?? Math.round(((a.percentage ?? 0) * (a.max_score ?? test.maxScore ?? 100)) / 100);
-              initialTotal[test.id] = a.max_score ?? test.maxScore ?? 100;
-            } else {
-              initialRaw[test.id] = stored.rawScore !== undefined ? stored.rawScore : stored.score;
-              initialTotal[test.id] = stored.totalItems ?? stored.maxScore ?? test.maxScore ?? 100;
-            }
-          }
-          return;
-        }
-
-        // If no stored score, check if candidate has submitted the linked digital exam!
-        if (hasSubmittedExam && linked!.latest_attempt) {
-          const a = linked!.latest_attempt!;
-          if (test.scoringType === 'pass_fail') {
-            initialPF[test.id] = a.is_passing ? 'Pass' : 'Fail';
-          } else {
-            initialRaw[test.id] = a.raw_score ?? Math.round(((a.percentage ?? 0) * (a.max_score ?? test.maxScore ?? 100)) / 100);
-            initialTotal[test.id] = a.max_score ?? test.maxScore ?? 100;
+            initialRaw[test.id] = stored.rawScore !== undefined ? stored.rawScore : stored.score;
+            initialTotal[test.id] = stored.totalItems ?? stored.maxScore ?? test.maxScore ?? 100;
           }
           return;
         }
@@ -406,29 +402,40 @@ export default function Screening({
 
       initializedForApplicantId.current = selectedApplicant?.id || null;
     }
-  }, [selectedApplicant, activeEvaluationTests, findLinkedExam]);
+  }, [selectedApplicant, activeEvaluationTests]);
 
-  // Reactive auto-fill: when digital exam summaries load asynchronously, populate empty/zero scores
+  // Reactive auto-fill: when digital exam summaries load asynchronously for THIS applicant, populate their score
   useEffect(() => {
-    if (examSummaries.length > 0 && activeEvaluationTests.length > 0) {
+    if (
+      examSummaries.length > 0 &&
+      String(examSummariesApplicantId) === String(selectedApplicant?.id) &&
+      activeEvaluationTests.length > 0
+    ) {
       activeEvaluationTests.forEach(test => {
         const linked = findLinkedExam(test);
         if (linked?.latest_attempt && linked.latest_attempt.status === 'submitted') {
           const a = linked.latest_attempt;
-          const currentRaw = dynamicRawScores[test.id];
-          if (currentRaw === undefined || currentRaw === '' || currentRaw === 0 || currentRaw === '0') {
-            const rawVal = a.raw_score ?? Math.round(((a.percentage ?? 0) * (a.max_score ?? test.maxScore ?? 100)) / 100);
-            const totalVal = a.max_score ?? test.maxScore ?? 100;
-            setDynamicRawScores(prev => ({ ...prev, [test.id]: rawVal }));
-            setDynamicTotalItems(prev => ({ ...prev, [test.id]: totalVal }));
+          const rawVal = a.raw_score ?? Math.round(((a.percentage ?? 0) * (a.max_score ?? test.maxScore ?? 100)) / 100);
+          const totalVal = a.max_score ?? test.maxScore ?? 100;
+          setDynamicRawScores(prev => ({ ...prev, [test.id]: rawVal }));
+          setDynamicTotalItems(prev => ({ ...prev, [test.id]: totalVal }));
+          if (test.scoringType === 'pass_fail') {
+            setDynamicPassFail(prev => ({ ...prev, [test.id]: a.is_passing ? 'Pass' : 'Fail' }));
+          }
+        } else if (linked && (!linked.latest_attempt || linked.latest_attempt.status !== 'submitted')) {
+          // If this applicant has a linked exam that is pending or in-progress, clear any leftover score
+          const testsObj = selectedApplicant?.testScores?.tests || {};
+          const stored = testsObj[test.id] || testsObj[test.name];
+          if (!stored) {
+            setDynamicRawScores(prev => ({ ...prev, [test.id]: '' }));
             if (test.scoringType === 'pass_fail') {
-              setDynamicPassFail(prev => ({ ...prev, [test.id]: a.is_passing ? 'Pass' : 'Fail' }));
+              setDynamicPassFail(prev => ({ ...prev, [test.id]: '' }));
             }
           }
         }
       });
     }
-  }, [examSummaries, activeEvaluationTests, findLinkedExam]);
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id, activeEvaluationTests, findLinkedExam]);
 
   // ── Calculation and evaluation engine for candidate scores ────────────────
   const getTestEvaluationResult = (
@@ -495,14 +502,26 @@ export default function Screening({
   );
 
   const handleRawScoreChange = (testId: string, value: string) => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicRawScores(prev => ({ ...prev, [testId]: value }));
   };
 
   const handleTotalItemsChange = (testId: string, value: string) => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicTotalItems(prev => ({ ...prev, [testId]: value }));
   };
 
   const handleSetPassFail = (testId: string, verdict: 'Pass' | 'Fail') => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicPassFail(prev => ({
       ...prev,
       [testId]: prev[testId] === verdict ? '' : verdict,
@@ -2752,7 +2771,7 @@ export default function Screening({
                               <Eye size={13} />
                               <span>View Exam Result</span>
                             </button>
-                            {/* Recorrect Score — two-step confirm before activating score inputs */}
+                            {/* Recorrect Score button */}
                             {isOverridden ? (
                               <button
                                 type="button"
@@ -2760,38 +2779,15 @@ export default function Screening({
                                   setManualOverrideMap(prev => ({ ...prev, [test.id]: false }));
                                   setRecorrectConfirmId(null);
                                 }}
-                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
                               >
                                 Hide Recorrect
                               </button>
-                            ) : recorrectConfirmId === test.id ? (
-                              /* Confirmation prompt */
-                              <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1.5 animate-in fade-in duration-150">
-                                <AlertTriangle size={12} className="text-amber-600 shrink-0" />
-                                <span className="text-[11px] font-semibold text-amber-800 whitespace-nowrap">Change score?</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setManualOverrideMap(prev => ({ ...prev, [test.id]: true }));
-                                    setRecorrectConfirmId(null);
-                                  }}
-                                  className="ml-1 px-2 py-0.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                >
-                                  Yes, recorrect
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setRecorrectConfirmId(null)}
-                                  className="px-1.5 py-0.5 rounded-md text-amber-700 hover:bg-amber-100 text-[11px] font-semibold transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => setRecorrectConfirmId(test.id)}
-                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
                                 title="Manually adjust this exam score"
                               >
                                 Recorrect Score
@@ -2807,9 +2803,8 @@ export default function Screening({
                     </div>
                   )}
 
-                  {/* Case 2: Score Inputs (Shown if NOT linked to any exam, OR if exam is submitted and override is toggled) */}
-                  {/* Bug fix: hide score inputs entirely when exam is linked but pending online (not yet submitted) */}
-                  {(!linkedExam || hasAttempt || isOverridden) && (
+                  {/* Case 2: Score Inputs (Shown ONLY if NOT linked to any digital exam, OR if recorrect score has been confirmed) */}
+                  {(!linkedExam || isOverridden) && (
                     <div className="pt-1">
                       {isPassFail ? (
                         /* Pass / Fail selector */
@@ -2818,23 +2813,25 @@ export default function Screening({
                           <div className="inline-flex rounded-xl p-0.5 bg-slate-200/60 border border-slate-200">
                             <button
                               type="button"
+                              disabled={Boolean(linkedExam && !isOverridden)}
                               onClick={() => handleSetPassFail(test.id, 'Pass')}
                               className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                                 currentPF === 'Pass'
                                   ? 'bg-emerald-600 text-white shadow-xs'
                                   : 'text-slate-600 hover:text-emerald-700'
-                              }`}
+                              } ${Boolean(linkedExam && !isOverridden) ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               <CheckCircle2 size={13} /> Passed
                             </button>
                             <button
                               type="button"
+                              disabled={Boolean(linkedExam && !isOverridden)}
                               onClick={() => handleSetPassFail(test.id, 'Fail')}
                               className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                                 currentPF === 'Fail'
                                   ? 'bg-red-600 text-white shadow-xs'
                                   : 'text-slate-600 hover:text-red-700'
-                              }`}
+                              } ${Boolean(linkedExam && !isOverridden) ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               <AlertTriangle size={13} /> Failed
                             </button>
@@ -2856,19 +2853,23 @@ export default function Screening({
                               <input
                                 type="number"
                                 value={rawVal}
+                                disabled={Boolean(linkedExam && !isOverridden)}
+                                readOnly={Boolean(linkedExam && !isOverridden)}
                                 onChange={(e) => handleRawScoreChange(test.id, e.target.value)}
                                 min={0}
                                 placeholder="0"
-                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-black text-slate-900 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-black text-slate-900 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                               />
                               <span className="text-slate-400 font-bold text-sm">/</span>
                               <input
                                 type="number"
                                 value={totalVal}
+                                disabled={Boolean(linkedExam && !isOverridden)}
+                                readOnly={Boolean(linkedExam && !isOverridden)}
                                 onChange={(e) => handleTotalItemsChange(test.id, e.target.value)}
                                 min={1}
                                 placeholder={String(test.maxScore || 100)}
-                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                               />
                               <span className="text-xs text-slate-400 font-medium">pts</span>
                             </div>
@@ -3697,7 +3698,89 @@ export default function Screening({
           }}
         />
       )}
+      {/* ── RECORRECT SCORE CONFIRMATION OVERLAY MODAL ── */}
+      {recorrectConfirmId && (() => {
+        const testToRecorrect = activeEvaluationTests.find(t => t.id === recorrectConfirmId);
+        const linked = testToRecorrect ? findLinkedExam(testToRecorrect) : null;
+        const att = linked?.latest_attempt;
+        const testName = testToRecorrect?.name || linked?.title || 'Evaluation';
 
+        return (
+          <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-[#0F172A] text-base leading-tight">Confirm Score Recorrection</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Adjust candidate's recorded exam score</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRecorrectConfirmId(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  Are you sure you want to recorrect the score for <strong className="text-slate-900 font-bold">{testName}</strong>?
+                </p>
+
+                {att && (
+                  <div className="bg-sky-50/80 border border-sky-100 rounded-xl p-3.5 space-y-1 text-xs">
+                    <span className="font-bold text-sky-900 block uppercase tracking-wider text-[10px]">Current Online Exam Result:</span>
+                    <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+                      <span>{(att.percentage ?? 0).toFixed(1)}%</span>
+                      <span className="text-slate-400 text-xs font-normal">({att.raw_score ?? 0} / {att.max_score ?? 100} pts)</span>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                        att.is_passing ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {att.is_passing ? '✓ Benchmark Met' : '✗ Below Benchmark'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="leading-snug">
+                    Recorrecting opens manual score inputs for this evaluation. You can always click <span className="font-bold">"Re-sync from Exam"</span> to revert to the digital submission.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setRecorrectConfirmId(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recorrectConfirmId) {
+                      setManualOverrideMap(prev => ({ ...prev, [recorrectConfirmId]: true }));
+                    }
+                    setRecorrectConfirmId(null);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Yes, Recorrect Score</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
