@@ -268,6 +268,30 @@ export default function Screening({
   const [activeReviewAttemptId, setActiveReviewAttemptId] = useState<number | null>(null);
   const [manualOverrideMap, setManualOverrideMap] = useState<Record<string, boolean>>({});
   const [recorrectConfirmId, setRecorrectConfirmId] = useState<string | null>(null);
+  const [revokeRetakeTarget, setRevokeRetakeTarget] = useState<{ assignmentId: number; title: string } | null>(null);
+  const [isRevokingRetake, setIsRevokingRetake] = useState(false);
+
+  const handleConfirmRevokeRetake = async () => {
+    if (!revokeRetakeTarget) return;
+    setIsRevokingRetake(true);
+    try {
+      await api.patch(`/exam-module/assignments/${revokeRetakeTarget.assignmentId}/revoke-retake`);
+      showToast('Retake reverted. Candidate previous attempt has been restored.');
+      setRevokeRetakeTarget(null);
+      if (selectedApplicant?.id) {
+        const targetId = selectedApplicant.id;
+        api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+          .then(res => {
+            setExamSummaries(res.data || []);
+            setExamSummariesApplicantId(targetId);
+          });
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to revert retake.');
+    } finally {
+      setIsRevokingRetake(false);
+    }
+  };
 
   useEffect(() => {
     setExamSummaries([]);
@@ -2737,6 +2761,12 @@ export default function Screening({
                                 ✓ Synced
                               </span>
                             )}
+                            {linkedExam.retake_allowed && (
+                              <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs">
+                                <RotateCcw size={10} className="text-amber-600 animate-spin" />
+                                Retake In Progress
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-slate-600 mt-0.5 flex items-center gap-2 flex-wrap">
                             {hasAttempt && att ? (
@@ -2748,18 +2778,28 @@ export default function Screening({
                                 <span className={att.is_passing ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold'}>
                                   {att.is_passing ? '✓ Benchmark Met' : '✗ Below Passing Mark'}
                                 </span>
+                                {linkedExam.retake_allowed && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-amber-800 font-bold">
+                                      Candidate can re-attempt in portal
+                                    </span>
+                                  </>
+                                )}
                               </>
                             ) : (
                               <span className="text-amber-800 font-medium">
-                                Awaiting candidate completion in online portal
+                                {linkedExam.retake_allowed
+                                  ? 'Retake active — Awaiting candidate completion in online portal'
+                                  : 'Awaiting candidate completion in online portal'}
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Single clean action: View Exam Result */}
-                      <div className="flex items-center gap-2 shrink-0">
+                      {/* Single clean action: View Exam Result & Retake Management */}
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
                         {hasAttempt && att ? (
                           <>
                             <button
@@ -2771,6 +2811,20 @@ export default function Screening({
                               <Eye size={13} />
                               <span>View Exam Result</span>
                             </button>
+
+                            {/* Revert Retake button if retake is currently allowed */}
+                            {linkedExam.retake_allowed && (
+                              <button
+                                type="button"
+                                onClick={() => setRevokeRetakeTarget({ assignmentId: linkedExam.assignment_id, title: linkedExam.title })}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                                title="Revert the granted retake and restore previous score"
+                              >
+                                <Undo2 size={12} />
+                                <span>Revert Retake</span>
+                              </button>
+                            )}
+
                             {/* Recorrect Score button */}
                             {isOverridden ? (
                               <button
@@ -2795,9 +2849,22 @@ export default function Screening({
                             )}
                           </>
                         ) : (
-                          <span className="text-xs font-semibold text-amber-700 bg-amber-100/60 border border-amber-200 px-2.5 py-1 rounded-full">
-                            Pending Online Submission
-                          </span>
+                          <>
+                            <span className="text-xs font-semibold text-amber-700 bg-amber-100/60 border border-amber-200 px-2.5 py-1 rounded-full">
+                              Pending Online Submission
+                            </span>
+                            {linkedExam.retake_allowed && (
+                              <button
+                                type="button"
+                                onClick={() => setRevokeRetakeTarget({ assignmentId: linkedExam.assignment_id, title: linkedExam.title })}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Revert the granted retake"
+                              >
+                                <Undo2 size={12} />
+                                <span>Revert Retake</span>
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -2996,7 +3063,15 @@ export default function Screening({
               return (
                 <div key={ex.assignment_id} className="py-3 flex items-center justify-between gap-3 flex-wrap">
                   <div>
-                    <span className="font-bold text-xs text-slate-900">{ex.title}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-xs text-slate-900">{ex.title}</span>
+                      {ex.retake_allowed && (
+                        <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <RotateCcw size={10} className="text-amber-600 animate-spin" />
+                          Retake In Progress
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
                       {isSubmitted && att ? (
                         <>
@@ -3007,20 +3082,35 @@ export default function Screening({
                           </span>
                         </>
                       ) : (
-                        <span className="text-amber-700 font-medium">Awaiting candidate submission in portal</span>
+                        <span className="text-amber-700 font-medium">
+                          {ex.retake_allowed ? 'Retake active — Awaiting candidate completion in portal' : 'Awaiting candidate submission in portal'}
+                        </span>
                       )}
                     </div>
                   </div>
-                  {isSubmitted && att && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveReviewAttemptId(att.attempt_id)}
-                      className="px-3.5 py-1.5 rounded-xl bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                    >
-                      <Eye size={13} />
-                      <span>View Exam Result</span>
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isSubmitted && att && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveReviewAttemptId(att.attempt_id)}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Eye size={13} />
+                        <span>View Exam Result</span>
+                      </button>
+                    )}
+                    {ex.retake_allowed && (
+                      <button
+                        type="button"
+                        onClick={() => setRevokeRetakeTarget({ assignmentId: ex.assignment_id, title: ex.title })}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                        title="Revert the granted retake and restore previous score"
+                      >
+                        <Undo2 size={12} />
+                        <span>Revert Retake</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -3692,8 +3782,12 @@ export default function Screening({
           showToast={showToast}
           onRetakeGranted={() => {
             if (selectedApplicant?.id) {
-              api.get(`/exam-module/applicant/${selectedApplicant.id}/exam-summary`)
-                .then(res => setExamSummaries(res.data || []));
+              const targetId = selectedApplicant.id;
+              api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+                .then(res => {
+                  setExamSummaries(res.data || []);
+                  setExamSummariesApplicantId(targetId);
+                });
             }
           }}
         />
@@ -3781,6 +3875,65 @@ export default function Screening({
           </div>
         );
       })()}
+
+      {/* ── REVERT RETAKE CONFIRMATION OVERLAY MODAL ── */}
+      {revokeRetakeTarget && (
+        <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Undo2 className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[#0F172A] text-base leading-tight">Revert Exam Retake</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Cancel retake permission for this candidate</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRevokeRetakeTarget(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                Are you sure you want to revert the retake for <strong className="text-slate-900 font-bold">{revokeRetakeTarget.title}</strong>?
+              </p>
+
+              <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-snug">
+                  This will cancel the pending retake in the applicant's portal. The applicant's previous exam attempt and score will remain active.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setRevokeRetakeTarget(null)}
+                disabled={isRevokingRetake}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRevokeRetake}
+                disabled={isRevokingRetake}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              >
+                {isRevokingRetake ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                <span>Yes, Revert Retake</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

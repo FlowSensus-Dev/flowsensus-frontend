@@ -202,12 +202,17 @@ function MyExamsDashboard({
                           Untimed
                         </span>
                       )}
-                      {exam.retake_allowed && exam.status === 'completed' && (
-                        <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-                          <RotateCcw size={11} /> Retake Granted
+                      {exam.retake_allowed && (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2.5 py-0.5 flex items-center gap-1 shadow-2xs">
+                          <RotateCcw size={11} className="text-amber-600 animate-spin" /> Retake In Progress
                         </span>
                       )}
-                      <StatusBadge status={exam.status === 'completed' && exam.retake_allowed ? 'pending' : exam.status} />
+                      {exam.retake_allowed && exam.latest_percentage !== undefined && exam.latest_percentage !== null && (
+                        <span className="text-xs text-slate-500 font-medium">
+                          (Previous attempt: {exam.latest_percentage.toFixed(1)}%)
+                        </span>
+                      )}
+                      <StatusBadge status={exam.status} />
                     </div>
                     {exam.due_date && (
                       <p className="text-xs text-slate-400 mt-1">
@@ -220,7 +225,7 @@ function MyExamsDashboard({
                   onClick={() => onStart(exam.assignment_id)}
                   className="sm:self-center flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer shrink-0"
                 >
-                  {exam.status === 'in_progress' ? 'Continue Test' : exam.retake_allowed ? 'Retake Test' : 'Take Test'}
+                  {exam.status === 'in_progress' ? (exam.retake_allowed ? 'Continue Retake' : 'Continue Test') : exam.retake_allowed ? 'Start Retake' : 'Take Test'}
                   <ArrowRight size={14} />
                 </button>
               </div>
