@@ -255,5 +255,26 @@ describe('Admin Scoring & Category Rules Configuration (Item 4)', () => {
     const expExpl = getCategoryCandidateExplanation('experience', mockCandidate, mockJobOrder, customRules);
     expect(expExpl).toContain('20 / 20 pts awarded');
   });
+
+  it('defines ConsiderationDetails structure distinguishing For Consideration from For Further Review', () => {
+    const details = {
+      type: 'score_tier' as const,
+      fallShortCause: 'Needs basic skills coaching or certification renewal',
+      requiredRemedy: 'Basic skills coaching, trade certification bridge, or managerial interview waiver (Score gap: -8%)',
+      shortReason: 'Needs basic skills coaching (-8% gap)',
+      whyNotFurtherReview: 'Readiness score of 67% is below the 75% benchmark required for "For Further Review" (gap of 8%).',
+      whyForConsideration: 'Elevated to "For Consideration" because candidate possesses 7.3 years of verified in-role experience and passed all assessments.',
+      scoreGap: 8,
+      furtherReviewThreshold: 75,
+      actionableNote: 'Candidate has solid on-site trade competence. Eligible for interview or managerial endorsement.',
+    };
+
+    expect(details.furtherReviewThreshold).toBe(75);
+    expect(details.scoreGap).toBe(8);
+    expect(details.fallShortCause).toBe('Needs basic skills coaching or certification renewal');
+    expect(details.requiredRemedy).toContain('Basic skills coaching');
+    expect(details.whyNotFurtherReview).toContain('below the 75% benchmark');
+    expect(details.whyForConsideration).toContain('7.3 years of verified in-role experience');
+  });
 });
 

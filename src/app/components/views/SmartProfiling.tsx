@@ -45,6 +45,7 @@ import {
   getJobOrderMismatchInfo,
   TakenExamRecord,
   RankedCandidate,
+  ConsiderationDetails,
   getCategoryCandidateExplanation,
   calculateExperienceBreakdown,
   isJobRelatedExperience,
@@ -1188,36 +1189,36 @@ export default function SmartProfiling({
 
       // ── 5. Overseas / Destination Readiness (Max: maxOverseasWeight pts) ──────────────
       let overseasScore = 0;
-      if (isFirstTimeApplicant) {
-        overseasScore = Math.round(maxOverseasWeight * 0.7 * 10) / 10;
-        strengths.push('First-time applicant — pristine deployment record (eligible for overseas placement)');
-      } else {
-        let hasDestExp = false;
-        let hasOverseasExp = false;
+      let hasDestExp = false;
+      let hasOverseasExp = false;
 
-        history.forEach((h: any) => {
-          const c = (h.country || '').trim().toLowerCase();
-          const isOv = Boolean(h.isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
-          if (jobCountry && c === jobCountry.toLowerCase()) {
-            hasDestExp = true;
-            hasOverseasExp = true;
-          } else if (isOv) {
-            hasOverseasExp = true;
-          }
-        });
-
-        if (hasDestExp) {
-          overseasScore = maxOverseasWeight;
-          strengths.push(`Prior overseas employment experience in target destination (${jobCountry})`);
-        } else if (hasOverseasExp) {
-          overseasScore = Math.round(maxOverseasWeight * 0.7 * 10) / 10;
-          strengths.push('Prior overseas employment experience');
-        } else if (history.length > 0) {
-          overseasScore = Math.round(maxOverseasWeight * 0.3 * 10) / 10;
-          if (jobCountry) gaps.push(`Local experience only; no overseas experience in target destination (${jobCountry})`);
-        } else {
-          overseasScore = 0;
+      history.forEach((h: any) => {
+        const c = (h.country || '').trim().toLowerCase();
+        const isOv = Boolean(h.isOverseas || (c && !['philippines', 'ph', 'local'].includes(c)));
+        if (jobCountry && c === jobCountry.toLowerCase()) {
+          hasDestExp = true;
+          hasOverseasExp = true;
+        } else if (isOv) {
+          hasOverseasExp = true;
         }
+      });
+
+      if (hasDestExp) {
+        overseasScore = maxOverseasWeight;
+        strengths.push(`Verified prior overseas employment in target destination (${jobCountry})`);
+      } else if (hasOverseasExp) {
+        overseasScore = Math.round(maxOverseasWeight * 0.8 * 10) / 10;
+        strengths.push('Prior overseas work experience in other foreign countries');
+      } else if (history.length > 0) {
+        // First-time OFW with domestic Philippine work experience earns higher credit than no work history
+        overseasScore = Math.round(maxOverseasWeight * 0.7 * 10) / 10;
+        strengths.push('First-time OFW with domestic Philippine work experience (verified workplace track record)');
+      } else if (isFirstTimeApplicant) {
+        // First-time applicant without prior work experience
+        overseasScore = Math.round(maxOverseasWeight * 0.4 * 10) / 10;
+        strengths.push('First-time applicant — clean deployment record (entry-level baseline)');
+      } else {
+        overseasScore = 0;
       }
 
       // ── 6. Document & Certification Expiration Audit ───────────────────
@@ -1362,6 +1363,7 @@ export default function SmartProfiling({
       let classification: 'Recommended' | 'For Further Review' | 'For Consideration' | 'Not Recommended';
       const failureReasons: string[] = [];
       let considerationReason: string | undefined = undefined;
+      let considerationDetails: ConsiderationDetails | undefined = undefined;
 
       // Step 1: Determine score-based classification first using dynamic thresholds
       if (readinessScore >= categoryThresholds.recommended) {
@@ -1403,20 +1405,71 @@ export default function SmartProfiling({
             String(medicalStatus?.status || '').toLowerCase().includes('pending') ||
             String(medicalStatus?.status || '').toLowerCase().includes('referral');
           const isEligibleScoreWithTrade = readinessScore >= 50 && readinessScore < categoryThresholds.furtherReview && hasTradeBackground;
+          const scoreGapToFurtherReview = Math.max(0, categoryThresholds.furtherReview - readinessScore);
 
           if (hasAuthorizedRetake) {
             classification = 'For Consideration';
-            considerationReason = 'Exam retake authorized; eligible for endorsement once the re-test is completed.';
+            considerationReason = 'Needs an assessment retake; candidate has authorized re-test pending.';
+            considerationDetails = {
+              type: 'retake_authorized',
+              fallShortCause: 'Needs an assessment retake',
+              requiredRemedy: 'Complete authorized assessment re-test with passing score',
+              shortReason: 'Needs assessment retake',
+              whyNotFurtherReview: 'Candidate scored below passing marks on one or more mandatory assessment modules, preventing automatic progression to For Further Review.',
+              whyForConsideration: 'An official exam retake was authorized by the assessor/administrator. Candidate is retained in consideration rather than disqualified.',
+              scoreGap: scoreGapToFurtherReview,
+              furtherReviewThreshold: categoryThresholds.furtherReview,
+              actionableNote: 'Candidate will become eligible for For Further Review and endorsement once the retake is completed and passing marks are achieved.',
+            };
           } else if (hasRenewableExpiredDoc && hasTradeBackground) {
             classification = 'For Consideration';
             const docNames = expiredDocs.map((d) => d.name).slice(0, 2).join(', ');
-            considerationReason = `Candidate has good job experience; waiting for document renewal (${docNames}).`;
+            considerationReason = `Needs expired document renewed (${docNames}); candidate has verified trade experience.`;
+            considerationDetails = {
+              type: 'expired_document',
+              fallShortCause: `Needs expired document renewed (${docNames})`,
+              requiredRemedy: `Submit renewed and verified copy of ${docNames}`,
+              shortReason: `Needs expired document renewed (${docNames})`,
+              whyNotFurtherReview: `Candidate cannot advance to Further Review because statutory document (${docNames}) has expired and requires renewal.`,
+              whyForConsideration: `Candidate has strong practical trade background (${jobRelatedExperienceYears > 0 ? `${jobRelatedExperienceYears} yrs in-role` : 'verified skills'}) and is not disqualified. Preserved for consideration while renewal is in process.`,
+              scoreGap: scoreGapToFurtherReview,
+              furtherReviewThreshold: categoryThresholds.furtherReview,
+              actionableNote: `Once the renewed copy of ${docNames} is submitted and verified, candidate can proceed directly to endorsement.`,
+            };
           } else if (hasMedicalInProgress && hasTradeBackground) {
             classification = 'For Consideration';
-            considerationReason = 'Candidate has good job experience; medical clearance is currently in progress.';
+            considerationReason = 'Needs medical clearance completed; candidate has verified trade experience.';
+            considerationDetails = {
+              type: 'medical_in_progress',
+              fallShortCause: 'Needs medical clearance completed',
+              requiredRemedy: 'Obtain final Fit-to-Work medical clearance from an authorized medical facility',
+              shortReason: 'Needs medical clearance',
+              whyNotFurtherReview: 'Fit-to-work clearance is currently pending clinic evaluation or hospital referral.',
+              whyForConsideration: `Candidate has strong trade qualifications (${jobRelatedExperienceYears > 0 ? `${jobRelatedExperienceYears} yrs in-role` : 'verified skills'}) and no permanent medical disqualification.`,
+              scoreGap: scoreGapToFurtherReview,
+              furtherReviewThreshold: categoryThresholds.furtherReview,
+              actionableNote: 'Candidate will be cleared for Further Review and endorsement once the clinic issues the Fit-to-Work certificate.',
+            };
           } else if (isEligibleScoreWithTrade) {
             classification = 'For Consideration';
-            considerationReason = 'Candidate has good job experience; waiting for exam retake or updated clearance.';
+            const expDesc = jobRelatedExperienceYears > 0 ? `${jobRelatedExperienceYears} yrs in-role trade experience` : 'proven trade background';
+            const lacksCerts = certScore === 0 || certScore < maxCertWeight;
+            const coachingCause = lacksCerts
+              ? 'Needs basic skills coaching or certification renewal'
+              : 'Needs basic skills coaching';
+
+            considerationReason = `${coachingCause} (Score gap: -${scoreGapToFurtherReview}% below ${categoryThresholds.furtherReview}% cutoff); preserved due to ${expDesc}.`;
+            considerationDetails = {
+              type: 'score_tier',
+              fallShortCause: coachingCause,
+              requiredRemedy: `Basic skills coaching, trade certification bridge, or managerial interview waiver (Score gap: -${scoreGapToFurtherReview}%)`,
+              shortReason: `${coachingCause} (-${scoreGapToFurtherReview}% gap)`,
+              whyNotFurtherReview: `Match score of ${readinessScore}% is below the ${categoryThresholds.furtherReview}% benchmark required for "For Further Review" (gap of ${scoreGapToFurtherReview}%).`,
+              whyForConsideration: `Rather than being rejected ("Not Recommended"), candidate was elevated to "For Consideration" because they possess ${jobRelatedExperienceYears > 0 ? `${jobRelatedExperienceYears} years of verified in-role experience` : 'matching trade skills and practical capability'}${allGatesPass ? ' and passed all required assessment exams' : ''}.`,
+              scoreGap: scoreGapToFurtherReview,
+              furtherReviewThreshold: categoryThresholds.furtherReview,
+              actionableNote: `Candidate has solid on-site trade competence. The score gap (${scoreGapToFurtherReview}%) stems from non-trade criteria (such as specialized certificates or overseas history). Recruiter or principal may review for interview or managerial endorsement.`,
+            };
           }
         }
       }
@@ -1519,6 +1572,7 @@ export default function SmartProfiling({
         totalExperienceYears,
         jobRelatedExperienceYears,
         considerationReason,
+        considerationDetails,
         certificationsCount: appCertsRaw.length,
         techScore,
         iqScore,
@@ -2173,7 +2227,7 @@ export default function SmartProfiling({
         ? 'FOR FURTHER REVIEW'
         : candidate.classification === 'For Consideration'
         ? 'FOR CONSIDERATION'
-        : 'NOT RECOMMENDED';
+        : 'REQUIRES ADDITIONAL QUALIFICATIONS';
       doc.text(`JOB-FIT READINESS SCORE: ${candidate.readinessScore}% (${classText})`, margin + 4, y + 4.8);
 
       const statutorySummaryText = candidate.compliancePassed ? 'STATUTORY: PASSED (ALL CLEAR)' : 'STATUTORY: ACTION REQUIRED';
@@ -2537,7 +2591,7 @@ export default function SmartProfiling({
                       *Readiness scores calculated dynamically based on target job order requirements and verified candidate profiles.
                     </p>
                     <p className="text-slate-300 mt-1.5 text-[11px]">
-                      Classification: Recommended (&ge;{scoringRules.thresholds.recommended}%), For Further Review ({scoringRules.thresholds.furtherReview}%&ndash;{scoringRules.thresholds.recommended - 1}%), For Consideration (50%&ndash;{scoringRules.thresholds.furtherReview - 1}% or pending clearance/retake), Not Recommended (&lt;50% or unqualified).
+                      Classification: Recommended (&ge;{scoringRules.thresholds.recommended}%), For Further Review ({scoringRules.thresholds.furtherReview}%&ndash;{scoringRules.thresholds.recommended - 1}%), For Consideration (50%&ndash;{scoringRules.thresholds.furtherReview - 1}% or pending clearance/retake), Requires Additional Qualifications (&lt;50% or unqualified).
                     </p>
                     {incompleteCandidates.length > 0 && (
                       <p className="text-amber-400 mt-1.5 text-[11px]">
@@ -2571,7 +2625,7 @@ export default function SmartProfiling({
                 <strong className="font-black text-sky-950">{forConsiderationCount}</strong>
               </span>
               <span className="bg-rose-50 text-rose-800 px-3 py-1.5 rounded-lg border border-rose-200 shadow-xs flex items-center gap-1.5">
-                <span className="text-rose-700 font-medium">Not Recommended:</span>
+                <span className="text-rose-700 font-medium">Requires Add&apos;l Qualifications:</span>
                 <strong className="font-black text-rose-950">{notRecommendedCount}</strong>
               </span>
             </div>
@@ -2922,27 +2976,55 @@ export default function SmartProfiling({
                           </span>
                         )}
                         {candidate.classification === 'For Consideration' && (
-                          <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#0284C7] text-white shadow-sm" title={candidate.considerationReason || 'For Consideration'}>
-                            For Consideration
-                          </span>
+                          <div className="flex flex-col items-center gap-1 max-w-[155px] mx-auto">
+                            <span
+                              className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#0284C7] text-white shadow-sm"
+                              title={candidate.considerationReason || 'For Consideration'}
+                            >
+                              For Consideration
+                            </span>
+                            <span
+                              className="text-[10px] text-sky-800 font-semibold leading-tight text-center bg-sky-50 border border-sky-200/80 rounded px-1.5 py-0.5"
+                              title={candidate.considerationReason || 'Candidate retained in consideration'}
+                            >
+                              {candidate.considerationDetails?.shortReason || candidate.considerationReason || 'Trade-qualified (score gap)'}
+                            </span>
+                          </div>
                         )}
                         {candidate.classification === 'Not Recommended' && (
-                          <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-[#EF4444] text-white shadow-sm">
-                            Not Recommended
+                          <span
+                            className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#EF4444] text-white shadow-sm text-center leading-tight max-w-[155px]"
+                            title="Candidate readiness score is below baseline criteria for this job order; requires additional qualifications or experience."
+                          >
+                            Requires Add&apos;l Qualifications
                           </span>
                         )}
                       </td>
 
-                      {/* 5. Total vs Job-Related Experience (Item 6) */}
+                      {/* 5. Total vs Job-Related Experience */}
                       <td className="py-4 px-3 text-center align-middle font-semibold text-slate-700">
                         {candidate.isFirstTimeApplicant ? (
-                          <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            First-Time
-                          </span>
+                          <div className="text-center">
+                            <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 block max-w-fit mx-auto">
+                              First-Time
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-normal block mt-0.5">
+                              0 yrs total
+                            </span>
+                          </div>
+                        ) : candidate.jobRelatedExperienceYears > 0 ? (
+                          <div className="text-center">
+                            <span className="text-xs font-bold text-sky-950 block">
+                              {candidate.jobRelatedExperienceYears} yrs <span className="text-[10px] text-sky-700 font-bold">(in role)</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {candidate.totalExperienceYears} yrs total
+                            </span>
+                          </div>
                         ) : (
                           <div className="text-center">
-                            <span className="text-xs font-bold text-slate-900 block">
-                              {candidate.jobRelatedExperienceYears} yrs <span className="text-[10px] text-sky-700 font-semibold">(related)</span>
+                            <span className="text-xs font-bold text-slate-600 block">
+                              Other industry
                             </span>
                             <span className="text-[10px] text-slate-400 font-normal">
                               {candidate.totalExperienceYears} yrs total
@@ -3338,7 +3420,9 @@ export default function SmartProfiling({
                         : 'bg-[#EF4444] text-white'
                     }`}
                   >
-                    {activeModalCandidate.classification}
+                    {activeModalCandidate.classification === 'Not Recommended'
+                      ? 'Requires Additional Qualifications'
+                      : activeModalCandidate.classification}
                   </span>
                   <span className="text-xs text-slate-500">
                     {activeModalCandidate.classification === 'For Consideration' && (
@@ -3352,11 +3436,94 @@ export default function SmartProfiling({
                         {activeModalCandidate.hasRecordedAssessments && !activeModalCandidate.allGatesPass && 'Exam clearance blocked: candidate failed one or more mandatory examination gates.'}
                         {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Recommended' && `Exceeds ${scoringRules.thresholds.recommended}% readiness threshold and passed all examination checks.`}
                         {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'For Further Review' && `Meets ${scoringRules.thresholds.furtherReview}%–${scoringRules.thresholds.recommended - 1}% readiness threshold for recruiter review.`}
-                        {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && `Below ${scoringRules.thresholds.furtherReview}% readiness threshold for this position.`}
+                        {activeModalCandidate.hasRecordedAssessments && activeModalCandidate.allGatesPass && activeModalCandidate.classification === 'Not Recommended' && `Below ${scoringRules.thresholds.furtherReview}% readiness threshold; candidate requires additional qualifications or experience for this position.`}
                       </>
                     )}
                   </span>
                 </div>
+
+                {/* Dedicated Panelist / Professor Rationale Card for "For Consideration" */}
+                {activeModalCandidate.classification === 'For Consideration' && (
+                  <div className="mb-4 p-3.5 bg-gradient-to-br from-sky-50 via-white to-sky-50/60 border border-sky-200 rounded-xl space-y-2.5 shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-[#0284C7] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                        ?
+                      </div>
+                      <h4 className="text-xs font-extrabold uppercase tracking-wide text-sky-950">
+                        Classification Rationale: Why &quot;For Consideration&quot; instead of &quot;For Further Review&quot;?
+                      </h4>
+                    </div>
+
+                    {/* Primary Cause of Falling Short & Required Remedy */}
+                    {activeModalCandidate.considerationDetails?.fallShortCause && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded font-extrabold text-[10px] uppercase tracking-wider bg-amber-600 text-white shrink-0">
+                            Cause of Fall Short
+                          </span>
+                          <span className="font-bold text-amber-950">
+                            {activeModalCandidate.considerationDetails.fallShortCause}
+                          </span>
+                        </div>
+                        {activeModalCandidate.considerationDetails.requiredRemedy && (
+                          <span className="text-[11px] text-amber-900 font-medium">
+                            <strong className="text-amber-950">Remedy:</strong> {activeModalCandidate.considerationDetails.requiredRemedy}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {/* Box 1: Why not Further Review */}
+                      <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-lg flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5 text-amber-900 font-bold text-[11px] uppercase tracking-wider mb-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                            Why Not &quot;For Further Review&quot;?
+                          </div>
+                          <p className="text-slate-700 leading-relaxed text-[11.5px]">
+                            {activeModalCandidate.considerationDetails?.whyNotFurtherReview ||
+                              `Readiness score (${activeModalCandidate.readinessScore}%) is below the ${scoringRules.thresholds.furtherReview}% Further Review threshold (requires at least ${scoringRules.thresholds.furtherReview}%).`}
+                          </p>
+                        </div>
+                        {activeModalCandidate.readinessScore < scoringRules.thresholds.furtherReview && (
+                          <div className="mt-2 pt-2 border-t border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900 font-semibold">
+                            <span>Candidate Score: <strong>{activeModalCandidate.readinessScore}%</strong></span>
+                            <span>Cutoff: <strong>{scoringRules.thresholds.furtherReview}%</strong></span>
+                            <span className="text-rose-600 font-bold">Gap: -{Math.max(0, scoringRules.thresholds.furtherReview - activeModalCandidate.readinessScore)}%</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Box 2: Why For Consideration */}
+                      <div className="p-3 bg-sky-50/70 border border-sky-200/80 rounded-lg flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5 text-sky-900 font-bold text-[11px] uppercase tracking-wider mb-1">
+                            <span className="w-2 h-2 rounded-full bg-[#0284C7] inline-block"></span>
+                            Why Elevated to &quot;For Consideration&quot;?
+                          </div>
+                          <p className="text-slate-700 leading-relaxed text-[11.5px]">
+                            {activeModalCandidate.considerationDetails?.whyForConsideration ||
+                              `Candidate has verified trade experience (${activeModalCandidate.jobRelatedExperienceYears > 0 ? `${activeModalCandidate.jobRelatedExperienceYears} yrs in-role` : 'matching skills'}) and passed required examinations, preserving them from outright rejection ("Not Recommended").`}
+                          </p>
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-sky-200/60 text-[11px] text-sky-900 font-semibold flex items-center justify-between">
+                          <span>In-Role Experience: <strong>{activeModalCandidate.jobRelatedExperienceYears} yrs</strong></span>
+                          <span>Passed Exams: <strong>{activeModalCandidate.activeTestResults?.filter((t: any) => t.passed).length || 0} passed</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Recruiter / Assessor Action Guidance */}
+                    <div className="p-2.5 bg-white border border-sky-100 rounded-lg text-[11px] text-slate-600 leading-relaxed">
+                      <strong className="text-slate-800 font-bold uppercase tracking-wider text-[10px] block mb-0.5">
+                        Recruiter &amp; Assessor Action:
+                      </strong>
+                      {activeModalCandidate.considerationDetails?.actionableNote ||
+                        'This candidate possesses strong practical capability for the job position. They may be endorsed under managerial review or targeted for bridging optional gaps.'}
+                    </div>
+                  </div>
+                )}
 
                 {/* 5-Category Granular Readiness Breakdown */}
                 <div className="pt-3 border-t border-slate-200/70 space-y-2">
@@ -3606,8 +3773,9 @@ export default function SmartProfiling({
                           <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Scoring Criteria (Max {scoringRules.weights.overseas} pts):</p>
                           <ul className="text-slate-600 list-disc list-inside mt-0.5 space-y-0.5">
                             <li><strong className="text-slate-800">{scoringRules.weights.overseas} pts:</strong> Verified prior overseas work experience in target destination country</li>
-                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.7)} pts:</strong> Prior overseas work experience in other countries (or first-time applicant neutral baseline)</li>
-                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.3)} pts:</strong> Domestic Philippine work experience only</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.8)} pts:</strong> Prior overseas work experience in other foreign countries</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.7)} pts:</strong> First-time OFW with domestic Philippine work experience</li>
+                            <li><strong className="text-slate-800">{Math.round(scoringRules.weights.overseas * 0.4)} pts:</strong> First-time applicant without prior work experience (clean baseline)</li>
                             <li><strong className="text-slate-800">0 pts:</strong> No recorded work history</li>
                           </ul>
                         </div>
@@ -3965,7 +4133,7 @@ export default function SmartProfiling({
                     title="Candidate readiness score is below recommendation threshold. Address identified gaps or update qualifications before endorsing."
                   >
                     <AlertCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-                    <span>Not Ready for CV Encoding ({activeModalCandidate.readinessScore}% Match)</span>
+                    <span>Requires Additional Qualifications ({activeModalCandidate.readinessScore}% Match)</span>
                   </div>
                 ) : !activeModalCandidate.compliancePassed || activeModalCandidate.expiredDocs.length > 0 ? (
                   <button
@@ -4265,6 +4433,16 @@ export default function SmartProfiling({
                           <span className="text-amber-600 font-bold">•</span>
                           <span><strong>Primary Consideration:</strong> {candidateToEndorse.considerationReason}</span>
                         </p>
+                      )}
+                      {candidateToEndorse.considerationDetails && (
+                        <div className="mt-1.5 pt-1.5 border-t border-amber-200/60 text-[11px] space-y-1 bg-amber-50/50 p-2 rounded">
+                          <p className="text-amber-950">
+                            <strong>Why Not &quot;For Further Review&quot;:</strong> {candidateToEndorse.considerationDetails.whyNotFurtherReview}
+                          </p>
+                          <p className="text-sky-950">
+                            <strong>Why &quot;For Consideration&quot;:</strong> {candidateToEndorse.considerationDetails.whyForConsideration}
+                          </p>
+                        </div>
                       )}
                       {candidateToEndorse.gaps && candidateToEndorse.gaps.length > 0 ? (
                         candidateToEndorse.gaps.map((gap, idx) => (

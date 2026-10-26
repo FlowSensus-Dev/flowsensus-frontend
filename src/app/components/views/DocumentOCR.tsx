@@ -4,7 +4,7 @@ import {
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
   Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle, Info,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
-  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck
+  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck, FilePlus
 } from 'lucide-react';
 import { ApplicantRecord, WorkflowState, ActivityLog, ApplicationForecastResponse } from '../../types';
 import { api } from '../../../lib/api';
@@ -340,6 +340,13 @@ export default function DocumentOCR({
   const [returnTargetKey, setReturnTargetKey] = useState<string>('endorsement_tracker');
   const [returnReason, setReturnReason] = useState<string>('');
   const [isReturning, setIsReturning] = useState(false);
+
+  // ── Document Renewal Modal State ──────────────────────────────────────────
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewFile, setRenewFile] = useState<File | null>(null);
+  const [renewExpiryDate, setRenewExpiryDate] = useState('');
+  const [renewReason, setRenewReason] = useState('');
+  const [isRenewing, setIsRenewing] = useState(false);
 
   // ── Forecasting & Deployment State ────────────────────────────────────────
   const [forecastData, setForecastData] = useState<ApplicationForecastResponse | null>(null);
@@ -1476,6 +1483,48 @@ export default function DocumentOCR({
       showToast(`Failed to remove file: ${err.response?.data?.detail || err.message}`);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // ── Document Renewal Handler ─────────────────────────────────────────────
+  const handleRenewDocument = async () => {
+    if (!renewFile || !selectedReq || !modalApplicant) return;
+    setIsRenewing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', renewFile);
+
+      const params: Record<string, any> = {
+        applicant_id: modalApplicant.id,
+        requirement_id: selectedReq.requirement_id,
+      };
+      if (renewReason.trim()) params.renewal_reason = renewReason.trim();
+      if (renewExpiryDate) params.expiration_date = renewExpiryDate;
+
+      await api.post(`/documents/${selectedReq.applicant_req_id}/renew`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params,
+      });
+
+      showToast('Document renewed successfully. A new requirement record has been created.');
+      setShowRenewModal(false);
+      setRenewFile(null);
+      setRenewExpiryDate('');
+      setRenewReason('');
+      await loadRequirements(String(modalApplicant.id), modalApplicant);
+
+      addActivityLog({
+        applicantId: String(modalApplicant.id),
+        action: 'Document Renewed',
+        performedBy: currentUserName,
+        department: 'Admin',
+        details: `Renewed ${selectedReq.requirement.requirement_name} — new record created, old record archived.`,
+      });
+    } catch (err: any) {
+      const errMsg = err.response?.data?.detail || err.message || 'Renewal failed';
+      showToast(`Renewal failed: ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`);
+    } finally {
+      setIsRenewing(false);
     }
   };
 
@@ -2902,9 +2951,9 @@ export default function DocumentOCR({
                                 <Sparkles className="w-4 h-4 text-[#0EA5E9]" />
                                 <span>AI OCR Assistant</span>
                               </h4>
-                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                              <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                ⚡ Powered by Google Gemini Vision AI
+                                Powered by Google Gemini Vision OCR
                               </span>
                             </div>
 
@@ -3107,26 +3156,48 @@ export default function DocumentOCR({
                         </div>
 
                         {/* Approve / Reject Actions */}
-                        <div className="flex gap-2 pt-4 border-t border-slate-100">
-                          <button
-                            type="button"
-                            onClick={() => handleVerifyDecision('VERIFIED')}
-                            disabled={isProcessing}
-                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                          >
-                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                            <span>Approve & Verify</span>
-                          </button>
+                        <div className="space-y-2 pt-4 border-t border-slate-100">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyDecision('VERIFIED')}
+                              disabled={isProcessing}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                              <span>Approve & Verify</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleVerifyDecision('REJECTED')}
-                            disabled={isProcessing}
-                            className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                          >
-                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                            <span>Reject Document</span>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyDecision('REJECTED')}
+                              disabled={isProcessing}
+                              className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                              <span>Reject Document</span>
+                            </button>
+                          </div>
+
+                          {/* Renew Document (Replace with New Record per Data Integrity) */}
+                          {(['VERIFIED', 'EXPIRED'].includes((selectedReq.status || '').toUpperCase()) ||
+                            ['verified', 'expired'].includes((selectedReq.ocr_validation_status || '').toLowerCase())) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRenewFile(null);
+                                setRenewExpiryDate(selectedReq.expiration_date || '');
+                                setRenewReason('');
+                                setShowRenewModal(true);
+                              }}
+                              disabled={isProcessing}
+                              className="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold py-2 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                              title="Renew document by uploading a fresh replacement record without altering historical audit logs"
+                            >
+                              <FilePlus className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Renew Document (Replace with New Record)</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3203,6 +3274,114 @@ export default function DocumentOCR({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Document Renewal Modal ── */}
+      {showRenewModal && selectedReq && modalApplicant && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-amber-200 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                  <FilePlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Renew Document</h3>
+                  <p className="text-[11px] text-slate-500">{selectedReq.requirement.requirement_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRenewModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* Integrity notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-800 leading-relaxed">
+                <p className="font-extrabold flex items-center gap-1.5 mb-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  Data Integrity Guarantee
+                </p>
+                <p>The old document record will be <strong>archived</strong> (not deleted) and a brand-new record will be created for this renewal. Both are permanently traceable in the audit log.</p>
+              </div>
+
+              {/* File picker */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Upload New Document <span className="text-rose-600">*</span>
+                </label>
+                <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl p-4 cursor-pointer transition-colors group">
+                  <Upload className="w-4 h-4 text-slate-400 group-hover:text-amber-500" />
+                  <span className="text-xs font-semibold text-slate-600 group-hover:text-amber-700">
+                    {renewFile ? renewFile.name : 'Click to select file (image or PDF)'}
+                  </span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,application/pdf"
+                    onChange={e => setRenewFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+
+              {/* New expiry date */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  New Expiration Date
+                </label>
+                <input
+                  type="date"
+                  value={renewExpiryDate}
+                  onChange={e => setRenewExpiryDate(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono"
+                />
+              </div>
+
+              {/* Renewal reason */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Renewal Reason / Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Annual certification renewed, PRC license re-taken..."
+                  value={renewReason}
+                  onChange={e => setRenewReason(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowRenewModal(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRenewDocument}
+                disabled={!renewFile || isRenewing}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-2.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isRenewing ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Renewing...</span></>
+                ) : (
+                  <><FilePlus className="w-3.5 h-3.5" /><span>Confirm Renewal</span></>
+                )}
+              </button>
             </div>
           </div>
         </div>

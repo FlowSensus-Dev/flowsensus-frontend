@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ClipboardList, Clock, CheckCircle2, XCircle, AlertTriangle,
-  ArrowRight, ChevronLeft, ChevronRight, Loader2, BookOpen, Zap, FileText,
+  ArrowRight, ChevronLeft, ChevronRight, Loader2, BookOpen, ClipboardCheck, FileText,
   RotateCcw, Eye, Home, BookmarkCheck, LayoutGrid, Check, ArrowLeft, X, Save,
   CheckCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -48,6 +48,8 @@ interface ExamCard {
   latest_attempt_id?: number;
   latest_percentage?: number;
   latest_is_passing?: boolean;
+  evaluation_template_id?: number | null;
+  evaluation_title?: string | null;
 }
 
 interface StartExamData {
@@ -60,6 +62,8 @@ interface StartExamData {
   time_limit_mins?: number;
   started_at: string;
   questions: ExamQuestion[];
+  evaluation_template_id?: number | null;
+  evaluation_title?: string | null;
 }
 
 interface ReviewAnswer {
@@ -73,6 +77,7 @@ interface ReviewAnswer {
 
 interface ExamResult {
   attempt_id: number;
+  title?: string;
   percentage?: number;
   raw_score?: number;
   max_score?: number;
@@ -80,6 +85,8 @@ interface ExamResult {
   time_expired: boolean;
   allow_review: boolean;
   review_answers?: ReviewAnswer[];
+  evaluation_template_id?: number | null;
+  evaluation_title?: string | null;
 }
 
 interface Props {
@@ -172,7 +179,18 @@ function MyExamsDashboard({
                     <ClipboardList size={20} className="text-sky-600" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold text-slate-900 text-sm sm:text-base leading-snug">{exam.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-slate-900 text-sm sm:text-base leading-snug">{exam.title}</p>
+                      {exam.evaluation_title && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-0.5"
+                          title={`Linked screening requirement: ${exam.evaluation_title}`}
+                        >
+                          <ClipboardCheck size={12} className="text-purple-600 shrink-0" />
+                          Screening: {exam.evaluation_title}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {exam.category && <span className="text-xs text-slate-400 font-medium">{exam.category}</span>}
                       {exam.time_limit_mins ? (
@@ -184,12 +202,17 @@ function MyExamsDashboard({
                           Untimed
                         </span>
                       )}
-                      {exam.retake_allowed && exam.status === 'completed' && (
-                        <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-                          <RotateCcw size={11} /> Retake Granted
+                      {exam.retake_allowed && (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2.5 py-0.5 flex items-center gap-1 shadow-2xs">
+                          <RotateCcw size={11} className="text-amber-600 animate-spin" /> Retake In Progress
                         </span>
                       )}
-                      <StatusBadge status={exam.status === 'completed' && exam.retake_allowed ? 'pending' : exam.status} />
+                      {exam.retake_allowed && exam.latest_percentage !== undefined && exam.latest_percentage !== null && (
+                        <span className="text-xs text-slate-500 font-medium">
+                          (Previous attempt: {exam.latest_percentage.toFixed(1)}%)
+                        </span>
+                      )}
+                      <StatusBadge status={exam.status} />
                     </div>
                     {exam.due_date && (
                       <p className="text-xs text-slate-400 mt-1">
@@ -202,7 +225,7 @@ function MyExamsDashboard({
                   onClick={() => onStart(exam.assignment_id)}
                   className="sm:self-center flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer shrink-0"
                 >
-                  {exam.status === 'in_progress' ? 'Continue Test' : exam.retake_allowed ? 'Retake Test' : 'Take Test'}
+                  {exam.status === 'in_progress' ? (exam.retake_allowed ? 'Continue Retake' : 'Continue Test') : exam.retake_allowed ? 'Start Retake' : 'Take Test'}
                   <ArrowRight size={14} />
                 </button>
               </div>
@@ -214,27 +237,66 @@ function MyExamsDashboard({
       {completed.length > 0 && (
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">Completed Assessments</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-3">
             {completed.map(exam => (
-              <div key={exam.assignment_id}
-                className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-3 shadow-2xs hover:border-slate-300 transition-all"
+              <div
+                key={exam.assignment_id}
+                className="w-full bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-4 sm:p-5 shadow-2xs hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${exam.latest_is_passing ? 'bg-emerald-50 border-emerald-200' : exam.latest_is_passing === false ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-                    {exam.latest_is_passing ? <CheckCircle2 size={16} className="text-emerald-600" /> :
-                      exam.latest_is_passing === false ? <XCircle size={16} className="text-red-500" /> :
-                        <ClipboardList size={16} className="text-slate-400" />}
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center border shrink-0 shadow-2xs ${
+                      exam.latest_is_passing
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                        : exam.latest_is_passing === false
+                        ? 'bg-rose-50 border-rose-200 text-rose-500'
+                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                    }`}
+                  >
+                    {exam.latest_is_passing ? (
+                      <CheckCircle2 size={20} className="text-emerald-600" />
+                    ) : exam.latest_is_passing === false ? (
+                      <XCircle size={20} className="text-rose-500" />
+                    ) : (
+                      <ClipboardList size={20} className="text-slate-400" />
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 text-sm truncate">{exam.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {exam.latest_percentage !== undefined && exam.latest_percentage !== null && (
-                        <span className="text-xs font-bold text-slate-600">{exam.latest_percentage.toFixed(1)}%</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-slate-900 text-sm sm:text-base leading-snug">
+                        {exam.title}
+                      </p>
+                      {exam.evaluation_title && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-0.5"
+                          title={`Linked screening requirement: ${exam.evaluation_title}`}
+                        >
+                          <ClipboardCheck size={12} className="text-purple-600 shrink-0" />
+                          Screening: {exam.evaluation_title}
+                        </span>
                       )}
-                      {exam.latest_is_passing !== null && exam.latest_is_passing !== undefined && (
-                        exam.latest_is_passing
-                          ? <span className="text-xs font-bold text-emerald-600">PASSED</span>
-                          : <span className="text-xs font-bold text-red-500">DID NOT PASS</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {exam.category && (
+                        <span className="text-xs text-slate-400 font-medium">
+                          {exam.category}
+                        </span>
+                      )}
+                      {exam.latest_percentage !== undefined && exam.latest_percentage !== null && (
+                        <span
+                          className={`inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-0.5 rounded-full border ${
+                            exam.latest_is_passing
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}
+                        >
+                          {exam.latest_percentage.toFixed(1)}% — {exam.latest_is_passing ? 'PASSED BENCHMARK' : 'DID NOT PASS'}
+                        </span>
+                      )}
+                      {exam.retake_allowed && (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 inline-flex items-center gap-1">
+                          <RotateCcw size={11} /> Retake Available
+                        </span>
                       )}
                     </div>
                   </div>
@@ -242,9 +304,10 @@ function MyExamsDashboard({
                 {exam.latest_attempt_id && (
                   <button
                     onClick={() => onViewResult(exam.latest_attempt_id!)}
-                    className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#0EA5E9] bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                    className="shrink-0 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold text-slate-700 hover:text-sky-700 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl transition-all cursor-pointer shadow-2xs"
                   >
-                    <Eye size={13} /> View Result
+                    <Eye size={15} />
+                    <span>View Result</span>
                   </button>
                 )}
               </div>
@@ -534,8 +597,8 @@ function ExamTaker({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 md:p-6 animate-in fade-in duration-150">
-      <div className="bg-white sm:rounded-2xl lg:rounded-3xl shadow-2xl w-full max-w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl h-[100dvh] sm:h-[94vh] lg:h-[90vh] flex flex-col overflow-hidden border-0 sm:border border-slate-200">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in fade-in duration-150">
+      <div className="bg-white w-full h-full flex flex-col overflow-hidden">
         {/* ── TOP HEADER (Save & Exit, Title, Mode, Timer) ── */}
         <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 shrink-0 flex items-center justify-between gap-2 sm:gap-3 shadow-2xs">
           {/* Left: Save & Exit button */}
@@ -550,10 +613,16 @@ function ExamTaker({
           </button>
 
           {/* Center: Title, Question Navigator Trigger & View Switcher */}
-          <div className="text-center min-w-0 flex-1 max-w-[170px] xs:max-w-[220px] sm:max-w-md md:max-w-lg">
+          <div className="text-center min-w-0 flex-1 max-w-[200px] xs:max-w-[260px] sm:max-w-md md:max-w-lg">
             <h3 className="font-bold text-xs sm:text-sm md:text-base text-slate-900 truncate">
               {examData.title}
             </h3>
+            {examData.evaluation_title && (
+              <div className="flex items-center justify-center gap-1 text-[11px] text-purple-700 font-semibold truncate mt-0.5">
+                <ClipboardCheck size={12} className="text-purple-600 shrink-0" />
+                <span className="truncate">Requirement: {examData.evaluation_title}</span>
+              </div>
+            )}
             <div className="flex items-center justify-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
               {/* Question Navigator Trigger */}
               <button
@@ -683,10 +752,10 @@ function ExamTaker({
                     </span>
                   </div>
 
-                  {/* Description / notes if available */}
+                  {/* Description / instructions if available */}
                   {examData.description && (
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-700 leading-relaxed">
-                      <span className="font-semibold text-slate-900 block mb-0.5">Note:</span>
+                      <span className="font-semibold text-slate-900 block mb-0.5">Instructions:</span>
                       {examData.description}
                     </div>
                   )}
@@ -1190,6 +1259,17 @@ function ResultScreen({
     <div className="space-y-6 py-4">
       {/* Score card */}
       <div className={`bg-white border rounded-2xl p-8 text-center shadow-2xs ${passing === true ? 'border-emerald-200' : passing === false ? 'border-red-200' : 'border-slate-200'}`}>
+        {result.title && (
+          <h3 className="font-bold text-base sm:text-lg text-slate-900 mb-1">
+            {result.title}
+          </h3>
+        )}
+        {result.evaluation_title && (
+          <div className="inline-flex items-center gap-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-3 py-1 mb-4 font-semibold">
+            <ClipboardCheck size={13} className="text-purple-600 shrink-0" />
+            <span>Screening Requirement: {result.evaluation_title}</span>
+          </div>
+        )}
         {result.time_expired && (
           <div className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold rounded-full px-3 py-1 mb-4">
             <Clock size={11} /> Auto-submitted — time expired

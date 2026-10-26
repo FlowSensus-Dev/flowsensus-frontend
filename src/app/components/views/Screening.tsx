@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import api from '../../../lib/api';
-import ScreeningExamPreview from './ScreeningExamPreview';
+import { ExamReviewModal, DigitalExamSummaryItem } from './ScreeningExamPreview';
 import { jsPDF } from 'jspdf';
 import {
   Microscope,
   FileCheck2,
   ClipboardCheck,
   OctagonX,
+  XCircle,
   X,
   ArrowLeft,
   Briefcase,
@@ -45,6 +46,10 @@ import {
   UserPlus,
   Users,
   Lock,
+  BookOpen,
+  Eye,
+  Play,
+  Link2,
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord, EvaluationTest, DynamicTestScore, TestScores } from '../../types';
 
@@ -63,13 +68,14 @@ interface ScreeningProps {
 }
 
 const TEST_TYPE_THEMES: Record<string, { label: string; bg: string; border: string; text: string; bar: string; icon: any }> = {
-  skills: { label: 'Skills / Aptitude', bg: 'bg-[#F59E0B]/5', border: 'border-[#F59E0B]/20', text: 'text-[#F59E0B]', bar: 'bg-[#F59E0B]', icon: Wrench },
+  general: { label: 'General Knowledge', bg: 'bg-[#0284C7]/5', border: 'border-[#0284C7]/20', text: 'text-[#0284C7]', bar: 'bg-[#0284C7]', icon: BookOpen },
+  skills: { label: 'Trade & Technical Skills', bg: 'bg-[#F59E0B]/5', border: 'border-[#F59E0B]/20', text: 'text-[#F59E0B]', bar: 'bg-[#F59E0B]', icon: Wrench },
   language: { label: 'Language Proficiency', bg: 'bg-[#10B981]/5', border: 'border-[#10B981]/20', text: 'text-[#10B981]', bar: 'bg-[#10B981]', icon: Languages },
-  eq: { label: 'EQ / Personality', bg: 'bg-[#EC4899]/5', border: 'border-[#EC4899]/20', text: 'text-[#EC4899]', bar: 'bg-[#EC4899]', icon: Heart },
+  eq: { label: 'Personality / EQ', bg: 'bg-[#EC4899]/5', border: 'border-[#EC4899]/20', text: 'text-[#EC4899]', bar: 'bg-[#EC4899]', icon: Heart },
   iq: { label: 'IQ / Aptitude', bg: 'bg-[#8B5CF6]/5', border: 'border-[#8B5CF6]/20', text: 'text-[#8B5CF6]', bar: 'bg-[#8B5CF6]', icon: Brain },
-  medical: { label: 'Medical Review', bg: 'bg-[#EF4444]/5', border: 'border-[#EF4444]/20', text: 'text-[#EF4444]', bar: 'bg-[#EF4444]', icon: Stethoscope },
+  medical: { label: 'Medical & Safety', bg: 'bg-[#EF4444]/5', border: 'border-[#EF4444]/20', text: 'text-[#EF4444]', bar: 'bg-[#EF4444]', icon: Stethoscope },
   interview: { label: 'Interview', bg: 'bg-[#0EA5E9]/5', border: 'border-[#0EA5E9]/20', text: 'text-[#0EA5E9]', bar: 'bg-[#0EA5E9]', icon: MessageSquare },
-  custom: { label: 'Custom Assessment', bg: 'bg-[#64748B]/5', border: 'border-[#64748B]/20', text: 'text-[#64748B]', bar: 'bg-[#64748B]', icon: Sliders },
+  custom: { label: 'Custom / Other', bg: 'bg-[#64748B]/5', border: 'border-[#64748B]/20', text: 'text-[#64748B]', bar: 'bg-[#64748B]', icon: Sliders },
 };
 
 // Fallback Standardized Passing Criteria
@@ -150,6 +156,8 @@ export default function Screening({
       applicableJobOrders: Array.isArray(t.applicable_job_orders)
         ? t.applicable_job_orders
         : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+      examMode: t.exam_mode || t.examMode || 'paper',
+      digitalExamTemplateId: t.digital_exam_template_id ?? t.digitalExamTemplateId ?? null,
     };
   };
 
@@ -254,7 +262,111 @@ export default function Screening({
   const [isSaving, setIsSaving] = useState(false);
   const [generatedReferralIds, setGeneratedReferralIds] = useState<Set<string>>(new Set());
 
-  // Synchronize dynamic scores whenever active applicant or active tests change
+  // ── Digital Exam integration state ──────────────────────────────────────────
+  const [examSummaries, setExamSummaries] = useState<DigitalExamSummaryItem[]>([]);
+  const [examSummariesApplicantId, setExamSummariesApplicantId] = useState<string | number | null>(null);
+  const [activeReviewAttemptId, setActiveReviewAttemptId] = useState<number | null>(null);
+  const [manualOverrideMap, setManualOverrideMap] = useState<Record<string, boolean>>({});
+  const [recorrectConfirmId, setRecorrectConfirmId] = useState<string | null>(null);
+  const [revokeRetakeTarget, setRevokeRetakeTarget] = useState<{ assignmentId: number; title: string } | null>(null);
+  const [isRevokingRetake, setIsRevokingRetake] = useState(false);
+
+  const handleConfirmRevokeRetake = async () => {
+    if (!revokeRetakeTarget) return;
+    setIsRevokingRetake(true);
+    try {
+      await api.patch(`/exam-module/assignments/${revokeRetakeTarget.assignmentId}/revoke-retake`);
+      showToast('Retake reverted. Candidate previous attempt has been restored.');
+      setRevokeRetakeTarget(null);
+      if (selectedApplicant?.id) {
+        const targetId = selectedApplicant.id;
+        api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+          .then(res => {
+            setExamSummaries(res.data || []);
+            setExamSummariesApplicantId(targetId);
+          });
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to revert retake.');
+    } finally {
+      setIsRevokingRetake(false);
+    }
+  };
+
+  useEffect(() => {
+    setExamSummaries([]);
+    setExamSummariesApplicantId(null);
+    setManualOverrideMap({});
+    setRecorrectConfirmId(null);
+    if (selectedApplicant?.id) {
+      const targetId = selectedApplicant.id;
+      api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+        .then(res => {
+          setExamSummaries(res.data || []);
+          setExamSummariesApplicantId(targetId);
+        })
+        .catch(() => {
+          setExamSummaries([]);
+          setExamSummariesApplicantId(targetId);
+        });
+    } else {
+      setExamSummaries([]);
+      setExamSummariesApplicantId(null);
+    }
+  }, [selectedApplicant?.id]);
+
+  const findLinkedExam = useCallback((test: EvaluationTest): DigitalExamSummaryItem | null => {
+    // Strictly isolate exam summaries: only link if data belongs to currently selected applicant
+    if (!examSummaries || examSummaries.length === 0 || String(examSummariesApplicantId) !== String(selectedApplicant?.id)) {
+      return null;
+    }
+    const testNumId = parseInt(test.id.replace('ev-', ''), 10);
+
+    // 1. Direct link: test has digitalExamTemplateId
+    if (test.digitalExamTemplateId) {
+      const match = examSummaries.find(e => e.template_id === test.digitalExamTemplateId);
+      if (match) return match;
+    }
+
+    // 2. Direct link: digital exam template has evaluation_template_id
+    const matchByEvalId = examSummaries.find(e =>
+      e.evaluation_template_id && (Number(e.evaluation_template_id) === testNumId || String(e.evaluation_template_id) === String(test.id))
+    );
+    if (matchByEvalId) return matchByEvalId;
+
+    // 3. Fallback matching by name or type
+    const testNameNorm = test.name.toLowerCase().trim();
+    const matchByName = examSummaries.find(e => {
+      const eTitle = (e.title || '').toLowerCase().trim();
+      return eTitle === testNameNorm ||
+        (test.type === 'language' && (eTitle.includes('english') || eTitle.includes('language'))) ||
+        (test.type === 'iq' && (eTitle.includes('aptitude') || eTitle.includes('iq') || eTitle.includes('cognitive'))) ||
+        (test.type === 'skills' && (eTitle.includes('trade') || eTitle.includes('skills')));
+    });
+    return matchByName || null;
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id]);
+
+  // Standalone digital exams (assigned to candidate but not linked to any Phase 1 evaluation)
+  const standaloneExams = useMemo(() => {
+    if (!examSummaries || examSummaries.length === 0 || String(examSummariesApplicantId) !== String(selectedApplicant?.id)) {
+      return [];
+    }
+    return examSummaries.filter(exam => {
+      const isLinked = activeEvaluationTests.some(test => {
+        const testNumId = parseInt(test.id.replace('ev-', ''), 10);
+        return (
+          test.digitalExamTemplateId === exam.template_id ||
+          (exam.evaluation_template_id && (Number(exam.evaluation_template_id) === testNumId || String(exam.evaluation_template_id) === String(test.id))) ||
+          test.name.toLowerCase().trim() === (exam.title || '').toLowerCase().trim()
+        );
+      });
+      return !isLinked;
+    });
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id, activeEvaluationTests]);
+
+
+
+  // Synchronize dynamic scores whenever active applicant changes
   useEffect(() => {
     if (selectedApplicant?.id !== initializedForApplicantId.current) {
       const initialRaw: Record<string, number | string> = {};
@@ -265,6 +377,7 @@ export default function Screening({
 
       activeEvaluationTests.forEach(test => {
         const stored = testsObj[test.id] || testsObj[test.name];
+
         if (stored) {
           if (test.scoringType === 'pass_fail' || stored.scoringType === 'pass_fail') {
             initialPF[test.id] = (stored.passed || stored.score >= 100 || stored.statusText === 'Passed') ? 'Pass' : (stored.score === 0 ? 'Fail' : '');
@@ -314,6 +427,39 @@ export default function Screening({
       initializedForApplicantId.current = selectedApplicant?.id || null;
     }
   }, [selectedApplicant, activeEvaluationTests]);
+
+  // Reactive auto-fill: when digital exam summaries load asynchronously for THIS applicant, populate their score
+  useEffect(() => {
+    if (
+      examSummaries.length > 0 &&
+      String(examSummariesApplicantId) === String(selectedApplicant?.id) &&
+      activeEvaluationTests.length > 0
+    ) {
+      activeEvaluationTests.forEach(test => {
+        const linked = findLinkedExam(test);
+        if (linked?.latest_attempt && linked.latest_attempt.status === 'submitted') {
+          const a = linked.latest_attempt;
+          const rawVal = a.raw_score ?? Math.round(((a.percentage ?? 0) * (a.max_score ?? test.maxScore ?? 100)) / 100);
+          const totalVal = a.max_score ?? test.maxScore ?? 100;
+          setDynamicRawScores(prev => ({ ...prev, [test.id]: rawVal }));
+          setDynamicTotalItems(prev => ({ ...prev, [test.id]: totalVal }));
+          if (test.scoringType === 'pass_fail') {
+            setDynamicPassFail(prev => ({ ...prev, [test.id]: a.is_passing ? 'Pass' : 'Fail' }));
+          }
+        } else if (linked && (!linked.latest_attempt || linked.latest_attempt.status !== 'submitted')) {
+          // If this applicant has a linked exam that is pending or in-progress, clear any leftover score
+          const testsObj = selectedApplicant?.testScores?.tests || {};
+          const stored = testsObj[test.id] || testsObj[test.name];
+          if (!stored) {
+            setDynamicRawScores(prev => ({ ...prev, [test.id]: '' }));
+            if (test.scoringType === 'pass_fail') {
+              setDynamicPassFail(prev => ({ ...prev, [test.id]: '' }));
+            }
+          }
+        }
+      });
+    }
+  }, [examSummaries, examSummariesApplicantId, selectedApplicant?.id, activeEvaluationTests, findLinkedExam]);
 
   // ── Calculation and evaluation engine for candidate scores ────────────────
   const getTestEvaluationResult = (
@@ -380,14 +526,26 @@ export default function Screening({
   );
 
   const handleRawScoreChange = (testId: string, value: string) => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicRawScores(prev => ({ ...prev, [testId]: value }));
   };
 
   const handleTotalItemsChange = (testId: string, value: string) => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicTotalItems(prev => ({ ...prev, [testId]: value }));
   };
 
   const handleSetPassFail = (testId: string, verdict: 'Pass' | 'Fail') => {
+    const test = activeEvaluationTests.find(t => t.id === testId);
+    if (test && findLinkedExam(test) && !manualOverrideMap[testId]) {
+      return; // Locked: Recorrect must be confirmed first
+    }
     setDynamicPassFail(prev => ({
       ...prev,
       [testId]: prev[testId] === verdict ? '' : verdict,
@@ -2438,10 +2596,6 @@ export default function Screening({
         </div>
       </div>
 
-      {/* ── DIGITAL EXAM PREVIEW ───────────────────────────────────────────── */}
-      {selectedApplicant && Number.isFinite(Number(selectedApplicant.id)) && (
-        <ScreeningExamPreview applicantId={Number(selectedApplicant.id)} showToast={showToast} />
-      )}
 
       {/* ── CORE RULE NOTICE BANNER ────────────────────────────────────────── */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
@@ -2457,12 +2611,14 @@ export default function Screening({
       </div>
 
       {/* ── SECTION 1: PHASE 1 — STANDARDIZED TEST SCORECARD ─────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 space-y-6">
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 sm:p-7 space-y-5">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4 flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <ClipboardCheck className="w-6 h-6 text-[#0EA5E9]" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-50 text-[#0EA5E9] border border-sky-100 flex items-center justify-center">
+              <ClipboardCheck className="w-5 h-5" />
+            </div>
             <div>
-              <h3 className="font-black text-[#0F172A] text-lg">Phase 1 — Standardized Test Scorecard</h3>
+              <h3 className="font-extrabold text-[#0F172A] text-lg">Phase 1 — Standardized Test Scorecard</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Staff records scores for the {activeEvaluationTests.length} active qualification evaluations
               </p>
@@ -2471,26 +2627,26 @@ export default function Screening({
 
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Weighted Aggregate</span>
-              <span className="text-base font-extrabold text-[#0EA5E9]">{currentWeightedScore}%</span>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Weighted Aggregate</span>
+              <span className="text-xl font-black text-[#0EA5E9]">{currentWeightedScore}%</span>
             </div>
             {phase1AllPassed ? (
-              <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-full flex items-center gap-1">
+              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                 <CheckCircle2 size={13} /> Phase 1 Passed
               </span>
             ) : selectedApplicant?.status === 'Provisional' ? (
-              <span className="text-xs font-bold text-amber-800 bg-amber-100 border border-amber-300 px-3 py-1 rounded-full flex items-center gap-1">
+              <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 <AlertTriangle size={13} /> Status: Provisional
               </span>
             ) : (
-              <span className="text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
+              <span className="text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full">
                 Pending Evaluation
               </span>
             )}
           </div>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-4">
           {activeEvaluationTests.map((test, index) => {
             const theme = TEST_TYPE_THEMES[test.type] || TEST_TYPE_THEMES.custom;
             const Icon = theme.icon;
@@ -2507,166 +2663,331 @@ export default function Screening({
             const effWeight = totalActiveWeight > 0 ? Math.round((test.weight / totalActiveWeight) * 100) : test.weight;
             const isJobOrderSpecific = Boolean(test.applicableJobOrders && test.applicableJobOrders.length > 0);
 
+            const linkedExam = findLinkedExam(test);
+            const hasAttempt = Boolean(linkedExam?.latest_attempt && linkedExam.latest_attempt.status === 'submitted');
+            const att = linkedExam?.latest_attempt;
+            const isOverridden = Boolean(manualOverrideMap[test.id]);
+
             return (
-              <div key={test.id} className={`${theme.bg} p-5 rounded-xl border-2 ${theme.border} transition-all`}>
-                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <div className="flex items-start gap-2.5">
-                    <div className={`p-2 rounded-lg bg-white shadow-xs ${theme.text}`}>
-                      <Icon size={18} />
+              <div
+                key={test.id}
+                className="bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all overflow-hidden"
+              >
+                {/* ── CARD HEADER ── */}
+                <div className="p-4 sm:p-5 pb-3.5 flex items-start justify-between gap-3 flex-wrap bg-white">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-slate-50 text-slate-700 border border-slate-200/70">
+                      <Icon size={18} className="text-[#0EA5E9]" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold text-[#0F172A] text-sm">{index + 1}. {test.name}</p>
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded">
+                        <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                          {index + 1}. {test.name}
+                        </h4>
+                        <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
                           {theme.label}
                         </span>
-                        <span className={`px-2 py-0.5 text-white text-[10px] font-extrabold rounded ${theme.bar}`}>
+                        <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200">
                           {test.weight}% Weight {totalActiveWeight !== 100 ? `(${effWeight}% eff.)` : ''}
                         </span>
                         {isJobOrderSpecific && (
-                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded border border-indigo-200">
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
                             Job Order: {test.applicableJobOrders!.join(', ')}
                           </span>
                         )}
-                        {isPassFail ? (
-                          <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] font-extrabold rounded border border-purple-200">
-                            Pass / Fail Clearance
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-sky-100 text-sky-800 text-[10px] font-extrabold rounded border border-sky-200">
-                            Numeric Scoring
-                          </span>
-                        )}
                       </div>
-                      <p className="text-xs text-[#64748B] mt-0.5">
-                        {test.description || 'Evaluation benchmark'} • {isPassFail ? (
-                          <span className="text-purple-800 font-semibold">Grading: Pass or Fail Clearance</span>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {test.description || 'Evaluation standard benchmark'} •{' '}
+                        {isPassFail ? (
+                          <span className="text-purple-700 font-semibold">Pass or Fail Clearance</span>
                         ) : (
-                          <>Passing benchmark: <strong className="text-slate-800">≥{test.passingScore}%</strong></>
-                        )}
-                        {isJobOrderSpecific && (
-                          <span className="text-indigo-600 font-medium ml-1.5">
-                            (Specific requirement for {test.applicableJobOrders!.join(', ')})
-                          </span>
+                          <span>Passing benchmark: <strong className="text-slate-700 font-bold">≥{test.passingScore}%</strong></span>
                         )}
                       </p>
                     </div>
                   </div>
 
-                  <span
-                    className={`px-3 py-1 text-xs font-bold rounded-full ${!hasEntry
-                        ? 'bg-slate-100 text-slate-500'
-                        : isPass
-                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
-                          : 'bg-red-100 text-red-600 border border-red-300'
-                      }`}
-                  >
-                    {!hasEntry ? '⏱ Pending' : isPass ? (isPassFail ? '✓ Cleared' : '✓ Pass') : (isPassFail ? '✗ Failed' : '✗ Below Pass')}
-                  </span>
-                </div>
-
-                {isPassFail ? (
-                  /* Pass / Fail binary selector */
-                  <div className="flex items-center gap-3 pt-2">
-                    <span className="text-xs text-slate-600 font-bold uppercase tracking-wider">Evaluation Verdict:</span>
-                    <button
-                      type="button"
-                      onClick={() => handleSetPassFail(test.id, 'Pass')}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${currentPF === 'Pass'
-                          ? 'bg-emerald-600 text-white shadow-emerald-600/25 ring-2 ring-emerald-500/30'
-                          : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700'
-                        }`}
-                    >
-                      <CheckCircle2 size={15} /> Passed
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSetPassFail(test.id, 'Fail')}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${currentPF === 'Fail'
-                          ? 'bg-red-600 text-white shadow-red-600/25 ring-2 ring-red-500/30'
-                          : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-red-400 hover:text-red-700'
-                        }`}
-                    >
-                      <AlertTriangle size={15} /> Failed
-                    </button>
-                    {currentPF && (
-                      <span className={`text-xs font-bold ml-2 ${currentPF === 'Pass' ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {currentPF === 'Pass' ? '✓ Satisfies Job Order Requirement' : '✗ Does Not Meet Clearance'}
+                  {/* Status Pill on the Right */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {hasEntry ? (
+                      isPass ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                          <CheckCircle2 size={13} /> {isPassFail ? 'Cleared' : `Pass (${evalResult.percentage}%)`}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200 shadow-2xs">
+                          <XCircle size={13} /> {isPassFail ? 'Failed' : `Below Benchmark (${evalResult.percentage ?? 0}%)`}
+                        </span>
+                      )
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold text-slate-500 bg-slate-100 border border-slate-200">
+                        <Clock size={12} /> Pending Score
                       </span>
                     )}
                   </div>
-                ) : (
-                  /* Numeric Scoring with Score Obtained & Total Score inputs */
-                  <div className="pt-1">
-                    <div className="flex items-end gap-4 flex-wrap">
-                      {/* Score Obtained */}
-                      <div>
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
-                          Score Obtained
-                        </label>
-                        <input
-                          type="number"
-                          value={rawVal}
-                          onChange={(e) => handleRawScoreChange(test.id, e.target.value)}
-                          min={0}
-                          placeholder="0"
-                          className={`w-28 border-2 px-3 py-2 rounded-lg text-xl font-black ${theme.text} ${theme.border} focus:border-[#0EA5E9] outline-none text-center bg-white shadow-xs`}
-                        />
-                      </div>
+                </div>
 
-                      <span className="text-2xl text-slate-400 font-bold mb-2">/</span>
-
-                      {/* Total Score */}
-                      <div>
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
-                          Total Score
-                        </label>
-                        <input
-                          type="number"
-                          value={totalVal}
-                          onChange={(e) => handleTotalItemsChange(test.id, e.target.value)}
-                          min={1}
-                          placeholder={String(test.maxScore || 100)}
-                          className="w-24 border-2 border-slate-200 px-3 py-2 rounded-lg text-lg font-bold text-slate-700 focus:border-[#0EA5E9] outline-none text-center bg-white shadow-xs"
-                        />
-                        <span className="text-[9px] text-slate-400 block mt-0.5 text-center font-medium">Per candidate</span>
-                      </div>
-
-                      {/* Auto-Computed Rating Display */}
-                      <div>
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1">
-                          Calculated Rating
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <div className={`px-3 py-2 rounded-lg border font-black text-base min-w-[76px] text-center ${evalResult.percentage === undefined
-                              ? 'bg-slate-100 border-slate-200 text-slate-400'
-                              : isPass
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-xs'
-                                : 'bg-red-50 border-red-300 text-red-600 shadow-xs'
-                            }`}>
-                            {evalResult.percentage !== undefined ? `${evalResult.percentage}%` : '— %'}
+                {/* ── CARD BODY ── */}
+                <div className="px-4 sm:px-5 pb-4 pt-3 border-t border-slate-100 bg-slate-50/50 space-y-3">
+                  {/* Case 1: Digital Exam Link Banner */}
+                  {linkedExam && (
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 flex-wrap ${
+                        hasAttempt
+                          ? 'bg-sky-50/60 border-sky-200 text-slate-900'
+                          : 'bg-amber-50/60 border-amber-200 text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            hasAttempt ? 'bg-sky-500 text-white' : 'bg-amber-500 text-white'
+                          }`}
+                        >
+                          <BookOpen size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-slate-900 truncate">
+                              {linkedExam.title}
+                            </span>
+                            {hasAttempt && att && (
+                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-sky-100 text-sky-800 border border-sky-300">
+                                Attempt #{att.attempt_number ?? 1}
+                              </span>
+                            )}
+                            {hasAttempt && (
+                              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.2 rounded-full">
+                                ✓ Synced
+                              </span>
+                            )}
+                            {linkedExam.retake_allowed && (
+                              <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs">
+                                <RotateCcw size={10} className="text-amber-600 animate-spin" />
+                                Retake In Progress
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-600 mt-0.5 flex items-center gap-2 flex-wrap">
+                            {hasAttempt && att ? (
+                              <>
+                                <span>Candidate Score: <strong className="text-slate-900 font-extrabold">{(att.percentage ?? 0).toFixed(1)}%</strong> ({att.raw_score ?? 0}/{att.max_score ?? totalVal} pts)</span>
+                                <span>•</span>
+                                <span>Benchmark: ≥{test.passingScore}%</span>
+                                <span>•</span>
+                                <span className={att.is_passing ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold'}>
+                                  {att.is_passing ? '✓ Benchmark Met' : '✗ Below Passing Mark'}
+                                </span>
+                                {linkedExam.retake_allowed && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-amber-800 font-bold">
+                                      Candidate can re-attempt in portal
+                                    </span>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-amber-800 font-medium">
+                                {linkedExam.retake_allowed
+                                  ? 'Retake active — Awaiting candidate completion in online portal'
+                                  : 'Awaiting candidate completion in online portal'}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Visual progress bar */}
-                      <div className="flex-1 min-w-[140px] mb-3">
-                        <div className="flex justify-between text-[10px] text-slate-400 font-semibold mb-1">
-                          <span>0%</span>
-                          <span>Passing: {test.passingScore}%</span>
-                          <span>100%</span>
-                        </div>
-                        <div className="bg-slate-200 rounded-full h-3 overflow-hidden">
-                          <div
-                            className={`h-3 rounded-full transition-all duration-300 ${isPass ? 'bg-[#10B981]' : (hasEntry ? 'bg-red-500' : 'bg-slate-300')
-                              }`}
-                            style={{ width: `${pctFilled}%` }}
-                          ></div>
-                        </div>
+                      {/* Single clean action: View Exam Result & Retake Management */}
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        {hasAttempt && att ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setActiveReviewAttemptId(att.attempt_id)}
+                              className="px-3.5 py-1.5 rounded-xl bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                              title="Inspect candidate answers & question scorecard"
+                            >
+                              <Eye size={13} />
+                              <span>View Exam Result</span>
+                            </button>
+
+                            {/* Revert Retake button if retake is currently allowed */}
+                            {linkedExam.retake_allowed && (
+                              <button
+                                type="button"
+                                onClick={() => setRevokeRetakeTarget({ assignmentId: linkedExam.assignment_id, title: linkedExam.title })}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                                title="Revert the granted retake and restore previous score"
+                              >
+                                <Undo2 size={12} />
+                                <span>Revert Retake</span>
+                              </button>
+                            )}
+
+                            {/* Recorrect Score button */}
+                            {isOverridden ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManualOverrideMap(prev => ({ ...prev, [test.id]: false }));
+                                  setRecorrectConfirmId(null);
+                                }}
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                              >
+                                Hide Recorrect
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setRecorrectConfirmId(test.id)}
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                                title="Manually adjust this exam score"
+                              >
+                                Recorrect Score
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xs font-semibold text-amber-700 bg-amber-100/60 border border-amber-200 px-2.5 py-1 rounded-full">
+                              Pending Online Submission
+                            </span>
+                            {linkedExam.retake_allowed && (
+                              <button
+                                type="button"
+                                onClick={() => setRevokeRetakeTarget({ assignmentId: linkedExam.assignment_id, title: linkedExam.title })}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Revert the granted retake"
+                              >
+                                <Undo2 size={12} />
+                                <span>Revert Retake</span>
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+
+                  {/* Case 2: Score Inputs (Shown ONLY if NOT linked to any digital exam, OR if recorrect score has been confirmed) */}
+                  {(!linkedExam || isOverridden) && (
+                    <div className="pt-1">
+                      {isPassFail ? (
+                        /* Pass / Fail selector */
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Evaluation Clearance:</span>
+                          <div className="inline-flex rounded-xl p-0.5 bg-slate-200/60 border border-slate-200">
+                            <button
+                              type="button"
+                              disabled={Boolean(linkedExam && !isOverridden)}
+                              onClick={() => handleSetPassFail(test.id, 'Pass')}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                currentPF === 'Pass'
+                                  ? 'bg-emerald-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-emerald-700'
+                              } ${Boolean(linkedExam && !isOverridden) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <CheckCircle2 size={13} /> Passed
+                            </button>
+                            <button
+                              type="button"
+                              disabled={Boolean(linkedExam && !isOverridden)}
+                              onClick={() => handleSetPassFail(test.id, 'Fail')}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                currentPF === 'Fail'
+                                  ? 'bg-red-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-red-700'
+                              } ${Boolean(linkedExam && !isOverridden) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <AlertTriangle size={13} /> Failed
+                            </button>
+                          </div>
+                          {currentPF && (
+                            <span className={`text-xs font-bold ${currentPF === 'Pass' ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {currentPF === 'Pass' ? '✓ Meets clearance requirement' : '✗ Clearance not met'}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        /* Clean horizontal score input row */
+                        <div className="flex items-center justify-between gap-4 flex-wrap bg-white p-3 rounded-xl border border-slate-200/80">
+                          <div className="flex items-center gap-4 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                                Score Obtained:
+                              </label>
+                              <input
+                                type="number"
+                                value={rawVal}
+                                disabled={Boolean(linkedExam && !isOverridden)}
+                                readOnly={Boolean(linkedExam && !isOverridden)}
+                                onChange={(e) => handleRawScoreChange(test.id, e.target.value)}
+                                min={0}
+                                placeholder="0"
+                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-black text-slate-900 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                              />
+                              <span className="text-slate-400 font-bold text-sm">/</span>
+                              <input
+                                type="number"
+                                value={totalVal}
+                                disabled={Boolean(linkedExam && !isOverridden)}
+                                readOnly={Boolean(linkedExam && !isOverridden)}
+                                onChange={(e) => handleTotalItemsChange(test.id, e.target.value)}
+                                min={1}
+                                placeholder={String(test.maxScore || 100)}
+                                className="w-18 px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 text-center bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                              />
+                              <span className="text-xs text-slate-400 font-medium">pts</span>
+                            </div>
+
+                            <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Calculated Rating:</span>
+                              <span
+                                className={`text-xs font-black px-2.5 py-1 rounded-md border ${
+                                  evalResult.percentage === undefined
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200'
+                                    : isPass
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-red-50 text-red-600 border-red-200'
+                                }`}
+                              >
+                                {evalResult.percentage !== undefined ? `${evalResult.percentage}%` : '— %'}
+                              </span>
+                              <span className="text-xs text-slate-400 font-medium">(Required: ≥{test.passingScore}%)</span>
+                            </div>
+
+                            {hasAttempt && att && isOverridden && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const rVal = att.raw_score ?? Math.round(((att.percentage ?? 0) * (att.max_score ?? test.maxScore ?? 100)) / 100);
+                                  const tVal = att.max_score ?? test.maxScore ?? 100;
+                                  handleRawScoreChange(test.id, String(rVal));
+                                  handleTotalItemsChange(test.id, String(tVal));
+                                  setManualOverrideMap(prev => ({ ...prev, [test.id]: false }));
+                                  showToast(`Re-synced from digital exam (${rVal}/${tVal})`);
+                                }}
+                                className="text-xs font-bold text-sky-700 hover:text-sky-900 underline cursor-pointer ml-1"
+                              >
+                                Re-sync from Exam
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="w-32 hidden lg:block">
+                            <div className="bg-slate-200 rounded-full h-2 overflow-hidden">
+                              <div
+                                className={`h-2 rounded-full transition-all duration-300 ${isPass ? 'bg-emerald-500' : hasEntry ? 'bg-red-500' : 'bg-slate-300'}`}
+                                style={{ width: `${pctFilled}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -2722,6 +3043,80 @@ export default function Screening({
           );
         })()}
       </div>
+
+      {/* ── STANDALONE CANDIDATE ASSESSMENTS (If any unlinked portal exams exist) ── */}
+      {standaloneExams.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-4">
+          <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+            <div className="w-8 h-8 rounded-xl bg-sky-50 text-[#0EA5E9] border border-sky-100 flex items-center justify-center font-bold">
+              <BookOpen size={16} />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 text-sm">Additional Candidate Digital Assessments</h4>
+              <p className="text-xs text-slate-500">Standalone portal assessments not tied to standard Phase 1 qualifications</p>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {standaloneExams.map(ex => {
+              const att = ex.latest_attempt;
+              const isSubmitted = att?.status === 'submitted';
+              return (
+                <div key={ex.assignment_id} className="py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-xs text-slate-900">{ex.title}</span>
+                      {ex.retake_allowed && (
+                        <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <RotateCcw size={10} className="text-amber-600 animate-spin" />
+                          Retake In Progress
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
+                      {isSubmitted && att ? (
+                        <>
+                          <span>Score: <strong className="text-slate-800">{(att.percentage ?? 0).toFixed(1)}%</strong> ({att.raw_score ?? 0}/{att.max_score ?? 100} pts)</span>
+                          <span>•</span>
+                          <span className={att.is_passing ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold'}>
+                            {att.is_passing ? '✓ Passed' : '✗ Failed'}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-amber-700 font-medium">
+                          {ex.retake_allowed ? 'Retake active — Awaiting candidate completion in portal' : 'Awaiting candidate submission in portal'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isSubmitted && att && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveReviewAttemptId(att.attempt_id)}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Eye size={13} />
+                        <span>View Exam Result</span>
+                      </button>
+                    )}
+                    {ex.retake_allowed && (
+                      <button
+                        type="button"
+                        onClick={() => setRevokeRetakeTarget({ assignmentId: ex.assignment_id, title: ex.title })}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                        title="Revert the granted retake and restore previous score"
+                      >
+                        <Undo2 size={12} />
+                        <span>Revert Retake</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION 2: PHASE 2 — PENDING INTERVIEW (EQ ASSESSMENT) ───────────── */}
       <div className={`bg-white rounded-xl shadow-sm border p-8 space-y-6 ${!phase1AllPassed ? 'border-slate-200 opacity-75' : 'border-[#0EA5E9]/40'}`}>
@@ -3378,6 +3773,168 @@ export default function Screening({
           </div>
         </div>
       )}
+
+      {/* ── HIGH-FIDELITY EXAM RESULT & ANSWER REVIEW MODAL ── */}
+      {activeReviewAttemptId && (
+        <ExamReviewModal
+          attemptId={activeReviewAttemptId}
+          onClose={() => setActiveReviewAttemptId(null)}
+          showToast={showToast}
+          onRetakeGranted={() => {
+            if (selectedApplicant?.id) {
+              const targetId = selectedApplicant.id;
+              api.get(`/exam-module/applicant/${targetId}/exam-summary`)
+                .then(res => {
+                  setExamSummaries(res.data || []);
+                  setExamSummariesApplicantId(targetId);
+                });
+            }
+          }}
+        />
+      )}
+      {/* ── RECORRECT SCORE CONFIRMATION OVERLAY MODAL ── */}
+      {recorrectConfirmId && (() => {
+        const testToRecorrect = activeEvaluationTests.find(t => t.id === recorrectConfirmId);
+        const linked = testToRecorrect ? findLinkedExam(testToRecorrect) : null;
+        const att = linked?.latest_attempt;
+        const testName = testToRecorrect?.name || linked?.title || 'Evaluation';
+
+        return (
+          <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-[#0F172A] text-base leading-tight">Confirm Score Recorrection</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Adjust candidate's recorded exam score</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRecorrectConfirmId(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  Are you sure you want to recorrect the score for <strong className="text-slate-900 font-bold">{testName}</strong>?
+                </p>
+
+                {att && (
+                  <div className="bg-sky-50/80 border border-sky-100 rounded-xl p-3.5 space-y-1 text-xs">
+                    <span className="font-bold text-sky-900 block uppercase tracking-wider text-[10px]">Current Online Exam Result:</span>
+                    <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+                      <span>{(att.percentage ?? 0).toFixed(1)}%</span>
+                      <span className="text-slate-400 text-xs font-normal">({att.raw_score ?? 0} / {att.max_score ?? 100} pts)</span>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                        att.is_passing ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {att.is_passing ? '✓ Benchmark Met' : '✗ Below Benchmark'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="leading-snug">
+                    Recorrecting opens manual score inputs for this evaluation. You can always click <span className="font-bold">"Re-sync from Exam"</span> to revert to the digital submission.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setRecorrectConfirmId(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recorrectConfirmId) {
+                      setManualOverrideMap(prev => ({ ...prev, [recorrectConfirmId]: true }));
+                    }
+                    setRecorrectConfirmId(null);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Yes, Recorrect Score</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── REVERT RETAKE CONFIRMATION OVERLAY MODAL ── */}
+      {revokeRetakeTarget && (
+        <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Undo2 className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[#0F172A] text-base leading-tight">Revert Exam Retake</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Cancel retake permission for this candidate</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRevokeRetakeTarget(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                Are you sure you want to revert the retake for <strong className="text-slate-900 font-bold">{revokeRetakeTarget.title}</strong>?
+              </p>
+
+              <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-snug">
+                  This will cancel the pending retake in the applicant's portal. The applicant's previous exam attempt and score will remain active.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setRevokeRetakeTarget(null)}
+                disabled={isRevokingRetake}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRevokeRetake}
+                disabled={isRevokingRetake}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              >
+                {isRevokingRetake ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                <span>Yes, Revert Retake</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

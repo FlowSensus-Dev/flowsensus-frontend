@@ -5,21 +5,23 @@ import {
   Sliders, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight, Loader2,
   ShieldCheck, Lock, Check, RefreshCw, UserPlus, Microscope, Sparkles,
   FileText, KanbanSquare, HeartPulse, ScanText, BellRing, Receipt,
-  CheckSquare, Briefcase, Factory, ClipboardList, Layers, Zap, Monitor,
+  CheckSquare, Briefcase, Factory, ClipboardList, Layers, Monitor,
   HelpCircle, ChevronDown, ChevronUp, BookOpen, Globe
 } from 'lucide-react';
 import { EvaluationTest, WorkflowModuleAccess, UserRole } from '../../types';
 import { api } from '../../../lib/api';
 import { Skeleton, SkeletonBadge, SkeletonIcon } from '../ui/skeleton';
+import { evalTypeToExamCategory, examCategoryToEvalType } from '../../utils/examCategoryMapping';
 
 const TEST_TYPE_META: Record<EvaluationTest['type'], { label: string; icon: React.ReactNode; color: string }> = {
-  interview: { label: 'Interview', icon: <MessageSquare size={15} />, color: '#0EA5E9' },
-  iq: { label: 'IQ / Aptitude', icon: <Brain size={15} />, color: '#8B5CF6' },
-  eq: { label: 'EQ / Personality', icon: <Heart size={15} />, color: '#EC4899' },
-  skills: { label: 'Skills / Aptitude', icon: <Wrench size={15} />, color: '#F59E0B' },
+  general: { label: 'General Knowledge', icon: <BookOpen size={15} />, color: '#0284C7' },
   language: { label: 'Language Proficiency', icon: <Languages size={15} />, color: '#10B981' },
-  medical: { label: 'Medical', icon: <Stethoscope size={15} />, color: '#EF4444' },
-  custom: { label: 'Custom', icon: <Sliders size={15} />, color: '#64748B' },
+  iq: { label: 'IQ / Aptitude', icon: <Brain size={15} />, color: '#8B5CF6' },
+  skills: { label: 'Trade & Technical Skills', icon: <Wrench size={15} />, color: '#F59E0B' },
+  eq: { label: 'Personality / EQ', icon: <Heart size={15} />, color: '#EC4899' },
+  medical: { label: 'Medical & Safety', icon: <Stethoscope size={15} />, color: '#EF4444' },
+  interview: { label: 'Interview', icon: <MessageSquare size={15} />, color: '#0EA5E9' },
+  custom: { label: 'Custom / Other', icon: <Sliders size={15} />, color: '#64748B' },
 };
 
 const SYSTEM_ROLES: UserRole[] = ['Recruitment', 'Admin', 'Accounting', 'Management'];
@@ -216,7 +218,30 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   // Load digital exams from digital exam studio
   useEffect(() => {
     api.get('/exam-module/templates')
-      .then(res => setDigitalExams(res.data || []))
+      .then(res => {
+        const exams = res.data || [];
+        setDigitalExams(exams);
+        if (exams.length > 0) {
+          setTests(prev => prev.map(t => {
+            const numId = parseInt(t.id.replace('ev-', ''), 10);
+            const linked = exams.find((ex: any) =>
+              (t.digitalExamTemplateId && ex.template_id === t.digitalExamTemplateId) ||
+              (ex.evaluation_template_id && (Number(ex.evaluation_template_id) === numId || String(ex.evaluation_template_id) === t.id))
+            );
+            if (linked) {
+              const items = linked.total_points || linked.questions_count || (linked.questions ? linked.questions.length : t.maxScore);
+              return {
+                ...t,
+                examMode: 'digital',
+                digitalExamTemplateId: linked.template_id,
+                maxScore: Number(items || t.maxScore),
+                passingScore: linked.passing_score !== undefined ? Number(linked.passing_score) : t.passingScore,
+              };
+            }
+            return t;
+          }));
+        }
+      })
       .catch(err => console.warn('Could not load digital exams in EvaluationSetup:', err));
   }, []);
 
@@ -247,23 +272,34 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
       setLoadingTests(true);
       const res = await api.get('/evaluations/templates');
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const liveTests: EvaluationTest[] = res.data.map((t: any) => ({
-          id: String(t.test_template_id || t.id),
-          name: t.name,
-          type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
-          description: t.description || '',
-          maxScore: Number(t.max_score ?? t.maxScore ?? 100),
-          passingScore: Number(t.passing_score ?? t.passingScore ?? 60),
-          weight: Number(t.weight_percentage ?? t.weight ?? 10),
-          scoringGuide: t.scoring_guide || t.scoringGuide || '',
-          isActive: Boolean(t.is_active ?? t.isActive ?? true),
-          scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
-          applicableJobOrders: Array.isArray(t.applicable_job_orders)
-            ? t.applicable_job_orders
-            : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
-          examMode: (t.exam_mode || t.examMode || 'paper') as 'paper' | 'digital',
-          digitalExamTemplateId: t.digital_exam_template_id ?? t.digitalExamTemplateId ?? null,
-        }));
+        const liveTests: EvaluationTest[] = res.data.map((t: any) => {
+          const numId = parseInt(String(t.test_template_id || t.id).replace('ev-', ''), 10);
+          const linkedExam = digitalExams.find(ex =>
+            (t.digital_exam_template_id && ex.template_id === t.digital_exam_template_id) ||
+            (ex.evaluation_template_id && (Number(ex.evaluation_template_id) === numId || String(ex.evaluation_template_id) === String(t.test_template_id || t.id)))
+          );
+          const isDigital = (t.exam_mode || t.examMode) === 'digital' || Boolean(linkedExam);
+          const resolvedDigitalId = t.digital_exam_template_id ?? t.digitalExamTemplateId ?? (linkedExam ? linkedExam.template_id : null);
+          const totalPoints = linkedExam ? (linkedExam.total_points || linkedExam.questions_count || (linkedExam.questions ? linkedExam.questions.length : t.max_score)) : t.max_score;
+
+          return {
+            id: String(t.test_template_id || t.id),
+            name: t.name,
+            type: (t.test_type || t.type || 'custom') as EvaluationTest['type'],
+            description: t.description || '',
+            maxScore: Number(totalPoints ?? t.maxScore ?? 100),
+            passingScore: Number(linkedExam?.passing_score ?? t.passing_score ?? t.passingScore ?? 60),
+            weight: Number(t.weight_percentage ?? t.weight ?? 10),
+            scoringGuide: t.scoring_guide || t.scoringGuide || '',
+            isActive: Boolean(t.is_active ?? t.isActive ?? true),
+            scoringType: (t.scoring_type || t.scoringType || 'numeric') as 'numeric' | 'pass_fail',
+            applicableJobOrders: Array.isArray(t.applicable_job_orders)
+              ? t.applicable_job_orders
+              : (Array.isArray(t.applicableJobOrders) ? t.applicableJobOrders : []),
+            examMode: isDigital ? 'digital' : 'paper',
+            digitalExamTemplateId: resolvedDigitalId,
+          };
+        });
         setTests(liveTests);
         onTemplatesUpdated?.(liveTests);
       }
@@ -362,7 +398,23 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   };
 
   const openEditTest = (t: EvaluationTest) => {
-    setEditingTest({ ...t });
+    const numId = parseInt(t.id.replace('ev-', ''), 10);
+    const linkedExam = digitalExams.find(ex =>
+      (t.digitalExamTemplateId && ex.template_id === t.digitalExamTemplateId) ||
+      (ex.evaluation_template_id && (Number(ex.evaluation_template_id) === numId || String(ex.evaluation_template_id) === String(t.id)))
+    );
+
+    const isDigital = t.examMode === 'digital' || Boolean(linkedExam);
+    const resolvedDigitalId = t.digitalExamTemplateId || (linkedExam ? linkedExam.template_id : null);
+    const totalPoints = linkedExam ? (linkedExam.total_points || linkedExam.questions_count || (linkedExam.questions ? linkedExam.questions.length : t.maxScore)) : t.maxScore;
+
+    setEditingTest({
+      ...t,
+      examMode: isDigital ? 'digital' : 'paper',
+      digitalExamTemplateId: resolvedDigitalId,
+      maxScore: Number(totalPoints ?? t.maxScore ?? 100),
+      passingScore: linkedExam?.passing_score !== undefined ? Number(linkedExam.passing_score) : t.passingScore,
+    });
     setIsNewTest(false);
   };
 
@@ -395,12 +447,23 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
       const examMode = editingTest.examMode || 'paper';
       const digitalExamTemplateId = examMode === 'digital' ? (editingTest.digitalExamTemplateId || null) : null;
 
+      const chosenExam = (examMode === 'digital' && digitalExamTemplateId)
+        ? digitalExams.find(ex => ex.template_id === digitalExamTemplateId)
+        : null;
+      const examTotalScore = chosenExam
+        ? Number(chosenExam.total_points || chosenExam.questions_count || (chosenExam.questions ? chosenExam.questions.length : 10))
+        : (editingTest.maxScore || 100);
+
+      const resolvedPassingScore = scoringType === 'pass_fail'
+        ? 100
+        : (editingTest.passingScore !== undefined ? Number(editingTest.passingScore) : (chosenExam?.passing_score !== undefined ? Number(chosenExam.passing_score) : 60));
+
       const payload = {
         name: editingTest.name,
         test_type: editingTest.type,
         description: editingTest.description,
-        max_score: scoringType === 'pass_fail' ? 100 : (editingTest.maxScore || 100),
-        passing_score: scoringType === 'pass_fail' ? 100 : (editingTest.passingScore || 60),
+        max_score: scoringType === 'pass_fail' ? 100 : examTotalScore,
+        passing_score: resolvedPassingScore,
         weight_percentage: editingTest.weight,
         scoring_guide: editingTest.scoringGuide,
         is_active: editingTest.isActive,
@@ -410,12 +473,16 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         digital_exam_template_id: digitalExamTemplateId,
       };
 
+      let savedTemplateId: number | null = null;
       if (isNewTest) {
         const res = await api.post('/evaluations/templates', payload);
         const created = res.data;
+        savedTemplateId = Number(created.test_template_id || created.id);
         const newTest: EvaluationTest = {
           ...editingTest,
-          id: String(created.test_template_id || created.id),
+          id: String(savedTemplateId),
+          maxScore: examTotalScore,
+          passingScore: resolvedPassingScore,
           scoringType,
           applicableJobOrders,
           examMode,
@@ -430,15 +497,71 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
       } else {
         const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
         if (!isNaN(numId)) {
+          savedTemplateId = numId;
           await api.put(`/evaluations/templates/${numId}`, payload);
         }
         setTests(p => {
-          const next = p.map(t => t.id === editingTest.id ? { ...editingTest, scoringType, applicableJobOrders, examMode, digitalExamTemplateId } : t);
+          const next = p.map(t => t.id === editingTest.id ? {
+            ...editingTest,
+            maxScore: examTotalScore,
+            passingScore: resolvedPassingScore,
+            scoringType,
+            applicableJobOrders,
+            examMode,
+            digitalExamTemplateId
+          } : t);
           onTemplatesUpdated?.(next);
           return next;
         });
         showToast(`Evaluation "${editingTest.name}" updated successfully`);
       }
+
+      // Explicitly sync digital exam's evaluation_template_id, passing_score, and category
+      if (savedTemplateId && examMode === 'digital' && digitalExamTemplateId) {
+        try {
+          const examCategory = evalTypeToExamCategory(editingTest.type);
+          await api.put(`/exam-module/templates/${digitalExamTemplateId}`, {
+            evaluation_template_id: savedTemplateId,
+            passing_score: resolvedPassingScore,
+            category: examCategory,
+          });
+          setDigitalExams(prev => prev.map(ex => ex.template_id === digitalExamTemplateId ? {
+            ...ex,
+            evaluation_template_id: savedTemplateId,
+            passing_score: resolvedPassingScore,
+            category: examCategory,
+          } : ex));
+
+          // Also trigger immediate assignment sync for existing candidates
+          const targetJoIds = (applicableJobOrders || [])
+            .map(x => String(x).trim())
+            .filter(Boolean);
+
+          await api.post('/exam-module/assign', {
+            template_id: digitalExamTemplateId,
+            assign_all: targetJoIds.length === 0,
+            job_order_ids: targetJoIds.length > 0 ? targetJoIds : undefined,
+          });
+        } catch (syncErr) {
+          console.warn('Bidirectional exam link sync warning:', syncErr);
+        }
+      } else if (savedTemplateId && examMode === 'paper') {
+        const prevLinked = digitalExams.find(ex => Number(ex.evaluation_template_id) === savedTemplateId);
+        if (prevLinked) {
+          try {
+            await api.put(`/exam-module/templates/${prevLinked.template_id}`, {
+              evaluation_template_id: null,
+            });
+            setDigitalExams(prev => prev.map(ex => ex.template_id === prevLinked.template_id ? {
+              ...ex,
+              evaluation_template_id: null,
+            } : ex));
+          } catch (syncErr) {
+            console.warn('Unlink exam template warning:', syncErr);
+          }
+        }
+      }
+
       setEditingTest(null);
     } catch (err: any) {
       console.error('Failed to save evaluation template:', err);
@@ -887,7 +1010,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                                   <span className="text-slate-300">•</span>
                                   {test.examMode === 'digital' ? (
                                     <span className="inline-flex items-center gap-1 text-violet-700 font-medium">
-                                      <Zap size={11} className="text-violet-600 fill-violet-600" />
+                                      <Monitor size={11} className="text-violet-600" />
                                       Digital Exam{linkedExam ? `: ${linkedExam.title}` : ''}
                                     </span>
                                   ) : (
@@ -1078,7 +1201,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                                   <span className="text-slate-300">•</span>
                                   {test.examMode === 'digital' ? (
                                     <span className="inline-flex items-center gap-1 text-violet-700 font-medium">
-                                      <Zap size={11} className="text-violet-600 fill-violet-600" />
+                                      <Monitor size={11} className="text-violet-600" />
                                       Digital Exam{linkedExam ? `: ${linkedExam.title}` : ''}
                                     </span>
                                   ) : (
@@ -1344,7 +1467,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Category Type</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(Object.keys(TEST_TYPE_META) as EvaluationTest['type'][]).map(t => {
                     const m = TEST_TYPE_META[t];
                     const isSelected = editingTest.type === t;
@@ -1358,11 +1481,17 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                             : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
                           }`}
                       >
-                        {m.icon} {m.label}
+                        {m.icon} <span className="truncate">{m.label}</span>
                       </button>
                     );
                   })}
                 </div>
+                {editingTest.examMode === 'digital' && Boolean(editingTest.digitalExamTemplateId) && (
+                  <div className="text-[11px] text-violet-700 font-medium mt-1.5 flex items-center gap-1.5">
+                    <RefreshCw size={11} className="shrink-0 text-violet-600" />
+                    <span>Linked exam category will automatically update to <strong>{evalTypeToExamCategory(editingTest.type)}</strong> upon saving.</span>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Description</label>
@@ -1399,14 +1528,32 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
                   <button
                     type="button"
-                    onClick={() => setEditingTest(p => p ? { ...p, examMode: 'digital' } : p)}
+                    onClick={() => {
+                      const numId = parseInt(editingTest.id.replace('ev-', ''), 10);
+                      const matchingExam = digitalExams.find(ex =>
+                        (editingTest.digitalExamTemplateId && ex.template_id === editingTest.digitalExamTemplateId) ||
+                        (ex.evaluation_template_id && (Number(ex.evaluation_template_id) === numId || String(ex.evaluation_template_id) === String(editingTest.id))) ||
+                        (ex.title && editingTest.name && ex.title.toLowerCase().includes(editingTest.name.toLowerCase()))
+                      );
+                      const chosenExam = matchingExam || (digitalExams.length > 0 ? digitalExams[0] : null);
+                      const items = chosenExam ? (chosenExam.total_points || chosenExam.questions_count || (chosenExam.questions ? chosenExam.questions.length : 5)) : 100;
+
+                      setEditingTest(p => p ? {
+                        ...p,
+                        examMode: 'digital',
+                        digitalExamTemplateId: p.digitalExamTemplateId || (chosenExam ? chosenExam.template_id : null),
+                        maxScore: chosenExam ? Number(items) : p.maxScore,
+                        passingScore: chosenExam?.passing_score !== undefined ? Number(chosenExam.passing_score) : p.passingScore,
+                        type: chosenExam?.category ? examCategoryToEvalType(chosenExam.category) : p.type,
+                      } : p);
+                    }}
                     className={`p-3 rounded-xl border text-left transition-all ${editingTest.examMode === 'digital'
                         ? 'border-[#0EA5E9] bg-sky-50 text-[#0F172A] shadow-2xs'
                         : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
                       }`}
                   >
                     <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
-                      <Zap size={14} className={editingTest.examMode === 'digital' ? 'text-[#0EA5E9] fill-[#0EA5E9]' : 'text-slate-400'} />
+                      <Monitor size={14} className={editingTest.examMode === 'digital' ? 'text-[#0EA5E9]' : 'text-slate-400'} />
                       Digital Exam (Online in Portal)
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1 leading-snug">
@@ -1430,13 +1577,27 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
                   <select
                     value={editingTest.digitalExamTemplateId ?? ''}
-                    onChange={e => setEditingTest(p => p ? { ...p, digitalExamTemplateId: e.target.value ? Number(e.target.value) : null } : p)}
+                    onChange={e => {
+                      const val = e.target.value ? Number(e.target.value) : null;
+                      const chosen = val ? digitalExams.find(ex => ex.template_id === val) : null;
+                      const items = chosen ? (chosen.total_points || chosen.questions_count || (chosen.questions ? chosen.questions.length : 5)) : 100;
+                      setEditingTest(p => {
+                        if (!p) return p;
+                        return {
+                          ...p,
+                          digitalExamTemplateId: val,
+                          maxScore: val ? Number(items) : p.maxScore,
+                          passingScore: chosen?.passing_score !== undefined ? Number(chosen.passing_score) : p.passingScore,
+                          type: chosen?.category ? examCategoryToEvalType(chosen.category) : p.type,
+                        };
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
                   >
                     <option value="">— Choose an online exam —</option>
                     {digitalExams.map(ex => (
                       <option key={ex.template_id} value={ex.template_id}>
-                        {ex.title} ({ex.category || 'General'} • Passing Score: {ex.passing_score ?? 60}% • {ex.time_limit_mins ? `${ex.time_limit_mins} mins` : 'No time limit'})
+                        {ex.title} ({ex.category || 'General Knowledge'} • Passing Score: {ex.passing_score ?? 60}% • {ex.time_limit_mins ? `${ex.time_limit_mins} mins` : 'No time limit'})
                       </option>
                     ))}
                   </select>
@@ -1453,12 +1614,15 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                               {chosen.title}
                             </div>
                             <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                              <span>Category: <strong className="text-slate-700">{chosen.category || 'General Knowledge'}</strong></span>
+                              <span>•</span>
                               <span>Passing Mark: <strong className="text-slate-700">{chosen.passing_score ?? 60}%</strong></span>
                               <span>•</span>
                               <span>Time: <strong className="text-slate-700">{chosen.time_limit_mins ? `${chosen.time_limit_mins} mins` : 'No time limit'}</strong></span>
                             </div>
-                            <div className="text-[11px] text-violet-700 font-medium mt-1">
-                              ⚡ Scores will automatically sync to fulfill this {editingTest.weight}% evaluation requirement.
+                            <div className="text-[11px] text-violet-700 font-medium mt-1 flex items-center gap-1.5">
+                              <RefreshCw size={11} className="shrink-0 text-violet-600" />
+                              <span>Scores and passing mark will automatically sync with this {editingTest.weight}% evaluation requirement.</span>
                             </div>
                           </div>
                         </div>
@@ -1506,43 +1670,95 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
 
               {/* Scoring Criteria Inputs */}
               {editingTest.scoringType !== 'pass_fail' ? (
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Total Score</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={editingTest.maxScore}
-                      onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
-                      placeholder="100"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Passing Mark (%)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={editingTest.passingScore}
-                      onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
-                      placeholder="60"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Weight %</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={editingTest.weight}
-                      onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
-                      placeholder="10"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
-                    />
-                  </div>
-                </div>
+                (() => {
+                  const isLinkedToDigital = editingTest.examMode === 'digital' && Boolean(editingTest.digitalExamTemplateId);
+                  const chosenExam = isLinkedToDigital
+                    ? digitalExams.find(ex => ex.template_id === editingTest.digitalExamTemplateId)
+                    : null;
+                  const digitalTotal = chosenExam
+                    ? Number(chosenExam.total_points || chosenExam.questions_count || (chosenExam.questions ? chosenExam.questions.length : (editingTest.maxScore || 10)))
+                    : (editingTest.maxScore || 100);
+
+                  return (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            Total Score
+                          </label>
+                          {isLinkedToDigital && (
+                            <span
+                              className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 shadow-2xs"
+                              title="Locked: Total score automatically follows the attached digital exam questions and points."
+                            >
+                              <Lock size={9} /> Locked
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={isLinkedToDigital ? digitalTotal : editingTest.maxScore}
+                          disabled={isLinkedToDigital}
+                          readOnly={isLinkedToDigital}
+                          onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
+                          placeholder="100"
+                          className={`w-full px-3 py-2 border rounded-lg text-sm text-center transition-all ${
+                            isLinkedToDigital
+                              ? 'bg-slate-100 text-slate-600 font-bold border-slate-200 cursor-not-allowed select-none'
+                              : 'border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]'
+                          }`}
+                          title={isLinkedToDigital ? `Locked to attached digital exam (${digitalTotal} total questions/points).` : undefined}
+                        />
+                        {isLinkedToDigital && (
+                          <div className="text-[10px] text-violet-700 font-medium mt-1 leading-tight text-center">
+                            Follows digital exam ({digitalTotal} pts)
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Passing Mark (%)</label>
+                          {isLinkedToDigital && (
+                            <span
+                              className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 shadow-2xs"
+                              title="Linked: Changing this passing mark will automatically update the attached digital exam."
+                            >
+                              Linked
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={editingTest.passingScore}
+                          onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
+                          placeholder="60"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
+                        />
+                        {isLinkedToDigital && (
+                          <div className="text-[10px] text-violet-700 font-medium mt-1 leading-tight text-center flex items-center justify-center gap-1">
+                            <RefreshCw size={9} className="shrink-0 text-violet-600" />
+                            <span>Syncs to digital exam</span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Weight %</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={editingTest.weight}
+                          onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
+                          placeholder="10"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <div className="grid grid-cols-2 gap-3 items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <div>

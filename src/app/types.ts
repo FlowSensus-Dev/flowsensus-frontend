@@ -157,6 +157,10 @@ export interface Clinic {
   email?: string;
   accreditationStatus?: string;
   accreditation_status?: string;
+  facilityType?: string;
+  facility_type?: string;
+  licenseRef?: string;
+  license_ref?: string;
   createdAt?: string;
   created_at?: string;
   updatedAt?: string;
@@ -254,6 +258,7 @@ export interface EmploymentRecord {
   country: string;
   isPresent: boolean;
   reasonForLeaving: string;
+  isOverseas?: boolean;
 }
 
 export type EmploymentFlagType = 'gap' | 'short_stint' | 'red_flag_resignation' | 'overlap' | 'demotion';
@@ -444,7 +449,7 @@ export interface DocumentRequirement {
 export interface EvaluationTest {
   id: string;
   name: string;
-  type: 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
+  type: 'general' | 'interview' | 'iq' | 'eq' | 'skills' | 'language' | 'medical' | 'custom';
   description: string;
   maxScore: number;
   passingScore: number;

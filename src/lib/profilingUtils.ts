@@ -363,6 +363,18 @@ export interface TakenExamRecord {
   isJobSpecific?: boolean;
 }
 
+export interface ConsiderationDetails {
+  type: 'score_tier' | 'expired_document' | 'retake_authorized' | 'medical_in_progress';
+  shortReason: string;
+  fallShortCause?: string;
+  requiredRemedy?: string;
+  whyNotFurtherReview: string;
+  whyForConsideration: string;
+  scoreGap?: number;
+  furtherReviewThreshold: number;
+  actionableNote: string;
+}
+
 export interface RankedCandidate {
   applicant: ApplicantRecord;
   rank: number;
@@ -374,6 +386,7 @@ export interface RankedCandidate {
   totalExperienceYears: number;
   jobRelatedExperienceYears: number;
   considerationReason?: string;
+  considerationDetails?: ConsiderationDetails;
   certificationsCount: number;
   techScore: number;
   iqScore: number;
@@ -444,19 +457,30 @@ export function isJobRelatedExperience(
   // 1. Direct or partial substring match
   if (posLower.includes(tradeLower) || tradeLower.includes(posLower)) return true;
 
-  // 2. Token overlap & trade stem matching (e.g. "electrical" vs "electrician", "welding" vs "welder")
+  // 2. Token overlap & recognized trade stem matching
   const posTokens = specificTokens(posLower);
   const tradeTokens = specificTokens(tradeLower);
+
+  // Exact token match
   for (const tt of tradeTokens) {
     if (posTokens.has(tt)) return true;
-    for (const pt of posTokens) {
-      if (pt.length >= 4 && tt.length >= 4 && pt.slice(0, 4) === tt.slice(0, 4)) {
-        return true;
-      }
-    }
   }
 
-  // 3. Trade Cluster alignment
+  // Known trade stems (e.g. "weld" matches "welder" and "welding", "electr" matches "electrician" and "electrical")
+  const KNOWN_TRADE_STEMS = [
+    'weld', 'electr', 'plumb', 'carpen', 'mason', 'mechan', 'cook', 'culin', 'chef',
+    'care', 'nurs', 'driv', 'paint', 'scaffold', 'secur', 'pipe', 'hvac', 'refrig',
+    'machin', 'tailor', 'sew', 'barber', 'stylist', 'baker', 'waiter', 'barista',
+    'technic', 'automot', 'rigg', 'steelfix', 'sheetmetal', 'ironwork'
+  ];
+
+  for (const stem of KNOWN_TRADE_STEMS) {
+    const tradeHasStem = Array.from(tradeTokens).some(t => t.includes(stem));
+    const posHasStem = Array.from(posTokens).some(p => p.includes(stem));
+    if (tradeHasStem && posHasStem) return true;
+  }
+
+  // 3. Trade Cluster alignment (require same occupational cluster or direct match with full role in cluster)
   const targetCluster = findClusterForText(targetTrade, clustersMap);
   if (targetCluster) {
     const jobCluster = findClusterForText(jobPosition, clustersMap);
@@ -464,11 +488,8 @@ export function isJobRelatedExperience(
 
     const clusterRoles = targetCluster.data?.roles || [];
     for (const r of clusterRoles) {
-      if (posLower.includes(r.toLowerCase())) return true;
-      const rTokens = specificTokens(r);
-      for (const t of rTokens) {
-        if (posTokens.has(t)) return true;
-      }
+      const rLower = String(r).toLowerCase().trim();
+      if (posLower.includes(rLower) || rLower.includes(posLower)) return true;
     }
   }
 
@@ -841,10 +862,12 @@ export function getCategoryCandidateExplanation(
       const score = candidate.categoryScores.overseas;
       if (score >= maxW) {
         return `Candidate has verified prior overseas employment in target destination (${jobCountry}) : Full ${score} / ${maxW} pts awarded.`;
+      } else if (score >= Math.round(maxW * 0.8)) {
+        return `Candidate has prior overseas work experience in other foreign countries : ${score} / ${maxW} pts awarded.`;
+      } else if (score >= Math.round(maxW * 0.7)) {
+        return `First-time OFW with domestic Philippine work experience (verified workplace track record) : ${score} / ${maxW} pts awarded.`;
       } else if (score > 0) {
-        return candidate.isFirstTimeApplicant
-          ? `First-time applicant neutral overseas baseline (clean record, eligible for deployment) : ${score} / ${maxW} pts awarded.`
-          : `Candidate has employment experience, earning ${score} / ${maxW} pts overseas readiness.`;
+        return `First-time applicant clean baseline (entry-level, eligible for overseas placement) : ${score} / ${maxW} pts awarded.`;
       } else {
         return `No prior employment history recorded : 0 / ${maxW} pts.`;
       }

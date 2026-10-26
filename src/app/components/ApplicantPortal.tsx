@@ -89,7 +89,7 @@ const PHASES = [
     shortTitle: 'Medical',
     subtitle: 'Official clinic health checkup and Fit-to-Work certification',
     icon: Stethoscope,
-    description: 'A routine medical exam at an accredited clinic to make sure you are healthy and ready to travel.',
+    description: 'A routine pre-employment medical exam (PEME) at an examining clinic or hospital to confirm deployment readiness.',
   },
   {
     phase: 3,
@@ -216,7 +216,7 @@ function ApplicantDeploymentCard({ application, agencyId }: { application: Porta
       ) : hasPipelineEstimate ? (
         <div>
           <p className="text-xs font-semibold text-sky-700">Estimated Departure Readiness</p>
-          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">~{Math.round(pipelineRemainingDays)} Days to Target Departure</p>
+          <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">~{Math.round(pipelineRemainingDays)} Days Remaining</p>
           <p className="text-[11px] text-slate-500 mt-2">
             Estimated based on standard processing times for your destination. Your agency officer will confirm exact travel dates once your requirements are complete.
           </p>
