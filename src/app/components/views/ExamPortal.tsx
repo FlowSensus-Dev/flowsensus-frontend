@@ -592,8 +592,8 @@ function ExamTaker({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 md:p-6 animate-in fade-in duration-150">
-      <div className="bg-white sm:rounded-2xl lg:rounded-3xl shadow-2xl w-full max-w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl h-[100dvh] sm:h-[94vh] lg:h-[90vh] flex flex-col overflow-hidden border-0 sm:border border-slate-200">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in fade-in duration-150">
+      <div className="bg-white w-full h-full flex flex-col overflow-hidden">
         {/* ── TOP HEADER (Save & Exit, Title, Mode, Timer) ── */}
         <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 shrink-0 flex items-center justify-between gap-2 sm:gap-3 shadow-2xs">
           {/* Left: Save & Exit button */}

@@ -266,6 +266,7 @@ export default function Screening({
   const [examSummaries, setExamSummaries] = useState<DigitalExamSummaryItem[]>([]);
   const [activeReviewAttemptId, setActiveReviewAttemptId] = useState<number | null>(null);
   const [manualOverrideMap, setManualOverrideMap] = useState<Record<string, boolean>>({});
+  const [recorrectConfirmId, setRecorrectConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     setExamSummaries([]);
@@ -2751,14 +2752,51 @@ export default function Screening({
                               <Eye size={13} />
                               <span>View Exam Result</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setManualOverrideMap(prev => ({ ...prev, [test.id]: !prev[test.id] }))}
-                              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
-                              title="Toggle manual score adjustment"
-                            >
-                              {isOverridden ? 'Hide Manual Inputs' : 'Manual Override'}
-                            </button>
+                            {/* Recorrect Score — two-step confirm before activating score inputs */}
+                            {isOverridden ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManualOverrideMap(prev => ({ ...prev, [test.id]: false }));
+                                  setRecorrectConfirmId(null);
+                                }}
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                              >
+                                Hide Recorrect
+                              </button>
+                            ) : recorrectConfirmId === test.id ? (
+                              /* Confirmation prompt */
+                              <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1.5 animate-in fade-in duration-150">
+                                <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+                                <span className="text-[11px] font-semibold text-amber-800 whitespace-nowrap">Change score?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setManualOverrideMap(prev => ({ ...prev, [test.id]: true }));
+                                    setRecorrectConfirmId(null);
+                                  }}
+                                  className="ml-1 px-2 py-0.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                >
+                                  Yes, recorrect
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRecorrectConfirmId(null)}
+                                  className="px-1.5 py-0.5 rounded-md text-amber-700 hover:bg-amber-100 text-[11px] font-semibold transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setRecorrectConfirmId(test.id)}
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+                                title="Manually adjust this exam score"
+                              >
+                                Recorrect Score
+                              </button>
+                            )}
                           </>
                         ) : (
                           <span className="text-xs font-semibold text-amber-700 bg-amber-100/60 border border-amber-200 px-2.5 py-1 rounded-full">
@@ -2769,8 +2807,9 @@ export default function Screening({
                     </div>
                   )}
 
-                  {/* Case 2: Score Inputs (Shown if NOT linked to submitted exam, OR if manual override is toggled) */}
-                  {(!hasAttempt || isOverridden) && (
+                  {/* Case 2: Score Inputs (Shown if NOT linked to any exam, OR if exam is submitted and override is toggled) */}
+                  {/* Bug fix: hide score inputs entirely when exam is linked but pending online (not yet submitted) */}
+                  {(!linkedExam || hasAttempt || isOverridden) && (
                     <div className="pt-1">
                       {isPassFail ? (
                         /* Pass / Fail selector */
