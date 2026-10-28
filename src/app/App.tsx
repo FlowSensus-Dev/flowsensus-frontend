@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
 import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
+import StaffOnboardingGate from "./components/StaffOnboardingGate";
 import ApplicantPortal from "./components/ApplicantPortal";
 import {
   UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord,
@@ -1136,6 +1137,7 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
   const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
+  const [authSubject, setAuthSubject] = useState<string | null>(null);
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
@@ -1169,6 +1171,7 @@ export default function App() {
   };
 
   const syncLiveSession = (userId: string | null) => {
+    setAuthSubject(userId);
     if (!liveSession.current.ready || liveSession.current.userId !== userId) {
       liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
@@ -1873,6 +1876,9 @@ export default function App() {
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <StaffOnboardingGate key={authSubject || 'staff-session'} subject={authSubject}
+            roles={currentUserRoles.length ? currentUserRoles : [currentUserRole]} name={currentUserName}
+            onLogout={handleLogout} bypass={isSuperAdmin}>
           <AppShell
             currentUserRole={currentUserRole}
             currentUserRoles={currentUserRoles}
@@ -1900,6 +1906,7 @@ export default function App() {
             globalRoles={globalRoles || undefined}
             globalPipelineForecast={globalPipelineForecast || undefined}
           />
+          </StaffOnboardingGate>
         </div>
       </div>
     );
