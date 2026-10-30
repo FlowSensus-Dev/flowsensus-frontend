@@ -26,6 +26,7 @@ import React from 'react';
 import StaffOnboardingGate from './StaffOnboardingGate';
 import LoginScreen from './LoginScreen';
 import StagePertConfiguration from './views/StagePertConfiguration';
+import { PertOnboardingContext } from './PertOnboardingContext';
 
 const subject = '00000000-0000-0000-0000-000000000123';
 const account = { id: subject, email: 'manager@example.test', app_metadata: { must_change_password: false } };
@@ -36,6 +37,10 @@ const configuration = (extra: any = {}) => ({ agency_id: 7, revision: 0, setup_s
     .map((stage_name, index) => ({ stage_order: index + 1, stage_name, forecast_basis: 'unavailable' })), ...extra,
 });
 const complete = () => configuration({ setup_status: 'complete', revision: 1, initial_setup_required: false, next_action: 'normal_operations' });
+const pf18Required = (extra: any = {}) => configuration({ setup_deferred: false, deferred_at: null, deferred_by: null, workflow_setup_required: true, ...extra });
+const deferred = (extra: any = {}) => pf18Required({ setup_status: 'deferred', setup_deferred: true,
+  deferred_at: '2026-10-30T10:00:00Z', deferred_by: 17, next_action: 'normal_operations', ...extra });
+const pf18Complete = () => ({ ...complete(), setup_deferred: false, deferred_at: null, deferred_by: null, workflow_setup_required: false });
 function nodes(tree: any): any[] {
   if (!tree || typeof tree !== 'object') return [];
   return [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)];
@@ -191,5 +196,89 @@ describe('PF09 staff onboarding navigation (mocked Auth and API)', () => {
     expect(app).toContain('<StaffOnboardingGate key={authSubject'); expect(app).toContain('bypass={isSuperAdmin}');
     expect(app.indexOf('<StaffOnboardingGate')).toBeLessThan(app.indexOf('<AppShell'));
     expect(app).toContain('setAuthSubject(userId)');
+  });
+  it('explains how to gather unknown estimates and return later without offering an onboarding bypass', async () => {
+    await settle();
+    expect(text(render())).toContain('three time estimates in days');
+    expect(text(render())).toContain('Check with the staff handling that stage');
+    expect(text(render())).toContain('sign out and return when ready; required setup will still apply');
+    expect(text(render())).toContain('Estimates you have not submitted are not saved');
+    expect(button('Configure Later')).toBeUndefined(); expect(button('Skip')).toBeUndefined();
+    expect(button('Sign out')).toBeDefined(); expect(workspaceVisible()).toBe(false);
+    expect(node(StagePertConfiguration).props.onboarding).toBe(true);
+    expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
+  });
+  it('requires password change first even when PF18 reports a deferred agency', async () => {
+    h.get.mockResolvedValue({ data: deferred({ must_change_password: true, next_action: 'change_password' }) });
+    await settle(); expect(node(LoginScreen)).toBeDefined(); expect(node(StagePertConfiguration)).toBeUndefined();
+    expect(button('Finish PERT setup')).toBeUndefined(); expect(workspaceVisible()).toBe(false);
+  });
+  it('offers the defer integration only for eligible Managers and waits for authoritative deferred state', async () => {
+    props.roles = ['Recruitment', 'Management']; h.get.mockResolvedValueOnce({ data: pf18Required() });
+    await settle(); const editor = node(StagePertConfiguration);
+    expect(editor.props.onDeferred).toBeTypeOf('function'); expect(workspaceVisible()).toBe(false);
+    h.get.mockResolvedValueOnce({ data: deferred() }); await editor.props.onDeferred(); await settle();
+    expect(h.path).toBe('/app/dashboard'); expect(workspaceVisible()).toBe(true); expect(button('Finish PERT setup')).toBeDefined();
+    expect(h.get).toHaveBeenCalledTimes(2); expect(h.getUser).toHaveBeenCalledTimes(2);
+    expect(text(render())).toContain('five-stage estimates are not yet confirmed');
+    expect(text(render())).toContain('workflow status/phase progression remains unavailable');
+    expect(text(render())).toContain('Completing PERT setup enables the normal backend workflow');
+  });
+  it('does not unlock required onboarding if current state still does not confirm deferral', async () => {
+    h.get.mockResolvedValue({ data: pf18Required() }); await settle();
+    await expect(node(StagePertConfiguration).props.onDeferred()).rejects.toThrow('Deferral has not been confirmed');
+    await settle(); expect(workspaceVisible()).toBe(false); expect(text(render())).toContain('Deferral has not been confirmed');
+    expect(h.get).toHaveBeenCalledTimes(2); await settle(); expect(h.get).toHaveBeenCalledTimes(2);
+  });
+  it('keeps recovery available if fresh state is unavailable following a confirmed defer response', async () => {
+    h.get.mockResolvedValueOnce({ data: pf18Required() }); await settle();
+    h.get.mockRejectedValueOnce({ response: { status: 503 } });
+    await expect(node(StagePertConfiguration).props.onDeferred()).rejects.toBeDefined(); await settle();
+    expect(workspaceVisible()).toBe(false); expect(button('Sign out')).toBeDefined();
+    h.get.mockResolvedValueOnce({ data: deferred() }); await button('Refresh setup status').props.onClick(); await settle();
+    expect(workspaceVisible()).toBe(true); expect(button('Finish PERT setup')).toBeDefined();
+  });
+  it('restores deferred permitted navigation from GET on remount, without local setup flags or redirect loops', async () => {
+    h.get.mockResolvedValue({ data: deferred() }); h.path = '/app/profile'; await settle();
+    expect(workspaceVisible()).toBe(true); expect(h.navigate).not.toHaveBeenCalled();
+    h.slots = []; h.effects = []; h.cursor = 0; await settle();
+    expect(workspaceVisible()).toBe(true); expect(h.path).toBe('/app/profile'); expect(h.navigate).not.toHaveBeenCalled();
+    expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
+  });
+  it('lets the Manager return to the existing editor and completes setup without signing out', async () => {
+    h.get.mockResolvedValue({ data: deferred() }); await settle();
+    button('Finish PERT setup').props.onClick(); await settle();
+    expect(h.path).toBe('/app/onboarding/pert'); expect(node(StagePertConfiguration)).toBeDefined(); expect(workspaceVisible()).toBe(false);
+    expect(node(StagePertConfiguration).props.onDeferred).toBeUndefined();
+    const count = h.navigate.mock.calls.length; await settle(); expect(h.navigate).toHaveBeenCalledTimes(count);
+    h.get.mockResolvedValueOnce({ data: pf18Complete() }); await node(StagePertConfiguration).props.onSaved(); await settle();
+    expect(workspaceVisible()).toBe(true); expect(h.path).toBe('/app/dashboard');
+    expect(text(render())).not.toContain('PERT setup is deferred'); expect(props.onLogout).not.toHaveBeenCalled();
+  });
+  it('allows returning from the deferred editor to permitted workspace areas while retaining the restriction notice', async () => {
+    h.get.mockResolvedValue({ data: deferred() }); h.path = '/app/onboarding/pert'; await settle();
+    button('Return to workspace').props.onClick(); await settle(); expect(workspaceVisible()).toBe(true);
+    expect(text(render())).toContain('workflow status/phase progression remains unavailable');
+  });
+  it.each(['Recruitment', 'Admin', 'Accounting'])('shows deferred restrictions to %s without granting a Manager editor or action', async (role) => {
+    props.roles = [role]; h.get.mockResolvedValue({ data: deferred({ can_manage: false }) }); await settle();
+    expect(workspaceVisible()).toBe(true); expect(button('Finish PERT setup')).toBeUndefined(); expect(node(StagePertConfiguration)).toBeUndefined();
+    expect(text(render())).toContain('workflow status/phase progression remains unavailable');
+    h.path = '/app/onboarding/pert'; await settle(); expect(h.path).toBe('/app/dashboard'); expect(node(StagePertConfiguration)).toBeUndefined();
+  });
+  it('refreshes and clears the outer notice after a Forecasting Configuration save without remounting healthy workspace views', async () => {
+    h.path = '/app/forecast'; h.get.mockResolvedValueOnce({ data: deferred() }); await settle();
+    const callback = node(PertOnboardingContext.Provider).props.value;
+    let finish: any; h.get.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const pending = callback(); await flush();
+    expect(workspaceVisible()).toBe(true); expect(text(render())).toContain('PERT setup is deferred');
+    finish({ data: pf18Complete() }); await pending; await settle();
+    expect(workspaceVisible()).toBe(true); expect(h.path).toBe('/app/forecast'); expect(text(render())).not.toContain('PERT setup is deferred');
+    expect(props.onLogout).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  });
+  it('never treats deferred as a completed five-stage save', async () => {
+    h.get.mockResolvedValue({ data: deferred() }); h.path = '/app/onboarding/pert'; await settle();
+    await expect(node(StagePertConfiguration).props.onSaved()).rejects.toThrow('completion has not been confirmed');
+    await settle(); expect(workspaceVisible()).toBe(false); expect(text(render())).toContain('completion has not been confirmed');
   });
 });

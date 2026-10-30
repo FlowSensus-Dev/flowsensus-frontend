@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import AgencySesSettings from './AgencySesSettings';
 import DelayReasonManagement, { DelayReasonManagementProps } from './DelayReasonManagement';
 import StagePertConfiguration from './StagePertConfiguration';
+import { PertOnboardingContext } from '../PertOnboardingContext';
 
 export default function ForecastingConfiguration({ canEdit, onAlphaSaved, ...delays }: Omit<DelayReasonManagementProps, 'canEdit'> & { canEdit: boolean; onAlphaSaved: () => Promise<void> }) {
   const [sesVersion, setSesVersion] = useState(0);
+  const refreshOnboarding = useContext(PertOnboardingContext);
   const pertSaved = async (refreshSesSettings = false) => {
     // Initial setup may have created the agency's first SES settings.
     if (refreshSesSettings) setSesVersion((version) => version + 1);
-    await onAlphaSaved();
+    const results = await Promise.allSettled([onAlphaSaved(), ...(refreshOnboarding ? [refreshOnboarding()] : [])]);
+    if (results.some((result) => result.status === 'rejected')) throw new Error('Forecast or onboarding refresh failed');
   };
   return <details className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
     <summary className="cursor-pointer font-bold text-slate-900 text-lg">Forecasting Configuration</summary>

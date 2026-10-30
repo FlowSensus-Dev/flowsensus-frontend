@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 // Use the existing project's hook/event harness: no real API, Auth or Supabase imports.
-const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effect: null as any, get: vi.fn(), post: vi.fn(), put: vi.fn() }));
+const h = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effect: null as any, get: vi.fn(), post: vi.fn(), put: vi.fn(), refreshOnboarding: null as (() => Promise<void>) | null }));
 vi.mock('../../../lib/api', () => ({ api: { get: h.get, post: h.post, put: h.put } }));
 vi.mock('react', async (original) => ({ ...(await original() as any),
   useState: (initial: any) => {
@@ -12,8 +12,9 @@ vi.mock('react', async (original) => ({ ...(await original() as any),
   },
   useRef: (initial: any) => { const index = h.cursor++; return h.slots[index] ?? (h.slots[index] = { current: initial }); },
   useEffect: (effect: any) => { h.effect = effect; },
+  useContext: () => h.refreshOnboarding,
 }));
-import StagePertConfiguration from './StagePertConfiguration';
+import StagePertConfiguration, { PertManagerGuide } from './StagePertConfiguration';
 import ForecastingConfiguration from './ForecastingConfiguration';
 import AgencySesSettings from './AgencySesSettings';
 import DelayReasonManagement from './DelayReasonManagement';
@@ -29,6 +30,11 @@ const base = (extra: any = {}) => ({
     pert_baseline_days: 6, calculated_pert_baseline_days: 6, observation_count: 4,
     current_ses_forecast_days: 7.25, effective_forecast_days: 7.25, forecast_basis: 'ses' })), ...extra,
 });
+const pf18Required = (extra: any = {}) => base({ setup_status: 'required', revision: 0, initial_setup_required: true,
+  next_action: 'configure_pert', setup_deferred: false, deferred_at: null, deferred_by: null, workflow_setup_required: true, ...extra });
+const deferred = () => ({ revision: 0, setup_status: 'deferred', setup_deferred: true, initial_setup_required: true,
+  deferred_at: '2026-10-30T10:00:00Z', deferred_by: 17, workflow_setup_required: true,
+  next_action: 'normal_operations', learning_state_modified: false });
 function nodes(tree: any): any[] {
   if (!tree || typeof tree !== 'object') return [];
   return [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)];
@@ -38,7 +44,8 @@ const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve()
 
 describe('Manager PERT configuration, mocked PF05 API', () => {
   let onSaved: ReturnType<typeof vi.fn>;
-  const render = (canEdit = true, onboarding = false) => { h.cursor = 0; return StagePertConfiguration({ canEdit, onSaved, onboarding }); };
+  let onDeferred: ReturnType<typeof vi.fn> | undefined;
+  const render = (canEdit = true, onboarding = false) => { h.cursor = 0; return StagePertConfiguration({ canEdit, onSaved, onboarding, onDeferred }); };
   const button = (label: string) => nodes(render()).find((n) => n.type === 'button' && text(n).trim() === label);
   const field = (order = 1, name = 'optimistic_days') => nodes(render()).find((n) => n.type === 'input' && n.props.id === `pert-${order}-${name}`);
   const change = (value: string, order = 1, name = 'optimistic_days') => field(order, name).props.onChange({ target: { value } });
@@ -52,6 +59,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
   } });
   beforeEach(async () => {
     vi.clearAllMocks(); h.slots = []; h.cursor = 0;
+    h.refreshOnboarding = null; onDeferred = undefined;
     const storage = new Map<string, string>();
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -289,5 +297,147 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(onSaved).not.toHaveBeenCalled(); const original = structuredClone(h.put.mock.calls[0][1]);
     await saveOnboarding(); expect(h.put.mock.calls[1][1]).toEqual(original); expect(onSaved).toHaveBeenCalledOnce();
     expect(text(render(true, true))).toContain('Setup status refreshed');
+  });
+  it('explains each workflow stage and connects all day inputs to plain-language help', () => {
+    const tree = render();
+    for (const description of ['applicant registration, screening', 'medical checks', 'preparing the applicant’s CV', 'employer’s review', 'final paperwork']) {
+      expect(text(tree)).toContain(description);
+    }
+    for (let order = 1; order <= 5; order++) {
+      for (const name of ['optimistic_days', 'most_likely_days', 'pessimistic_days']) {
+        const input = field(order, name);
+        const helpId = `pert-${order}-${name}-help`;
+        expect(input.props['aria-describedby']).toContain(helpId);
+        expect(nodes(tree).find((n) => n.props?.id === helpId)).toBeDefined();
+        expect(nodes(tree).find((n) => n.type === 'label' && n.props.htmlFor === input.props.id)?.props.children).toContain(' (days)');
+      }
+    }
+    expect(text(tree)).toContain('The shortest realistic time');
+    expect(text(tree)).toContain('The usual time your team normally needs');
+    expect(text(tree)).toContain('A longer realistic time');
+  });
+  it('updates validation progress and previews without changing saved baselines or accepting invalid ordering', async () => {
+    const content = () => text(render()).replace(/\s+/g, ' ');
+    const preview = () => nodes(render()).find((n) => n.type === 'output');
+    expect(content()).toContain('Valid stage estimates: 5 of 5');
+    change('3'); expect(text(preview())).toBe('6.1667 days');
+    expect(content()).toContain('Current PERT Baseline: 6 days'); expect(content()).toContain('Learned SES Forecast: 7.25 days');
+    expect(content()).toContain('Preview only. Changing an input does not save it');
+    expect(h.put).not.toHaveBeenCalled(); expect(h.post).not.toHaveBeenCalled();
+    change('6'); expect(content()).toContain('Valid stage estimates: 4 of 5');
+    expect(text(preview())).toContain('Enter valid O/M/P inputs');
+    await submit(); expect(content()).toContain('Most Likely cannot be less than Optimistic');
+    expect(field().props.value).toBe('6'); expect(h.put).not.toHaveBeenCalled();
+  });
+  it('keeps unknown historical inputs empty while showing that all five stages still need estimates', async () => {
+    await mount(base({ setup_status: 'unconfirmed', revision: 0, stages: base().stages.map((stage) => ({ ...stage,
+      optimistic_days: null, most_likely_days: null, pessimistic_days: null,
+    })) }));
+    expect(text(render()).replace(/\s+/g, ' ')).toContain('Valid stage estimates: 0 of 5');
+    expect(text(render())).toContain('no suggested durations are filled in');
+    expect(nodes(render()).filter((n) => n.type === 'input').every((n) => n.props.value === '')).toBe(true);
+    expect(text(render())).toContain('Original PERT inputs are unavailable');
+    expect(h.put).not.toHaveBeenCalled(); expect(h.post).not.toHaveBeenCalled();
+  });
+  it('distinguishes loaded configuration from unsaved edits and explains learned-state preservation', () => {
+    expect(text(render())).toContain('Saved configuration loaded');
+    expect(text(render())).toContain('designed to preserve learned SES values and observation counts');
+    expect(text(render())).toContain('only after the backend confirms it');
+    change('1'); expect(field().props.value).toBe('1');
+    expect(text(render())).toContain('Typing changes or viewing a preview does not save them');
+    expect(h.put).not.toHaveBeenCalled();
+  });
+  it('explains initial alpha in the editor without referring onboarding Managers to an absent guide below', async () => {
+    await mount(base({ setup_status: 'required', revision: 0, initial_setup_required: true, initial_forecast_settings_required: true }));
+    const help = nodes(render(true, true)).find((n) => n.props?.id === 'pert-alpha-help');
+    expect(text(help)).toContain('higher values give newer observations more weight');
+    expect(text(help)).toContain('review it later in Agency SES Settings');
+    expect(text(help)).not.toContain('guide below');
+  });
+  it('keeps the expandable guide understandable without presenting illustrative values as suggestions', () => {
+    const guide = PertManagerGuide();
+    expect(guide.type).toBe('details');
+    expect(text(guide)).toContain('shortest ≤ usual ≤ longer (O ≤ M ≤ P)');
+    expect(text(guide)).toContain('Equal values are allowed');
+    expect(text(guide)).toContain('for each stage separately');
+    expect(text(guide)).toContain('For example only');
+    expect(text(guide)).toContain('These example values are not entered into your configuration');
+    expect(text(guide)).toContain('staff who handle each stage');
+    expect(text(guide)).toContain('Observations are recorded actual durations');
+  });
+  it('offers Configure Later only for Management with authoritative PF18 eligibility and a cleared password requirement', async () => {
+    onDeferred = vi.fn().mockResolvedValue(undefined);
+    await mount(pf18Required()); expect(button('Configure Later')).toBeDefined();
+    for (const data of [base({ setup_status: 'required', initial_setup_required: true }), pf18Required({ must_change_password: true, next_action: 'change_password' }),
+      pf18Required({ can_manage: false }), base(), base({ setup_status: 'unconfirmed' })]) {
+      await mount(data); expect(button('Configure Later')).toBeUndefined();
+    }
+    await mount(pf18Required(), false); expect(render(false)).toBeNull(); expect(h.post).not.toHaveBeenCalled();
+  });
+  it('defers with only expected_revision, without inventing or saving missing O/M/P values', async () => {
+    onDeferred = vi.fn().mockResolvedValue(undefined);
+    await mount(pf18Required({ stages: base().stages.map((stage) => ({ ...stage, optimistic_days: null, most_likely_days: null, pessimistic_days: null })) }));
+    h.post.mockResolvedValueOnce({ data: deferred() });
+    button('Configure Later').props.onClick(); await flush();
+    expect(h.post).toHaveBeenCalledOnce(); expect(h.post).toHaveBeenCalledWith('/forecasting/pert-configuration/defer', { expected_revision: 0 });
+    expect(h.put).not.toHaveBeenCalled(); expect(onSaved).not.toHaveBeenCalled(); expect(onDeferred).toHaveBeenCalledOnce();
+    expect(field().props.value).toBe(''); expect(sessionStorage.getItem(pertAttemptKey(7))).toBeNull();
+    expect(text(render())).not.toContain('PERT configuration saved.');
+  });
+  it('prevents duplicate defer submissions and concurrent PERT saves until the server responds', async () => {
+    onDeferred = vi.fn().mockResolvedValue(undefined); await mount(pf18Required());
+    let finish: any; h.post.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const click = button('Configure Later').props.onClick;
+    click(); click(); await submit();
+    expect(h.post).toHaveBeenCalledOnce(); expect(onDeferred).not.toHaveBeenCalled();
+    expect(field().props.disabled).toBe(true); expect(button('Confirming Configure Later…').props.disabled).toBe(true);
+    finish({ data: deferred() }); await flush(); expect(onDeferred).toHaveBeenCalledOnce();
+  });
+  it.each([401, 403, 409, 422, 503, 404, 405, undefined])('keeps setup incomplete and requires a status reload after defer failure (%s)', async (status) => {
+    onDeferred = vi.fn().mockResolvedValue(undefined); await mount(pf18Required());
+    const readsBeforeDefer = h.get.mock.calls.length;
+    h.post.mockRejectedValueOnce(status ? { response: { status } } : new Error('Network Error'));
+    button('Configure Later').props.onClick(); await flush();
+    expect(onDeferred).not.toHaveBeenCalled(); expect(button('Configure Later').props.disabled).toBe(true);
+    expect(nodes(render()).some((n) => n.props?.role === 'alert')).toBe(true);
+    expect(h.get).toHaveBeenCalledTimes(readsBeforeDefer); expect(h.post).toHaveBeenCalledOnce(); expect(sessionStorage.getItem(pertAttemptKey(7))).toBeNull();
+    expect(text(render())).not.toContain('PERT configuration saved.');
+    if ([503, 404, 405].includes(status as number)) expect(text(render())).toContain('may not be deployed');
+    if (status === 403) expect(text(render())).toContain('required password change first');
+    if (status === 409) expect(text(render())).toContain('Agency setup changed');
+    await button('Reload configuration (discard draft)').props.onClick(); await flush();
+    expect(button('Configure Later').props.disabled).toBe(false); expect(h.post).toHaveBeenCalledOnce();
+  });
+  it('does not accept a malformed deferral success or a failed authoritative refresh as permission to navigate', async () => {
+    onDeferred = vi.fn().mockResolvedValue(undefined); await mount(pf18Required());
+    h.post.mockResolvedValueOnce({ data: { ...deferred(), learning_state_modified: true } });
+    button('Configure Later').props.onClick(); await flush(); expect(onDeferred).not.toHaveBeenCalled();
+    await button('Reload configuration (discard draft)').props.onClick(); await flush();
+    h.post.mockResolvedValueOnce({ data: deferred() }); onDeferred.mockRejectedValueOnce(new Error('GET unavailable'));
+    button('Configure Later').props.onClick(); await flush();
+    expect(text(render())).toContain('confirmed deferral, but current setup status could not be verified');
+    expect(button('Configure Later').props.disabled).toBe(true);
+  });
+  it('does not defer while a PERT save outcome is uncertain, preserving its existing request identity', async () => {
+    onDeferred = vi.fn().mockResolvedValue(undefined); await mount(pf18Required());
+    h.post.mockRejectedValueOnce(new Error('Network Error')); await submit();
+    expect(button('Configure Later').props.disabled).toBe(true);
+    button('Configure Later').props.onClick(); await flush();
+    expect(h.post).toHaveBeenCalledOnce(); expect(h.post.mock.calls[0][0]).toBe('/forecasting/pert-configuration');
+    expect(onDeferred).not.toHaveBeenCalled();
+  });
+  it('completes a deferred configuration with the existing initial POST and preserves learned state in the payload', async () => {
+    await mount(base({ ...deferred() }));
+    expect(text(render())).toContain('deferred, not completed'); await submit();
+    expect(h.post.mock.calls[0][0]).toBe('/forecasting/pert-configuration');
+    expect(Object.keys(h.post.mock.calls[0][1]).sort()).toEqual(['expected_revision', 'request_id', 'stages']);
+    expect(h.put).not.toHaveBeenCalled(); expect(onSaved).toHaveBeenCalledOnce();
+  });
+  it('notifies the outer deferred reminder as well as refreshing forecasts after a workspace PERT save', async () => {
+    h.slots = []; h.refreshOnboarding = vi.fn().mockResolvedValue(undefined);
+    h.cursor = 0;
+    const tree = ForecastingConfiguration({ canEdit: true, onAlphaSaved: onSaved, reasons: [], stages: [], loading: false, error: null, refresh: vi.fn() });
+    await nodes(tree).find((n) => n.type === StagePertConfiguration).props.onSaved(false);
+    expect(onSaved).toHaveBeenCalledOnce(); expect(h.refreshOnboarding).toHaveBeenCalledOnce();
   });
 });

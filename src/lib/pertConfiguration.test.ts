@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPertAttempt, expectedPertDays, pertDrafts, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration, PertConfiguration } from './pertConfiguration';
+import { canDeferPert, confirmedPertDeferral, isPertDeferred, createPertAttempt, expectedPertDays, pertDrafts, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration, PertConfiguration } from './pertConfiguration';
 
 const config = {
   agency_id: 7, revision: 1, setup_status: 'complete', initial_setup_required: false, can_manage: true,
@@ -58,5 +58,26 @@ describe('PF05 PERT validation and display rounding', () => {
     }
     expect(() => readPertAttempt('null')).toThrow('could not be recovered');
     expect(() => createPertAttempt({ ...config, revision: Number.MAX_SAFE_INTEGER }, pertDrafts(config), '')).toThrow('safely updated');
+  });
+  it('keeps old responses compatible without inferring deferral support', () => {
+    const old = readPertConfiguration(config); expect(canDeferPert(old)).toBe(false); expect(isPertDeferred(old)).toBe(false);
+    const required = readPertConfiguration({ ...config, setup_status: 'required', initial_setup_required: true, next_action: 'configure_pert' });
+    expect(canDeferPert(required)).toBe(false);
+    expect(canDeferPert({ ...required, setup_deferred: false, deferred_at: null, deferred_by: null, workflow_setup_required: true })).toBe(true);
+  });
+  it('requires coherent server metadata for deferred state and never makes it complete', () => {
+    const data = { ...config, revision: 0, setup_status: 'deferred', setup_deferred: true, initial_setup_required: true,
+      deferred_at: '2026-10-30T10:00:00Z', deferred_by: 17, workflow_setup_required: true, next_action: 'normal_operations' };
+    const parsed = readPertConfiguration(data); expect(isPertDeferred(parsed)).toBe(true); expect(parsed.initial_setup_required).toBe(true);
+    expect(createPertAttempt(parsed, pertDrafts(parsed), '').method).toBe('post');
+    expect(confirmedPertDeferral({ ...data, learning_state_modified: false }, 0)).toBe(true);
+    expect(confirmedPertDeferral({ ...data, learning_state_modified: true }, 0)).toBe(false);
+    expect(confirmedPertDeferral({ ...data, initial_setup_required: 'true', learning_state_modified: false }, 0)).toBe(false);
+    expect(confirmedPertDeferral({ ...data, learning_state_modified: false }, 1)).toBe(false);
+    for (const extra of [{ setup_deferred: false }, { initial_setup_required: false }, { workflow_setup_required: false }, { deferred_at: null }, { deferred_by: null }]) {
+      expect(() => readPertConfiguration({ ...data, ...extra })).toThrow('unavailable or incomplete');
+    }
+    expect(() => readPertConfiguration({ ...config, setup_deferred: true })).toThrow('unavailable or incomplete');
+    expect(() => readPertConfiguration({ ...config, workflow_setup_required: true })).toThrow('unavailable or incomplete');
   });
 });

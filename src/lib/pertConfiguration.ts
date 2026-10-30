@@ -19,8 +19,13 @@ export interface PertStage {
 export interface PertConfiguration {
   agency_id: number;
   revision: number;
-  setup_status: 'required' | 'unconfirmed' | 'complete' | 'inconsistent';
+  setup_status: 'required' | 'deferred' | 'unconfirmed' | 'complete' | 'inconsistent';
   initial_setup_required: boolean;
+  // Optional only for compatibility with the pre-PF18 backend. Absence never grants deferral.
+  setup_deferred?: boolean;
+  deferred_at?: string | null;
+  deferred_by?: number | null;
+  workflow_setup_required?: boolean;
   can_manage: boolean;
   must_change_password: boolean;
   next_action: 'change_password' | 'configure_pert' | 'contact_manager' | 'normal_operations' | 'reconciliation_required';
@@ -50,11 +55,47 @@ export interface PertAttempt {
 const days = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const validOrders = (stages: { stage_order: number }[]) => stages.length === 5 &&
   [1, 2, 3, 4, 5].every((order) => stages.filter((stage) => stage.stage_order === order).length === 1);
+const validDeferralTime = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
+const validDeferralActor = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+export function isPertDeferred(config: PertConfiguration): boolean {
+  return config.setup_status === 'deferred' && config.setup_deferred === true && config.initial_setup_required === true &&
+    config.workflow_setup_required === true && validDeferralTime(config.deferred_at) && validDeferralActor(config.deferred_by);
+}
+
+export function canDeferPert(config: PertConfiguration): boolean {
+  return config.setup_status === 'required' && config.initial_setup_required && config.can_manage &&
+    !config.must_change_password && config.next_action === 'configure_pert' && !config.issues.length &&
+    config.setup_deferred === false && config.workflow_setup_required === true &&
+    config.deferred_at === null && config.deferred_by === null;
+}
+
+export function confirmedPertDeferral(data: any, revision: number): boolean {
+  return !!data && data.revision === revision && data.next_action === 'normal_operations' &&
+    data.learning_state_modified === false && isPertDeferred(data);
+}
+
+export function pertDeferralError(error: any): string {
+  const status = error.response?.status;
+  if (status === 401) return 'Your session has expired. Sign in again, then refresh setup status. Setup has not been marked complete.';
+  if (status === 403) return 'Configure Later was denied. An authorized Manager must finish the required password change first. Refresh setup status before trying again.';
+  if (status === 409) return 'Agency setup changed or could not be deferred. Refresh setup status and review it before trying again.';
+  if (status === 422) return 'The backend rejected this deferral request. Refresh setup status before trying again.';
+  if (status === 404 || status === 405 || status === 503) return 'Configure Later is unavailable or its outcome could not be confirmed. The backend feature or database migration may not be deployed. Setup remains incomplete; refresh setup status to check.';
+  return 'Configure Later could not be confirmed. Check your connection and refresh setup status before retrying. No local deferral has been applied.';
+}
 
 export function readPertConfiguration(data: any): PertConfiguration {
   if (!data || !Number.isSafeInteger(data.agency_id) || data.agency_id <= 0 ||
       !Number.isSafeInteger(data.revision) || data.revision < 0 ||
-      !['required', 'unconfirmed', 'complete', 'inconsistent'].includes(data.setup_status) ||
+      !['required', 'deferred', 'unconfirmed', 'complete', 'inconsistent'].includes(data.setup_status) ||
+      (data.setup_deferred !== undefined && typeof data.setup_deferred !== 'boolean') ||
+      (data.workflow_setup_required !== undefined && typeof data.workflow_setup_required !== 'boolean') ||
+      (data.deferred_at != null && !validDeferralTime(data.deferred_at)) ||
+      (data.deferred_by != null && !validDeferralActor(data.deferred_by)) ||
+      (data.setup_status === 'deferred' && !isPertDeferred(data)) ||
+      (data.setup_deferred === true && data.setup_status !== 'deferred' && data.setup_status !== 'inconsistent') ||
+      (data.setup_status === 'complete' && data.workflow_setup_required === true) ||
       !['change_password', 'configure_pert', 'contact_manager', 'normal_operations', 'reconciliation_required'].includes(data.next_action) ||
       ['can_manage', 'must_change_password', 'initial_setup_required', 'forecast_settings_present', 'initial_forecast_settings_required']
         .some((key) => typeof data[key] !== 'boolean') ||
@@ -86,7 +127,7 @@ export function pertStageError(stage: PertDraft): string | null {
     return 'Enter all three durations as decimal days from 0 to 3650, with at most four decimal places.';
   }
   if (Number(stage.optimistic_days) > Number(stage.most_likely_days) || Number(stage.most_likely_days) > Number(stage.pessimistic_days)) {
-    return 'Durations must follow O ≤ M ≤ P.';
+    return 'Use shortest ≤ usual ≤ longer (O ≤ M ≤ P). Most Likely cannot be less than Optimistic, and Pessimistic cannot be less than Most Likely. Equal values are allowed.';
   }
   return null;
 }
@@ -153,6 +194,7 @@ export function confirmedPertSave(data: any, attempt: PertAttempt, agencyId: num
     data.operation === (attempt.method === 'post' ? 'initial_setup' : 'update') &&
     data.revision === attempt.payload.expected_revision + 1 && data.setup_status === 'complete' &&
     data.initial_setup_required === false && data.learning_state_modified === false &&
+    data.setup_deferred !== true && data.workflow_setup_required !== true &&
     Array.isArray(data.stages) && data.stages.every((stage: any) => stage && pertFields.every((key) => days(stage[key])) && days(stage.pert_baseline_days)) && validOrders(data.stages);
 }
 

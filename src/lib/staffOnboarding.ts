@@ -1,8 +1,8 @@
 import { api } from './api';
 import { supabase } from './supabase';
-import { PertConfiguration, readPertConfiguration } from './pertConfiguration';
+import { isPertDeferred, PertConfiguration, readPertConfiguration } from './pertConfiguration';
 
-export type StaffOnboardingStep = 'password' | 'pert' | 'reconciliation' | 'manager_guidance' | 'forecast_warning' | 'workspace';
+export type StaffOnboardingStep = 'password' | 'pert' | 'deferred' | 'reconciliation' | 'manager_guidance' | 'forecast_warning' | 'workspace';
 export interface PasswordChangeAccount {
   user: { id: string; email?: string };
   role: import('../app/types').UserRole;
@@ -15,6 +15,7 @@ export interface PasswordChangeAccount {
 
 export function staffOnboardingStep(config: PertConfiguration, roles: string[]): StaffOnboardingStep {
   if (config.must_change_password || config.next_action === 'change_password') return 'password';
+  if (isPertDeferred(config)) return config.next_action === 'normal_operations' && !config.issues.length ? 'deferred' : 'reconciliation';
   const manager = roles.includes('Management') && config.can_manage;
   if (config.initial_setup_required || config.setup_status === 'required') {
     if (!manager) return 'manager_guidance';
