@@ -3,11 +3,10 @@ import type { FormEvent } from 'react';
 import {
   Building2, BarChart3, ScrollText, UserPlus, LogOut, Search, Shield,
   Users, CheckCircle2, AlertTriangle, Clock, ArrowRight,
-  Check, RefreshCw, Crown, Briefcase, Settings, Receipt, User,
+  Check, RefreshCw, Crown, User,
   Loader2, ExternalLink, Copy, CheckCheck, Sparkles, Activity,
   Edit2, X, Globe
 } from 'lucide-react';
-import { UserRole, ApplicantRecord, ActivityLog } from '../types';
 import { api } from '../../lib/api';
 import { Skeleton } from './ui/skeleton';
 import DeploymentHistory from './views/DeploymentHistory';
@@ -89,42 +88,18 @@ function fmtTimeShort(raw: string | null): string {
   }
 }
 
-// ─── Role-switch config ───────────────────────────────────────────────────────
-
-interface RoleOption {
-  role: UserRole;
-  label: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-}
-
-const ROLE_OPTS: RoleOption[] = [
-  { role: 'Management', label: 'Management', icon: Briefcase },
-  { role: 'Recruitment', label: 'Recruitment', icon: Users },
-  { role: 'Admin', label: 'Administrative', icon: Settings },
-  { role: 'Accounting', label: 'Accounting', icon: Receipt },
-  { role: 'Employer', label: 'Employer Portal', icon: Building2 },
-  { role: 'Applicant', label: 'Applicant Accounts', icon: User },
-];
-
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface SuperAdminDashboardProps {
   onLogout: () => void;
-  onSwitchRole: (role: UserRole) => void;
   currentUserName?: string;
-  // Verified live data passed from App.tsx state
-  applicants: ApplicantRecord[];
-  activityLogs: ActivityLog[];
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard({
   onLogout,
-  onSwitchRole,
   currentUserName,
-  applicants,
-  activityLogs,
 }: SuperAdminDashboardProps) {
   const [view, setView] = useState<AdminView>('overview');
 
@@ -217,9 +192,9 @@ export default function SuperAdminDashboard({
     }
   };
 
-  // Staff users — fetched from verified GET /users
-  const [staffCount, setStaffCount] = useState<number | null>(null);
-  const [staffLoading, setStaffLoading] = useState(false);
+  const [liveAuditLogs, setLiveAuditLogs] = useState<LiveAuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   // Agency Onboarding form state
   const [form, setForm] = useState({ agencyName: '', licenseNo: '', gmName: '', email: '', slug: '' });
@@ -280,23 +255,25 @@ export default function SuperAdminDashboard({
     }
   };
 
-  // Fetch staff count on mount via verified GET /users
+  // PF17S2 explicitly permits platform audit reads. Tenant staff/applicant totals have no platform endpoint.
   useEffect(() => {
     let cancelled = false;
-    const fetchStaff = async () => {
-      setStaffLoading(true);
+    const fetchAudit = async () => {
       try {
-        const res = await api.get('/users');
-        if (!cancelled && res.data && Array.isArray(res.data)) {
-          setStaffCount(res.data.length);
-        }
+        const res = await api.get('/audit-logs', { params: { limit: 6 } });
+        const rows = Array.isArray(res.data) ? res.data : res.data?.items;
+        if (!Array.isArray(rows)) throw new Error('Invalid audit response');
+        if (!cancelled) setLiveAuditLogs(rows.map((row) => ({
+          audit_log_id: row.audit_log_id, action: row.action, details: row.description ?? row.details ?? null,
+          created_at: row.occurred_at ?? row.created_at ?? null, department: row.module ?? row.department,
+        })));
       } catch {
-        if (!cancelled) setStaffCount(null);
+        if (!cancelled) setAuditError('Recent platform activity is unavailable. Open Audit Ledger to retry.');
       } finally {
-        if (!cancelled) setStaffLoading(false);
+        if (!cancelled) setAuditLoading(false);
       }
     };
-    fetchStaff();
+    fetchAudit();
     return () => { cancelled = true; };
   }, []);
 
@@ -348,15 +325,6 @@ export default function SuperAdminDashboard({
       (statusFilter === 'suspended' && stat === 'SUSPENDED');
     return matchesSearch && matchesStatus;
   });
-
-  // App retains backend snake_case values alongside operational display fields.
-  const liveAuditLogs: LiveAuditLog[] = activityLogs.map((log: ActivityLog & Partial<LiveAuditLog>) => ({
-    audit_log_id: log.audit_log_id ?? null,
-    action: log.action ?? '—',
-    details: log.details ?? '—',
-    created_at: log.audit_log_id != null ? log.created_at ?? null : log.timestamp || null,
-    department: log.department,
-  }));
 
   // Live current date/time
   const nowLabel = new Date().toLocaleString('en-PH', {
@@ -446,31 +414,6 @@ export default function SuperAdminDashboard({
             );
           })}
 
-          {/* Switch to Role (Tenant Portal Emulation) */}
-          <div className="pt-5 pb-2">
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-extrabold px-3 pb-2 flex items-center justify-between">
-              <span>Switch to Role</span>
-              <span className="text-[9px] text-sky-400 font-normal">Tenant Portal</span>
-            </p>
-            <div className="space-y-0.5">
-              {ROLE_OPTS.map((r) => {
-                const Icon = r.icon;
-                return (
-                  <button
-                    key={r.role}
-                    type="button"
-                    onClick={() => onSwitchRole(r.role)}
-                    title={`Emulate ${r.label} view in tenant workspace`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all text-left group cursor-pointer"
-                  >
-                    <Icon size={14} className="text-slate-500 group-hover:text-sky-400 transition-colors" />
-                    <span className="truncate">{r.label}</span>
-                    <ArrowRight size={12} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 text-sky-400 transition-all flex-shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </nav>
 
         {/* User Card + Sign Out */}
@@ -481,7 +424,7 @@ export default function SuperAdminDashboard({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-white text-xs font-bold truncate">Super Admin</p>
-              <p className="text-slate-400 text-[10px] truncate">{currentUserName || 'admin@flowsensus.com'}</p>
+              <p className="text-slate-400 text-[10px] truncate">{currentUserName || 'Platform administrator'}</p>
             </div>
           </div>
           <button
@@ -628,15 +571,9 @@ export default function SuperAdminDashboard({
                         <Users size={19} />
                       </div>
                     </div>
-                    {staffLoading ? (
-                      <Skeleton className="h-9 w-20 mt-1" />
-                    ) : (
-                      <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-1 tracking-tight">
-                        {staffCount !== null ? staffCount : '—'}
-                      </p>
-                    )}
+                    <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-1 tracking-tight">—</p>
                     <p className="text-xs text-slate-400 mt-2 font-medium">
-                      {staffCount !== null ? 'Verified user accounts across agencies' : 'Backend offline'}
+                      Total unavailable in platform view
                     </p>
                   </div>
 
@@ -650,10 +587,10 @@ export default function SuperAdminDashboard({
                       </div>
                     </div>
                     <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-1 tracking-tight">
-                      {applicants.length}
+                      —
                     </p>
                     <p className="text-xs text-slate-400 mt-2 font-medium">
-                      Overseas workers currently registered
+                      Total unavailable in platform view
                     </p>
                   </div>
                 </div>
@@ -737,7 +674,7 @@ export default function SuperAdminDashboard({
                     </button>
                   </div>
 
-                  {liveAuditLogs.length === 0 ? (
+                  {auditLoading ? <p role="status" className="py-8 text-center text-sm text-slate-500">Loading platform activity…</p> : auditError ? <p role="alert" className="py-8 text-center text-sm text-amber-700">{auditError}</p> : liveAuditLogs.length === 0 ? (
                     <div className="py-8 text-center">
                       <Activity className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                       <p className="text-slate-400 text-sm font-medium">No activity records logged yet</p>
@@ -951,15 +888,6 @@ export default function SuperAdminDashboard({
                                     >
                                       <Edit2 size={13} />
                                       <span>Edit</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => onSwitchRole('Management')}
-                                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                                      title="Enter this agency workspace as Management"
-                                    >
-                                      <ExternalLink size={13} />
-                                      <span>Enter Workspace</span>
                                     </button>
                                   </div>
                                 </td>
@@ -1267,7 +1195,7 @@ export default function SuperAdminDashboard({
             {/* ── View: Audit Ledger ───────────────────────────────────── */}
             {view === 'audit' && (
               <div className="space-y-4">
-                <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />
+                <DeploymentHistory activityLogs={[]} applicants={[]} />
               </div>
             )}
 

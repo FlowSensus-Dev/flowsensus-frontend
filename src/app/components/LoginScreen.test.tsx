@@ -103,5 +103,15 @@ describe('existing password dialog, PF09 staff confirmation (mocked only)', () =
     nodes(render()).find((n) => n.type === 'button' && text(n).startsWith('Agency Staff')).props.onClick();
     input('Enter your email address', account.email); input('Enter your password', mockPassword); await submit();
     expect(text(render())).toContain('Set Your Private Password'); expect(props.onLogin).not.toHaveBeenCalled();
+    expect(button('Save Password & Open Console')).toBeDefined();
+  });
+  it.each([true, false, undefined, 'true', 1])('grants platform login only for the exact Auth app_metadata flag (%s)', async (flag) => {
+    props = { onLogin: vi.fn() };
+    h.signIn.mockResolvedValue({ data: { user: { ...account, email: 'admin@findstaff.ph', app_metadata: { is_super_admin: flag },
+      user_metadata: { is_super_admin: true, roles: ['Recruitment', 'Management'] } } }, error: null });
+    nodes(render()).find((n) => n.type === 'button' && text(n).startsWith('Agency Staff')).props.onClick();
+    input('Enter your email address', 'admin@findstaff.ph'); input('Enter your password', mockPassword); await submit();
+    expect(props.onLogin).toHaveBeenCalledWith(flag === true ? '' : 'Recruitment', 'admin@findstaff.ph', undefined,
+      flag === true, flag === true ? [] : ['Recruitment', 'Management'], false);
   });
 });

@@ -1,7 +1,7 @@
 import { UserRole, ViewType } from '../app/types';
 
 /**
- * Modules strictly reserved for Management and Super Admin.
+ * Tenant modules strictly reserved for Management.
  * Even if manually entered into the browser address bar, access will be blocked.
  */
 export const MANAGEMENT_EXCLUSIVE_VIEWS: ViewType[] = [
@@ -44,7 +44,7 @@ export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
 };
 
 /**
- * Authoritative client-side permission checker.
+ * Client-side navigation guard; backend authorization remains authoritative.
  * Used by both Sidebar (navigation visibility) and AppShell (route guard & URL manipulation barrier).
  *
  * @param view The target ViewType requested (e.g. 'users', 'ocr', 'expense')
@@ -59,8 +59,8 @@ export function hasAccessToView(
   isSuperAdmin?: boolean,
   workflowPermissions?: Record<string, UserRole[]>
 ): boolean {
-  // 1. Super Admin has unrestricted access across all modules
-  if (isSuperAdmin) return true;
+  // Platform identities never inherit tenant operational permissions.
+  if (isSuperAdmin) return false;
 
   // 2. Management role has universal access to all agency operations & oversight
   if (userRoles.includes('Management')) return true;

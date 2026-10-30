@@ -13,6 +13,7 @@ vi.mock('react', async (original) => ({ ...(await original() as any),
   useEffect: (effect: any) => { h.effects.push(effect); },
 }));
 import SuperAdminDashboard from './SuperAdminDashboard';
+import SuperAdminBar from './SuperAdminBar';
 
 function nodes(tree: any): any[] {
   if (!tree || typeof tree !== 'object') return [];
@@ -50,7 +51,7 @@ describe('Super Admin onboarding (mocked API only)', () => {
 
   beforeEach(() => {
     h.slots = []; h.cursor = 0; h.effects = []; vi.clearAllMocks(); vi.useFakeTimers();
-    props = { currentUserName: 'Authorized Operator', applicants: [], activityLogs: [], onLogout: vi.fn(), onSwitchRole: vi.fn() };
+    props = { currentUserName: 'Authorized Operator', onLogout: vi.fn() };
     copy = vi.fn().mockResolvedValue(undefined); storage = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: copy } });
     vi.stubGlobal('localStorage', { setItem: storage }); vi.stubGlobal('sessionStorage', { setItem: storage });
@@ -144,14 +145,38 @@ describe('Super Admin onboarding (mocked API only)', () => {
     h.post.mockResolvedValueOnce(recovery); await submit();
     expect(text(render())).not.toContain(mockPassword); expect(submitButton().props.disabled).toBe(true);
   });
-  it('preserves Overview, Tenant Management, Audit Ledger, role switching and logout navigation', () => {
+  it('preserves platform navigation and logout without operational role switching', () => {
     for (const label of ['Overview', 'Tenant Management', 'Audit Ledger', 'Agency Onboarding']) {
       button(label).props.onClick(); expect(button(label)).toBeDefined();
       expect(h.post).not.toHaveBeenCalled();
     }
-    button('Management').props.onClick(); expect(props.onSwitchRole).toHaveBeenCalledWith('Management');
+    expect(button('Management')).toBeUndefined(); expect(button('Switch to Role')).toBeUndefined();
+    expect(text(render())).not.toContain('Tenant Portal');
     const logout = nodes(render()).find((n) => n.type === 'button' && n.props.onClick === props.onLogout);
     expect(logout).toBeDefined(); logout.props.onClick(); expect(props.onLogout).toHaveBeenCalledOnce();
+  });
+  it('requests only authorized platform reads on mount and displays confirmed audit fields', async () => {
+    h.get.mockImplementation(async (url) => ({ data: url === '/audit-logs' ? [{ audit_log_id: 91, action: 'AGENCY_CREATED',
+      description: 'Example agency provisioned', occurred_at: '2026-10-30T10:00:00Z', module: 'Platform' }] : [] }));
+    h.effects.slice(0, 2).forEach((effect) => effect());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.get.mock.calls.map(([url]) => url)).toEqual(['/audit-logs', '/agency-workspaces']);
+    expect(h.get).not.toHaveBeenCalledWith('/users');
+    button('Overview').props.onClick(); expect(text(render())).toContain('Example agency provisioned');
+    expect(text(render())).toContain('Total unavailable in platform view');
+  });
+  it('reports unavailable activity without claiming no events or fetching tenant data', async () => {
+    h.get.mockRejectedValue(new Error('Unavailable')); h.effects[0]();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    button('Overview').props.onClick(); expect(text(render())).toContain('Recent platform activity is unavailable');
+    expect(text(render())).not.toContain('No activity records logged yet');
+    expect(h.get).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the legacy platform bar free of operational controls and hardcoded identity', () => {
+    const onConsole = vi.fn(); const tree = SuperAdminBar({ currentUserName: 'Verified Operator', onLogout: props.onLogout, onSuperAdminDashboard: onConsole });
+    expect(text(tree)).toContain('Verified Operator'); expect(text(tree)).not.toMatch(/Switch Role|Findstaff|admin@|Agency #1/);
+    const buttons = nodes(tree).filter((n) => n.type === 'button'); expect(buttons).toHaveLength(2);
+    buttons[0].props.onClick(); expect(onConsole).toHaveBeenCalledOnce();
   });
 
   const tenant = (status: any) => ({ agency_id: 83, agency_name: 'Example Agency', poea_license_no: 'DEMO-LICENSE',
@@ -171,6 +196,7 @@ describe('Super Admin onboarding (mocked API only)', () => {
 
   it('offers only supported status choices, correctly displays CLOSED, and never writes on load', async () => {
     await loadTenants([tenant('CLOSED')]);
+    expect(button('Enter Workspace')).toBeUndefined();
     expect(quickStatus().props.value).toBe('CLOSED');
     expect(editableOptions(quickStatus())).toEqual(['ACTIVE', 'SUSPENDED', 'CLOSED']);
     expect(text(render())).not.toContain('Pending Approval');

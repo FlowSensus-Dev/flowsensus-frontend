@@ -193,7 +193,7 @@ describe('PF09 staff onboarding navigation (mocked Auth and API)', () => {
     props.bypass = true; await settle(); expect(workspaceVisible()).toBe(true);
     expect(h.get).not.toHaveBeenCalled(); expect(h.getUser).not.toHaveBeenCalled();
     const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
-    expect(app).toContain('<StaffOnboardingGate key={authSubject'); expect(app).toContain('bypass={isSuperAdmin}');
+    expect(app).toContain('<StaffOnboardingGate key={authSubject'); expect(app).not.toContain('bypass={isSuperAdmin}');
     expect(app.indexOf('<StaffOnboardingGate')).toBeLessThan(app.indexOf('<AppShell'));
     expect(app).toContain('setAuthSubject(userId)');
   });

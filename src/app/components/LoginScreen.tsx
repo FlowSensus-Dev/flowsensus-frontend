@@ -23,6 +23,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { validatePassword } from '../../lib/passwordPolicy';
+import { isPlatformSuperAdmin } from '../../lib/platformIdentity';
 import { changeRequiredStaffPassword, PasswordChangeAccount } from '../../lib/staffOnboarding';
 
 type PortalType = 'staff' | 'applicant';
@@ -35,7 +36,7 @@ interface LoginScreenProps {
     isSuperAdmin?: boolean,
     roles?: UserRole[],
     rememberMe?: boolean
-  ) => void;
+  ) => void | Promise<void>;
   applicants?: ApplicantRecord[];
   tenantName?: string;
   onBack?: () => void;
@@ -192,7 +193,7 @@ export default function LoginScreen({
       }
 
       const user = data.user;
-      const isSuper = Boolean(user?.app_metadata?.is_super_admin);
+      const isSuper = isPlatformSuperAdmin(user);
       const userRoleMeta = (user?.app_metadata?.role || user?.user_metadata?.role || '').toLowerCase();
       const userRolesMeta: string[] = (user?.app_metadata?.roles || user?.user_metadata?.roles || []).map((r: any) => String(r).toLowerCase());
       const isApplicantAccount =
@@ -257,7 +258,7 @@ export default function LoginScreen({
           return;
         }
 
-        onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
+        await onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
       } else {
         // Parse all assigned roles from metadata
         let assignedRoles: UserRole[] = [];
@@ -270,10 +271,10 @@ export default function LoginScreen({
         }
 
         const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
-        const role = isSuper ? 'Management' : dynamicRole;
+        const role: UserRole = isSuper ? '' : dynamicRole;
         const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
         const roles = isSuper
-          ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
+          ? []
           : (assignedRoles.length > 0 ? assignedRoles : [role]);
 
         // Tenant staff enter the authoritative onboarding gate. Keep the existing Super Admin flow.
@@ -291,7 +292,7 @@ export default function LoginScreen({
         // Record login in app_user to update last_login_at and broadcast realtime update
         api.post('/users/record-login', {}).catch(e => console.warn('Could not record login timestamp:', e));
 
-        onLogin(role, name, undefined, isSuper, roles, rememberMe);
+        await onLogin(role, name, undefined, isSuper, roles, rememberMe);
       }
       return;
     } catch (err: any) {
@@ -363,8 +364,8 @@ export default function LoginScreen({
 
       // 4. Complete login into workspace or applicant portal
       const { role, name, isSuper, roles, rememberMe: userRememberMe, applicantId } = forcePasswordChangeUser;
+      await onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
       setForcePasswordChangeUser(null);
-      onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
     } catch (err: any) {
       setPasswordChangeError(err.message || 'Failed to update password. Please try again.');
     } finally {
@@ -777,7 +778,7 @@ export default function LoginScreen({
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    {requiredPasswordChange ? 'Save Password & Continue Setup' : forcePasswordChangeUser.role === 'Applicant'
+                    {forcePasswordChangeUser.isSuper ? 'Save Password & Open Console' : requiredPasswordChange ? 'Save Password & Continue Setup' : forcePasswordChangeUser.role === 'Applicant'
                       ? 'Save Password & Enter Portal'
                       : 'Save Password & Enter Workspace'}
                   </>

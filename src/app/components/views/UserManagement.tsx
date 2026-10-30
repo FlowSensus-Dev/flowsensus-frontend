@@ -9,6 +9,7 @@ import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ActivityLog, UserRole, ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
+import { confirmedApplicantResend } from '../../../lib/applicantCredentials';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -589,23 +590,14 @@ export default function UserManagement({
         });
       } else {
         const res = await api.post(`/users/applicants/${resendTarget.id}/resend-email`, {});
-        const newPass = res.data?.temp_pass || res.data?.password || 'New Secure Temp Pass';
-        setCreatedCredentialsResult({
-          title: 'Applicant Credentials Dispatched',
-          name: resendTarget.name,
-          email: resendTarget.email,
-          username: resendTarget.applicantCode || res.data?.applicant_code || resendTarget.email,
-          password: newPass,
-          portalName: 'Applicant Account',
-          emailDispatched: Boolean(res.data?.email_dispatched),
-          message: `Official login credentials were sent to ${resendTarget.email}.`,
-        });
+        setCreatedCredentialsResult(confirmedApplicantResend(res.data));
       }
 
       setResendTarget(null);
     } catch (err: any) {
       console.error('Failed to resend credentials:', err);
-      const msg = err?.response?.data?.detail || err.message || 'Failed to dispatch credentials email.';
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail : err.message || 'Failed to dispatch credentials email.';
       alert(msg);
     } finally {
       setIsResending(false);
@@ -1305,9 +1297,9 @@ export default function UserManagement({
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-500">Password Provisioning:</span>
-                  <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    New Secure Temp Pass
+                  <span className="text-slate-500">On confirmed dispatch:</span>
+                  <span className="font-semibold text-slate-700">
+                    A new temporary password is emailed
                   </span>
                 </div>
               </div>
@@ -1538,7 +1530,8 @@ export default function UserManagement({
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2.5">
                   <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-emerald-800 leading-relaxed font-medium">
-                    Credentials email successfully delivered to <strong>{credentialsResult.email}</strong>.
+                    Credentials email dispatched to <strong>{credentialsResult.email}</strong>.
+                    {credentialsResult.portalName === 'Applicant Account' && ' The temporary password is available only in the applicant’s email.'}
                   </p>
                 </div>
               ) : (
