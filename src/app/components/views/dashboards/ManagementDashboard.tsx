@@ -16,6 +16,11 @@ import {
 import { Skeleton } from '../../ui/skeleton';
 import { ApplicantRecord, ActivityLog } from '../../../types';
 import { ViewType } from '../../AppShell';
+import {
+  sendHandlerReminderNotification,
+  isUnassignedHandlerName,
+  getResponsibleTeamForPhase,
+} from '../../../../lib/notificationService';
 
 function getInitials(name?: string, fallback = 'AP'): string {
   if (!name || typeof name !== 'string') return fallback;
@@ -30,6 +35,9 @@ interface ManagementDashboardProps {
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
   isLoading?: boolean;
+  currentUserName?: string;
+  showToast?: (message: string) => void;
+  addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
 }
 
 const PHASE_LABELS: Record<number, string> = {
@@ -46,8 +54,12 @@ export default function ManagementDashboard({
   onViewApplicant,
   onNavigate,
   isLoading = false,
+  currentUserName = 'Management',
+  showToast,
+  addActivityLog,
 }: ManagementDashboardProps) {
   const [remindedIds, setRemindedIds] = useState<Record<string, boolean>>({});
+  const [sendingIds, setSendingIds] = useState<Record<string, boolean>>({});
 
   // 1. Identify candidates needing follow-up (in same stage for > 5 days)
   const candidatesNeedingAttention = useMemo(() => {
@@ -83,8 +95,53 @@ export default function ManagementDashboard({
   const avgPhaseName = PHASE_LABELS[Math.min(5, Math.max(1, Math.round(avgPhaseNumber)))] || 'In Progress';
   const conversionRate = totalActive > 0 ? Math.round((deploymentReady / totalActive) * 100) : 0;
 
-  const handleSendReminder = (applicant: ApplicantRecord) => {
-    setRemindedIds((prev) => ({ ...prev, [applicant.id]: true }));
+  const handleSendReminder = async (applicant: ApplicantRecord) => {
+    if (remindedIds[applicant.id] || sendingIds[applicant.id]) return;
+    setSendingIds((prev) => ({ ...prev, [applicant.id]: true }));
+
+    const isUnassigned = !applicant.currentHandlerUserId && isUnassignedHandlerName(applicant.currentHandler);
+    const responsibleTeam = getResponsibleTeamForPhase(applicant.phase, applicant.currentDepartment);
+    const recipientLabel = isUnassigned
+      ? responsibleTeam.label
+      : (applicant.currentHandler || responsibleTeam.label);
+    const stageLabel = PHASE_LABELS[applicant.phase] || `Stage ${applicant.phase}`;
+
+    try {
+      await sendHandlerReminderNotification({
+        applicantId: applicant.id,
+        applicantName: applicant.name || 'Candidate',
+        applicantCode: applicant.applicantCode,
+        handlerName: applicant.currentHandler,
+        handlerUserId: applicant.currentHandlerUserId,
+        phase: applicant.phase,
+        department: applicant.currentDepartment,
+        stageLabel,
+        senderName: currentUserName,
+      });
+      setRemindedIds((prev) => ({ ...prev, [applicant.id]: true }));
+      if (addActivityLog) {
+        addActivityLog({
+          applicantId: String(applicant.id),
+          action: isUnassigned ? 'Team Claim & Follow-Up Sent' : 'Follow-Up Reminder Sent',
+          performedBy: currentUserName,
+          department: 'Management',
+          details: isUnassigned
+            ? `Notified ${responsibleTeam.label} to claim and follow up on unassigned candidate ${applicant.name} (${stageLabel})`
+            : `Sent follow-up reminder to ${recipientLabel} for ${applicant.name} (${stageLabel})`,
+        });
+      }
+      if (showToast) {
+        if (isUnassigned) {
+          showToast(
+            `${applicant.name} has no assigned handler — follow-up & claim request sent to ${responsibleTeam.label}.`
+          );
+        } else {
+          showToast(`Follow-up reminder sent to ${recipientLabel} for ${applicant.name}.`);
+        }
+      }
+    } finally {
+      setSendingIds((prev) => ({ ...prev, [applicant.id]: false }));
+    }
   };
 
   return (
@@ -225,6 +282,12 @@ export default function ManagementDashboard({
             ) : (
               candidatesNeedingAttention.map((applicant) => {
                 const isReminded = Boolean(remindedIds[applicant.id]);
+                const isUnassigned =
+                  !applicant.currentHandlerUserId && isUnassignedHandlerName(applicant.currentHandler);
+                const responsibleTeam = getResponsibleTeamForPhase(
+                  applicant.phase,
+                  applicant.currentDepartment
+                );
                 return (
                   <div key={applicant.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-start gap-3">
@@ -242,8 +305,16 @@ export default function ManagementDashboard({
                           Currently in <strong>{PHASE_LABELS[applicant.phase] || `Stage ${applicant.phase}`}</strong>
                         </p>
                         <p className="text-[11px] text-amber-700 font-medium mt-1 flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-amber-500" />
-                          <span>Assigned Handler: <strong>{applicant.currentHandler || 'Recruitment Team'}</strong></span>
+                          <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                          {isUnassigned ? (
+                            <span>
+                              No handler assigned • Needs <strong>{responsibleTeam.label}</strong>
+                            </span>
+                          ) : (
+                            <span>
+                              Assigned Handler: <strong>{applicant.currentHandler}</strong>
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -260,6 +331,11 @@ export default function ManagementDashboard({
                         type="button"
                         onClick={() => handleSendReminder(applicant)}
                         disabled={isReminded}
+                        title={
+                          isUnassigned
+                            ? `Notify ${responsibleTeam.label} to claim and follow up on ${applicant.name}`
+                            : `Send follow-up reminder to ${applicant.currentHandler}`
+                        }
                         className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                           isReminded
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
@@ -274,7 +350,7 @@ export default function ManagementDashboard({
                         ) : (
                           <>
                             <Send className="w-3.5 h-3.5" />
-                            <span>Notify Handler</span>
+                            <span>{isUnassigned ? 'Notify Team' : 'Notify Handler'}</span>
                           </>
                         )}
                       </button>

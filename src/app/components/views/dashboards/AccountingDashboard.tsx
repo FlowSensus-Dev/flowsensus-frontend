@@ -260,53 +260,39 @@ export default function AccountingDashboard({
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search candidate name or code..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] w-48 sm:w-64"
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] w-48 sm:w-60"
               />
             </div>
 
-            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('All')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'All' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('Medical')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'Medical' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Medical
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('Profiling')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'Profiling' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Vetting
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('Processing')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'Processing' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Processing
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { key: 'All', label: 'All' },
+                { key: 'Medical', label: 'Medical' },
+                { key: 'Profiling', label: 'Vetting' },
+                { key: 'Processing', label: 'Processing' },
+              ].map((item) => {
+                const isActive = phaseFilter === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setPhaseFilter(item.key)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer border ${
+                      isActive
+                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

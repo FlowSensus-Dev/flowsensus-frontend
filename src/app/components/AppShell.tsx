@@ -5,6 +5,7 @@ import { UserRole, ViewType, WorkflowState, ApplicantRecord, ActivityLog, Expens
 import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import Sidebar from './Sidebar';
+import NotificationCenter from './NotificationCenter';
 import Dashboard from './views/Dashboard';
 import ApplicantList from './views/ApplicantList';
 import ApplicantProfile from './views/ApplicantProfile';
@@ -399,6 +400,9 @@ export default function AppShell({
             onViewApplicant={handleViewApplicant}
             onNavigate={handleNavigate}
             isLoading={isApplicantsLoading}
+            currentUserName={currentUserName}
+            showToast={showToastNotification}
+            addActivityLog={addActivityLog}
           />
         );
       case 'Recruitment':
@@ -418,6 +422,9 @@ export default function AppShell({
             onViewApplicant={handleViewApplicant}
             onNavigate={handleNavigate}
             isLoading={isApplicantsLoading}
+            currentUserName={currentUserName}
+            showToast={showToastNotification}
+            addActivityLog={addActivityLog}
           />
         );
       case 'Accounting':
@@ -916,12 +923,15 @@ export default function AppShell({
                 </span>
               )}
             </button>
-            <button className="relative hover:text-[#0EA5E9] transition-colors">
-              <Bell className="w-5 h-5 text-[#475569]" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#EF4444] rounded-full text-white text-[10px] flex items-center justify-center font-bold border-2 border-white">
-                {activityLogs.length > 9 ? '9+' : activityLogs.length}
-              </span>
-            </button>
+            <NotificationCenter
+              applicants={applicants}
+              activityLogs={activityLogs}
+              expenses={expenses}
+              userRoles={userRolesList}
+              isSuperAdmin={isSuperAdmin}
+              onViewApplicant={handleViewApplicant}
+              onNavigate={handleNavigate}
+            />
             <div className="h-6 w-px bg-slate-200"></div>
             <button
               onClick={onLogout}

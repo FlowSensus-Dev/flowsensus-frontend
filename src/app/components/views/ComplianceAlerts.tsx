@@ -17,6 +17,7 @@ import {
 import { ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
+import { sendCandidateNotification } from '../../../lib/notificationService';
 
 interface ComplianceAlertsProps {
   applicants?: ApplicantRecord[];
@@ -36,6 +37,8 @@ export default function ComplianceAlerts({
   const [stats, setStats] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<FilterTier>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [notifiedAlertIds, setNotifiedAlertIds] = useState<Record<string, boolean>>({});
+  const [sendingAlertIds, setSendingAlertIds] = useState<Record<string, boolean>>({});
 
   const loadAlerts = async (triggerScan = false) => {
     setIsLoading(true);
@@ -115,8 +118,27 @@ export default function ComplianceAlerts({
     }
   };
 
-  const handleNotifyApplicant = (applicantName: string, docName: string) => {
-    showToast(`Compliance notice dispatched to ${applicantName} for ${docName}`);
+  const handleNotifyApplicant = async (
+    alertKey: string,
+    applicantId: string | number,
+    applicantName: string,
+    docName: string,
+    daysRemaining?: number
+  ) => {
+    if (notifiedAlertIds[alertKey] || sendingAlertIds[alertKey]) return;
+    setSendingAlertIds((prev) => ({ ...prev, [alertKey]: true }));
+    try {
+      await sendCandidateNotification({
+        applicantId,
+        applicantName,
+        documentName: docName,
+        daysRemaining,
+      });
+      setNotifiedAlertIds((prev) => ({ ...prev, [alertKey]: true }));
+      showToast(`Compliance notice dispatched to ${applicantName} for ${docName}`);
+    } finally {
+      setSendingAlertIds((prev) => ({ ...prev, [alertKey]: false }));
+    }
   };
 
   const renderIcon = (level: string) => {
@@ -373,6 +395,8 @@ export default function ComplianceAlerts({
 
         {filteredAlerts.map((a: any) => {
           const alertLevel = a.alert_level || a.alert_type || 'ALERT';
+          const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
+          const isNotified = Boolean(notifiedAlertIds[alertKey]);
           
           // Match applicant record from props, or use enriched backend join
           const app = applicants.find(
@@ -482,11 +506,33 @@ export default function ComplianceAlerts({
                 )}
 
                 <button 
-                  onClick={() => handleNotifyApplicant(app.name || `Applicant #${a.applicant_id}`, docName)}
-                  className="px-3.5 py-2 bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+                  onClick={() =>
+                    handleNotifyApplicant(
+                      alertKey,
+                      a.applicant_id,
+                      app.name || `Applicant #${a.applicant_id}`,
+                      docName,
+                      daysRem
+                    )
+                  }
+                  disabled={isNotified || Boolean(sendingAlertIds[alertKey])}
+                  className={`px-3.5 py-2 border text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 ${
+                    isNotified
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default'
+                      : 'bg-white border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
                 >
-                  <Bell className="w-3.5 h-3.5 text-amber-600" />
-                  Notify
+                  {isNotified ? (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      Notified
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="w-3.5 h-3.5 text-amber-600" />
+                      Notify
+                    </>
+                  )}
                 </button>
 
                 <button 

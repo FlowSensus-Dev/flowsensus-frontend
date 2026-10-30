@@ -323,53 +323,39 @@ export default function RecruitmentDashboard({
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search candidate name or code..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] w-48 sm:w-64"
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] w-48 sm:w-60"
               />
             </div>
 
-            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('all')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'all' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                All ({applicants.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('screening')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'screening' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Screening ({pendingScreenings.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('medical')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'medical' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Medical ({pendingMedical.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setPhaseFilter('cv')}
-                className={`px-2.5 py-1 rounded-md transition-all ${
-                  phaseFilter === 'cv' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                CV Prep ({readyForCV.length})
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { key: 'all' as const, label: `All (${applicants.length})` },
+                { key: 'screening' as const, label: `Screening (${pendingScreenings.length})` },
+                { key: 'medical' as const, label: `Medical (${pendingMedical.length})` },
+                { key: 'cv' as const, label: `CV Prep (${readyForCV.length})` },
+              ].map((item) => {
+                const isActive = phaseFilter === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setPhaseFilter(item.key)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer border ${
+                      isActive
+                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

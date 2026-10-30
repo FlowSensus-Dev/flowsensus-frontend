@@ -11,15 +11,19 @@ import {
   AlertTriangle,
   Briefcase
 } from 'lucide-react';
-import { ApplicantRecord } from '../../../types';
+import { ApplicantRecord, ActivityLog } from '../../../types';
 import { ViewType } from '../../AppShell';
 import { Skeleton } from '../../ui/skeleton';
+import { sendCandidateNotification } from '../../../../lib/notificationService';
 
 interface AdminDashboardProps {
   applicants: ApplicantRecord[];
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
   isLoading?: boolean;
+  currentUserName?: string;
+  showToast?: (message: string) => void;
+  addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
 }
 
 interface ExpirationReminder {
@@ -44,9 +48,13 @@ export default function AdminDashboard({
   onViewApplicant,
   onNavigate,
   isLoading = false,
+  currentUserName = 'Admin',
+  showToast,
+  addActivityLog,
 }: AdminDashboardProps) {
   const [reminderFilter, setReminderFilter] = useState<'all' | 'expired' | '30days' | '60days'>('all');
   const [notifiedAlerts, setNotifiedAlerts] = useState<Record<string, boolean>>({});
+  const [sendingAlerts, setSendingAlerts] = useState<Record<string, boolean>>({});
 
   // 1. Compute dynamic expiration reminders from real applicants
   const expirationReminders: ExpirationReminder[] = useMemo(() => {
@@ -101,8 +109,32 @@ export default function AdminDashboard({
   const expiring30Count = expirationReminders.filter((r) => r.type === 'expiring30').length;
   const expiring60Count = expirationReminders.filter((r) => r.type === 'expiring60').length;
 
-  const handleNotifyCandidate = (reminderId: string) => {
-    setNotifiedAlerts((prev) => ({ ...prev, [reminderId]: true }));
+  const handleNotifyCandidate = async (reminder: ExpirationReminder) => {
+    if (notifiedAlerts[reminder.id] || sendingAlerts[reminder.id]) return;
+    setSendingAlerts((prev) => ({ ...prev, [reminder.id]: true }));
+    try {
+      await sendCandidateNotification({
+        applicantId: reminder.applicantId,
+        applicantName: reminder.applicantName,
+        documentName: reminder.documentName,
+        daysRemaining: reminder.daysRemaining,
+      });
+      setNotifiedAlerts((prev) => ({ ...prev, [reminder.id]: true }));
+      if (addActivityLog) {
+        addActivityLog({
+          applicantId: String(reminder.applicantId),
+          action: 'Document Renewal Notice Sent',
+          performedBy: currentUserName,
+          department: 'Admin',
+          details: `Sent document renewal notice to ${reminder.applicantName} for ${reminder.documentName}`,
+        });
+      }
+      if (showToast) {
+        showToast(`Renewal notice sent to ${reminder.applicantName} for ${reminder.documentName}.`);
+      }
+    } finally {
+      setSendingAlerts((prev) => ({ ...prev, [reminder.id]: false }));
+    }
   };
 
   return (
@@ -220,43 +252,29 @@ export default function AdminDashboard({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
-            <button
-              type="button"
-              onClick={() => setReminderFilter('all')}
-              className={`px-3 py-1 rounded-md transition-all ${
-                reminderFilter === 'all' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All ({expirationReminders.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setReminderFilter('expired')}
-              className={`px-3 py-1 rounded-md transition-all ${
-                reminderFilter === 'expired' ? 'bg-white text-rose-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Expired ({expiredCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setReminderFilter('30days')}
-              className={`px-3 py-1 rounded-md transition-all ${
-                reminderFilter === '30days' ? 'bg-white text-amber-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              30-Day ({expiring30Count})
-            </button>
-            <button
-              type="button"
-              onClick={() => setReminderFilter('60days')}
-              className={`px-3 py-1 rounded-md transition-all ${
-                reminderFilter === '60days' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              60-Day ({expiring60Count})
-            </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { key: 'all' as const, label: `All (${expirationReminders.length})` },
+              { key: 'expired' as const, label: `Expired (${expiredCount})` },
+              { key: '30days' as const, label: `30-Day (${expiring30Count})` },
+              { key: '60days' as const, label: `60-Day (${expiring60Count})` },
+            ].map((tab) => {
+              const isActive = reminderFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setReminderFilter(tab.key)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer border ${
+                    isActive
+                      ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -328,8 +346,8 @@ export default function AdminDashboard({
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleNotifyCandidate(reminder.id)}
-                      disabled={isNotified}
+                      onClick={() => handleNotifyCandidate(reminder)}
+                      disabled={isNotified || Boolean(sendingAlerts[reminder.id])}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                         isNotified
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'

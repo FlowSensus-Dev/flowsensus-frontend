@@ -10,6 +10,15 @@ import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import type { ApplicationForecastResponse } from '../types';
 import ExamPortal from './views/ExamPortal';
+import {
+  DatabaseNotificationRow,
+  NOTIFICATION_SYNC_EVENT,
+  fetchApplicantDatabaseNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  getReadNotificationIds,
+  formatRelativeTime,
+} from '../../lib/notificationService';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -251,7 +260,8 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
+  const [dbNotifications, setDbNotifications] = useState<DatabaseNotificationRow[]>([]);
+  const [notifSyncVersion, setNotifSyncVersion] = useState(0);
   const [activeTab, setActiveTab] = useState<'overview' | 'steps' | 'documents' | 'profile' | 'all'>('overview');
 
   const notifRef = useRef<HTMLDivElement>(null);
@@ -298,6 +308,14 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       } else {
         setDocuments([]);
       }
+
+      const resolvedApplicantId =
+        resProfile.status === 'fulfilled' && resProfile.value.data?.applicant_id
+          ? resProfile.value.data.applicant_id
+          : profile?.applicant_id;
+      const fetchedNotifs = await fetchApplicantDatabaseNotifications(resolvedApplicantId);
+      setDbNotifications(fetchedNotifs);
+      setNotifSyncVersion((v) => v + 1);
 
       // Persist to session cache for instant future loads
       try {
@@ -371,10 +389,24 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
         { event: '*', schema: 'public', table: 'applicant_requirement', filter: `applicant_id=eq.${applicantId}` },
         triggerDebouncedRefresh
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notification', filter: `applicant_id=eq.${applicantId}` },
+        triggerDebouncedRefresh
+      )
       .subscribe();
+
+    const handleLocalSync = () => {
+      fetchApplicantDatabaseNotifications(applicantId).then((rows) => {
+        setDbNotifications(rows);
+        setNotifSyncVersion((v) => v + 1);
+      });
+    };
+    window.addEventListener(NOTIFICATION_SYNC_EVENT, handleLocalSync);
 
     return () => {
       clearTimeout(debounceTimer);
+      window.removeEventListener(NOTIFICATION_SYNC_EVENT, handleLocalSync);
       supabase.removeChannel(channel);
     };
   }, [profile?.applicant_id]);
@@ -414,43 +446,84 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   const isHandlerAssigned = Boolean(rawHandler && !/unassigned/i.test(rawHandler));
   const handlerDisplayName = isHandlerAssigned ? rawHandler : null;
 
+  void notifSyncVersion;
+  const readSet = getReadNotificationIds();
+
   const notificationsList: Array<{
-    id: number;
+    id: string;
+    notificationId?: number;
     title: string;
     message: string;
     time: string;
-    type: string;
+    type: 'agency' | 'info' | 'success';
+    isRead: boolean;
   }> = [];
 
-  if (activeApp) {
+  // 1. Real persistent notifications from public.notification (e.g. Document Renewal Notices sent by Admin)
+  dbNotifications.forEach((row) => {
+    const itemId = `db-${row.notification_id}`;
+    const isRead = Boolean(row.is_read) || readSet.has(itemId);
     notificationsList.push({
-      id: 1,
+      id: itemId,
+      notificationId: row.notification_id,
+      title: row.title || 'Agency Notice',
+      message: row.message || '',
+      time: formatRelativeTime(row.created_at),
+      type: 'agency',
+      isRead,
+    });
+  });
+
+  // 2. Live application status milestones
+  if (activeApp) {
+    const stageId = `portal-stage-${currentPhaseNumber}-${activeApp.status_code || 'active'}`;
+    notificationsList.push({
+      id: stageId,
       title: 'Current Stage Progress',
       message: `Phase ${currentPhaseNumber}: ${activeApp.status_code || profile?.status_code || 'In Active Evaluation'}. Your profile is active.`,
       time: 'Live status',
       type: 'info',
+      isRead: readSet.has(stageId),
     });
   }
 
   if (documents.length > 0) {
+    const docStatusId = `portal-docs-${verifiedDocsCount}-${documents.length}`;
     notificationsList.push({
-      id: 2,
+      id: docStatusId,
       title: 'Document Compliance Status',
       message: `${verifiedDocsCount} of ${documents.length} regulatory requirements have been verified by your agency.`,
       time: 'Document check',
       type: 'success',
+      isRead: readSet.has(docStatusId),
     });
   }
 
   if (isHandlerAssigned && handlerDisplayName) {
+    const handlerId = `portal-handler-${handlerDisplayName}`;
     notificationsList.push({
-      id: 3,
+      id: handlerId,
       title: 'Officer Assigned',
       message: `Processing Officer: ${handlerDisplayName} is managing your application.`,
       time: 'Assignment',
       type: 'info',
+      isRead: readSet.has(handlerId),
     });
   }
+
+  const unreadNotifCount = notificationsList.filter((n) => !n.isRead).length;
+
+  const handleMarkPortalNotifRead = async (notif: { id: string; notificationId?: number }) => {
+    await markNotificationAsRead(notif, true);
+    setNotifSyncVersion((v) => v + 1);
+  };
+
+  const handleMarkAllPortalNotifsRead = async () => {
+    const unread = notificationsList.filter((n) => !n.isRead);
+    if (unread.length === 0) return;
+    await markAllNotificationsAsRead(unread, true);
+    setNotifSyncVersion((v) => v + 1);
+  };
 
   return (
     <div className="w-full min-h-screen bg-slate-100 text-[#0F172A] flex flex-col items-center justify-start py-2 sm:py-4 md:py-6 px-2 sm:px-4 md:px-6 lg:px-8 antialiased selection:bg-[#0EA5E9]/20 overflow-x-hidden">
@@ -486,7 +559,6 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                 type="button"
                 onClick={() => {
                   setShowNotifications((prev) => !prev);
-                  if (!showNotifications) setHasUnreadNotifications(false);
                 }}
                 className={`relative p-2 rounded-xl transition-all cursor-pointer ${showNotifications
                   ? 'bg-sky-50 text-[#0EA5E9] border border-sky-200'
@@ -496,41 +568,75 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
                 aria-label="View notifications"
               >
                 <Bell size={16} />
-                {hasUnreadNotifications && notificationsList.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-white">
-                    {notificationsList.length}
+                {unreadNotifCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-white">
+                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
                   </span>
                 )}
               </button>
 
               {/* Notification Popover Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-72 sm:w-84 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Bell size={14} className="text-[#0EA5E9]" />
                       <span className="text-xs font-bold text-slate-800">Application Notifications</span>
+                      {unreadNotifCount > 0 && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-bold bg-sky-100 text-[#0284C7] rounded-full">
+                          {unreadNotifCount} new
+                        </span>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowNotifications(false)}
-                      className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {unreadNotifCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllPortalNotifsRead}
+                          className="px-2 py-1 text-[10px] font-semibold text-[#0284C7] hover:bg-sky-50 rounded-md transition-colors cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowNotifications(false)}
+                        className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                  <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
                     {notificationsList.length === 0 ? (
                       <div className="p-6 text-center text-xs text-slate-400">
                         No notifications at this time
                       </div>
                     ) : (
                       notificationsList.map((notif) => (
-                        <div key={notif.id} className="p-3.5 hover:bg-slate-50/80 transition-colors text-left">
+                        <div
+                          key={notif.id}
+                          onClick={() => handleMarkPortalNotifRead(notif)}
+                          className={`p-3.5 transition-colors text-left cursor-pointer ${
+                            notif.isRead ? 'bg-white hover:bg-slate-50/80' : 'bg-sky-50/40 hover:bg-sky-50/70'
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-1 mb-1">
-                            <p className="text-xs font-bold text-slate-900">{notif.title}</p>
-                            <span className="text-[10px] text-slate-400">{notif.time}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {!notif.isRead && (
+                                <span className="w-2 h-2 rounded-full bg-[#0EA5E9] flex-shrink-0" />
+                              )}
+                              {notif.type === 'agency' && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 flex-shrink-0">
+                                  Agency Notice
+                                </span>
+                              )}
+                              <p className={`text-xs truncate ${notif.isRead ? 'font-semibold text-slate-800' : 'font-bold text-slate-900'}`}>
+                                {notif.title}
+                              </p>
+                            </div>
+                            <span className="text-[10px] text-slate-400 flex-shrink-0">{notif.time}</span>
                           </div>
                           <p className="text-[11px] text-slate-600 leading-snug">{notif.message}</p>
                         </div>
