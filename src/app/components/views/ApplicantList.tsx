@@ -32,6 +32,7 @@ interface ApplicantListProps {
   showToast?: (msg: string) => void;
   onEditApplicant?: () => void;
   currentUserRole?: string;
+  currentUserRoles?: (UserRole | string)[];
 }
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
@@ -59,6 +60,7 @@ export default function ApplicantList({
   showToast,
   onEditApplicant,
   currentUserRole,
+  currentUserRoles,
 }: ApplicantListProps) {
   const [search, setSearch] = useState('');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
@@ -261,6 +263,7 @@ export default function ApplicantList({
           applicantIndexText={applicantIndexText}
           onEdit={onEditApplicant}
           currentUserRole={currentUserRole}
+          currentUserRoles={currentUserRoles}
         />
       </div>
     );

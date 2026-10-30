@@ -1,8 +1,6 @@
 import {
-  Waves,
   ShieldCheck,
   LayoutDashboard,
-  FolderSearch,
   Users as UsersIcon,
   UserPlus,
   Microscope,
@@ -27,13 +25,11 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
-  PanelLeftClose,
-  PanelLeftOpen,
   BookOpen,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
-import { hasAccessToView } from '../../lib/accessControl';
+import { hasAccessToView, extractAndNormalizeRoles } from '../../lib/accessControl';
 import Logo from './Logo';
 
 interface SidebarProps {
@@ -139,9 +135,7 @@ export default function Sidebar({
     },
   ];
 
-  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
-    ? currentUserRoles
-    : [currentUserRole];
+  const userRolesList: UserRole[] = extractAndNormalizeRoles(currentUserRoles, currentUserRole);
 
   const hasItemAccess = (item: NavItem): boolean => {
     return hasAccessToView(item.id, userRolesList, isSuperAdmin, workflowPermissions);

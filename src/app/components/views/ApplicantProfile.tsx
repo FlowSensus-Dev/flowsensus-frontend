@@ -195,6 +195,7 @@ interface ApplicantProfileProps {
   applicantIndexText?: string;
   onEdit?: () => void;
   currentUserRole?: string;
+  currentUserRoles?: UserRole[] | string[];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -213,8 +214,9 @@ export default function ApplicantProfile({
   applicantIndexText,
   onEdit,
   currentUserRole,
+  currentUserRoles,
 }: ApplicantProfileProps) {
-  const isAccounting = currentUserRole === 'Accounting';
+  const isAccounting = currentUserRole === 'Accounting' || (Boolean(currentUserRoles) && currentUserRoles!.some(r => String(r).toLowerCase() === 'accounting'));
 
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);

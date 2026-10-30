@@ -34,7 +34,7 @@ import EmployerProfiles from './views/EmployerProfiles';
 import DigitalExams from './views/DigitalExams';
 import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
-import { hasAccessToView } from '../../lib/accessControl';
+import { hasAccessToView, extractAndNormalizeRoles } from '../../lib/accessControl';
 
 export type { ViewType };
 
@@ -119,8 +119,13 @@ export default function AppShell({
   }, [rawView, navigate]);
 
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(() => {
-    return localStorage.getItem('flowsensus_selected_applicant') || 'new';
+    try {
+      return localStorage.getItem('flowsensus_selected_applicant') || 'new';
+    } catch {
+      return 'new';
+    }
   });
+  const [activeDashboardTab, setActiveDashboardTab] = useState<string>('all');
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -143,11 +148,13 @@ export default function AppShell({
 
   // Persist selectedApplicantId to localStorage whenever it changes
   useEffect(() => {
-    if (selectedApplicantId) {
-      localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
-    } else {
-      localStorage.removeItem('flowsensus_selected_applicant');
-    }
+    try {
+      if (selectedApplicantId) {
+        localStorage.setItem('flowsensus_selected_applicant', selectedApplicantId);
+      } else {
+        localStorage.removeItem('flowsensus_selected_applicant');
+      }
+    } catch { }
   }, [selectedApplicantId]);
 
   // Keep selectedApplicantId in sync when applicants load or change (allow 'new' mode)
@@ -155,7 +162,9 @@ export default function AppShell({
     if (applicants.length > 0 && selectedApplicantId && selectedApplicantId !== 'new' && !applicants.some(a => String(a.id) === String(selectedApplicantId))) {
       const fallbackId = String(applicants[0].id);
       setSelectedApplicantId(fallbackId);
-      localStorage.setItem('flowsensus_selected_applicant', fallbackId);
+      try {
+        localStorage.setItem('flowsensus_selected_applicant', fallbackId);
+      } catch { }
     }
   }, [applicants, selectedApplicantId]);
 
@@ -289,9 +298,20 @@ export default function AppShell({
     fetchWorkflowPerms();
   }, []);
 
-  const userRolesList: UserRole[] = (currentUserRoles && currentUserRoles.length > 0)
-    ? currentUserRoles
-    : (currentUserRole ? [currentUserRole] : []);
+  const userRolesList: UserRole[] = extractAndNormalizeRoles(currentUserRoles, currentUserRole);
+
+  const SYSTEM_DASHBOARD_ROLES: ('Management' | 'Recruitment' | 'Admin' | 'Accounting')[] = [
+    'Management',
+    'Recruitment',
+    'Admin',
+    'Accounting',
+  ];
+
+  const userDashboardRoles = isSuperAdmin
+    ? SYSTEM_DASHBOARD_ROLES
+    : SYSTEM_DASHBOARD_ROLES.filter((role) =>
+        userRolesList.some((ur) => ur.toLowerCase() === role.toLowerCase())
+      );
 
   // Determine if active user roles have finished resolving from session
   const isRolesLoaded = Boolean(isSuperAdmin || (userRolesList.length > 0 && userRolesList[0] !== ''));
@@ -326,6 +346,93 @@ export default function AppShell({
       setSelectedApplicantId('new');
     }
     setCurrentView(view);
+  };
+
+  const DASHBOARD_CONFIG: Record<
+    'Management' | 'Recruitment' | 'Admin' | 'Accounting',
+    {
+      title: string;
+      dotColor: string;
+      badgeColor: string;
+      activeColor: string;
+      tagline: string;
+    }
+  > = {
+    Management: {
+      title: 'Management & Operations',
+      dotColor: 'bg-indigo-500',
+      badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+      activeColor: 'bg-indigo-600 text-white',
+      tagline: 'Candidate pipeline overview, pending reviews, and departure schedules',
+    },
+    Recruitment: {
+      title: 'Recruitment & Candidate Sourcing',
+      dotColor: 'bg-sky-500',
+      badgeColor: 'bg-sky-50 text-sky-700 border-sky-200',
+      activeColor: 'bg-sky-600 text-white',
+      tagline: 'New candidate intake, screening evaluations, and medical follow-ups',
+    },
+    Admin: {
+      title: 'Administration & Visa Coordination',
+      dotColor: 'bg-emerald-500',
+      badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      activeColor: 'bg-emerald-600 text-white',
+      tagline: 'Document expirations, compliance verifications, and visa milestones',
+    },
+    Accounting: {
+      title: 'Finance & Candidate Ledgers',
+      dotColor: 'bg-amber-500',
+      badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
+      activeColor: 'bg-amber-600 text-white',
+      tagline: 'Candidate expense accounts, processing fees, and financial disbursements',
+    },
+  };
+
+  const renderRoleDashboard = (role: 'Management' | 'Recruitment' | 'Admin' | 'Accounting') => {
+    const isApplicantsLoading = applicantsLoaded === false;
+    switch (role) {
+      case 'Management':
+        return (
+          <ManagementDashboard
+            applicants={applicants}
+            activityLogs={activityLogs}
+            onViewApplicant={handleViewApplicant}
+            onNavigate={handleNavigate}
+            isLoading={isApplicantsLoading}
+          />
+        );
+      case 'Recruitment':
+        return (
+          <RecruitmentDashboard
+            applicants={applicants}
+            activityLogs={activityLogs}
+            onViewApplicant={handleViewApplicant}
+            onNavigate={handleNavigate}
+            isLoading={isApplicantsLoading}
+          />
+        );
+      case 'Admin':
+        return (
+          <AdminDashboard
+            applicants={applicants}
+            onViewApplicant={handleViewApplicant}
+            onNavigate={handleNavigate}
+            isLoading={isApplicantsLoading}
+          />
+        );
+      case 'Accounting':
+        return (
+          <AccountingDashboard
+            applicants={applicants}
+            expenses={expenses}
+            onNavigate={handleNavigate}
+            onViewApplicant={handleViewApplicant}
+            onSelectApplicant={setSelectedApplicantId}
+            onAddExpense={addExpense}
+            isLoading={isApplicantsLoading}
+          />
+        );
+    }
   };
 
   const renderView = () => {
@@ -369,102 +476,142 @@ export default function AppShell({
 
     switch (currentView) {
       case 'dashboard':
-        if (isSuperAdmin) {
+        if (userDashboardRoles.length === 0) {
           return (
-            <div className="space-y-12 pb-12">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                  <h2 className="text-lg font-bold text-slate-800">Management Dashboard</h2>
-                </div>
-                <div className="p-6">
-                  <ManagementDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
-                </div>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-sky-500" />
-                  <h2 className="text-lg font-bold text-slate-800">Recruitment Dashboard</h2>
-                </div>
-                <div className="p-6">
-                  <RecruitmentDashboard applicants={applicants} activityLogs={activityLogs} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
-                </div>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <h2 className="text-lg font-bold text-slate-800">Admin & Visa Dashboard</h2>
-                </div>
-                <div className="p-6">
-                  <AdminDashboard applicants={applicants} onViewApplicant={handleViewApplicant} onNavigate={handleNavigate} isLoading={isApplicantsLoading} />
-                </div>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <h2 className="text-lg font-bold text-slate-800">Accounting Dashboard</h2>
-                </div>
-                <div className="p-6">
-                  <AccountingDashboard applicants={applicants} expenses={expenses} onNavigate={handleNavigate} onAddExpense={addExpense} isLoading={isApplicantsLoading} onSelectApplicant={setSelectedApplicantId} />
-                </div>
-              </div>
-            </div>
+            <Dashboard
+              applicants={applicants}
+              activityLogs={activityLogs}
+              currentUserRole={currentUserRole}
+              onViewApplicant={handleViewApplicant}
+              isLoading={isApplicantsLoading}
+            />
           );
         }
 
-        // Render role-specific dashboards
-        switch (currentUserRole) {
-          case 'Recruitment':
-            return (
-              <RecruitmentDashboard
-                applicants={applicants}
-                activityLogs={activityLogs}
-                onViewApplicant={handleViewApplicant}
-                onNavigate={handleNavigate}
-                isLoading={isApplicantsLoading}
-              />
-            );
-          case 'Admin':
-            return (
-              <AdminDashboard
-                applicants={applicants}
-                onViewApplicant={handleViewApplicant}
-                onNavigate={handleNavigate}
-                isLoading={isApplicantsLoading}
-              />
-            );
-          case 'Accounting':
-            return (
-              <AccountingDashboard
-                applicants={applicants}
-                expenses={expenses}
-                onNavigate={handleNavigate}
-                onViewApplicant={handleViewApplicant}
-                onSelectApplicant={setSelectedApplicantId}
-                onAddExpense={addExpense}
-                isLoading={isApplicantsLoading}
-              />
-            );
-          case 'Management':
-            return (
-              <ManagementDashboard
-                applicants={applicants}
-                activityLogs={activityLogs}
-                onViewApplicant={handleViewApplicant}
-                onNavigate={handleNavigate}
-                isLoading={isApplicantsLoading}
-              />
-            );
-          default:
-            return (
-              <Dashboard
-                applicants={applicants}
-                activityLogs={activityLogs}
-                currentUserRole={currentUserRole}
-                onViewApplicant={handleViewApplicant}
-                isLoading={isApplicantsLoading}
-              />
-            );
+        if (userDashboardRoles.length === 1) {
+          return renderRoleDashboard(userDashboardRoles[0]);
+        }
+
+        {
+          const currentTab = (activeDashboardTab === 'all' || userDashboardRoles.includes(activeDashboardTab as any))
+            ? activeDashboardTab
+            : 'all';
+
+          return (
+            <div className="space-y-6 pb-12">
+              {/* Role Dashboards Tab Bar */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <div>
+                    <h1 className="text-base font-bold text-slate-800 leading-tight">
+                      Your Role Dashboards
+                    </h1>
+                    <p className="text-xs text-slate-500">
+                      You have {userDashboardRoles.length} active roles ({userDashboardRoles.join(', ')}). Switch views or review all role dashboards below.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Role Dashboards">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={currentTab === 'all'}
+                    onClick={() => setActiveDashboardTab('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      currentTab === 'all'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>All Dashboards</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      currentTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {userDashboardRoles.length}
+                    </span>
+                  </button>
+
+                  {userDashboardRoles.map((role) => {
+                    const conf = DASHBOARD_CONFIG[role];
+                    const isActive = currentTab === role;
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        onClick={() => setActiveDashboardTab(role)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isActive
+                            ? `${conf.activeColor} shadow-sm`
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : conf.dotColor}`} />
+                        <span>{role}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dashboard Content */}
+              {currentTab === 'all' ? (
+                <div className="space-y-10">
+                  {userDashboardRoles.map((role) => {
+                    const conf = DASHBOARD_CONFIG[role];
+                    return (
+                      <div key={role} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" data-testid={`dashboard-section-${role.toLowerCase()}`}>
+                        <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-2.5 h-2.5 rounded-full ${conf.dotColor}`} />
+                            <div>
+                              <h2 className="text-lg font-bold text-slate-800">{conf.title}</h2>
+                              <p className="text-xs text-slate-500 font-normal">{conf.tagline}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${conf.badgeColor}`}>
+                              {role}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveDashboardTab(role)}
+                              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                              title={`Focus only on ${conf.title}`}
+                            >
+                              Focus View
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-6">
+                          {renderRoleDashboard(role)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-4" data-testid={`dashboard-section-${currentTab.toLowerCase()}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500 font-medium">
+                      Viewing focused <strong className="text-slate-800">{DASHBOARD_CONFIG[currentTab as keyof typeof DASHBOARD_CONFIG]?.title}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDashboardTab('all')}
+                      className="text-xs text-sky-600 hover:text-sky-700 font-semibold underline cursor-pointer"
+                    >
+                      ← Show All Dashboards ({userDashboardRoles.length})
+                    </button>
+                  </div>
+                  {renderRoleDashboard(currentTab as any)}
+                </div>
+              )}
+            </div>
+          );
         }
       case 'applicants':
         return (
@@ -483,6 +630,7 @@ export default function AppShell({
             showToast={showToastNotification}
             onEditApplicant={() => setCurrentView('registration')}
             currentUserRole={currentUserRole}
+            currentUserRoles={currentUserRoles}
           />
         );
       case 'registration':
@@ -758,8 +906,15 @@ export default function AppShell({
             <button
               onClick={() => setCurrentView('profile')}
               className="hidden md:flex text-xs font-bold text-[#0F172A] bg-slate-100 px-3 py-1.5 rounded-full items-center gap-2 border border-slate-200 hover:border-[#0EA5E9] hover:bg-[#0EA5E9]/5 transition-all cursor-pointer"
+              title={`Assigned Roles: ${userRolesList.join(', ')}`}
             >
-              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span> {currentUserName}
+              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span>
+              <span>{currentUserName}</span>
+              {userRolesList.length > 1 && (
+                <span className="ml-1 px-1.5 py-0.2 bg-slate-200 text-slate-700 text-[10px] rounded-full font-semibold">
+                  {userRolesList.length} Roles
+                </span>
+              )}
             </button>
             <button className="relative hover:text-[#0EA5E9] transition-colors">
               <Bell className="w-5 h-5 text-[#475569]" />

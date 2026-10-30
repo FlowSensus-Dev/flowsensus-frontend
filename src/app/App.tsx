@@ -12,6 +12,7 @@ import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
 import { mapApplicantFromApi } from "../lib/applicantMapper";
+import { extractAndNormalizeRoles } from "../lib/accessControl";
 import {
   Check, ChevronRight, Building2, Users, Globe, Shield,
   ArrowRight, X, CheckCircle2, Loader2, Mail, Lock,
@@ -1472,16 +1473,14 @@ export default function App() {
               return;
             }
 
-            let roles: UserRole[] = [];
-            if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
-              roles = userMeta.roles;
-            } else if (typeof userMeta.role === 'string') {
-              roles = userMeta.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
-            } else if (Array.isArray(appMeta.roles) && appMeta.roles.length > 0) {
-              roles = appMeta.roles;
-            } else if (userMeta.role) {
-              roles = [userMeta.role];
-            }
+            let roles: UserRole[] = extractAndNormalizeRoles(
+              userMeta.roles,
+              userMeta.role_names,
+              userMeta.role,
+              appMeta.roles,
+              appMeta.role_names,
+              appMeta.role
+            );
             if (roles.length > 0) {
               setCurrentUserRole(roles[0]);
               setCurrentUserRoles(roles);
@@ -1491,6 +1490,20 @@ export default function App() {
                 navigateTo("app");
               }
             }
+
+            // Asynchronously enrich roles from /users/me DB record
+            api.get('/users/me')
+              .then((meRes) => {
+                if (meRes?.data) {
+                  const dbRoles = extractAndNormalizeRoles(meRes.data.role_names, meRes.data.role_name, meRes.data.roles);
+                  if (dbRoles.length > 0) {
+                    setCurrentUserRoles((prev) => Array.from(new Set([...prev, ...dbRoles])));
+                  }
+                }
+              })
+              .catch(() => {
+                // Ignore API error; session metadata already resolved
+              });
           }
         }
       } catch (err) {
@@ -1622,7 +1635,8 @@ export default function App() {
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setIsSuperAdmin(false);
-      setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
+      const parsedRoles = extractAndNormalizeRoles(roles, role);
+      setCurrentUserRoles(parsedRoles.length > 0 ? parsedRoles : [role]);
       showAppView("app");
     }
     setCurrentUserRole(role);

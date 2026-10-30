@@ -23,6 +23,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { validatePassword } from '../../lib/passwordPolicy';
+import { extractAndNormalizeRoles } from '../../lib/accessControl';
 
 type PortalType = 'staff' | 'applicant';
 
@@ -258,21 +259,34 @@ export default function LoginScreen({
         onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
       } else {
         // Parse all assigned roles from metadata
-        let assignedRoles: UserRole[] = [];
-        if (Array.isArray(user?.user_metadata?.roles) && user.user_metadata.roles.length > 0) {
-          assignedRoles = user.user_metadata.roles;
-        } else if (typeof user?.user_metadata?.role === 'string') {
-          assignedRoles = user.user_metadata.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
-        } else if (Array.isArray(user?.app_metadata?.roles) && user.app_metadata.roles.length > 0) {
-          assignedRoles = user.app_metadata.roles;
-        }
+        const assignedRoles: UserRole[] = extractAndNormalizeRoles(
+          user?.user_metadata?.roles,
+          user?.user_metadata?.role_names,
+          user?.user_metadata?.role,
+          user?.app_metadata?.roles,
+          user?.app_metadata?.role_names,
+          user?.app_metadata?.role
+        );
 
         const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
         const role = isSuper ? 'Management' : dynamicRole;
         const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
-        const roles = isSuper
+        let roles = isSuper
           ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
           : (assignedRoles.length > 0 ? assignedRoles : [role]);
+
+        // Attempt to fetch authoritative user roles from DB
+        try {
+          const meRes = await api.get('/users/me');
+          if (meRes?.data) {
+            const dbRoles = extractAndNormalizeRoles(meRes.data.role_names, meRes.data.role_name, meRes.data.roles);
+            if (dbRoles.length > 0) {
+              roles = isSuper ? roles : Array.from(new Set([...roles, ...dbRoles]));
+            }
+          }
+        } catch {
+          // Ignored if offline
+        }
 
         // Check if user is required to change password on first login
         const mustChange = Boolean(
