@@ -106,7 +106,7 @@ export default function InlineApplicantSelector({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs relative z-40">
+    <div className={`bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs relative ${isOpen ? "z-30" : "z-0"}`}>
       <div className="flex items-center gap-3.5">
         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
           <Users className="w-5 h-5 text-slate-700" />
@@ -310,11 +310,19 @@ export default function InlineApplicantSelector({
                                 )}
                                 <span>•</span>
                                 <span className={`text-[11px] font-semibold ${
-                                  !applicant.currentHandler || applicant.currentHandler === 'Unassigned' || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent'
+                                  applicant.status === 'Deployed' || applicant.phase === 6
+                                    ? 'text-emerald-600'
+                                    : !applicant.currentHandler || applicant.currentHandler === 'Unassigned' || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent'
                                     ? 'text-amber-600'
                                     : 'text-slate-600'
                                 }`}>
-                                  Handler: {(!applicant.currentHandler || applicant.currentHandler === 'Unassigned Pool') ? 'Unassigned' : applicant.currentHandler}
+                                  Handler: {
+                                    (applicant.status === 'Deployed' || applicant.phase === 6)
+                                      ? 'Completed (Deployed)'
+                                      : (!applicant.currentHandler || applicant.currentHandler === 'Unassigned Pool' || applicant.currentHandler === 'System Agent')
+                                      ? 'Unassigned'
+                                      : applicant.currentHandler
+                                  }
                                 </span>
                               </div>
                             </div>

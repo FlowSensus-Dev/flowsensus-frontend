@@ -530,7 +530,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       {/* ── Single Master Portal Card ─────────────────────────────────────── */}
       <div className="w-full max-w-7xl xl:max-w-[1440px] bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden flex flex-col">
         {/* ── 1. Card Top Navigation & Header ─────────────────────────────── */}
-        <header className="bg-white border-b border-slate-100 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+        <header className="bg-white border-b border-slate-100 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 relative z-40">
           {/* Logo & Agency Title */}
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#0EA5E9] to-[#0284C7] flex items-center justify-center shadow-sm shadow-[#0EA5E9]/25 flex-shrink-0">

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Plus, Search, User, Briefcase, Clock,
   ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX,
-  ArrowUpDown
+  ArrowUpDown, CheckCircle2
 } from 'lucide-react';
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ApplicantRecord, ActivityLog, ExpenseRecord } from '../../types';
@@ -556,12 +556,19 @@ export default function ApplicantList({
 
                 {/* Footer */}
                 <div className="w-full bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between mt-auto">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center">
-                      <User size={10} className="text-slate-600" />
+                  {a.status === 'Deployed' || a.phase === 6 ? (
+                    <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                      <CheckCircle2 size={10} className="text-emerald-600" />
+                      <span className="text-[10px] font-bold">Deployed (Complete)</span>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{a.currentHandler}</span>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center">
+                        <User size={10} className="text-slate-600" />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{a.currentHandler || 'Unassigned'}</span>
+                    </div>
+                  )}
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 flex-shrink-0">
                     <Clock size={10} /> {a.lastUpdated?.slice(0, 10) || '—'}
                   </span>

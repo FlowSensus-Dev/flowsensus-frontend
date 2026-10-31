@@ -139,7 +139,7 @@ export default function NotificationCenter({
   };
 
   return (
-    <div className="relative font-['Inter',sans-serif]" ref={dropdownRef}>
+    <div className={`relative font-['Inter',sans-serif] ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
       <button
         type="button"
         onClick={() => {
@@ -162,7 +162,7 @@ export default function NotificationCenter({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden">
+        <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden ring-1 ring-slate-900/5 animate-in fade-in slide-in-from-top-1 duration-150">
           {/* Simple, Single-Row Header */}
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <span className="text-sm font-semibold text-[#0F172A]">Notifications</span>

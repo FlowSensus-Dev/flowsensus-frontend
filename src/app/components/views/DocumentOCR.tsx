@@ -1754,6 +1754,7 @@ export default function DocumentOCR({
     return phaseQualifiedApplicants.filter(app => {
       // Status tab filter
       if (statusFilter === 'mine' && app.currentHandler !== currentUserName) return false;
+      if (statusFilter === 'unassigned' && (app.status === 'Deployed' || app.phase === 6)) return false;
       if (statusFilter === 'unassigned' && app.currentHandler && app.currentHandler !== 'Unassigned' && app.currentHandler !== 'Unassigned Pool') return false;
       if (statusFilter === 'ready' && app.status !== 'Ready for Deployment') return false;
       if (statusFilter === 'deployed' && app.status !== 'Deployed' && app.phase !== 6) return false;
@@ -2080,21 +2081,23 @@ export default function DocumentOCR({
                       <span className="text-slate-400 font-semibold uppercase text-[10px] tracking-wider">Handler:</span>
                       <span
                         className={`font-bold truncate max-w-[140px] ${
-                          isClaimedByMe
+                          isDeployed ? 'text-emerald-700' : isClaimedByMe
                             ? 'text-violet-700'
                             : isUnassigned
                             ? 'text-slate-400 italic'
                             : 'text-slate-700'
                         }`}
                       >
-                        {isUnassigned ? 'Unassigned Pool' : app.currentHandler}
+                        {isDeployed ? 'Not needed — completed' : isUnassigned ? 'Unassigned Pool' : app.currentHandler}
                       </span>
                     </div>
 
                     {/* Quick Card Action Buttons */}
                     <div className="space-y-1.5 pt-1">
                       <div className="flex items-center justify-between gap-2">
-                        {isUnassigned ? (
+                        {isDeployed ? (
+                          <div className="text-[11px] text-emerald-700 font-medium whitespace-nowrap px-1">Processing complete</div>
+                        ) : isUnassigned ? (
                           <button
                             type="button"
                             onClick={e => handleClaim(app, e)}
@@ -2214,7 +2217,11 @@ export default function DocumentOCR({
               {/* Header Right Actions */}
               <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
                 {/* Handler Claim/Release */}
-                {(!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
+                {(modalApplicant.status === 'Deployed' || modalApplicant.phase === 6) ? (
+                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
+                    Deployed — no handler needed
+                  </span>
+                ) : (!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
                   <button
                     onClick={() => handleClaim(modalApplicant)}
                     className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"

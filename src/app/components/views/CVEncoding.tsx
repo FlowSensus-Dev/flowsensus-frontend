@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Lock, Save, Send, Download, Loader2, FileText, Plus, Trash2,
-  CheckCircle2, Clock, XCircle, AlertCircle, User, Briefcase,
-  GraduationCap, Star, Edit3, Undo2, Eye,
+  CheckCircle2, Clock, XCircle, AlertCircle, Edit3, Undo2, Eye,
   ZoomIn, ZoomOut, X, UserPlus
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
@@ -172,7 +171,7 @@ export default function CVEncoding({
   const [summaryOverride, setSummaryOverride] = useState('');
 
   // Active tab for the compact read-only Profile Reference card
-  const [profileTab, setProfileTab] = useState<'personal' | 'experience' | 'education' | 'skills'>('personal');
+  const [mainTab, setMainTab] = useState<'details' | 'profile'>('details');
 
   // ── Eligible candidates ──
   // 1) Strictly EXCLUDES anyone in earlier phases or returned to Applicant Profiling / Medical / Screening
@@ -710,30 +709,49 @@ export default function CVEncoding({
     setCustomFields(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const profileRows: [string, any][] = currentApplicant ? [
+    ['Full name', currentApplicant.name],
+    ['Applied position', currentApplicant.role || currentApplicant.appliedRole],
+    ['Date of birth', currentApplicant.dateOfBirth],
+    ['Age / Sex', `${currentApplicant.age ? `${currentApplicant.age} yrs` : '—'} · ${currentApplicant.sex || '—'}`],
+    ['Civil status', currentApplicant.civilStatus],
+    ['Children', currentApplicant.noOfChildren !== undefined && currentApplicant.noOfChildren !== null ? String(currentApplicant.noOfChildren) : '0'],
+    ['Religion', currentApplicant.religion],
+    ['Citizenship', currentApplicant.citizenship || 'Filipino'],
+    ['Height / Weight', `${currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : '—'} / ${currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : '—'}`],
+    ['Mobile', currentApplicant.contact],
+    ['Email', currentApplicant.email],
+    ['Address', currentApplicant.presentAddress],
+  ] : [];
+
+  const submitLabel = cvRecord?.status_code === 'REJECTED'
+    ? 'Resubmit for approval'
+    : cvRecord?.status_code === 'PENDING_APPROVAL'
+      ? (hasUnsavedChanges ? 'Update submitted CV' : 'Waiting for manager')
+      : 'Submit for approval';
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 w-full">
-      {/* ── Page Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-4 w-full">
+      {/* ── Page header ── */}
+      <div className="flex items-end justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-[#0F172A]">CV Encoding</h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Customize candidate CV summary and custom fields, preview the A4 layout, and submit for approval.
+          <p className="text-sm text-[#64748B] mt-0.5">
+            Add a short summary and extra details to each candidate&apos;s CV, then send it for approval.
           </p>
         </div>
         {eligibleApplicants.length > 0 && (
-          <div className="flex items-center gap-2 text-xs text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="font-semibold text-slate-700">
-              {activeEncodingCount} in Encoding · {eligibleApplicants.length - activeEncodingCount} Advanced (View Only)
-            </span>
-          </div>
+          <p className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">{activeEncodingCount}</span> to work on
+            {' · '}
+            <span className="font-semibold text-slate-700">{eligibleApplicants.length - activeEncodingCount}</span> already moved on (view only)
+          </p>
         )}
       </div>
 
-      {/* ── Candidate Selector & Unified Candidate Bar ── */}
       {eligibleApplicants.length > 0 ? (
-        <div className="space-y-3">
+        <>
           <InlineApplicantSelector
             applicants={eligibleApplicants}
             selectedApplicantId={selectedApplicantId}
@@ -741,123 +759,76 @@ export default function CVEncoding({
             allowNew={false}
           />
 
+          {/* ── Selected candidate: one plain line, no extra card ── */}
           {currentApplicant && (
-            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-2xs flex items-center justify-between flex-wrap gap-3">
-              {/* Left: Candidate Identity & Handler */}
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 text-[#0EA5E9] flex items-center justify-center font-bold text-sm border border-sky-100 flex-shrink-0">
-                  {currentApplicant.name?.charAt(0) || 'A'}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-[#0F172A] truncate">{currentApplicant.name}</span>
-                    <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-semibold border border-slate-200">
-                      {currentApplicant.applicantCode || `#${currentApplicant.id}`}
-                    </span>
-                    {cvRecord && <StatusBadge status={cvRecord.status_code} />}
-                    {isReadOnlyAdvanced && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                        <Lock className="w-3 h-3" />
-                        View & Preview Only
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="font-medium text-slate-700">{currentApplicant.role || currentApplicant.appliedRole || 'Candidate'}</span>
-                    <span>•</span>
-                    <span>Stage: <strong className="text-slate-700 font-semibold">{currentApplicant.status || 'CV Encoding'}</strong></span>
-                    {!isReadOnlyAdvanced && (
-                      <>
-                        <span>•</span>
-                        {(() => {
-                          const isAssignedToMe = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
-                          const isUnassigned = !currentApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', 'System Agent'].includes(currentApplicant.currentHandler);
-
-                          if (isAssignedToMe) {
-                            return (
-                              <span className="inline-flex items-center gap-1.5 text-emerald-700 font-semibold">
-                                <span>Assigned to you</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleReleaseApplicant(currentApplicant)}
-                                  className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer font-normal"
-                                >
-                                  (Release)
-                                </button>
-                              </span>
-                            );
-                          }
-
-                          if (isUnassigned) {
-                            return (
-                              <span className="inline-flex items-center gap-1.5">
-                                <span className="text-amber-700 font-medium">Unassigned</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleClaimApplicant(currentApplicant)}
-                                  className="text-[11px] font-semibold text-[#0EA5E9] hover:text-[#0284C7] inline-flex items-center gap-0.5 cursor-pointer"
-                                >
-                                  <UserPlus className="w-3 h-3" /> Claim
-                                </button>
-                              </span>
-                            );
-                          }
-
-                          return (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span>Handler: <strong className="text-slate-700">{currentApplicant.currentHandler}</strong></span>
-                              <button
-                                type="button"
-                                onClick={() => handleClaimApplicant(currentApplicant)}
-                                className="text-[11px] font-semibold text-[#0EA5E9] hover:text-[#0284C7] cursor-pointer"
-                              >
-                                Take Over
-                              </button>
-                            </span>
-                          );
-                        })()}
-                      </>
-                    )}
-                  </div>
-                </div>
+            <div className="flex items-center justify-between flex-wrap gap-3 px-1">
+              <div className="min-w-0 flex items-center gap-2.5 flex-wrap text-sm">
+                <span className="font-semibold text-[#0F172A]">{currentApplicant.name}</span>
+                {cvRecord && <StatusBadge status={cvRecord.status_code} />}
+                {isReadOnlyAdvanced && (
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                    <Lock className="w-3 h-3" /> View only
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">·</span>
+                <span className="text-xs text-slate-500">{currentApplicant.status || 'CV Encoding'}</span>
+                {!isReadOnlyAdvanced && (() => {
+                  const isMine = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
+                  const isFree = !currentApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', 'System Agent'].includes(currentApplicant.currentHandler);
+                  return (
+                    <>
+                      <span className="text-xs text-slate-400">·</span>
+                      {isMine ? (
+                        <span className="text-xs text-slate-500">
+                          Yours{' '}
+                          <button type="button" onClick={() => handleReleaseApplicant(currentApplicant)} className="underline hover:text-slate-800 cursor-pointer">Release</button>
+                        </span>
+                      ) : isFree ? (
+                        <button type="button" onClick={() => handleClaimApplicant(currentApplicant)} className="text-xs font-semibold text-[#0EA5E9] hover:text-[#0284C7] inline-flex items-center gap-1 cursor-pointer">
+                          <UserPlus className="w-3 h-3" /> Take this candidate
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          With {currentApplicant.currentHandler}{' '}
+                          <button type="button" onClick={() => handleClaimApplicant(currentApplicant)} className="font-semibold text-[#0EA5E9] hover:text-[#0284C7] cursor-pointer">Take over</button>
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
-
-              {/* Right: Clean Document Preview & Export Utilities */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setShowPreview(true)}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-white hover:shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
                 >
-                  <Eye className="w-3.5 h-3.5 text-[#0EA5E9]" />
-                  Preview A4 CV
+                  <Eye className="w-3.5 h-3.5 text-[#0EA5E9]" /> Preview CV
                 </button>
                 <button
                   type="button"
                   onClick={handleExportToPDF}
                   disabled={isExporting}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-white hover:shadow-2xs flex items-center gap-1.5 disabled:opacity-40 transition cursor-pointer"
                 >
                   {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0EA5E9]" /> : <Download className="w-3.5 h-3.5 text-[#0EA5E9]" />}
-                  Export PDF
+                  Download PDF
                 </button>
               </div>
             </div>
           )}
-        </div>
+        </>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center shadow-2xs max-w-xl mx-auto my-6">
-          <div className="w-12 h-12 rounded-xl bg-sky-50 text-[#0EA5E9] flex items-center justify-center mx-auto mb-3 border border-sky-100">
-            <FileText className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-bold text-[#0F172A] mb-1">No Candidates Available in CV Encoding</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto mb-4 leading-relaxed">
-            Candidates appear here once they are endorsed from <strong>Applicant Profiling</strong>. Candidates returned to Profiling or earlier phases are moved back to those modules.
+        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center max-w-xl mx-auto my-6">
+          <FileText className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-[#0F172A] mb-1">No candidates here yet</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto mb-4">
+            Candidates show up here after they are sent over from Applicant Profiling.
           </p>
           {onNavigate && (
             <button
               onClick={() => onNavigate('profiling')}
-              className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
             >
               Go to Applicant Profiling
             </button>
@@ -865,572 +836,371 @@ export default function CVEncoding({
         </div>
       )}
 
-      {/* ── Locked Banner ── */}
+      {/* ── Short notices (single line each) ── */}
       {isLocked && currentApplicant && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-          <Lock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-          <div>
-            <p className="font-bold text-amber-900 text-xs">Waiting for Medical Clearance</p>
-            <p className="text-xs text-amber-700">CV encoding is unlocked after the applicant passes Fit-to-Work.</p>
-          </div>
-        </div>
+        <p className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+          <Lock className="w-4 h-4 flex-shrink-0" />
+          Waiting for the medical result. CV encoding opens once the candidate is fit to work.
+        </p>
       )}
-
-      {/* ── Advanced / Approved Candidate Notice (View & Preview Only) ── */}
-      {isReadOnlyAdvanced && currentApplicant && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <p className="text-xs text-slate-600">
-              <strong className="text-slate-900">View & Preview Mode:</strong> {currentApplicant.name} is currently in{' '}
-              <strong className="text-slate-900">{currentApplicant.status}</strong>. You can preview and export their A4 CV anytime; editing and resubmitting are locked unless they are returned to <strong>CV Encoding</strong>.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowPreview(true)}
-            className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Eye className="w-3.5 h-3.5 text-[#0EA5E9]" />
-            Preview CV
-          </button>
-        </div>
-      )}
-
-      {/* ── Manager Rejection Notice ── */}
       {cvRecord?.status_code === 'REJECTED' && cvRecord.rejection_reason && !isReadOnlyAdvanced && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-red-800 text-xs">Manager Requested Revisions</p>
-            <p className="text-xs text-red-700 mt-0.5">{cvRecord.rejection_reason}</p>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span><strong>Manager asked for changes:</strong> {cvRecord.rejection_reason}</span>
+        </p>
       )}
 
-      {/* ── Main 2-Column Workspace ── */}
+      {/* ── One workspace card with two tabs ── */}
       {isLoading ? (
         <SkeletonCVLoader />
       ) : !currentApplicant ? null : (
-        <div className={`grid grid-cols-1 lg:grid-cols-12 gap-5 items-start ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
-
-          {/* ── LEFT COLUMN (7 cols): CV Content (Summary & Custom Fields) ── */}
-          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-[#0EA5E9]" />
-                <h3 className="text-sm font-bold text-[#0F172A]">CV Customization & Custom Fields</h3>
-              </div>
-              {hasUnsavedChanges && isEditable ? (
-                <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                  Unsaved changes
-                </span>
-              ) : cvRecord ? (
-                <span className="text-[11px] text-slate-400">
-                  CV #{cvRecord.cv_id} · Saved {new Date(cvRecord.updated_at).toLocaleDateString('en-PH')}
-                </span>
-              ) : null}
+        <div className={`bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
+          {/* Tab bar */}
+          <div className="flex items-center justify-between px-5 border-b border-slate-200">
+            <div className="flex items-center gap-6 xl:hidden">
+              {([
+                ['details', 'CV details'],
+                ['profile', 'Candidate profile'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMainTab(key)}
+                  className={`py-3.5 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer ${
+                    mainTab === key
+                      ? 'border-[#0EA5E9] text-[#0F172A]'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+            <div className="hidden xl:flex items-center py-3.5 text-sm font-semibold text-[#0F172A]">Candidate CV</div>
+            <span className="text-xs">
+              {hasUnsavedChanges && isEditable ? (
+                <span className="text-amber-700 font-semibold">Unsaved changes</span>
+              ) : cvRecord ? (
+                <span className="text-slate-400">Saved {new Date(cvRecord.updated_at).toLocaleDateString('en-PH')}</span>
+              ) : null}
+            </span>
+          </div>
 
-            <div className="p-5 space-y-6">
-              {/* 1. Professional Summary */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-[#0F172A]">
-                    Professional Summary / Objective
-                  </label>
-                  <span className="text-[11px] text-slate-400">
-                    {isEditable ? 'Optional — leave blank to use default summary' : 'Read-only'}
-                  </span>
-                </div>
+          <div className="xl:grid xl:grid-cols-5 xl:divide-x xl:divide-slate-200">
+          {/* ── CV details (editable) ── */}
+          <div className={`${mainTab === 'details' ? '' : 'hidden xl:block'} xl:col-span-3`}>
+            <div className="px-5 py-5 space-y-7">
+              {!isEditable && (
+                <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" />
+                  This CV can only be viewed. It can be edited again if the candidate is returned to CV Encoding.
+                </p>
+              )}
+
+              <section>
+                <label htmlFor="cv-summary" className="block text-sm font-semibold text-[#0F172A]">About the candidate</label>
+                <p className="text-xs text-slate-500 mb-2">A short summary shown at the top of the CV. Leave blank to use the standard one.</p>
                 <textarea
+                  id="cv-summary"
                   rows={3}
                   value={summaryOverride}
                   onChange={e => setSummaryOverride(e.target.value)}
                   disabled={!isEditable}
-                  placeholder={`Experienced ${currentApplicant.role || 'professional'} seeking overseas employment opportunities...`}
-                  className="w-full border border-slate-200 px-3.5 py-2.5 rounded-lg text-sm text-[#0F172A] focus:border-[#0EA5E9] outline-none resize-none disabled:bg-slate-50 disabled:text-slate-500 transition-colors"
+                  placeholder={`e.g. Experienced ${currentApplicant.role || 'worker'} looking for work overseas.`}
+                  className="w-full border border-slate-200 px-3.5 py-2.5 rounded-lg text-sm text-[#0F172A] focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/15 outline-none resize-none disabled:bg-slate-50 disabled:text-slate-500 transition"
                 />
-              </div>
+              </section>
 
-              {/* 2. Custom Fields (Editable while in CV Encoding, Read-only after advancing) */}
-              <div className="pt-4 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-[#0F172A]">
-                    Custom Fields ({customFields.length})
-                  </label>
-                  <span className="text-[11px] text-slate-400">
-                    {isEditable ? 'Click any field below to edit its label or value' : 'Locked — candidate has advanced past CV Encoding'}
-                  </span>
+              <section>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-sm font-semibold text-[#0F172A]">Extra details {customFields.length > 0 && <span className="text-slate-400 font-normal">({customFields.length})</span>}</h3>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
-                  {isEditable
-                    ? 'Add or update employer-specific details (e.g., Video Introduction Link, Expected Salary, Availability).'
-                    : 'Employer-specific custom fields recorded on this CV.'}
+                  Anything the employer asked for, such as a video link, expected salary or availability.
                 </p>
 
-                {/* Existing Custom Fields List */}
                 {customFields.length > 0 ? (
-                  <div className="space-y-2 mb-3">
+                  <div className="divide-y divide-slate-100 border-y border-slate-100">
                     {customFields.map((field, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 p-2 rounded-lg bg-slate-50/70 border border-slate-200/80"
-                      >
+                      <div key={idx} className="flex items-center gap-3 py-2">
                         <input
                           type="text"
                           value={field.key}
                           onChange={e => handleUpdateCustomField(idx, { key: e.target.value })}
                           disabled={!isEditable}
-                          placeholder="Field label"
-                          aria-label={`Custom field label ${idx + 1}`}
-                          className="w-2/5 border border-slate-200 bg-white px-3 py-1.5 rounded-md text-xs font-semibold text-[#0F172A] focus:border-[#0EA5E9] outline-none disabled:bg-slate-100 disabled:text-slate-600 transition-colors"
+                          placeholder="Label"
+                          aria-label={`Label ${idx + 1}`}
+                          className="w-2/5 px-2.5 py-1.5 rounded-md text-sm font-medium text-[#0F172A] border border-transparent hover:border-slate-200 focus:border-[#0EA5E9] outline-none bg-transparent disabled:text-slate-600 transition"
                         />
                         <input
                           type="text"
                           value={field.value}
                           onChange={e => handleUpdateCustomField(idx, { value: e.target.value })}
                           disabled={!isEditable}
-                          placeholder="Field value"
-                          aria-label={`Custom field value ${idx + 1}`}
-                          className="flex-1 border border-slate-200 bg-white px-3 py-1.5 rounded-md text-xs text-[#0F172A] focus:border-[#0EA5E9] outline-none disabled:bg-slate-100 disabled:text-slate-600 transition-colors"
+                          placeholder="Value"
+                          aria-label={`Value ${idx + 1}`}
+                          className="flex-1 px-2.5 py-1.5 rounded-md text-sm text-[#0F172A] border border-transparent hover:border-slate-200 focus:border-[#0EA5E9] outline-none bg-transparent disabled:text-slate-600 transition"
                         />
                         {isEditable && (
                           <button
                             type="button"
                             onClick={() => handleRemoveCustomField(idx)}
-                            title="Remove field"
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            title="Remove"
+                            className="p-1.5 text-slate-300 hover:text-red-600 rounded-md transition-colors cursor-pointer"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-xs text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-lg px-3.5 py-2.5 mb-3">
-                    No custom fields added.{isEditable ? ' Use the row below to add one.' : ''}
-                  </div>
+                  <p className="text-sm text-slate-400 py-2">Nothing added yet.</p>
                 )}
 
-                {/* Add New Custom Field Row */}
                 {isEditable && (
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2 pt-3">
                     <input
                       type="text"
                       value={newFieldKey}
                       onChange={e => setNewFieldKey(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && newFieldKey.trim()) { e.preventDefault(); handleAddCustomField(); } }}
-                      placeholder="New field label (e.g. YouTube Link)"
-                      className="w-2/5 border border-slate-200 px-3 py-2 rounded-lg text-xs text-[#0F172A] focus:border-[#0EA5E9] outline-none transition-colors"
+                      placeholder="Label (e.g. Video link)"
+                      className="w-2/5 border border-slate-200 px-3 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none transition"
                     />
                     <input
                       type="text"
                       value={newFieldValue}
                       onChange={e => setNewFieldValue(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && newFieldKey.trim()) { e.preventDefault(); handleAddCustomField(); } }}
-                      placeholder="Value (e.g. https://youtu.be/...)"
-                      className="flex-1 border border-slate-200 px-3 py-2 rounded-lg text-xs text-[#0F172A] focus:border-[#0EA5E9] outline-none transition-colors"
+                      placeholder="Value"
+                      className="flex-1 border border-slate-200 px-3 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none transition"
                     />
                     <button
                       type="button"
                       onClick={handleAddCustomField}
                       disabled={!newFieldKey.trim()}
-                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1 cursor-pointer flex-shrink-0"
+                      className="px-3 py-2 text-sm font-semibold text-[#0EA5E9] hover:bg-sky-50 rounded-lg disabled:opacity-40 flex items-center gap-1 transition-colors cursor-pointer flex-shrink-0"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Field
+                      <Plus className="w-4 h-4" /> Add
                     </button>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* Primary Action Footer */}
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-3">
-              {isEditable ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowReturnModal(true)}
-                    disabled={isLocked || isSubmittingReturn}
-                    className="text-xs font-semibold text-amber-700 hover:text-amber-900 px-2.5 py-1.5 rounded-lg hover:bg-amber-50 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
-                    title="Return candidate to Applicant Profiling"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    Return to Profiling
-                  </button>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveDraft}
-                      disabled={!canSaveDraft || isSaving}
-                      className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      {cvRecord ? 'Save Changes' : 'Save Draft'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSubmitForApproval}
-                      disabled={!canSubmit || isSubmitting}
-                      className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-semibold rounded-lg shadow-xs disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      {cvRecord?.status_code === 'REJECTED'
-                        ? 'Resubmit for Approval'
-                        : cvRecord?.status_code === 'PENDING_APPROVAL'
-                          ? (hasUnsavedChanges ? 'Update Pending CV' : 'Awaiting Manager Review')
-                          : 'Submit for Approval'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="w-full flex items-center justify-between flex-wrap gap-2 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-slate-600">
-                    <Lock className="w-3.5 h-3.5 text-slate-400" />
-                    Editing and resubmission are disabled once a candidate has advanced past CV Encoding.
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowPreview(true)}
-                      className="px-3.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-100 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-[#0EA5E9]" />
-                      Preview A4 CV
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleExportToPDF}
-                      disabled={isExporting}
-                      className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0EA5E9] hover:bg-[#0284C7] text-white flex items-center gap-1.5 disabled:opacity-40 transition-colors cursor-pointer"
-                    >
-                      {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                      Export PDF
-                    </button>
-                  </div>
-                </div>
-              )}
+              </section>
             </div>
           </div>
 
-          {/* ── RIGHT COLUMN (5 cols): Compact Candidate Profile Reference ── */}
-          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs font-bold text-[#0F172A]">Candidate Profile Reference</span>
-              {/* Compact Segmented Filter Pills */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200/80">
-                {([
-                  ['personal', 'Personal', <User className="w-3 h-3" key="u" />],
-                  ['experience', `Work (${(currentApplicant.employmentHistory || []).length})`, <Briefcase className="w-3 h-3" key="b" />],
-                  ['education', `Edu (${(currentApplicant.education || []).length})`, <GraduationCap className="w-3 h-3" key="g" />],
-                  ['skills', 'Skills', <Star className="w-3 h-3" key="s" />],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setProfileTab(key)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                      profileTab === key
-                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {/* ── Candidate profile (read only, one calm scroll) ── */}
+          <div className={`${mainTab === 'profile' ? '' : 'hidden xl:block'} xl:col-span-2`}>
+            <div className="px-5 py-5 space-y-7 xl:max-h-[calc(100vh-280px)] overflow-y-auto">
+              <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" /> Taken from the candidate&apos;s registration. Edit it in Registration.
+              </p>
 
-            <div className="p-4 max-h-[460px] overflow-y-auto">
-              {profileTab === 'personal' && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
-                    {[
-                      ['Full Name', currentApplicant.name],
-                      ['Applied Position', currentApplicant.role || currentApplicant.appliedRole],
-                      ['Date of Birth', currentApplicant.dateOfBirth],
-                      ['Age / Sex', `${currentApplicant.age ? `${currentApplicant.age} yrs` : '—'} · ${currentApplicant.sex || '—'}`],
-                      ['Civil Status', currentApplicant.civilStatus],
-                      ['Children', currentApplicant.noOfChildren !== undefined && currentApplicant.noOfChildren !== null ? String(currentApplicant.noOfChildren) : '0'],
-                      ['Religion', currentApplicant.religion],
-                      ['Citizenship', currentApplicant.citizenship || 'Filipino'],
-                      ['Height / Weight', `${currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : '—'} / ${currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : '—'}`],
-                      ['Mobile No.', currentApplicant.contact],
-                      ['Email', currentApplicant.email],
-                      ['Present Address', currentApplicant.presentAddress],
-                    ].map(([label, val]) => (
-                      <div key={label} className={label === 'Present Address' || label === 'Email' ? 'col-span-2' : ''}>
-                        <p className="text-[10px] uppercase font-semibold text-slate-400">{label}</p>
-                        <p className="font-medium text-[#0F172A] break-words">
-                          {val || <span className="text-slate-400 italic">—</span>}
-                        </p>
-                      </div>
+              <section>
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Personal details</h3>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                  {profileRows.map(([label, val]) => (
+                    <div key={label} className={label === 'Address' || label === 'Email' ? 'sm:col-span-2' : ''}>
+                      <dt className="text-xs text-slate-400">{label}</dt>
+                      <dd className="text-[#0F172A] break-words">{val || <span className="text-slate-300">—</span>}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {currentApplicant.emergencyContactName && (
+                  <p className="text-sm mt-3">
+                    <span className="text-xs text-slate-400 block">Emergency contact</span>
+                    {currentApplicant.emergencyContactName} ({currentApplicant.emergencyContactRelationship || 'Contact'}) · {currentApplicant.emergencyContactNumber || '—'}
+                  </p>
+                )}
+              </section>
+
+              <section className="pt-5 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Work experience</h3>
+                {(currentApplicant.employmentHistory || []).length === 0 ? (
+                  <p className="text-sm text-slate-400">None on file.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {(currentApplicant.employmentHistory || []).map((e, idx) => (
+                      <li key={idx} className="text-sm">
+                        <p className="font-medium text-[#0F172A]">{e.position} <span className="font-normal text-slate-500">at {e.company}</span></p>
+                        <p className="text-xs text-slate-400">{e.dateStarted} – {e.isPresent ? 'Present' : e.dateEnded} · {e.country}</p>
+                      </li>
                     ))}
-                  </div>
-                  {currentApplicant.emergencyContactName && (
-                    <div className="pt-2.5 border-t border-slate-100 text-xs">
-                      <p className="text-[10px] uppercase font-semibold text-slate-400 mb-1">Emergency Contact</p>
-                      <p className="font-medium text-[#0F172A]">
-                        {currentApplicant.emergencyContactName} ({currentApplicant.emergencyContactRelationship || 'Contact'}) · {currentApplicant.emergencyContactNumber || '—'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+                  </ul>
+                )}
+              </section>
 
-              {profileTab === 'experience' && (
+              <section className="pt-5 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Education</h3>
+                {(currentApplicant.education || []).length === 0 ? (
+                  <p className="text-sm text-slate-400">None on file.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {(currentApplicant.education || []).map((ed, idx) => (
+                      <li key={idx} className="text-sm">
+                        <p className="font-medium text-[#0F172A]">{ed.school}</p>
+                        <p className="text-xs text-slate-400">{ed.level} — {ed.course || 'N/A'} · {ed.yearGraduated || 'N/A'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="pt-5 border-t border-slate-100 space-y-4">
                 <div>
-                  {(currentApplicant.employmentHistory || []).length === 0 ? (
-                    <p className="text-xs text-slate-400 italic py-4 text-center">No employment records on file.</p>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Skills</h3>
+                  {(currentApplicant.skills || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {(currentApplicant.employmentHistory || []).map((e, idx) => (
-                        <div key={idx} className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 text-xs">
-                          <p className="font-bold text-[#0F172A]">{e.company}</p>
-                          <p className="text-slate-600 font-medium">{e.position}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            {e.dateStarted} – {e.isPresent ? 'Present' : e.dateEnded} · {e.country}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-sm text-slate-700">{(currentApplicant.skills || []).join(' · ')}</p>
                   )}
                 </div>
-              )}
-
-              {profileTab === 'education' && (
                 <div>
-                  {(currentApplicant.education || []).length === 0 ? (
-                    <p className="text-xs text-slate-400 italic py-4 text-center">No education records on file.</p>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Languages</h3>
+                  {(currentApplicant.languageRecords || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {(currentApplicant.education || []).map((ed, idx) => (
-                        <div key={idx} className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 text-xs">
-                          <p className="font-bold text-[#0F172A]">{ed.school}</p>
-                          <p className="text-slate-500">{ed.level} — {ed.course || 'N/A'} · {ed.yearGraduated || 'N/A'}</p>
-                        </div>
+                    <ul className="text-sm space-y-0.5">
+                      {(currentApplicant.languageRecords || []).map((l, i) => (
+                        <li key={i} className="text-slate-700">{l.language} <span className="text-xs text-slate-400">— speaks {l.spokenRating}/5, writes {l.writtenRating}/5</span></li>
                       ))}
-                    </div>
+                    </ul>
                   )}
                 </div>
-              )}
-
-              {profileTab === 'skills' && (
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1.5">Skills</p>
-                    {(currentApplicant.skills || []).length === 0 ? (
-                      <span className="text-slate-400 italic">None on file</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(currentApplicant.skills || []).map(s => (
-                          <span key={s} className="px-2 py-0.5 bg-sky-50 text-[#0EA5E9] border border-sky-100 text-xs font-semibold rounded-md">
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1.5">Languages</p>
-                    {(currentApplicant.languageRecords || []).length === 0 ? (
-                      <span className="text-slate-400 italic">None on file</span>
-                    ) : (
-                      <div className="space-y-1">
-                        {(currentApplicant.languageRecords || []).map((l, i) => (
-                          <div key={i} className="flex items-center justify-between py-0.5">
-                            <span className="font-medium text-[#0F172A]">{l.language}</span>
-                            <span className="text-slate-500">Spoken {l.spokenRating}/5 · Written {l.writtenRating}/5</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1.5">Certifications</p>
-                    {(currentApplicant.certifications || []).length === 0 ? (
-                      <span className="text-slate-400 italic">None on file</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(currentApplicant.certifications || []).map(c => (
-                          <span key={c} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/80 text-xs font-semibold rounded-md">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Certificates</h3>
+                  {(currentApplicant.certifications || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
+                  ) : (
+                    <p className="text-sm text-slate-700">{(currentApplicant.certifications || []).join(' · ')}</p>
+                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex items-center gap-1.5">
-              <Lock className="w-3 h-3 flex-shrink-0" />
-              <span>Profile data is pulled live from Candidate Registration.</span>
+              </section>
             </div>
           </div>
+          </div>
 
-          {/* ── Live CV Preview Overlay Modal ── */}
-          {showPreview && currentApplicant && (
-            <div
-              className="fixed inset-0 z-[100] flex flex-col bg-black/80 backdrop-blur-sm"
-              onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}
-            >
-              <div className="flex items-center justify-between px-6 py-3 bg-[#1e293b] border-b border-white/10 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <Eye className="w-4 h-4 text-white/60" />
-                  <span className="text-white font-bold text-sm">
-                    CV Preview — {currentApplicant.name}
-                  </span>
-                  <span className="px-2 py-0.5 bg-white/10 text-white/80 rounded text-[11px] font-mono">
-                    {hasPage2 ? '2 Pages · A4' : '1 Page · A4'}
-                  </span>
-                  {cvRecord && (
-                    <span className="text-white/40 text-xs">CV #{cvRecord.cv_id}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    title="Zoom out"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </button>
-                  <span className="text-white/60 text-xs font-mono min-w-[48px] text-center">
-                    {Math.round(zoomLevel * 100)}%
-                  </span>
-                  <button
-                    onClick={() => setZoomLevel(z => Math.min(2, +(z + 0.1).toFixed(1)))}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    title="Zoom in"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </button>
-                  <div className="w-px h-5 bg-white/20 mx-1" />
-                  <button
-                    onClick={handleExportToPDF}
-                    disabled={isExporting}
-                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Export PDF
-                  </button>
-                  <button
-                    onClick={() => setShowPreview(false)}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1"
-                    title="Close preview (Esc)"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-auto flex items-start justify-center p-8 bg-slate-900/80">
-                <div
-                  style={{
-                    width: 794 * zoomLevel,
-                    minHeight: (hasPage2 ? 2340 : 1160) * zoomLevel,
-                    flexShrink: 0,
-                    position: 'relative',
-                    paddingBottom: 40 * zoomLevel,
-                  }}
+          {/* ── Footer: only when editing ── */}
+          {isEditable && (
+            <div className={`px-5 py-3.5 border-t border-slate-200 bg-slate-50/60 items-center justify-between flex-wrap gap-3 ${mainTab === 'details' ? 'flex' : 'hidden xl:flex'}`}>
+              <button
+                type="button"
+                onClick={() => setShowReturnModal(true)}
+                disabled={isLocked || isSubmittingReturn}
+                className="text-sm font-medium text-slate-500 hover:text-amber-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <Undo2 className="w-4 h-4" /> Send back to Profiling
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={!canSaveDraft || isSaving}
+                  className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <div
-                    style={{
-                      transformOrigin: 'top left',
-                      transform: `scale(${zoomLevel})`,
-                      width: 794,
-                    }}
-                  >
-                    <CVPreviewDoc
-                      applicant={currentApplicant}
-                      summaryOverride={summaryOverride}
-                      customFields={effectiveCustomFields}
-                      cvId={cvRecord?.cv_id}
-                    />
-                  </div>
-                </div>
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {cvRecord ? 'Save changes' : 'Save draft'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitForApproval}
+                  disabled={!canSubmit || isSubmitting}
+                  className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {submitLabel}
+                </button>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Return to Profiling Modal ── */}
-      {showReturnModal && currentApplicant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
-            <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
-              <div className="flex items-center gap-2.5 text-amber-900">
-                <Undo2 className="w-5 h-5 text-amber-600" />
-                <div>
-                  <h3 className="font-bold text-base">Return Candidate to Profiling</h3>
-                  <p className="text-xs text-amber-700">Moves candidate back to Applicant Profiling and removes them from CV Encoding</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowReturnModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
-              >
-                <XCircle className="w-5 h-5" />
+      {/* ── CV preview overlay ── */}
+      {showPreview && currentApplicant && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-black/80 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}
+        >
+          <div className="flex items-center justify-between px-6 py-3 bg-[#1e293b] border-b border-white/10 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <Eye className="w-4 h-4 text-white/60" />
+              <span className="text-white font-bold text-sm">CV Preview — {currentApplicant.name}</span>
+              <span className="px-2 py-0.5 bg-white/10 text-white/80 rounded text-[11px] font-mono">{hasPage2 ? '2 Pages · A4' : '1 Page · A4'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Zoom out">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-white/60 text-xs font-mono min-w-[48px] text-center">{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={() => setZoomLevel(z => Math.min(2, +(z + 0.1).toFixed(1)))} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Zoom in">
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <div className="w-px h-5 bg-white/20 mx-1" />
+              <button onClick={handleExportToPDF} disabled={isExporting} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors">
+                <Download className="w-3.5 h-3.5" /> Download PDF
+              </button>
+              <button onClick={() => setShowPreview(false)} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1" title="Close (Esc)">
+                <X className="w-5 h-5" />
               </button>
             </div>
-
-            <div className="p-6 space-y-4">
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                <div>
-                  <p className="font-bold text-slate-800 text-sm">{currentApplicant.name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {currentApplicant.role || currentApplicant.appliedRole || 'Candidate'} · {currentApplicant.applicantCode || `#APP-${currentApplicant.id}`}
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-md border border-amber-200">
-                  CV Encoding → Profiling
-                </span>
+          </div>
+          <div className="flex-1 overflow-auto flex items-start justify-center p-8 bg-slate-900/80">
+            <div style={{ width: 794 * zoomLevel, minHeight: (hasPage2 ? 2340 : 1160) * zoomLevel, flexShrink: 0, position: 'relative', paddingBottom: 40 * zoomLevel }}>
+              <div style={{ transformOrigin: 'top left', transform: `scale(${zoomLevel})`, width: 794 }}>
+                <CVPreviewDoc
+                  applicant={currentApplicant}
+                  summaryOverride={summaryOverride}
+                  customFields={effectiveCustomFields}
+                  cvId={cvRecord?.cv_id}
+                />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* ── Send back to Profiling dialog ── */}
+      {showReturnModal && currentApplicant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="px-6 pt-5 pb-3">
+              <h3 className="font-bold text-base text-[#0F172A]">Send {currentApplicant.name} back to Profiling?</h3>
+              <p className="text-sm text-slate-500 mt-1">They will leave CV Encoding until they are sent over again.</p>
+            </div>
+            <div className="px-6 pb-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Reason Category
-                </label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason</label>
                 <select
                   value={returnCategory}
                   onChange={e => setReturnCategory(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 bg-white focus:border-[#0EA5E9] outline-none"
                 >
-                  <option value="Trade Skills / Assessment Re-evaluation">Trade Skills / Assessment Re-evaluation Required</option>
-                  <option value="Job Order Qualifications Mismatch">Job Order Qualifications Mismatch</option>
-                  <option value="Missing / Incomplete Certifications">Missing / Incomplete Certifications or Documents</option>
-                  <option value="Candidate Requested Different Role / Country">Candidate Requested Different Role / Country</option>
-                  <option value="Encoding Discrepancy / Other">Other Profile Inconsistency</option>
+                  <option value="Trade Skills / Assessment Re-evaluation">Skills need to be re-checked</option>
+                  <option value="Job Order Qualifications Mismatch">Does not match the job order</option>
+                  <option value="Missing / Incomplete Certifications">Missing certificates or documents</option>
+                  <option value="Candidate Requested Different Role / Country">Candidate wants a different role or country</option>
+                  <option value="Encoding Discrepancy / Other">Other</option>
                 </select>
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Notes for Profiling Team <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Note for the profiling team <span className="text-red-500">*</span></label>
                 <textarea
                   rows={3}
                   value={returnNotes}
                   onChange={e => setReturnNotes(e.target.value)}
-                  placeholder="Explain why candidate is returning to profiling..."
+                  placeholder="Tell them what needs to be fixed..."
                   className="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-800 focus:border-[#0EA5E9] outline-none resize-none"
                 />
               </div>
             </div>
-
             <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowReturnModal(false)}
                 disabled={isSubmittingReturn}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1438,10 +1208,10 @@ export default function CVEncoding({
                 type="button"
                 onClick={() => handleConfirmReturnToProfiling()}
                 disabled={isSubmittingReturn || !returnNotes.trim()}
-                className="px-4 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-40 shadow-xs transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-40 transition-colors cursor-pointer"
               >
-                {isSubmittingReturn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
-                Confirm Return
+                {isSubmittingReturn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
+                {isSubmittingReturn ? 'Sending…' : 'Send back'}
               </button>
             </div>
           </div>

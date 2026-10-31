@@ -897,7 +897,7 @@ export default function AppShell({
       {/* Main Content Area */}
       <div className="flex-1 h-full flex flex-col overflow-hidden relative">
         {/* Top Bar */}
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-6 sm:px-8 py-3.5 flex items-center justify-between z-10 flex-shrink-0">
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 px-6 sm:px-8 py-3.5 flex items-center justify-between relative z-40 flex-shrink-0">
           <div className="flex items-center gap-3 flex-1" />
           <div className="flex items-center gap-6 ml-4">
             {isSuperAdmin && onSuperAdminDashboard && (

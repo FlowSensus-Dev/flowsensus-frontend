@@ -849,7 +849,12 @@ export default function ApplicantProfile({
           )}
           <div className="flex flex-col items-end gap-2">
             <div className="text-right text-xs text-white/40">
-              <p>Handler: {applicant.currentHandler}</p>
+              <p>
+                Handler:{' '}
+                {applicant.status === 'Deployed' || applicant.phase === 6
+                  ? 'Not needed (Deployed)'
+                  : (applicant.currentHandler || 'Unassigned')}
+              </p>
               <p className="mt-0.5">{applicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
