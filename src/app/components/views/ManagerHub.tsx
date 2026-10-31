@@ -7,7 +7,7 @@ import {
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
 import { SkeletonText, SkeletonBadge } from '../ui/skeleton';
 import { api } from '../../../lib/api';
-import { CVPreviewDoc, buildCVHtml, downloadCVPdf } from '../CVPreview';
+import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface ManagerHubProps {
   workflow: WorkflowState;
@@ -35,6 +35,22 @@ interface CvRecord {
   created_at: string;
   updated_at: string;
 }
+
+// Candidates returned to these pre-CV statuses should not appear as active CV review items
+const PRE_CV_STATUSES = [
+  'Applicant Registration',
+  'Initial Screening',
+  'Pending Interview',
+  'Review Score for Medical Referral',
+  'Medical Clearance',
+  'Medical Referral',
+  'Applicant Profiling',
+  'Profiling',
+  'Provisional',
+  'Processing Stopped',
+];
+
+const INTERNAL_CV_KEYS = ['summary_override', 'return_reason', 'returned_at', 'returned_by'];
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
   DRAFT: { label: 'Draft', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
@@ -78,7 +94,7 @@ interface CvDetailGateProps {
   isEndorsed: boolean;
   activeSubmission?: any;
   onApprove: (cvId: number) => void;
-  onReject: (cvId: number, reason: string) => void;
+  onReject: (cvId: number, reason: string) => Promise<boolean>;
   onEndorse: (cvId: number) => void;
   onNavigate?: (view: string) => void;
   isActing: boolean;
@@ -94,12 +110,11 @@ function CvDetailGate({
   const [zoomLevel, setZoomLevel] = useState(0.65);
 
   const canApproveOrReject = cvRecord.status_code === 'PENDING_APPROVAL';
-  const canEndorse = cvRecord.status_code === 'APPROVED' && !isEndorsed;
 
-  // Build custom fields array from cv_record for the preview
+  // Build custom fields array from cv_record for the preview (excluding internal metadata)
   const previewCustomFields = cvRecord.custom_fields
     ? Object.entries(cvRecord.custom_fields)
-        .filter(([k]) => k !== 'summary_override')
+        .filter(([k]) => !INTERNAL_CV_KEYS.includes(k))
         .map(([key, value]) => ({ key, value: String(value) }))
     : [];
   const previewSummary = cvRecord.custom_fields?.summary_override as string | undefined;
@@ -280,20 +295,18 @@ function CvDetailGate({
           )}
 
           {/* Custom fields table */}
-          {cvRecord.custom_fields && Object.keys(cvRecord.custom_fields).filter(k => k !== 'summary_override').length > 0 && (
+          {previewCustomFields.length > 0 && (
             <div>
               <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-2">Custom / Additional Fields</p>
               <div className="rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <tbody>
-                    {Object.entries(cvRecord.custom_fields)
-                      .filter(([k]) => k !== 'summary_override')
-                      .map(([k, v]) => (
-                        <tr key={k} className="border-b border-slate-100 last:border-0">
-                          <td className="px-4 py-2 font-semibold text-[#475569] bg-slate-50 w-2/5">{k}</td>
-                          <td className="px-4 py-2 text-[#0F172A]">{String(v)}</td>
-                        </tr>
-                      ))}
+                    {previewCustomFields.map(({ key: k, value: v }) => (
+                      <tr key={k} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-2 font-semibold text-[#475569] bg-slate-50 w-2/5">{k}</td>
+                        <td className="px-4 py-2 text-[#0F172A]">{v}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -358,12 +371,20 @@ function CvDetailGate({
                   Cancel
                 </button>
                 <button
-                  onClick={() => { if (rejectionReason.trim()) onReject(cvRecord.cv_id, rejectionReason.trim()); }}
+                  onClick={async () => {
+                    if (!rejectionReason.trim() || isActing) return;
+                    const ok = await onReject(cvRecord.cv_id, rejectionReason.trim());
+                    if (ok) {
+                      setRejectionReason('');
+                      setShowRejectForm(false);
+                      onClose();
+                    }
+                  }}
                   disabled={!rejectionReason.trim() || isActing}
-                  className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-40 flex items-center gap-1.5 transition-colors"
+                  className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors"
                 >
                   {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
-                  Confirm Rejection
+                  {isActing ? 'Rejecting…' : 'Confirm Rejection'}
                 </button>
               </div>
             </div>
@@ -437,7 +458,6 @@ function CvDetailGate({
 }
 
 export default function ManagerHub({
-  workflow,
   updateWorkflow,
   showToast,
   applicants = [],
@@ -475,7 +495,6 @@ export default function ManagerHub({
     loadCvRecords();
   }, [loadCvRecords]);
 
-  // ─── Approve ──────────────────────────────────────────────────────────────────
   // ─── Approve ──────────────────────────────────────────────────────────────────
   const handleApprove = async (cvId: number) => {
     setIsActing(true);
@@ -520,7 +539,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
@@ -551,7 +570,7 @@ export default function ManagerHub({
   };
 
   // ─── Reject ───────────────────────────────────────────────────────────────────
-  const handleReject = async (cvId: number, reason: string) => {
+  const handleReject = async (cvId: number, reason: string): Promise<boolean> => {
     setIsActing(true);
     try {
       const res = await api.patch(`/cv/${cvId}`, {
@@ -573,7 +592,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Encoding',
             current_phase: 3,
@@ -595,9 +614,11 @@ export default function ManagerHub({
         details: `CV #${cvId} rejected. Reason: ${reason}`,
       });
 
-      showToast('CV rejected — applicant must revise and resubmit.');
+      showToast('✓ CV sent back for revision — the encoder has been notified to edit and resubmit.');
+      return true;
     } catch (err: any) {
       showToast(`❌ Rejection failed: ${err?.response?.data?.detail || err.message}`);
+      return false;
     } finally {
       setIsActing(false);
     }
@@ -640,7 +661,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
@@ -680,8 +701,17 @@ export default function ManagerHub({
     return Boolean(getSubmissionForCv(cv.cv_id, cv.applicant_id));
   }, [getSubmissionForCv]);
 
+  // Exclude CV records whose applicant was returned to Applicant Profiling or an earlier stage
+  const activeCvRecords = cvRecords.filter(cv => {
+    const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
+    if (!app) return true;
+    if (app.isStopped) return false;
+    const s = String(app.status || '').trim();
+    return !PRE_CV_STATUSES.includes(s);
+  });
+
   // ─── Filtered list ────────────────────────────────────────────────────────────
-  const filtered = cvRecords.filter(cv => {
+  const filtered = activeCvRecords.filter(cv => {
     const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
     const q = searchQuery.toLowerCase();
     const matchSearch = !q
@@ -693,11 +723,11 @@ export default function ManagerHub({
   });
 
   const counts = {
-    all: cvRecords.length,
-    DRAFT: cvRecords.filter(r => r.status_code === 'DRAFT').length,
-    PENDING_APPROVAL: cvRecords.filter(r => r.status_code === 'PENDING_APPROVAL').length,
-    APPROVED: cvRecords.filter(r => r.status_code === 'APPROVED').length,
-    REJECTED: cvRecords.filter(r => r.status_code === 'REJECTED').length,
+    all: activeCvRecords.length,
+    DRAFT: activeCvRecords.filter(r => r.status_code === 'DRAFT').length,
+    PENDING_APPROVAL: activeCvRecords.filter(r => r.status_code === 'PENDING_APPROVAL').length,
+    APPROVED: activeCvRecords.filter(r => r.status_code === 'APPROVED').length,
+    REJECTED: activeCvRecords.filter(r => r.status_code === 'REJECTED').length,
   };
 
   const selectedCvApplicant = selectedCv
@@ -774,7 +804,7 @@ export default function ManagerHub({
           <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
             <FileText className="w-12 h-12 text-slate-200 mx-auto mb-3" />
             <p className="font-bold text-slate-400">
-              {cvRecords.length === 0 ? 'No CV records yet — staff must submit CVs from the CV Encoding module.' : 'No records match your filter.'}
+              {activeCvRecords.length === 0 ? 'No CV records yet — staff must submit CVs from the CV Encoding module.' : 'No records match your filter.'}
             </p>
           </div>
         ) : (
