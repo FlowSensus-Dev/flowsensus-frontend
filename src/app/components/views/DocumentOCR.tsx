@@ -4,7 +4,8 @@ import {
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
   Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle, Info,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
-  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck, FilePlus
+  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck, FilePlus,
+  ArrowLeft, ChevronLeft
 } from 'lucide-react';
 import { ApplicantRecord, WorkflowState, ActivityLog, ApplicationForecastResponse } from '../../types';
 import { api } from '../../../lib/api';
@@ -595,6 +596,18 @@ export default function DocumentOCR({
     setAcceptedExtractedExp(null);
     setImageError(false);
   };
+
+  // Close full screen validation on Escape key press (unless a sub-modal is open)
+  useEffect(() => {
+    if (!modalApplicant) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !showRenewModal && !returnModalApplicant && !showDeleteModal) {
+        handleCloseApplicantModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modalApplicant, showRenewModal, returnModalApplicant, showDeleteModal]);
 
   // ── Load Predictive Forecast for Candidate ────────────────────────────────
   const loadForecast = async (app: ApplicantRecord) => {
@@ -2161,128 +2174,172 @@ export default function DocumentOCR({
 
       {/* ── 5. Full Document Verification Pop-up Modal ── */}
       {modalApplicant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-6 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/90 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <div className="flex items-center gap-3.5">
-                <div className="relative flex-shrink-0">
-                  {modalApplicant.photoDataUrl || modalApplicant.photo ? (
-                    <img
-                      src={modalApplicant.photoDataUrl || modalApplicant.photo}
-                      alt={modalApplicant.name}
-                      className="w-12 h-12 rounded-full object-cover border border-slate-200 shadow-xs"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center font-bold text-slate-700 text-sm">
-                      {modalApplicant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                </div>
+        <div className="fixed inset-0 z-50 bg-white flex flex-col w-full h-screen overflow-hidden animate-in fade-in duration-150">
+          {/* Top Bar Header with Navigation and Candidate Identity */}
+          <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/95 backdrop-blur-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <button
+                type="button"
+                onClick={handleCloseApplicantModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer flex-shrink-0"
+                title="Return to candidate list (Esc)"
+              >
+                <ArrowLeft className="w-4 h-4 text-slate-600" />
+                <span className="hidden sm:inline">Back to Candidates</span>
+              </button>
 
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-base sm:text-lg font-black text-slate-900">{modalApplicant.name}</h2>
-                    <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
-                      {modalApplicant.applicantCode || `APP-${modalApplicant.id}`}
-                    </span>
-                    <span
-                      className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
-                        modalApplicant.status === 'Deployed'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : modalApplicant.status === 'Ready for Deployment'
-                          ? 'bg-sky-50 text-sky-700 border-sky-200'
-                          : modalApplicant.status === 'Provisional'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
-                          : 'bg-amber-50 text-amber-800 border-amber-200'
-                      }`}
+              {(() => {
+                const currentIndex = filteredApplicants.findIndex(a => String(a.id) === String(modalApplicant.id));
+                const hasPrev = currentIndex > 0;
+                const hasNext = currentIndex >= 0 && currentIndex < filteredApplicants.length - 1;
+                return (
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-xl shadow-2xs text-xs font-semibold text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => hasPrev && handleOpenApplicantModal(filteredApplicants[currentIndex - 1])}
+                      disabled={!hasPrev}
+                      className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none cursor-pointer transition-colors"
+                      title="Previous candidate in queue"
                     >
-                      {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
-                      {modalApplicant.status || 'Endorsed for Admin'}
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[11px] px-1 font-mono font-bold text-slate-700 whitespace-nowrap">
+                      {currentIndex >= 0 ? `${currentIndex + 1} / ${filteredApplicants.length}` : '—'}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => hasNext && handleOpenApplicantModal(filteredApplicants[currentIndex + 1])}
+                      disabled={!hasNext}
+                      className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none cursor-pointer transition-colors"
+                      title="Next candidate in queue"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
+                );
+              })()}
 
-                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
-                    <span>Role: <strong>{modalApplicant.role || 'N/A'}</strong></span>
-                    <span>•</span>
-                    <span>DOB: <strong>{modalApplicant.dateOfBirth ? String(modalApplicant.dateOfBirth).split('T')[0] : ((modalApplicant as any).birth_date ? String((modalApplicant as any).birth_date).split('T')[0] : ((modalApplicant as any).birthDate ? String((modalApplicant as any).birthDate).split('T')[0] : 'N/A'))}</strong></span>
-                    <span>•</span>
-                    <span>Gender: <strong>{modalApplicant.sex || 'Not Specified'}</strong></span>
-                    <span>•</span>
-                    <span>Contact: <strong>{modalApplicant.contact || modalApplicant.email || 'N/A'}</strong></span>
-                  </p>
-                </div>
+              <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+
+              <div className="relative flex-shrink-0">
+                {modalApplicant.photoDataUrl || modalApplicant.photo ? (
+                  <img
+                    src={modalApplicant.photoDataUrl || modalApplicant.photo}
+                    alt={modalApplicant.name}
+                    className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-xs"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center font-bold text-slate-700 text-xs">
+                    {modalApplicant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                )}
               </div>
 
-              {/* Header Right Actions */}
-              <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
-                {/* Handler Claim/Release */}
-                {(modalApplicant.status === 'Deployed' || modalApplicant.phase === 6) ? (
-                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
-                    Deployed — no handler needed
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm sm:text-base font-black text-slate-900 truncate">{modalApplicant.name}</h2>
+                  <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
+                    {modalApplicant.applicantCode || `APP-${modalApplicant.id}`}
                   </span>
-                ) : (!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
-                  <button
-                    onClick={() => handleClaim(modalApplicant)}
-                    className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
+                  <span
+                    className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                      modalApplicant.status === 'Deployed'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : modalApplicant.status === 'Ready for Deployment'
+                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                        : modalApplicant.status === 'Provisional'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
                   >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>Claim Candidate</span>
-                  </button>
-                ) : modalApplicant.currentHandler === currentUserName ? (
-                  <button
-                    onClick={() => handleRelease(modalApplicant)}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
-                  >
-                    <span>Release Claim</span>
-                  </button>
-                ) : (
-                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
-                    Handler: {modalApplicant.currentHandler}
+                    {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
+                    {modalApplicant.status || 'Endorsed for Admin'}
                   </span>
-                )}
+                </div>
 
-                {/* Revert Deployment Status if Ready for Deployment */}
-                {modalApplicant.status === 'Ready for Deployment' && (
-                  <button
-                    type="button"
-                    onClick={() => handleRevertReadyForDeployment()}
-                    disabled={isSavingDeployment}
-                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                    title="Revert candidate status from Ready for Deployment to Administrative Processing"
-                  >
-                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Revert Deployment</span>
-                  </button>
-                )}
-
-                {/* Revert to Pre-Deployment Processing */}
-                {modalApplicant.status !== 'Deployed' && modalApplicant.status !== 'Ready for Deployment' && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenRevertToPreDeployment(modalApplicant)}
-                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex-shrink-0"
-                    title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
-                  >
-                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Revert to Pre-Deployment</span>
-                  </button>
-                )}
-
-                {/* Close Modal */}
-                <button
-                  onClick={handleCloseApplicantModal}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200/80 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>Role: <strong>{modalApplicant.role || 'N/A'}</strong></span>
+                  <span>•</span>
+                  <span>DOB: <strong>{modalApplicant.dateOfBirth ? String(modalApplicant.dateOfBirth).split('T')[0] : ((modalApplicant as any).birth_date ? String((modalApplicant as any).birth_date).split('T')[0] : ((modalApplicant as any).birthDate ? String((modalApplicant as any).birthDate).split('T')[0] : 'N/A'))}</strong></span>
+                  <span>•</span>
+                  <span>Gender: <strong>{modalApplicant.sex || 'Not Specified'}</strong></span>
+                  <span>•</span>
+                  <span>Contact: <strong>{modalApplicant.contact || modalApplicant.email || 'N/A'}</strong></span>
+                </p>
               </div>
             </div>
 
-            {/* Modal Body: Split Pane */}
-            <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
-              {/* ── Left Pane: Requirements List (4 cols) ── */}
-              <div className="lg:col-span-4 border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden">
+            {/* Header Right Actions */}
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+              {/* Handler Claim/Release */}
+              {(modalApplicant.status === 'Deployed' || modalApplicant.phase === 6) ? (
+                <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
+                  Deployed — no handler needed
+                </span>
+              ) : (!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
+                <button
+                  onClick={() => handleClaim(modalApplicant)}
+                  className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Claim Candidate</span>
+                </button>
+              ) : modalApplicant.currentHandler === currentUserName ? (
+                <button
+                  onClick={() => handleRelease(modalApplicant)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  <span>Release Claim</span>
+                </button>
+              ) : (
+                <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
+                  Handler: {modalApplicant.currentHandler}
+                </span>
+              )}
+
+              {/* Revert Deployment Status if Ready for Deployment */}
+              {modalApplicant.status === 'Ready for Deployment' && (
+                <button
+                  type="button"
+                  onClick={() => handleRevertReadyForDeployment()}
+                  disabled={isSavingDeployment}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Revert Deployment</span>
+                </button>
+              )}
+
+              {/* Revert to Pre-Deployment Processing */}
+              {modalApplicant.status !== 'Deployed' && modalApplicant.status !== 'Ready for Deployment' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenRevertToPreDeployment(modalApplicant)}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex-shrink-0"
+                  title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Revert to Pre-Deployment</span>
+                </button>
+              )}
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={handleCloseApplicantModal}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition-colors cursor-pointer"
+                title="Close full screen validation (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body: Split Pane filling remaining height */}
+          <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+            {/* ── Left Pane: Requirements List (3-4 cols) ── */}
+            <div className="lg:col-span-4 xl:col-span-3 border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden">
                 <div className="p-3.5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                   <h3 className="font-extrabold text-xs text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                     <FileCheck className="w-4 h-4 text-[#0EA5E9]" />
@@ -2440,7 +2497,7 @@ export default function DocumentOCR({
               </div>
 
               {/* ── Right Pane: Document Review & Verification Center (8 cols) ── */}
-              <div className="lg:col-span-8 flex flex-col h-full overflow-hidden bg-slate-50/40">
+              <div className="lg:col-span-8 xl:col-span-9 flex flex-col h-full overflow-hidden bg-slate-50/40">
                 {selectedReq ? (
                   <div className="flex-1 flex flex-col h-full overflow-hidden">
                     {/* Sub-header for selected document */}
@@ -3283,7 +3340,6 @@ export default function DocumentOCR({
               </div>
             </div>
           </div>
-        </div>
       )}
 
       {/* ── Document Renewal Modal ── */}

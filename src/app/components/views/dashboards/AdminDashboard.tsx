@@ -24,6 +24,7 @@ interface AdminDashboardProps {
   currentUserName?: string;
   showToast?: (message: string) => void;
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
+  hideHeader?: boolean;
 }
 
 interface ExpirationReminder {
@@ -51,6 +52,7 @@ export default function AdminDashboard({
   currentUserName = 'Admin',
   showToast,
   addActivityLog,
+  hideHeader = false,
 }: AdminDashboardProps) {
   const [reminderFilter, setReminderFilter] = useState<'all' | 'expired' | '30days' | '60days'>('all');
   const [notifiedAlerts, setNotifiedAlerts] = useState<Record<string, boolean>>({});
@@ -139,34 +141,60 @@ export default function AdminDashboard({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Clean Flowsensus-Aligned Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-200">
-        <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Compliance & Visa Processing</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Monitor expiring travel documents, verify uploaded files, and prepare hired workers for embassy visas.
-          </p>
-        </div>
+      {/* Unified Flowsensus Dashboard Header */}
+      {!hideHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-slate-200/80">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#0F172A] tracking-tight">
+              Administration & Visa Coordination
+            </h1>
+            <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+              Document expirations, compliance verifications, and overseas visa milestones.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => onNavigate('ocr')}
+              className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+            >
+              <FileCheck className="w-4 h-4" />
+              <span>Verify Documents</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('joborders')}
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Briefcase className="w-4 h-4 text-slate-500" />
+              <span>Job Orders</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Embedded Action Toolbar when rendered in Multi-Role Dashboard */}
+      {hideHeader && (
+        <div className="flex items-center justify-end gap-2.5 pb-1">
           <button
             type="button"
             onClick={() => onNavigate('ocr')}
-            className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-3.5 py-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
           >
-            <FileCheck className="w-4 h-4" />
+            <FileCheck className="w-3.5 h-3.5" />
             <span>Verify Documents</span>
           </button>
           <button
             type="button"
             onClick={() => onNavigate('joborders')}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
-            <Briefcase className="w-4 h-4 text-slate-500" />
+            <Briefcase className="w-3.5 h-3.5 text-slate-500" />
             <span>Job Orders</span>
           </button>
         </div>
-      </div>
+      )}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

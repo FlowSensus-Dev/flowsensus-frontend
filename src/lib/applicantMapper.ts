@@ -197,7 +197,13 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     currentHandler: (item.current_handler === 'Unassigned Pool' || item.currentHandler === 'Unassigned Pool') ? 'Unassigned' : (item.current_handler || item.currentHandler || 'Unassigned'),
     currentHandlerUserId: item.current_handler_user_id || item.currentHandlerUserId || undefined,
     currentDepartment: item.current_department || 'Recruitment',
-    lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+    lastUpdated: item.last_updated
+      ? (isNaN(new Date(item.last_updated).getTime()) ? String(item.last_updated) : new Date(item.last_updated).toISOString())
+      : item.updated_at
+      ? (isNaN(new Date(item.updated_at).getTime()) ? String(item.updated_at) : new Date(item.updated_at).toISOString())
+      : (item.created_at || item.createdAt)
+      ? (isNaN(new Date(item.created_at || item.createdAt).getTime()) ? String(item.created_at || item.createdAt) : new Date(item.created_at || item.createdAt).toISOString())
+      : new Date().toISOString(),
     createdAt: item.created_at || item.createdAt || item.application_created_at || item.last_updated || item.updated_at || '',
     phaseDescription: item.phase_description || 'Active in candidate pipeline',
     presentAddress: item.present_address || '',

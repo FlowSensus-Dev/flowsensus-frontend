@@ -8,11 +8,16 @@ import {
   RefreshCw, 
   XCircle, 
   Search, 
-  ExternalLink, 
   Bell, 
   UserCheck, 
-  Filter, 
-  FileText 
+  FileText,
+  FileCheck2,
+  X,
+  ShieldCheck,
+  LayoutGrid,
+  List,
+  ExternalLink,
+  ChevronRight
 } from 'lucide-react';
 import { ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
@@ -26,6 +31,48 @@ interface ComplianceAlertsProps {
 }
 
 type FilterTier = 'ALL' | 'EXPIRED' | 'CRITICAL_30' | 'WARNING_60' | 'BELOW_3_MONTHS';
+type ViewMode = 'cards' | 'table';
+
+function formatDisplayDate(dateStr?: string): string {
+  if (!dateStr) return 'N/A';
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      const dt = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
+}
+
+function getInitials(name?: string): string {
+  if (!name) return 'AP';
+  const clean = name.replace(/^(Engr\.|Dr\.|Mr\.|Ms\.|Mrs\.)\s+/i, '').trim();
+  const parts = clean.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
+}
+
+function getPolicyGuidance(level: string, ruleCategory: string, originalMessage?: string): string {
+  if (level === 'EXPIRED') {
+    return 'Immediate renewal required. Deployment clearance is blocked until valid document is submitted.';
+  }
+  if (level === 'CRITICAL_30' || level === 'BELOW_1_MONTH') {
+    return 'Critical 30-day window. Urgent renewal or replacement required before endorsement or flight clearance.';
+  }
+  if (level === 'WARNING_60' || level === 'BELOW_2_MONTH_TRAVEL_BUFFER' || level === 'BELOW_2_MONTHS') {
+    return 'Approaching the mandatory 60-day travel buffer required for airport immigration clearance.';
+  }
+  if (level === 'BELOW_3_MONTHS') {
+    return 'Medical and supporting records require at least 3 months validity prior to employer endorsement.';
+  }
+  return originalMessage || 'Validity buffer below regulatory requirement.';
+}
 
 export default function ComplianceAlerts({ 
   applicants = [], 
@@ -36,6 +83,7 @@ export default function ComplianceAlerts({
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<FilterTier>('ALL');
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [searchQuery, setSearchQuery] = useState('');
   const [notifiedAlertIds, setNotifiedAlertIds] = useState<Record<string, boolean>>({});
   const [sendingAlertIds, setSendingAlertIds] = useState<Record<string, boolean>>({});
@@ -141,57 +189,46 @@ export default function ComplianceAlerts({
     }
   };
 
-  const renderIcon = (level: string) => {
-    switch (level) {
-      case 'EXPIRED': 
-        return <XCircle className="w-5 h-5 text-red-600" />;
-      case 'CRITICAL_30':
-      case 'BELOW_1_MONTH':
-        return <AlertTriangle className="w-5 h-5 text-orange-600" />;
-      case 'WARNING_60':
-      case 'BELOW_2_MONTH_TRAVEL_BUFFER':
-      case 'BELOW_2_MONTHS':
-        return <Clock className="w-5 h-5 text-amber-500" />;
-      case 'BELOW_3_MONTHS':
-        return <Calendar className="w-5 h-5 text-blue-600" />;
-      default: 
-        return <ShieldAlert className="w-5 h-5 text-slate-500" />;
-    }
-  };
-
-  const renderBadge = (level: string) => {
+  const renderStatusBadge = (level: string) => {
     switch (level) {
       case 'EXPIRED':
-        return <span className="px-2.5 py-0.5 bg-red-100 text-red-700 font-black text-[11px] uppercase tracking-wider rounded-full border border-red-200">Expired</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+            Expired
+          </span>
+        );
       case 'CRITICAL_30':
       case 'BELOW_1_MONTH':
-        return <span className="px-2.5 py-0.5 bg-orange-100 text-orange-800 font-black text-[11px] uppercase tracking-wider rounded-full border border-orange-200">30-Day Critical</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            Critical (≤ 30 Days)
+          </span>
+        );
       case 'WARNING_60':
       case 'BELOW_2_MONTH_TRAVEL_BUFFER':
       case 'BELOW_2_MONTHS':
-        return <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 font-black text-[11px] uppercase tracking-wider rounded-full border border-amber-200">60-Day Warning</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+            60-Day Travel Buffer
+          </span>
+        );
       case 'BELOW_3_MONTHS':
-        return <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 font-black text-[11px] uppercase tracking-wider rounded-full border border-blue-200">3-Month Buffer</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            3-Month Medical Buffer
+          </span>
+        );
       default:
-        return <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 font-black text-[11px] uppercase tracking-wider rounded-full border border-slate-200">{String(level).replace(/_/g, ' ')}</span>;
-    }
-  };
-
-  const renderBg = (level: string) => {
-    switch (level) {
-      case 'EXPIRED': 
-        return 'bg-red-50/80 border-red-200 hover:border-red-300';
-      case 'CRITICAL_30':
-      case 'BELOW_1_MONTH':
-        return 'bg-orange-50/80 border-orange-200 hover:border-orange-300';
-      case 'WARNING_60':
-      case 'BELOW_2_MONTH_TRAVEL_BUFFER':
-      case 'BELOW_2_MONTHS':
-        return 'bg-amber-50/80 border-amber-200 hover:border-amber-300';
-      case 'BELOW_3_MONTHS':
-        return 'bg-blue-50/60 border-blue-200 hover:border-blue-300';
-      default: 
-        return 'bg-slate-50 border-slate-200';
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            {String(level).replace(/_/g, ' ')}
+          </span>
+        );
     }
   };
 
@@ -225,31 +262,38 @@ export default function ComplianceAlerts({
     });
   }, [alerts, activeTab, searchQuery, applicants]);
 
+  const count60Days = useMemo(() => {
+    return alerts.filter(a => ['WARNING_60', 'BELOW_2_MONTHS', 'BELOW_2_MONTH_TRAVEL_BUFFER'].includes(a.alert_level || a.alert_type)).length;
+  }, [alerts]);
+
+  const count3Months = useMemo(() => {
+    return alerts.filter(a => (a.alert_level || a.alert_type) === 'BELOW_3_MONTHS').length;
+  }, [alerts]);
+
   return (
     <div className="space-y-6 w-full pb-16 font-['Inter',sans-serif]">
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 border border-amber-200/60 shadow-sm">
-              <ShieldAlert className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                3-2-1 Compliance Watch
-              </h2>
-              <p className="text-sm text-slate-500 font-medium">
-                Automated expiration & validity buffer monitoring for registered candidates in current pipeline.
-              </p>
-            </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-5">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-sm shrink-0">
+            <ShieldCheck className="w-6 h-6 text-[#0EA5E9]" />
+          </div>
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              3-2-1 Compliance Watch
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
+              Automated validity buffer tracking for active pipeline candidates (3-mo Medical, 2-mo Travel Buffer, 1-mo/Expiry Stop-Gate).
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 shrink-0">
           <button 
             onClick={() => loadAlerts(true)} 
             disabled={isLoading} 
-            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-sm transition-all active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 text-slate-700 text-xs font-semibold shadow-xs transition-all active:scale-95 disabled:opacity-50"
+            title="Scan active pipeline for document expiration and buffer alerts"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#0EA5E9]' : 'text-slate-600'}`} />
             {isLoading ? 'Scanning Pipeline...' : 'Run 3-2-1 Scan'}
@@ -259,293 +303,520 @@ export default function ComplianceAlerts({
 
       {/* Summary Stat Cards */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Total Active */}
           <div 
             onClick={() => setActiveTab('ALL')}
-            className={`cursor-pointer bg-white border rounded-xl p-4 transition-all hover:shadow-md ${activeTab === 'ALL' ? 'ring-2 ring-slate-800 border-transparent shadow-sm' : 'border-slate-200'}`}
+            className={`cursor-pointer bg-white border rounded-xl p-4 transition-all hover:shadow-sm ${
+              activeTab === 'ALL' 
+                ? 'ring-2 ring-slate-900 border-transparent shadow-sm' 
+                : 'border-slate-200/80 hover:border-slate-300'
+            }`}
           >
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">Total Active</span>
-              <Bell className="w-4 h-4 text-slate-400" />
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Active</span>
+              <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
             </div>
-            <p className="text-3xl font-black text-slate-900">{stats.total_active_alerts}</p>
-            <p className="text-[11px] text-slate-500 mt-1 font-medium">In pipeline documents</p>
+            <p className="text-2xl sm:text-3xl font-black text-slate-900">{stats.total_active_alerts}</p>
+            <p className="text-[11px] text-slate-400 mt-1 font-medium">In pipeline documents</p>
           </div>
 
+          {/* Expired Docs */}
           <div 
             onClick={() => setActiveTab('EXPIRED')}
-            className={`cursor-pointer bg-red-50/60 border rounded-xl p-4 transition-all hover:shadow-md ${activeTab === 'EXPIRED' ? 'ring-2 ring-red-500 border-transparent shadow-sm' : 'border-red-200/80'}`}
+            className={`cursor-pointer bg-white border rounded-xl p-4 transition-all hover:shadow-sm ${
+              activeTab === 'EXPIRED' 
+                ? 'ring-2 ring-rose-500 border-transparent shadow-sm' 
+                : 'border-slate-200/80 hover:border-slate-300'
+            }`}
           >
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[11px] font-black uppercase tracking-wider text-red-700">Expired Docs</span>
-              <XCircle className="w-4 h-4 text-red-500" />
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600">Expired Docs</span>
+              <div className="w-7 h-7 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+                <XCircle className="w-3.5 h-3.5" />
+              </div>
             </div>
-            <p className="text-3xl font-black text-red-600">{stats.expired_count}</p>
-            <p className="text-[11px] text-red-700/80 mt-1 font-medium">Immediate renewal required</p>
+            <p className="text-2xl sm:text-3xl font-black text-rose-600">{stats.expired_count}</p>
+            <p className="text-[11px] text-rose-500/80 mt-1 font-medium">Immediate renewal required</p>
           </div>
 
+          {/* ≤ 30 Days Critical */}
           <div 
             onClick={() => setActiveTab('CRITICAL_30')}
-            className={`cursor-pointer bg-orange-50/60 border rounded-xl p-4 transition-all hover:shadow-md ${activeTab === 'CRITICAL_30' ? 'ring-2 ring-orange-500 border-transparent shadow-sm' : 'border-orange-200/80'}`}
+            className={`cursor-pointer bg-white border rounded-xl p-4 transition-all hover:shadow-sm ${
+              activeTab === 'CRITICAL_30' 
+                ? 'ring-2 ring-amber-500 border-transparent shadow-sm' 
+                : 'border-slate-200/80 hover:border-slate-300'
+            }`}
           >
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[11px] font-black uppercase tracking-wider text-orange-700">≤ 30 Days</span>
-              <AlertTriangle className="w-4 h-4 text-orange-500" />
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600">≤ 30 Days</span>
+              <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
             </div>
-            <p className="text-3xl font-black text-orange-600">{stats.critical_count}</p>
-            <p className="text-[11px] text-orange-700/80 mt-1 font-medium">Critical deployment risk</p>
+            <p className="text-2xl sm:text-3xl font-black text-amber-600">{stats.critical_count}</p>
+            <p className="text-[11px] text-amber-600/80 mt-1 font-medium">Critical deployment risk</p>
           </div>
 
+          {/* 60-90 Days Buffer */}
           <div 
             onClick={() => setActiveTab('WARNING_60')}
-            className={`cursor-pointer bg-amber-50/60 border rounded-xl p-4 transition-all hover:shadow-md ${activeTab === 'WARNING_60' ? 'ring-2 ring-amber-500 border-transparent shadow-sm' : 'border-amber-200/80'}`}
+            className={`cursor-pointer bg-white border rounded-xl p-4 transition-all hover:shadow-sm ${
+              activeTab === 'WARNING_60' 
+                ? 'ring-2 ring-sky-500 border-transparent shadow-sm' 
+                : 'border-slate-200/80 hover:border-slate-300'
+            }`}
           >
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[11px] font-black uppercase tracking-wider text-amber-700">60-90 Days</span>
-              <Clock className="w-4 h-4 text-amber-500" />
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-sky-600">60-90 Days</span>
+              <div className="w-7 h-7 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600">
+                <Clock className="w-3.5 h-3.5" />
+              </div>
             </div>
-            <p className="text-3xl font-black text-amber-600">{stats.warning_count}</p>
-            <p className="text-[11px] text-amber-700/80 mt-1 font-medium">Buffer validity window</p>
+            <p className="text-2xl sm:text-3xl font-black text-sky-600">{stats.warning_count}</p>
+            <p className="text-[11px] text-sky-600/80 mt-1 font-medium">Buffer validity window</p>
           </div>
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white p-3 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm">
+      {/* Filter Tabs, Search Bar and View Switcher */}
+      <div className="bg-white p-2.5 sm:p-3 border border-slate-200/80 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
         {/* Tier Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
               activeTab === 'ALL'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
             All Alerts ({alerts.length})
           </button>
           <button
             onClick={() => setActiveTab('EXPIRED')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
               activeTab === 'EXPIRED'
-                ? 'bg-red-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            Expired ({stats?.expired_count || 0})
+            Expired
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'EXPIRED' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'}`}>
+              {stats?.expired_count || 0}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('CRITICAL_30')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
               activeTab === 'CRITICAL_30'
-                ? 'bg-orange-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            30 Days Critical ({stats?.critical_count || 0})
+            30 Days Critical
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'CRITICAL_30' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>
+              {stats?.critical_count || 0}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('WARNING_60')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
               activeTab === 'WARNING_60'
-                ? 'bg-amber-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            60 Days Warning ({alerts.filter(a => ['WARNING_60', 'BELOW_2_MONTHS', 'BELOW_2_MONTH_TRAVEL_BUFFER'].includes(a.alert_level || a.alert_type)).length})
+            60 Days Warning
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'WARNING_60' ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-700'}`}>
+              {count60Days}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('BELOW_3_MONTHS')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
               activeTab === 'BELOW_3_MONTHS'
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
-            3-Month Buffer ({alerts.filter(a => (a.alert_level || a.alert_type) === 'BELOW_3_MONTHS').length})
+            3-Month Buffer
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'BELOW_3_MONTHS' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+              {count3Months}
+            </span>
           </button>
         </div>
 
-        {/* Search */}
-        <div className="relative min-w-[260px]">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search candidate, code, or document..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:bg-white transition-all"
-          />
+        {/* Search and View Mode Switcher */}
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-[220px] sm:min-w-[260px]">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search candidate, code, or document..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:bg-white transition-all"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* View Mode Toggle: Cards vs Compact Table */}
+          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`p-1.5 rounded-md text-xs transition-all ${
+                viewMode === 'cards'
+                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Card View"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`p-1.5 rounded-md text-xs transition-all ${
+                viewMode === 'table'
+                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Compact Ledger View"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Alerts List */}
-      <div className="space-y-3.5">
-        {filteredAlerts.length === 0 && !isLoading && (
-          <div className="bg-white border border-slate-200 p-12 rounded-xl text-center flex flex-col items-center shadow-sm">
-            <CheckCircle className="w-12 h-12 mb-3 text-emerald-500" />
-            <h3 className="font-black text-slate-900 text-lg">All Pipeline Documents Up to Date</h3>
-            <p className="text-sm text-slate-500 mt-1 max-w-md">
-              {searchQuery 
-                ? `No active compliance alerts matching "${searchQuery}". Try adjusting your search term.` 
-                : 'No expired or near-expiry document warnings detected across registered applicants in the current pipeline.'}
-            </p>
+      {/* Empty State */}
+      {filteredAlerts.length === 0 && !isLoading && (
+        <div className="bg-white border border-slate-200/80 p-12 rounded-xl text-center flex flex-col items-center shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mb-3">
+            <CheckCircle className="w-6 h-6" />
           </div>
-        )}
+          <h3 className="font-bold text-slate-900 text-base">All Pipeline Documents Up to Date</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-md">
+            {searchQuery 
+              ? `No active compliance alerts matching "${searchQuery}". Try adjusting your search term.` 
+              : 'No expired documents or near-expiry buffer warnings detected across active candidates in the pipeline.'}
+          </p>
+        </div>
+      )}
 
-        {filteredAlerts.map((a: any) => {
-          const alertLevel = a.alert_level || a.alert_type || 'ALERT';
-          const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
-          const isNotified = Boolean(notifiedAlertIds[alertKey]);
-          
-          // Match applicant record from props, or use enriched backend join
-          const app = applicants.find(
-            applicant => String(applicant.id) === String(a.applicant_id) ||
-                         String(applicant.applicationId) === String(a.applicant_id)
-          ) || {
-            name: a.applicant_name || (a.applicant_requirement?.applicant ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim() : `Applicant #${a.applicant_id}`),
-            applicantCode: a.applicant_code || a.applicant_requirement?.applicant?.applicant_code || `APP-${a.applicant_id}`,
-            role: '',
-            phase: undefined,
-            status: 'In Pipeline'
-          };
+      {/* VIEW MODE 1: CARDS VIEW (Handcrafted, Executive, No AI-cliché colored border stripes or squircle boxes) */}
+      {viewMode === 'cards' && filteredAlerts.length > 0 && (
+        <div className="space-y-3.5">
+          {filteredAlerts.map((a: any) => {
+            const alertLevel = a.alert_level || a.alert_type || 'ALERT';
+            const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
+            const isNotified = Boolean(notifiedAlertIds[alertKey]);
+            
+            // Match applicant record from props, or use enriched backend join
+            const app = applicants.find(
+              applicant => String(applicant.id) === String(a.applicant_id) ||
+                           String(applicant.applicationId) === String(a.applicant_id)
+            ) || {
+              name: a.applicant_name || (a.applicant_requirement?.applicant ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim() : `Applicant #${a.applicant_id}`),
+              applicantCode: a.applicant_code || a.applicant_requirement?.applicant?.applicant_code || `APP-${a.applicant_id}`,
+              role: '',
+              phase: undefined,
+              status: 'In Pipeline'
+            };
 
-          const docName = a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || 'Pre-Deployment Document';
-          const ruleCat = a.rule_category || a.applicant_requirement?.requirement?.rule_category || 'REGULATORY';
-          const expDate = a.expiration_date || a.applicant_requirement?.expiration_date;
-          const daysRem = typeof a.days_remaining === 'number' ? a.days_remaining : undefined;
+            const docName = a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || 'Pre-Deployment Document';
+            const ruleCat = a.rule_category || a.applicant_requirement?.requirement?.rule_category || 'REGULATORY';
+            const expDate = a.expiration_date || a.applicant_requirement?.expiration_date;
+            const daysRem = typeof a.days_remaining === 'number' ? a.days_remaining : undefined;
+            const policyNote = getPolicyGuidance(alertLevel, ruleCat, a.message);
+            const initials = getInitials(app.name);
 
-          return (
-            <div 
-              key={a.alert_id} 
-              className={`border rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${renderBg(alertLevel)}`}
-            >
-              {/* Alert Content */}
-              <div className="flex items-start gap-4 flex-1">
-                <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-sm border border-slate-200/60 shrink-0 mt-0.5">
-                  {renderIcon(alertLevel)}
+            return (
+              <div 
+                key={a.alert_id} 
+                className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all space-y-3.5"
+              >
+                {/* Top Section: Candidate Profile & Status Badge */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 shrink-0">
+                      {initials}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => onNavigate?.('ocr', String(a.applicant_id))}
+                          className="font-bold text-slate-900 text-sm hover:text-[#0EA5E9] transition-colors text-left flex items-center gap-1.5"
+                          title="Open candidate in Document Validation"
+                        >
+                          {app.name || `Applicant #${a.applicant_id}`}
+                        </button>
+                        {app.applicantCode && (
+                          <span className="font-mono text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                            {app.applicantCode}
+                          </span>
+                        )}
+                        {(app.phase || app.status) && (
+                          <span className="text-xs text-slate-500 font-medium">
+                            • {app.phase || app.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-2">
+                    {renderStatusBadge(alertLevel)}
+                  </div>
                 </div>
 
-                <div className="space-y-1.5 flex-1 min-w-0">
-                  {/* Top line: Document Name + Tier Badge + Category */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-black text-slate-900 text-sm tracking-tight truncate">
-                      {docName}
-                    </span>
-                    {renderBadge(alertLevel)}
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-white/70 px-2 py-0.5 rounded border border-slate-200/50">
-                      {String(ruleCat).replace(/_/g, ' ')}
-                    </span>
+                {/* Middle Section: Document Details & Compliance Expiration */}
+                <div className="bg-slate-50/70 border border-slate-200/60 rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span className="font-bold text-slate-900 text-sm">{docName}</span>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider bg-white px-2 py-0.5 rounded border border-slate-200">
+                        {String(ruleCat).replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      {policyNote}
+                    </p>
                   </div>
 
-                  {/* Candidate Details */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
-                    <span className="font-bold text-slate-900 flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5 text-slate-500" />
-                      {app.name || `Applicant #${a.applicant_id}`}
-                    </span>
-                    {app.applicantCode && (
-                      <span className="text-slate-500 font-mono text-[11px] bg-white/60 px-1.5 py-0.5 rounded border border-slate-200/40">
-                        {app.applicantCode}
-                      </span>
-                    )}
-                    {app.status && (
-                      <span className="text-slate-600 font-medium">
-                        • {app.status}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Alert Message / Expiration Details */}
-                  <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                    {a.message || 'Validity buffer below regulatory requirement.'}
-                  </p>
-
-                  {/* Expiration Date & Countdown Bar */}
-                  <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+                  {/* Expiry & Time Remaining */}
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0 text-xs">
                     {expDate && (
-                      <div className="flex items-center gap-1 text-slate-700 font-semibold">
+                      <div className="flex items-center gap-1.5 text-slate-600 bg-white px-2.5 py-1 rounded-md border border-slate-200">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Expiry Date: <span className="font-bold text-slate-900">{expDate}</span></span>
+                        <span>Expiry: <strong className="font-semibold text-slate-900">{formatDisplayDate(expDate)}</strong></span>
                       </div>
                     )}
+
                     {daysRem !== undefined && (
-                      <div className="font-bold">
+                      <div>
                         {daysRem < 0 ? (
-                          <span className="text-red-700 bg-red-100/80 px-2 py-0.5 rounded text-[11px] font-black">
-                            Expired {Math.abs(daysRem)} days ago
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold text-rose-700 bg-rose-100/80 border border-rose-200">
+                            {Math.abs(daysRem)} {Math.abs(daysRem) === 1 ? 'day' : 'days'} overdue
                           </span>
                         ) : daysRem === 0 ? (
-                          <span className="text-red-700 bg-red-100/80 px-2 py-0.5 rounded text-[11px] font-black">
-                            Expires Today
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-bold text-rose-700 bg-rose-100/80 border border-rose-200">
+                            Expires today
                           </span>
                         ) : (
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-black ${
-                            daysRem <= 30 ? 'text-orange-800 bg-orange-100/80' : 'text-amber-800 bg-amber-100/80'
+                          <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${
+                            daysRem <= 30
+                              ? 'text-amber-800 bg-amber-100/80 border-amber-200'
+                              : 'text-sky-800 bg-sky-100/80 border-sky-200'
                           }`}>
-                            {daysRem} days remaining
+                            {daysRem} {daysRem === 1 ? 'day' : 'days'} remaining
                           </span>
                         )}
                       </div>
                     )}
                   </div>
                 </div>
+
+                {/* Footer Section: Action Controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                  <span className="text-xs text-slate-400 hidden sm:inline">
+                    Flowsensus Compliance Rule: 3-2-1 POEA Buffer Check
+                  </span>
+
+                  <div className="flex items-center gap-2 justify-end">
+                    {onNavigate && (
+                      <button 
+                        onClick={() => onNavigate('ocr', String(a.applicant_id))}
+                        className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition-all active:scale-95"
+                        title="Open Document Validation workspace for this candidate"
+                      >
+                        <FileCheck2 className="w-3.5 h-3.5" />
+                        Validate Document
+                      </button>
+                    )}
+
+                    <button 
+                      onClick={() =>
+                        handleNotifyApplicant(
+                          alertKey,
+                          a.applicant_id,
+                          app.name || `Applicant #${a.applicant_id}`,
+                          docName,
+                          daysRem
+                        )
+                      }
+                      disabled={isNotified || Boolean(sendingAlertIds[alertKey])}
+                      className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 shadow-xs active:scale-95 ${
+                        isNotified
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                      title={isNotified ? 'Notification already sent' : 'Dispatch renewal notice to candidate portal'}
+                    >
+                      {isNotified ? (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          Notice Sent
+                        </>
+                      ) : sendingAlertIds[alertKey] ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-500" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="w-3.5 h-3.5 text-amber-500" />
+                          Notify Candidate
+                        </>
+                      )}
+                    </button>
+
+                    <button 
+                      onClick={() => handleDismiss(a.alert_id)}
+                      title="Dismiss this alert"
+                      className="px-2.5 py-2 text-xs font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 hover:border-rose-100 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
               </div>
+            );
+          })}
+        </div>
+      )}
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-200/50">
-                {onNavigate && (
-                  <button 
-                    onClick={() => onNavigate('ocr', String(a.applicant_id))}
-                    className="px-3.5 py-2 bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
-                    title="Open Document Validation (OCR) for this applicant"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                    Review OCR
-                  </button>
-                )}
+      {/* VIEW MODE 2: COMPACT LEDGER TABLE (Ideal for rapid agency auditing) */}
+      {viewMode === 'table' && filteredAlerts.length > 0 && (
+        <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4">Candidate</th>
+                  <th className="py-3 px-4">Document & Category</th>
+                  <th className="py-3 px-4">Expiration Date</th>
+                  <th className="py-3 px-4">Compliance Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAlerts.map((a: any) => {
+                  const alertLevel = a.alert_level || a.alert_type || 'ALERT';
+                  const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
+                  const isNotified = Boolean(notifiedAlertIds[alertKey]);
 
-                <button 
-                  onClick={() =>
-                    handleNotifyApplicant(
-                      alertKey,
-                      a.applicant_id,
-                      app.name || `Applicant #${a.applicant_id}`,
-                      docName,
-                      daysRem
-                    )
-                  }
-                  disabled={isNotified || Boolean(sendingAlertIds[alertKey])}
-                  className={`px-3.5 py-2 border text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 ${
-                    isNotified
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default'
-                      : 'bg-white border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  {isNotified ? (
-                    <>
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      Notified
-                    </>
-                  ) : (
-                    <>
-                      <Bell className="w-3.5 h-3.5 text-amber-600" />
-                      Notify
-                    </>
-                  )}
-                </button>
+                  const app = applicants.find(
+                    applicant => String(applicant.id) === String(a.applicant_id) ||
+                                 String(applicant.applicationId) === String(a.applicant_id)
+                  ) || {
+                    name: a.applicant_name || (a.applicant_requirement?.applicant ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim() : `Applicant #${a.applicant_id}`),
+                    applicantCode: a.applicant_code || a.applicant_requirement?.applicant?.applicant_code || `APP-${a.applicant_id}`,
+                    role: '',
+                    status: 'In Pipeline'
+                  };
 
-                <button 
-                  onClick={() => handleDismiss(a.alert_id)}
-                  className="px-3.5 py-2 bg-white border border-slate-300 text-slate-700 hover:text-red-700 hover:border-red-200 hover:bg-red-50 text-xs font-bold rounded-lg shadow-sm transition-all"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  const docName = a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || 'Document';
+                  const ruleCat = a.rule_category || a.applicant_requirement?.requirement?.rule_category || 'REGULATORY';
+                  const expDate = a.expiration_date || a.applicant_requirement?.expiration_date;
+                  const daysRem = typeof a.days_remaining === 'number' ? a.days_remaining : undefined;
+
+                  return (
+                    <tr key={a.alert_id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 px-4 font-medium">
+                        <button
+                          onClick={() => onNavigate?.('ocr', String(a.applicant_id))}
+                          className="font-bold text-slate-900 hover:text-[#0EA5E9] block text-left"
+                        >
+                          {app.name}
+                        </button>
+                        <span className="font-mono text-[11px] text-slate-500">
+                          {app.applicantCode}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-slate-900 block">{docName}</span>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase">
+                          {String(ruleCat).replace(/_/g, ' ')}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="font-semibold text-slate-800 block">
+                          {formatDisplayDate(expDate)}
+                        </span>
+                        {daysRem !== undefined && (
+                          <span className={`text-[11px] font-bold ${daysRem < 0 ? 'text-rose-600' : daysRem <= 30 ? 'text-amber-600' : 'text-sky-600'}`}>
+                            {daysRem < 0 ? `${Math.abs(daysRem)}d overdue` : daysRem === 0 ? 'Expires today' : `${daysRem}d remaining`}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {renderStatusBadge(alertLevel)}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          {onNavigate && (
+                            <button
+                              onClick={() => onNavigate('ocr', String(a.applicant_id))}
+                              className="px-3 py-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold text-xs rounded-lg shadow-xs transition-all flex items-center gap-1 active:scale-95"
+                              title="Open Document Validation workspace"
+                            >
+                              <FileCheck2 className="w-3.5 h-3.5" />
+                              Validate
+                            </button>
+                          )}
+                          <button
+                            onClick={() =>
+                              handleNotifyApplicant(
+                                alertKey,
+                                a.applicant_id,
+                                app.name || `Applicant #${a.applicant_id}`,
+                                docName,
+                                daysRem
+                              )
+                            }
+                            disabled={isNotified || Boolean(sendingAlertIds[alertKey])}
+                            className={`px-2.5 py-1.5 border text-xs font-semibold rounded-lg transition-all ${
+                              isNotified 
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                            title="Send notice to candidate"
+                          >
+                            <Bell className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDismiss(a.alert_id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Dismiss alert"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

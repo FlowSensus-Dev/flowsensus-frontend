@@ -28,6 +28,7 @@ interface AccountingDashboardProps {
   onViewApplicant?: (id: string) => void;
   onSelectApplicant?: (id: string) => void;
   isLoading?: boolean;
+  hideHeader?: boolean;
 }
 
 const STAGE_NAMES: Record<number, string> = {
@@ -46,6 +47,7 @@ export default function AccountingDashboard({
   onViewApplicant,
   onSelectApplicant,
   isLoading,
+  hideHeader = false,
 }: AccountingDashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('All');
@@ -150,34 +152,60 @@ export default function AccountingDashboard({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Clean Flowsensus-Aligned Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-200">
-        <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Finance & Candidate Ledgers</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Track candidate processing costs, clinic medical fees, passport clearances, and fee disbursements.
-          </p>
-        </div>
+      {/* Unified Flowsensus Dashboard Header */}
+      {!hideHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-slate-200/80">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#0F172A] tracking-tight">
+              Finance & Candidate Ledgers
+            </h1>
+            <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+              Candidate expense accounts, processing fees, and financial disbursements.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('expense')}
+              className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Record Expense</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('accounting-settings')}
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Settings className="w-4 h-4 text-slate-500" />
+              <span>Fee Settings</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Embedded Action Toolbar when rendered in Multi-Role Dashboard */}
+      {hideHeader && (
+        <div className="flex items-center justify-end gap-2.5 pb-1">
           <button
             type="button"
             onClick={() => onNavigate && onNavigate('expense')}
-            className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-3.5 py-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             <span>Record Expense</span>
           </button>
           <button
             type="button"
             onClick={() => onNavigate && onNavigate('accounting-settings')}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
           >
-            <Settings className="w-4 h-4 text-slate-500" />
+            <Settings className="w-3.5 h-3.5 text-slate-500" />
             <span>Fee Settings</span>
           </button>
         </div>
-      </div>
+      )}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

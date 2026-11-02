@@ -732,35 +732,46 @@ export function buildStaffNotifications(params: {
   // 3. Candidates Needing Follow-Up & Pending CV Approvals (Management & Recruitment)
   if (hasRole('Management') || hasRole('Recruitment')) {
     const now = Date.now();
-    const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+    const oneDayMs = 24 * 60 * 60 * 1000;
 
     applicants
       .filter((a) => {
-        if (a.isStopped || a.status === 'Deployed' || a.phase >= 5) return false;
-        const lastUpdate = new Date(a.lastUpdated || 0).getTime();
-        return !isNaN(lastUpdate) && now - lastUpdate > fiveDaysMs;
+        if (a.isStopped || a.status === 'Deployed' || a.phase >= 6) return false;
+        const lastUpdate = new Date(a.lastUpdated || a.createdAt || 0).getTime();
+        if (isNaN(lastUpdate)) return false;
+        const unassigned = !a.currentHandlerUserId && isUnassignedHandlerName(a.currentHandler);
+        const days = Math.floor((now - lastUpdate) / oneDayMs);
+        const thresholdDays = unassigned ? 5 : 3;
+        return days >= thresholdDays;
       })
       .slice(0, 4)
       .forEach((a) => {
         const id = `delayed-candidate-${a.id}`;
         if (dismissedIds.has(id)) return;
+        const lastUpdate = new Date(a.lastUpdated || a.createdAt || 0).getTime();
+        const unassigned = !a.currentHandlerUserId && isUnassignedHandlerName(a.currentHandler);
+        const thresholdDays = unassigned ? 5 : 3;
         const days = Math.max(
-          5,
-          Math.floor((now - new Date(a.lastUpdated || 0).getTime()) / (24 * 60 * 60 * 1000))
+          thresholdDays,
+          Math.floor((now - lastUpdate) / oneDayMs)
         );
-        const unassigned = isUnassignedHandlerName(a.currentHandler);
+        const responsibleTeam = getResponsibleTeamForPhase(a.phase, a.currentDepartment);
         const handlerLabel = unassigned
-          ? `Unassigned (${getResponsibleTeamForPhase(a.phase, a.currentDepartment).label})`
+          ? `Unassigned (${responsibleTeam.label})`
           : a.currentHandler;
+
+        const delayMessage = unassigned
+          ? `No handler assigned for ${days} days in Stage ${a.phase} (${a.status}). Needs ${responsibleTeam.label} claim.`
+          : `Assigned to ${a.currentHandler} but idle for ${days} days without stage updates.`;
 
         items.push({
           id,
           source: 'pipeline',
           category: 'pipeline',
-          severity: days >= 14 ? 'critical' : 'warning',
+          severity: days >= 7 ? 'critical' : 'warning',
           title: `Follow-Up Needed: ${a.name}`,
-          message: `In Stage ${a.phase} (${a.status}) for ${days} days. Handler: ${handlerLabel}.`,
-          createdAt: a.lastUpdated || new Date().toISOString(),
+          message: delayMessage,
+          createdAt: a.lastUpdated || a.createdAt || new Date().toISOString(),
           timeLabel: `${days}d in stage`,
           isRead: readIds.has(id),
           applicantId: String(a.id),

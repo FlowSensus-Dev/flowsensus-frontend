@@ -389,7 +389,10 @@ export default function AppShell({
     },
   };
 
-  const renderRoleDashboard = (role: 'Management' | 'Recruitment' | 'Admin' | 'Accounting') => {
+  const renderRoleDashboard = (
+    role: 'Management' | 'Recruitment' | 'Admin' | 'Accounting',
+    hideHeader = false
+  ) => {
     const isApplicantsLoading = applicantsLoaded === false;
     switch (role) {
       case 'Management':
@@ -403,6 +406,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             showToast={showToastNotification}
             addActivityLog={addActivityLog}
+            hideHeader={hideHeader}
           />
         );
       case 'Recruitment':
@@ -413,6 +417,11 @@ export default function AppShell({
             onViewApplicant={handleViewApplicant}
             onNavigate={handleNavigate}
             isLoading={isApplicantsLoading}
+            userRoles={userRolesList}
+            workflowPermissions={workflowPermissions}
+            isSuperAdmin={isSuperAdmin}
+            showToast={showToastNotification}
+            hideHeader={hideHeader}
           />
         );
       case 'Admin':
@@ -425,6 +434,7 @@ export default function AppShell({
             currentUserName={currentUserName}
             showToast={showToastNotification}
             addActivityLog={addActivityLog}
+            hideHeader={hideHeader}
           />
         );
       case 'Accounting':
@@ -437,6 +447,7 @@ export default function AppShell({
             onSelectApplicant={setSelectedApplicantId}
             onAddExpense={addExpense}
             isLoading={isApplicantsLoading}
+            hideHeader={hideHeader}
           />
         );
     }
@@ -594,7 +605,7 @@ export default function AppShell({
                           </div>
                         </div>
                         <div className="p-6">
-                          {renderRoleDashboard(role)}
+                          {renderRoleDashboard(role, true)}
                         </div>
                       </div>
                     );
