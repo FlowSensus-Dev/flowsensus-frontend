@@ -83,7 +83,7 @@ const SENSITIVE_AUDIT_KEYS = new Set([
   'applicant_id', 'agency_id', 'system_performance'
 ]);
 
-export function isStaffAction(log: any): boolean {
+function isStaffAction(log: any): boolean {
   if (!log) return false;
   const actorName = String(log.actor_name || log.performed_by || log.performedBy || '').trim().toUpperCase();
   const actorRole = String(log.actor_role || log.department || '').trim().toUpperCase();

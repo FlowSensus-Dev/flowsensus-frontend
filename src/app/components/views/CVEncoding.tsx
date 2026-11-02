@@ -42,7 +42,7 @@ interface CustomField {
 }
 
 // Statuses where the candidate has NOT yet reached CV Encoding (or was returned to an earlier stage)
-export const PRE_CV_STATUSES = [
+const PRE_CV_STATUSES = [
   'Applicant Registration',
   'Initial Screening',
   'Pending Interview',
@@ -57,7 +57,7 @@ export const PRE_CV_STATUSES = [
 
 // Statuses where the candidate's CV was already approved and they have advanced past CV Encoding
 // (Visible in CV Encoding for read-only viewing & A4 preview/export, but locked from editing/resubmitting)
-export const POST_CV_STATUSES = [
+const POST_CV_STATUSES = [
   'CV Approved - Sending to Employer',
   'Endorse to Employer',
   'Under Employer Review',
@@ -72,7 +72,7 @@ export const POST_CV_STATUSES = [
 ];
 
 // Statuses actively in the CV Encoding / CV Review stage (editable unless already approved)
-export const CV_ENCODING_STATUSES = [
+const CV_ENCODING_STATUSES = [
   'CV Encoding',
   'Pending Manager Approval',
   'CV Approval',
