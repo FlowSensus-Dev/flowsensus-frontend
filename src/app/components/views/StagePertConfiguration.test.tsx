@@ -72,33 +72,32 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     await mount();
   });
 
-  it('loads all 15 stored inputs in five named stages, with saved forecasts and configuration status visible', () => {
+  it('loads all 15 stored inputs in five named stages, with saved baselines and configuration status visible', () => {
     expect(h.get).toHaveBeenCalledWith('/forecasting/pert-configuration');
     const table = nodes(render()).find((n) => n.type === 'table');
     expect(table.props.role).toBe('table');
     const stages = nodes(nodes(table).find((n) => n.type === 'tbody')).filter((n) => n.type === 'tr');
     expect(stages).toHaveLength(5);
-    expect(nodes(table).filter((n) => n.props?.scope === 'col').map(text)).toEqual(['Stage', 'PERT baseline', 'Learned SES', 'Obs.', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)']);
+    expect(nodes(table).filter((n) => n.props?.scope === 'col').map(text)).toEqual(['Stage', 'PERT baseline', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)']);
     stages.forEach((stage, index) => {
       expect(text(nodes(stage).find((n) => n.props?.scope === 'row'))).toContain(names[index]);
       expect(nodes(stage).filter((n) => n.type === 'input').map((n) => n.props.value)).toEqual(['2', '5', '14']);
       expect(nodes(stage).filter((n) => n.type === 'input').every((n) => !n.props.disabled)).toBe(true);
       const cells = nodes(stage).filter((n) => n.type === 'td').map((n) => text(n).replace(/\s+/g, ' '));
-      expect(cells).toHaveLength(6);
+      expect(cells).toHaveLength(4);
       expect(cells[0]).toContain('Current PERT Baseline 6 days');
-      expect(cells[1]).toContain('Learned SES Forecast 7.25 days');
-      expect(cells[1]).toContain('Effective forecast: 7.25 days');
-      expect(cells[2]).toBe('Observations 4');
       expect(nodes(stage).filter((n) => n.type === 'details')).toHaveLength(0);
     });
+    expect(text(table)).not.toContain('Learned SES'); expect(text(table)).not.toContain('Observations');
+    expect(text(table)).not.toContain('Effective forecast'); expect(text(table)).not.toContain('7.25 days');
     expect(text(PertManagerGuide())).toContain('Expected PERT = (O + 4M + P) / 6');
-    expect(text(render())).toContain('Current PERT Baseline'); expect(text(render())).toContain('Learned SES Forecast');
+    expect(text(render())).toContain('Current PERT Baseline');
     expect(text(render()).replace(/\s+/g, ' ')).toContain('Configuration status: Complete');
     expect(text(render()).replace(/\s+/g, ' ')).toContain('Configuration revision: 3');
     expect(nodes(render()).filter((n) => n.type === 'output')).toHaveLength(5);
     expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
   });
-  it('allows all 15 row inputs to be edited and submitted without changing the displayed saved forecasts', async () => {
+  it('allows all 15 row inputs to be edited and submitted without changing the displayed saved baselines', async () => {
     const fields = ['optimistic_days', 'most_likely_days', 'pessimistic_days'];
     for (let order = 1; order <= 5; order++) {
       fields.forEach((fieldName, index) => {
@@ -108,7 +107,6 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
       });
     }
     expect(text(render()).replace(/\s+/g, ' ')).toContain('Current PERT Baseline 6 days');
-    expect(text(render()).replace(/\s+/g, ' ')).toContain('Learned SES Forecast 7.25 days');
     expect(h.put).not.toHaveBeenCalled();
     await submit();
     expect(h.put.mock.calls[0][1].stages).toEqual([1, 2, 3, 4, 5].map((stage_order) => ({
@@ -126,10 +124,20 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     change('6'); await submit();
     const error = nodes(render()).find((n) => n.props?.id === 'pert-stage-1-error');
     expect(error.props.role).toBe('alert'); expect(text(error)).toContain(names[0]);
+    expect(nodes(render()).find((n) => n.type === 'td' && nodes(n).some((child) => child.props?.id === error.props.id)).props.colSpan).toBe(5);
     for (const name of ['optimistic_days', 'most_likely_days', 'pessimistic_days']) {
       expect(field(1, name).props['aria-invalid']).toBe(true);
       expect(field(1, name).props['aria-describedby']).toContain('pert-stage-1-error');
     }
+  });
+  it('discards unsaved edits by reloading saved values without writing a configuration', async () => {
+    change('1'); change('9', 5, 'pessimistic_days');
+    expect(field().props.value).toBe('1'); expect(field(5, 'pessimistic_days').props.value).toBe('9');
+    await button('Discard unsaved changes').props.onClick(); await flush();
+    expect(field().props.value).toBe('2'); expect(field(5, 'pessimistic_days').props.value).toBe('14');
+    expect(text(render()).replace(/\s+/g, ' ')).toContain('Configuration revision: 3');
+    expect(h.get).toHaveBeenCalledTimes(2); expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(pertAttemptKey(7))).toBeNull();
   });
   it('uses existing AppShell multi-role Management handling without changing page authorization', async () => {
     const shell = readFileSync(new URL('../AppShell.tsx', import.meta.url), 'utf8');
@@ -156,7 +164,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
       optimistic_days: null, most_likely_days: null, pessimistic_days: null,
     })) }));
     expect(text(render())).toContain('Original PERT inputs are unavailable');
-    expect(text(render())).toContain('6 days'); expect(text(render())).toContain('7.25 days');
+    expect(text(render())).toContain('6 days');
     expect(field().props.value).toBe(''); expect(text(render())).toContain('voluntarily');
     await submit(); expect(h.post).not.toHaveBeenCalled();
     for (let stage = 1; stage <= 5; stage++) {
@@ -211,7 +219,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(button('Save PERT Configuration').props.disabled).toBe(true);
     await submit(); expect(h.put).toHaveBeenCalledOnce(); expect(h.get).toHaveBeenCalledOnce();
     h.get.mockResolvedValueOnce({ data: base({ revision: 8 }) });
-    await button('Reload configuration (discard draft)').props.onClick(); await flush();
+    await button('Discard unsaved changes').props.onClick(); await flush();
     await submit(); expect(h.put.mock.calls[1][1].expected_revision).toBe(8);
   });
   it.each([undefined, 500, 503, 408])('retries uncertain saves with the identical method, payload and UUID (%s)', async (status) => {
@@ -260,7 +268,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(feedback.props['aria-live']).toBe('polite');
     expect(text(feedback)).toContain('Saving PERT configuration… Please wait for confirmation.');
     expect(field().props.disabled).toBe(true); expect(text(render())).not.toContain('configuration saved');
-    expect(button('Reload configuration (discard draft)').props.disabled).toBe(true);
+    expect(button('Discard unsaved changes').props.disabled).toBe(true);
     change('1'); expect(field().props.value).toBe('2');
     await handler({ preventDefault() {} }); await submit(); expect(write).toHaveBeenCalledOnce();
     finish(respond('', write.mock.calls[0][1], setup_status === 'complete' ? 'put' : 'post')); await pending;
@@ -290,7 +298,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     await submit(); expect(text(render())).toContain('save was confirmed'); expect(text(render())).toContain('Forecast refresh failed');
     const result = nodes(render()).find((n) => n.props?.role === 'status' && text(n).includes('PERT configuration saved'));
     expect(result.props.className).toContain('bg-amber-50');
-    expect(field().props.disabled).toBe(true); expect(button('Reload configuration (discard draft)').props.disabled).toBe(false);
+    expect(field().props.disabled).toBe(true); expect(button('Discard unsaved changes').props.disabled).toBe(false);
     expect(button('Retry same save')).toBeUndefined();
   });
   it('marks a forecast-only refresh failure as a warning while keeping the confirmed configuration editable', async () => {
@@ -327,7 +335,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(text(render())).toContain('Loading PERT configuration'); expect(field()).toBeUndefined();
     for (const data of [null, {}, base({ stages: [] })]) {
       await mount(data); expect(text(render())).toContain('unavailable or incomplete'); expect(field()).toBeUndefined();
-      expect(button('Reload configuration (discard draft)').props.disabled).toBe(false);
+      expect(button('Reload configuration').props.disabled).toBe(false);
     }
     h.slots = []; h.get.mockRejectedValueOnce({ response: { status: 503 } }); render(); h.effect(); await flush();
     expect(text(render())).toContain('backend is unavailable');
@@ -410,7 +418,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     await saveOnboarding(); expect(h.put.mock.calls[1][1]).toEqual(original); expect(onSaved).toHaveBeenCalledOnce();
     expect(text(render(true, true))).toContain('Setup status refreshed');
   });
-  it('keeps detailed stage and input explanations in the collapsed guide, with all inputs linked to shared help', () => {
+  it('keeps detailed guidance collapsed and links all inputs to the shared brief O/M/P explanations', () => {
     const tree = render(); const guide = PertManagerGuide();
     expect(guide.props.open).toBeUndefined();
     for (const description of ['applicant registration, screening', 'medical checks', 'preparing the applicant’s CV', 'employer’s review', 'final paperwork']) {
@@ -419,9 +427,9 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     for (let order = 1; order <= 5; order++) {
       for (const name of ['optimistic_days', 'most_likely_days', 'pessimistic_days']) {
         const input = field(order, name);
-        const helpId = `pert-${name}-help`;
+        const helpId = `pert-${name}-summary`;
         expect(input.props['aria-describedby']).toContain(helpId);
-        expect(nodes(guide).filter((n) => n.props?.id === helpId)).toHaveLength(1);
+        expect(nodes(tree).filter((n) => n.props?.id === helpId)).toHaveLength(1);
         const label = nodes(tree).find((n) => n.type === 'label' && n.props.htmlFor === input.props.id);
         expect(text(label)).toContain(' (days)');
         expect(text(label)).toContain(names[order - 1]);
@@ -431,6 +439,12 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(text(guide)).toContain('The usual time your team normally needs');
     expect(text(guide)).toContain('A longer realistic time');
     expect(text(tree)).not.toContain('The shortest realistic time');
+    const explanations = nodes(tree).filter((n) => n.props?.id?.endsWith('-summary'));
+    expect(explanations).toHaveLength(3);
+    expect(text(explanations[0])).toContain('Shortest realistic time when work goes smoothly.');
+    expect(text(explanations[1])).toContain('Usual time the stage normally takes.');
+    expect(text(explanations[2])).toContain('Longer realistic time when delays occur.');
+    expect(nodes(nodes(tree).find((n) => n.type === 'table')).some((n) => explanations.includes(n))).toBe(false);
     expect(nodes(tree).filter((n) => n.props?.id === 'pert-preview-help')).toHaveLength(1);
     expect(nodes(tree).filter((n) => n.type === 'output').every((n) => n.props['aria-describedby'] === 'pert-preview-help')).toBe(true);
   });
@@ -439,13 +453,25 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     const preview = () => nodes(render()).find((n) => n.type === 'output');
     expect(content()).toContain('Valid stage estimates: 5 of 5');
     change('3'); expect(text(preview())).toBe('6.1667 days');
-    expect(content()).toContain('Current PERT Baseline 6 days'); expect(content()).toContain('Learned SES Forecast 7.25 days');
+    expect(content()).toContain('Current PERT Baseline 6 days');
     expect(content()).toContain('Previews are unsaved');
     expect(h.put).not.toHaveBeenCalled(); expect(h.post).not.toHaveBeenCalled();
     change('6'); expect(content()).toContain('Valid stage estimates: 4 of 5');
-    expect(text(preview())).toContain('Enter valid O/M/P inputs');
+    expect(text(preview())).toContain('Use O ≤ M ≤ P.');
     await submit(); expect(content()).toContain('Most Likely cannot be less than Optimistic');
     expect(field().props.value).toBe('6'); expect(h.put).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['1', '2', '5', '2.3333 days'], ['2', '2', '5', '2.5 days'], ['2', '5', '5', '4.5 days'], ['0', '0', '0', '0 days'],
+    ['3', '2', '5', 'Use O ≤ M ≤ P.'], ['1', '5', '2', 'Use O ≤ M ≤ P.'], ['', '2', '5', 'Enter all three estimates.'],
+    ['1', '', '5', 'Enter all three estimates.'], ['1', '2', '', 'Enter all three estimates.'],
+    ['-1', '2', '5', 'Use 0–3650 days, up to 4 decimals.'], ['1.00001', '2', '5', 'Use 0–3650 days, up to 4 decimals.'],
+    ['1', '2', '3650.0001', 'Use 0–3650 days, up to 4 decimals.'], ['1e0', '2', '5', 'Use 0–3650 days, up to 4 decimals.'],
+  ])('previews O=%s, M=%s, P=%s with existing rounding or specific guidance', (optimistic, likely, pessimistic, expected) => {
+    change(optimistic); change(likely, 1, 'most_likely_days'); change(pessimistic, 1, 'pessimistic_days');
+    expect(text(nodes(render()).find((n) => n.type === 'output'))).toBe(expected);
+    expect(text(render()).replace(/\s+/g, ' ')).toContain('Current PERT Baseline 6 days');
+    expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
   });
   it('keeps unknown historical inputs empty while showing that all five stages still need estimates', async () => {
     await mount(base({ setup_status: 'unconfirmed', revision: 0, stages: base().stages.map((stage) => ({ ...stage,
@@ -523,14 +549,14 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     if ([503, 404, 405].includes(status as number)) expect(text(render())).toContain('may not be deployed');
     if (status === 403) expect(text(render())).toContain('required password change first');
     if (status === 409) expect(text(render())).toContain('Agency setup changed');
-    await button('Reload configuration (discard draft)').props.onClick(); await flush();
+    await button('Discard unsaved changes').props.onClick(); await flush();
     expect(button('Configure Later').props.disabled).toBe(false); expect(h.post).toHaveBeenCalledOnce();
   });
   it('does not accept a malformed deferral success or a failed authoritative refresh as permission to navigate', async () => {
     onDeferred = vi.fn().mockResolvedValue(undefined); await mount(pf18Required());
     h.post.mockResolvedValueOnce({ data: { ...deferred(), learning_state_modified: true } });
     button('Configure Later').props.onClick(); await flush(); expect(onDeferred).not.toHaveBeenCalled();
-    await button('Reload configuration (discard draft)').props.onClick(); await flush();
+    await button('Discard unsaved changes').props.onClick(); await flush();
     h.post.mockResolvedValueOnce({ data: deferred() }); onDeferred.mockRejectedValueOnce(new Error('GET unavailable'));
     button('Configure Later').props.onClick(); await flush();
     expect(text(render())).toContain('confirmed deferral, but current setup status could not be verified');

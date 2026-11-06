@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { api } from '../../../lib/api';
 import {
   PertAttempt, PertConfiguration, PertDraft, PertField, confirmedPertSave, createPertAttempt,
-  canDeferPert, confirmedPertDeferral, isPertDeferred, expectedPertDays, pertAttemptKey, pertDrafts, pertError, pertDeferralError, pertFields, pertStageError, readPertAttempt, readPertConfiguration,
+  canDeferPert, confirmedPertDeferral, isPertDeferred, expectedPertDays, pertAttemptKey, pertDrafts, pertError, pertDeferralError, pertFields, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration,
 } from '../../../lib/pertConfiguration';
 
 const inputClass = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60';
@@ -13,6 +13,11 @@ const fieldHelp: Record<PertField, string> = {
   optimistic_days: 'The shortest realistic time when work goes smoothly.',
   most_likely_days: 'The usual time your team normally needs.',
   pessimistic_days: 'A longer realistic time when difficulties or delays occur.',
+};
+const fieldSummary: Record<PertField, string> = {
+  optimistic_days: 'Shortest realistic time when work goes smoothly.',
+  most_likely_days: 'Usual time the stage normally takes.',
+  pessimistic_days: 'Longer realistic time when delays occur.',
 };
 // Explanations follow the existing five-stage catalog; they do not define workflow transitions.
 const stageHelp: Record<number, string> = {
@@ -205,7 +210,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
       {saving && <RefreshCw size={14} className="shrink-0 animate-spin" aria-hidden="true" />}{success}
     </p>}
   </div>;
-  const reloadButton = <button type="button" disabled={loading || saving || deferring} onClick={() => void reload()} className="font-semibold text-sky-700 underline disabled:opacity-50">{uncertain ? 'Reload configuration (keep pending save)' : 'Reload configuration (discard draft)'}</button>;
+  const reloadButton = <button type="button" disabled={loading || saving || deferring} onClick={() => void reload()} className="font-semibold text-sky-700 underline disabled:opacity-50">{uncertain ? 'Reload configuration (keep pending save)' : config ? 'Discard unsaved changes' : 'Reload configuration'}</button>;
 
   if (!canEdit) return null;
   return <details open={onboarding || undefined} className="border-t border-slate-200 pt-4">
@@ -240,15 +245,20 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
             <p id="pert-preview-help" className="text-slate-500">Previews are unsaved. Current baselines stay in effect until saving is confirmed.</p>
           </div>
           {config.stages.some((stage) => pertFields.some((field) => stage[field] == null)) && <p className="rounded-lg bg-amber-50 p-2 text-amber-800">Original PERT inputs are unavailable for some stages. Enter the missing estimates; values are not inferred from saved baselines.</p>}
+          <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-3">
+            {pertFields.map((field) => <div key={field} id={`pert-${field}-summary`}>
+              <dt className="inline font-semibold text-slate-700">{fieldLabels[field]}: </dt><dd className="inline">{fieldSummary[field]}</dd>
+            </div>)}
+          </dl>
           <table role="table" className="block w-full rounded-xl border border-slate-200 lg:table lg:table-fixed lg:border-collapse">
-            <caption className="sr-only">Five recruitment stages: saved forecasts and editable Optimistic, Most Likely and Pessimistic estimates in days.</caption>
+            <caption className="sr-only">Five recruitment stages: saved PERT baselines and editable Optimistic, Most Likely and Pessimistic estimates in days.</caption>
             <colgroup className="hidden lg:table-column-group">
-              <col className="w-[24%]" /><col className="w-[14%]" /><col className="w-[17%]" /><col className="w-[9%]" />
-              <col className="w-[12%]" /><col className="w-[12%]" /><col className="w-[12%]" />
+              <col className="w-[28%]" /><col className="w-[18%]" />
+              <col className="w-[18%]" /><col className="w-[18%]" /><col className="w-[18%]" />
             </colgroup>
             <thead role="rowgroup" className="hidden bg-slate-50 text-left text-slate-700 lg:table-header-group">
               <tr role="row">
-                {['Stage', 'PERT baseline', 'Learned SES', 'Obs.', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)'].map((label) =>
+                {['Stage', 'PERT baseline', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)'].map((label) =>
                   <th key={label} role="columnheader" scope="col" className="px-3 py-2 font-semibold">{label}</th>)}
               </tr>
             </thead>
@@ -257,33 +267,28 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
                 const draft = drafts.find((item) => item.stage_order === stage.stage_order)!;
                 const validation = showValidation ? pertStageError(draft) : null;
                 const expected = expectedPertDays(draft);
+                const preview = expected !== null ? `${expected} days`
+                  : pertFields.some((field) => !draft[field].trim()) ? 'Enter all three estimates.'
+                  : pertFields.some((field) => !validPertDuration(draft[field])) ? 'Use 0–3650 days, up to 4 decimals.'
+                  : 'Use O ≤ M ≤ P.';
                 return <React.Fragment key={stage.stage_order}>
                   <tr role="row" className="grid grid-cols-3 gap-x-3 gap-y-3 border-t border-slate-200 p-3 lg:table-row lg:p-0">
                     <th role="rowheader" scope="row" className="col-span-3 min-w-0 break-words text-left font-bold text-slate-800 lg:px-3 lg:py-3 lg:align-top">
                       {stage.stage_order}. {stage.stage_name}
                     </th>
-                    <td role="cell" className="min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
+                    <td role="cell" className="col-span-3 min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
                       <span className="block text-slate-500 lg:sr-only">Current PERT Baseline</span>
                       <span className="font-semibold text-slate-800">{duration(stage.pert_baseline_days)}</span>
-                      <span className="mt-1 block text-[11px] text-slate-500">Preview: <output aria-describedby="pert-preview-help" className="font-mono text-sky-700">{expected === null ? 'Enter valid O/M/P inputs' : `${expected} days`}</output></span>
-                    </td>
-                    <td role="cell" className="min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
-                      <span className="block text-slate-500 lg:sr-only">Learned SES Forecast</span>
-                      <span className="font-semibold text-slate-800">{stage.observation_count == null ? 'Unavailable' : stage.observation_count > 0 ? duration(stage.current_ses_forecast_days) : 'No observations yet'}</span>
-                      <span className="mt-1 block text-[11px] text-slate-500">Effective forecast: {duration(stage.effective_forecast_days)} ({stage.forecast_basis})</span>
-                    </td>
-                    <td role="cell" className="min-w-0 lg:px-3 lg:py-3 lg:align-top">
-                      <span className="block text-slate-500 lg:sr-only">Observations</span>
-                      <span className="font-semibold tabular-nums text-slate-800">{stage.observation_count ?? 'Unavailable'}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">Preview: <output aria-describedby="pert-preview-help" className="font-mono text-sky-700">{preview}</output></span>
                     </td>
                     {pertFields.map((field) => <td role="cell" key={field} className="col-span-3 min-w-0 sm:col-span-1 lg:px-3 lg:py-3 lg:align-top">
                       <label htmlFor={`pert-${stage.stage_order}-${field}`} className="block lg:sr-only"><span className="sr-only">{stage.stage_name}: </span>{fieldLabels[field]} (days)</label>
                       <input id={`pert-${stage.stage_order}-${field}`} type="text" inputMode="decimal" required value={draft[field]} disabled={disabled}
-                        aria-invalid={!!validation} aria-describedby={`pert-${field}-help pert-duration-help${validation ? ` pert-stage-${stage.stage_order}-error` : ''}`}
+                        aria-invalid={!!validation} aria-describedby={`pert-${field}-summary pert-duration-help${validation ? ` pert-stage-${stage.stage_order}-error` : ''}`}
                         onChange={(event) => change(stage.stage_order, field, event.target.value)} className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60" />
                     </td>)}
                   </tr>
-                  {validation && <tr role="row" className="block bg-rose-50 lg:table-row"><td role="cell" colSpan={7} className="block px-3 py-2 lg:table-cell">
+                  {validation && <tr role="row" className="block bg-rose-50 lg:table-row"><td role="cell" colSpan={5} className="block px-3 py-2 lg:table-cell">
                     <p id={`pert-stage-${stage.stage_order}-error`} role="alert" className="text-rose-700"><strong>{stage.stage_name}:</strong> {validation}</p>
                   </td></tr>}
                 </React.Fragment>;
