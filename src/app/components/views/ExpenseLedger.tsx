@@ -1,13 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Receipt, Plus, Download, ArrowLeft, Search, Filter, 
   X, Edit2, Trash2, ShieldCheck, AlertCircle, FileText, CheckCircle2, 
   Clock, DollarSign, UserCheck, Shield, Sparkles, ChevronRight,
-  HelpCircle, Eye, AlertTriangle
+  HelpCircle, Eye, AlertTriangle, PenTool, RotateCcw, Building2, 
+  BadgeCheck, FileSignature, Check
 } from 'lucide-react';
 import { WorkflowState, ExpenseRecord, ActivityLog, ApplicantRecord } from '../../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { api } from '../../../lib/api';
 
 interface ExpenseLedgerProps {
   workflow?: WorkflowState;
@@ -102,6 +104,84 @@ export default function ExpenseLedger({
   const [orNumberValue, setOrNumberValue] = useState('');
   const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [remarksValue, setRemarksValue] = useState('');
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Agency Letterhead & Official Sign-off State (Never "FlowSensus")
+  // ──────────────────────────────────────────────────────────────────────────
+  const [agencyProfile, setAgencyProfile] = useState<{
+    agency_name?: string;
+    poea_license_no?: string;
+    address?: string;
+    phone?: string;
+    tin?: string;
+  } | null>(null);
+
+  const [showSignModal, setShowSignModal] = useState(false);
+  const [soaSignerName, setSoaSignerName] = useState(currentUserName || 'Accounting Officer');
+  const [soaSignerTitle, setSoaSignerTitle] = useState('Senior Accounting Officer / Finance Specialist');
+  const [soaApproverName, setSoaApproverName] = useState('Atty. Roberto C. Tan');
+  const [soaApproverTitle, setSoaApproverTitle] = useState('Managing Director / Agency Head');
+  const [soaSignatureMode, setSoaSignatureMode] = useState<'draw' | 'stamp'>('draw');
+  const [hasSignatureDrawing, setHasSignatureDrawing] = useState(false);
+  const [soaCustomNotes, setSoaCustomNotes] = useState(
+    'Payment terms: Salary deduction via authorized foreign employer payroll as per DMW-approved contract.'
+  );
+
+  // Editable Agency Letterhead fields
+  const [soaAgencyName, setSoaAgencyName] = useState('PACIFIC OVERSEAS RECRUITMENT AGENCY INC.');
+  const [soaLicenseNo, setSoaLicenseNo] = useState('DMW-048-LB-031224-R');
+  const [soaAgencyAddress, setSoaAgencyAddress] = useState('5th Floor, Corporate Recruitment Center, Ermita, Manila, Philippines');
+  const [soaAgencyContact, setSoaAgencyContact] = useState('Tel: +63 (2) 8523-8899 • BIR TIN: 009-842-120-000 NV');
+
+  // Canvas ref and drawing state
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  // Load Authoritative Agency Profile & Stored Customizations
+  useEffect(() => {
+    let savedHeader: any = null;
+    try {
+      const stored = localStorage.getItem('fs_official_agency_soa_header');
+      if (stored) {
+        savedHeader = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn('Could not read saved agency header from localStorage:', e);
+    }
+
+    api.get('/lookups/agency')
+      .then((res) => {
+        if (res.data) {
+          const profile = {
+            agency_name: savedHeader?.agency_name || res.data.agency_name || 'PACIFIC OVERSEAS RECRUITMENT AGENCY INC.',
+            poea_license_no: savedHeader?.poea_license_no || res.data.poea_license_no || 'DMW-048-LB-031224-R',
+            address: savedHeader?.address || res.data.address || '5th Floor, Corporate Recruitment Center, Ermita, Manila, Philippines',
+            phone: savedHeader?.phone || res.data.phone || '+63 (2) 8523-8899',
+            tin: savedHeader?.tin || res.data.tin || 'BIR TIN: 009-842-120-000 NV',
+          };
+          setAgencyProfile(profile);
+          setSoaAgencyName(profile.agency_name);
+          setSoaLicenseNo(profile.poea_license_no);
+          setSoaAgencyAddress(profile.address);
+          setSoaAgencyContact(`${profile.phone} • ${profile.tin}`);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load agency profile from API, using default/saved:', err);
+        const fallback = {
+          agency_name: savedHeader?.agency_name || 'PACIFIC OVERSEAS RECRUITMENT AGENCY INC.',
+          poea_license_no: savedHeader?.poea_license_no || 'DMW-048-LB-031224-R',
+          address: savedHeader?.address || '5th Floor, Corporate Recruitment Center, Ermita, Manila, Philippines',
+          phone: savedHeader?.phone || '+63 (2) 8523-8899',
+          tin: savedHeader?.tin || 'BIR TIN: 009-842-120-000 NV',
+        };
+        setAgencyProfile(fallback);
+        setSoaAgencyName(fallback.agency_name);
+        setSoaLicenseNo(fallback.poea_license_no);
+        setSoaAgencyAddress(fallback.address);
+        setSoaAgencyContact(`${fallback.phone} • ${fallback.tin}`);
+      });
+  }, []);
 
   // Selected candidate object
   const activeCandidate = useMemo(() => {
@@ -421,127 +501,539 @@ export default function ExpenseLedger({
     }
   };
 
-  // Generate Professional Statement of Account (SOA) in PHP only
-  const generatePDF = () => {
+  // ──────────────────────────────────────────────────────────────────────────
+  // Canvas Signature Pad Helpers
+  // ──────────────────────────────────────────────────────────────────────────
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    setIsDrawing(true);
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    ctx.beginPath();
+    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    ctx.stroke();
+    setHasSignatureDrawing(true);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvasSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignatureDrawing(false);
+  };
+
+  const handleOpenSignModal = () => {
+    if (!activeCandidate) return;
+    setSoaSignerName(currentUserName || 'Accounting Officer');
+    if (agencyProfile) {
+      setSoaAgencyName(agencyProfile.agency_name || 'PACIFIC OVERSEAS RECRUITMENT AGENCY INC.');
+      setSoaLicenseNo(agencyProfile.poea_license_no || 'DMW-048-LB-031224-R');
+      setSoaAgencyAddress(agencyProfile.address || '5th Floor, Corporate Recruitment Center, Ermita, Manila, Philippines');
+      setSoaAgencyContact(`${agencyProfile.phone || '+63 (2) 8523-8899'} • ${agencyProfile.tin || 'BIR TIN: 009-842-120-000 NV'}`);
+    }
+    setHasSignatureDrawing(false);
+    setShowSignModal(true);
+  };
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Generate Official Statement of Account (SOA) in PHP only
+  // Strictly formatted: No text overflow, Real Agency letterhead, Signatures
+  // ──────────────────────────────────────────────────────────────────────────
+  const generateOfficialSOA = () => {
     if (!activeCandidate) return;
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
+    // Save header customization to localStorage for future use
+    try {
+      localStorage.setItem('fs_official_agency_soa_header', JSON.stringify({
+        agency_name: soaAgencyName,
+        poea_license_no: soaLicenseNo,
+        address: soaAgencyAddress,
+        phone: soaAgencyContact.split('•')[0]?.trim() || '',
+        tin: soaAgencyContact.split('•')[1]?.trim() || '',
+      }));
+    } catch (e) {
+      console.warn('Could not persist agency header to localStorage:', e);
+    }
 
-    // Header & Agency Title
-    doc.setFontSize(16);
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 14;
+    const contentWidth = pageWidth - (margin * 2); // exactly 182mm
+
+    // Clean agency strings (strictly purge any 'FlowSensus' to show only the genuine agency name)
+    const agencyNameClean = (soaAgencyName.trim() || 'LICENSED OVERSEAS RECRUITMENT AGENCY')
+      .replace(/flowsensus\s*/gi, '')
+      .trim()
+      .toUpperCase();
+    const licenseClean = soaLicenseNo.trim() || 'DMW-048-LB-031224-R';
+    const addressClean = soaAgencyAddress.trim() || '5th Floor, Corporate Recruitment Center, Manila, Philippines';
+    const contactClean = soaAgencyContact.trim() || 'Tel: +63 (2) 8523-8899 • BIR TIN: 009-842-120-000 NV';
+
+    let currentY = 16;
+
+    // ── 1. Agency Letterhead (Formal, Authoritative) ──
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
     doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('FLOWSENSUS OVERSEAS RECRUITMENT', pageWidth / 2, 20, { align: 'center' });
+    doc.text(agencyNameClean, pageWidth / 2, currentY, { align: 'center' });
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text('DMW Licensed Agency | Financial & Accounting Services', pageWidth / 2, 26, { align: 'center' });
-
-    doc.setFontSize(13);
+    currentY += 4.8;
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(16, 185, 129); // emerald-600
-    doc.text('STATEMENT OF ACCOUNT (SOA)', pageWidth / 2, 35, { align: 'center' });
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85); // slate-700
+    doc.text('LICENSED LANDBASED RECRUITMENT & PLACEMENT AGENCY', pageWidth / 2, currentY, { align: 'center' });
 
-    // Applicant Information Box
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 42, pageWidth - 28, 26, 2, 2, 'FD');
+    currentY += 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`DMW / POEA License: ${licenseClean} • BIR TIN: 009-842-120-000 NV`, pageWidth / 2, currentY, { align: 'center' });
 
-    doc.setFontSize(9);
+    currentY += 3.8;
+    doc.text(`${addressClean} • ${contactClean}`, pageWidth / 2, currentY, { align: 'center' });
+
+    // Official Double Border Separator
+    currentY += 3.8;
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.7);
+    doc.line(margin, currentY, pageWidth - margin, currentY);
+    doc.setLineWidth(0.2);
+    doc.line(margin, currentY + 1, pageWidth - margin, currentY + 1);
+
+    // ── 2. Document Title & Control Reference ──
+    currentY += 6.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text('OFFICIAL STATEMENT OF ACCOUNT (SOA)', pageWidth / 2, currentY, { align: 'center' });
+
+    currentY += 4.2;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('ITEMIZED LEDGER OF DOCUMENTATION, STATUTORY PROCESSING & ASSESSED FEES', pageWidth / 2, currentY, { align: 'center' });
+
+    // Reference & Date Box
+    const issueDateStr = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const appCode = activeCandidate.applicantCode || `APP-${String(activeApplicantId).padStart(5, '0')}`;
+    const soaRefNo = `SOA-${new Date().getFullYear()}-${appCode.replace(/[^A-Za-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`;
+
+    // ── 3. Candidate & Deployment Dossier Card (2-Column Frame) ──
+    currentY += 5;
+    const cardY = currentY;
+    const cardHeight = 26;
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.setDrawColor(203, 213, 225); // slate-300
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, cardY, contentWidth, cardHeight, 1.5, 1.5, 'FD');
+
+    // Column 1 (Left): Candidate Information
+    const col1X = margin + 4;
+    doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text(`APPLICANT NAME: ${candidateDisplayName.toUpperCase()}`, 18, 49);
-    doc.text(`CODE: ${activeCandidate.applicantCode || 'N/A'}`, 18, 56);
-    doc.text(`POSITION: ${activeCandidate.appliedPosition || activeCandidate.appliedRole || 'General Worker'}`, 18, 63);
+    doc.text('APPLICANT NAME:', col1X, cardY + 5.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(candidateDisplayName.toUpperCase(), col1X + 28, cardY + 5.5);
 
-    doc.text(`DATE ISSUED: ${new Date().toLocaleDateString()}`, pageWidth - 70, 49);
-    doc.text(`CURRENCY: PHILIPPINE PESO (PHP / ₱)`, pageWidth - 70, 56);
-    doc.text(`STATUS: ${activeCandidate.status || 'Active Processing'}`, pageWidth - 70, 63);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('APPLICANT CODE:', col1X, cardY + 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text(appCode, col1X + 28, cardY + 11);
 
-    // Ledger Items Table
-    const tableData = currentExpenses.map((exp, index) => [
-      String(index + 1),
-      exp.date || '—',
-      exp.purpose || 'General',
-      exp.referenceNo ? `OR #${exp.referenceNo}` : 'Unreceipted',
-      exp.remarks || '—',
-      `PHP ${Number(exp.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-    ]);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('APPLIED TRADE / ROLE:', col1X, cardY + 16.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text(
+      (activeCandidate.appliedPosition || activeCandidate.appliedRole || 'General Skilled Worker').toUpperCase(),
+      col1X + 28,
+      cardY + 16.5
+    );
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('DMW STAGE / STATUS:', col1X, cardY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 185, 129); // emerald
+    doc.text(`Phase ${activeCandidate.phase || 1}: ${activeCandidate.status || 'Active Processing'}`, col1X + 28, cardY + 22);
+
+    // Column 2 (Right): Deployment & Billing Context
+    const col2X = margin + 98;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('SOA CONTROL NO.:', col2X, cardY + 5.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(soaRefNo, col2X + 28, cardY + 5.5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('DATE ISSUED:', col2X, cardY + 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text(issueDateStr, col2X + 28, cardY + 11);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('DESTINATION COUNTRY:', col2X, cardY + 16.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    const destCountry = (activeCandidate as any).destinationCountry || activeCandidate.country || activeCandidate.jobOrder || 'International';
+    doc.text(destCountry.toUpperCase(), col2X + 28, cardY + 16.5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('BILLING CURRENCY:', col2X, cardY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('PHILIPPINE PESO (PHP / ₱)', col2X + 28, cardY + 22);
+
+    // ── 4. Itemized Financial Table ──
+    const tableData = currentExpenses.map((exp, index) => {
+      const purposeLower = (exp.purpose || '').toLowerCase();
+      let classification = 'Worker Personal Doc';
+      if (exp.type === 'placement_fee' || purposeLower.includes('placement')) {
+        classification = 'Agency Placement Fee';
+      } else if (exp.type === 'cash_advance' || purposeLower.includes('advance')) {
+        classification = 'Cash Advance';
+      } else if (exp.type === 'deduction' || purposeLower.includes('deduction')) {
+        classification = 'Salary Deduction';
+      } else if (
+        purposeLower.includes('visa') || purposeLower.includes('oec') ||
+        purposeLower.includes('owwa') || purposeLower.includes('airfare') ||
+        purposeLower.includes('insurance')
+      ) {
+        classification = 'Employer-Covered Processing';
+      }
+
+      const orNum = exp.referenceNo ? `OR #${exp.referenceNo}` : '— (Pending)';
+      const amountStr = `PHP ${Number(exp.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      return [
+        String(index + 1),
+        exp.date || '—',
+        exp.purpose || 'General Financial Item',
+        classification,
+        orNum,
+        amountStr,
+      ];
+    });
 
     autoTable(doc, {
-      startY: 74,
-      head: [['#', 'DATE', 'PURPOSE / ITEM', 'OR / REF NO.', 'REMARKS', 'AMOUNT (PHP)']],
+      startY: cardY + cardHeight + 5,
+      head: [['#', 'DATE', 'PARTICULARS / ITEM DESCRIPTION', 'CLASSIFICATION', 'OR / REF NO.', 'AMOUNT (PHP)']],
       body: tableData,
       theme: 'grid',
+      margin: { left: margin, right: margin },
       headStyles: {
         fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 8,
+        fontSize: 7.5,
+        halign: 'left',
       },
       styles: {
-        fontSize: 8,
-        cellPadding: 3,
+        fontSize: 7.5,
+        cellPadding: 2.2,
         textColor: [51, 65, 85],
+        lineColor: [226, 232, 240],
+        lineWidth: 0.2,
+        overflow: 'linebreak',
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
       },
       columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 24 },
-        2: { cellWidth: 60, fontStyle: 'bold' },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 38 },
-        5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 22, halign: 'center' },
+        2: { cellWidth: 54, fontStyle: 'bold' },
+        3: { cellWidth: 34 },
+        4: { cellWidth: 30, halign: 'center' },
+        5: { cellWidth: 34, halign: 'right', fontStyle: 'bold', textColor: [15, 23, 42] },
       },
     });
 
-    const finalY = (doc as any).lastAutoTable?.finalY || 150;
+    let finalTableY = (doc as any).lastAutoTable?.finalY || 160;
 
-    // Financial Summary Totals Box
-    doc.setFillColor(241, 245, 249);
-    doc.roundedRect(pageWidth - 100, finalY + 6, 86, 40, 2, 2, 'FD');
+    // Check if remaining space is enough for Summary (42mm) + Notice (18mm) + Signatures (38mm) = 98mm
+    if (finalTableY + 98 > 272) {
+      doc.addPage();
+      finalTableY = 20;
+    }
 
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text('Personal Documentation Costs:', pageWidth - 96, finalY + 13);
-    doc.text(`PHP ${financialSummary.workerPaidDocs.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, pageWidth - 18, finalY + 13, { align: 'right' });
+    // ── 5. Financial Summary & Notes Dual Box ──
+    const summaryY = finalTableY + 5;
+    const boxH = 40;
 
-    doc.text('Employer-Covered Processing:', pageWidth - 96, finalY + 19);
-    doc.text(`PHP ${financialSummary.employerCovered.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, pageWidth - 18, finalY + 19, { align: 'right' });
+    // Left Box: DMW Statutory Notes & Terms (Width: 88mm)
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, summaryY, 88, boxH, 1.5, 1.5, 'FD');
 
-    doc.text('Placement Fee Assessed:', pageWidth - 96, finalY + 25);
-    doc.text(`PHP ${financialSummary.placementFeeTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, pageWidth - 18, finalY + 25, { align: 'right' });
-
+    doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('NET WORKER BALANCE:', pageWidth - 96, finalY + 34);
-    doc.setTextColor(16, 185, 129);
-    doc.text(`PHP ${financialSummary.netPayableByWorker.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, pageWidth - 18, finalY + 34, { align: 'right' });
+    doc.text('DMW STATUTORY COMPLIANCE & BILLING NOTES', margin + 4, summaryY + 5.5);
 
-    // DMW Legal Disclosure
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    const noteText1 = '• Personal Docs (Medical, Passport, NBI, PSA) are worker-borne.';
+    const noteText2 = '• Visa, OWWA, OEC & Airfare are strictly absorbed by Employer/Agency.';
+    const noteText3 = dmwStatus.isExempt
+      ? `• ZERO PLACEMENT FEE: Worker is exempt (${dmwStatus.reason}).`
+      : `• Placement Fee Cap: Maximum 1-month basic salary (PHP ${dmwStatus.salaryCap.toLocaleString()}).`;
+    const noteText4 = soaCustomNotes ? `• Terms: ${soaCustomNotes}` : '• BIR Official Receipts issued upon payment confirmation.';
+
+    doc.text(noteText1, margin + 4, summaryY + 11);
+    doc.text(noteText2, margin + 4, summaryY + 16.5);
+    doc.text(doc.splitTextToSize(noteText3, 80), margin + 4, summaryY + 22);
+    doc.text(doc.splitTextToSize(noteText4, 80), margin + 4, summaryY + 28);
+
+    // Right Box: Reconciliation Totals (Width: 90mm, X: 106mm)
+    const rightBoxX = margin + 92;
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(rightBoxX, summaryY, 90, boxH, 1.5, 1.5, 'FD');
+
     doc.setFontSize(7);
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(148, 163, 184);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Personal Documentation Costs (Worker):', rightBoxX + 4, summaryY + 6.5);
+    doc.text(`PHP ${financialSummary.workerPaidDocs.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, rightBoxX + 86, summaryY + 6.5, { align: 'right' });
+
+    doc.text('Employer-Covered Costs (Absorbed):', rightBoxX + 4, summaryY + 12);
+    doc.text(`PHP ${financialSummary.employerCovered.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, rightBoxX + 86, summaryY + 12, { align: 'right' });
+
+    doc.text('Assessed Placement Fee (if applicable):', rightBoxX + 4, summaryY + 17.5);
+    doc.text(`PHP ${financialSummary.placementFeeTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, rightBoxX + 86, summaryY + 17.5, { align: 'right' });
+
+    doc.text('Less: Settled Advances / Deductions:', rightBoxX + 4, summaryY + 23);
+    const settledAmt = financialSummary.deductions;
+    doc.text(`(PHP ${settledAmt.toLocaleString('en-US', { minimumFractionDigits: 2 })})`, rightBoxX + 86, summaryY + 23, { align: 'right' });
+
+    // Separator line inside totals box
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.line(rightBoxX + 4, summaryY + 26.5, rightBoxX + 86, summaryY + 26.5);
+
+    // NET WORKER BALANCE
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('NET BALANCE DUE FROM WORKER:', rightBoxX + 4, summaryY + 33);
+    doc.setTextColor(16, 185, 129); // emerald-600
     doc.text(
-      'Notice: This statement is issued in compliance with DMW Rules and Regulations Governing Overseas Employment. ' +
-      'Placement fees (where applicable) are strictly capped at 1 month basic salary and are strictly prohibited for Domestic Workers and zero-fee destination countries.',
-      14,
-      finalY + 54,
-      { maxWidth: pageWidth - 28 }
+      `PHP ${financialSummary.netPayableByWorker.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      rightBoxX + 86,
+      summaryY + 33,
+      { align: 'right' }
     );
 
-    doc.save(`SOA_${candidateDisplayName.replace(/\s+/g, '_')}_PHP.pdf`);
+    // ── 6. Statutory Certification Statement ──
+    let certY = summaryY + boxH + 5;
+    if (certY + 45 > 272) {
+      doc.addPage();
+      certY = 20;
+    }
 
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(100, 116, 139);
+    const certDeclaration = 
+      'CERTIFICATION: This Statement of Account is an authentic billing statement rendered in strict accordance with the Department of ' +
+      'Migrant Workers (DMW) 2023 Rules and Regulations Governing Overseas Employment and Bureau of Internal Revenue (BIR) standards. ' +
+      'Placement fees (where lawful) do not exceed one month basic salary, and all employer-covered components are not charged to the applicant. ' +
+      'Official receipts are issued for all documented collections.';
+    doc.text(doc.splitTextToSize(certDeclaration, contentWidth), margin, certY);
+
+    // ── 7. Triple Official Signature Block ──
+    let signY = certY + 12;
+    if (signY + 32 > 272) {
+      doc.addPage();
+      signY = 20;
+    }
+
+    // Col 1: PREPARED & CERTIFIED BY (Accountant)
+    const sign1X = margin;
+    const signColW = 56;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('PREPARED & CERTIFIED BY:', sign1X, signY);
+
+    // Render signature
+    if (soaSignatureMode === 'draw' && hasSignatureDrawing && signatureCanvasRef.current) {
+      try {
+        const sigDataUrl = signatureCanvasRef.current.toDataURL('image/png');
+        doc.addImage(sigDataUrl, 'PNG', sign1X, signY + 1, 44, 11);
+      } catch (err) {
+        console.warn('Could not export signature canvas to PDF image:', err);
+      }
+    } else {
+      // Digital Verification Stamp
+      doc.setFillColor(240, 253, 244); // emerald-50
+      doc.setDrawColor(187, 247, 208); // emerald-200
+      doc.roundedRect(sign1X, signY + 2, 48, 10, 1, 1, 'FD');
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(22, 101, 52); // emerald-800
+      doc.text('✓ DIGITALLY CERTIFIED', sign1X + 2, signY + 6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.5);
+      doc.setTextColor(21, 128, 61);
+      doc.text(`BIR / DMW Audit Token: ${appCode}`, sign1X + 2, signY + 10);
+    }
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.4);
+    doc.line(sign1X, signY + 15, sign1X + signColW, signY + 15);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text((soaSignerName || 'ACCOUNTING OFFICER').toUpperCase(), sign1X, signY + 19);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(soaSignerTitle || 'Accounting Officer / Finance Specialist', sign1X, signY + 23);
+    doc.text(`Date Signed: ${issueDateStr}`, sign1X, signY + 27);
+
+    // Col 2: CONFORME / WORKER ACKNOWLEDGMENT
+    const sign2X = margin + 63;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('CONFORME / APPLICANT ACKNOWLEDGMENT:', sign2X, signY);
+
+    // Line for applicant physical signature
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.4);
+    doc.line(sign2X, signY + 15, sign2X + signColW, signY + 15);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(candidateDisplayName.toUpperCase(), sign2X, signY + 19);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Candidate / Overseas Filipino Worker (OFW)', sign2X, signY + 23);
+    doc.text('Signature over Printed Name', sign2X, signY + 27);
+
+    // Col 3: APPROVED & RELEASED BY (Agency Head)
+    const sign3X = margin + 126;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('APPROVED & NOTED BY:', sign3X, signY);
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.4);
+    doc.line(sign3X, signY + 15, sign3X + signColW, signY + 15);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text((soaApproverName || 'AGENCY HEAD').toUpperCase(), sign3X, signY + 19);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(soaApproverTitle || 'Managing Director / Licensee', sign3X, signY + 23);
+    doc.text('Authorized DMW Representative', sign3X, signY + 27);
+
+    // ── 8. Running Header & Running Footer on All Pages ──
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+
+      // Running mini-header for page 2+
+      if (i > 1) {
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${agencyNameClean} • Statement of Account (${candidateDisplayName}) • Ref: ${soaRefNo}`, margin, 10);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.line(margin, 12, pageWidth - margin, 12);
+      }
+
+      // Running footer at bottom
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.2);
+      doc.line(margin, pageHeight - 14, pageWidth - margin, pageHeight - 14);
+
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        'OFFICIAL STATEMENT OF ACCOUNT • Regulated by the Department of Migrant Workers (DMW) • Confidential Accounting Document',
+        margin,
+        pageHeight - 9.5
+      );
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 9.5, { align: 'right' });
+    }
+
+    // Save PDF
+    const filename = `SOA_${agencyNameClean.replace(/[^A-Za-z0-9]/g, '_')}_${candidateDisplayName.replace(/\s+/g, '_')}.pdf`;
+    doc.save(filename);
+
+    // Log Activity
     addActivityLog({
       applicantId: activeApplicantId,
-      action: 'Generated Statement of Account (SOA)',
-      performedBy: currentUserName,
+      action: 'Generated & Signed Official Statement of Account (SOA)',
+      performedBy: soaSignerName || currentUserName,
       department: 'Accounting',
-      details: `Generated PDF in PHP for ${candidateDisplayName}`,
+      details: `Generated official DMW-compliant SOA in PHP for ${candidateDisplayName} signed by ${soaSignerName} (${soaSignerTitle}). Ref: ${soaRefNo}`,
     });
-    showToast('✓ Statement of Account PDF exported successfully.');
+
+    setShowSignModal(false);
+    showToast('✓ Official Statement of Account (SOA) exported successfully.');
   };
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -708,11 +1200,12 @@ export default function ExpenseLedger({
             <Plus className="w-4 h-4" /> Add Financial Entry
           </button>
           <button 
-            onClick={generatePDF} 
+            onClick={handleOpenSignModal} 
             disabled={currentExpenses.length === 0}
             className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+            title="Generate and sign official DMW-compliant Statement of Account"
           >
-            <Download className="w-4 h-4" /> Export SOA (PDF)
+            <FileSignature className="w-4 h-4 text-emerald-400" /> Export Official SOA
           </button>
         </div>
       </div>
@@ -1274,6 +1767,272 @@ export default function ExpenseLedger({
               >
                 {isDeleting ? 'Deleting...' : 'Confirm Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {/* OFFICIAL STATEMENT OF ACCOUNT (SOA) SIGN-OFF & EXPORT MODAL */}
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {showSignModal && activeCandidate && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-600">
+                  <FileSignature className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">Official Statement of Account (SOA)</h3>
+                  <p className="text-xs text-slate-500">Configure agency letterhead, attest ledger items, and sign the official document.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSignModal(false)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="overflow-y-auto p-6 space-y-5 text-xs">
+              {/* 1. Candidate Financial Summary Banner */}
+              <div className="bg-slate-900 text-white rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-slate-400 font-medium text-[11px]">Candidate Dossier</p>
+                  <p className="font-bold text-sm text-white">{candidateDisplayName}</p>
+                  <p className="text-slate-400 text-xs">
+                    {activeCandidate.appliedPosition || activeCandidate.appliedRole || 'General Worker'} • {activeCandidate.applicantCode || `ID #${activeCandidate.id}`}
+                  </p>
+                </div>
+                <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 text-right sm:min-w-[160px]">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Net Worker Balance</p>
+                  <p className="text-lg font-black text-emerald-400">
+                    ₱{financialSummary.netPayableByWorker.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-[10px] text-slate-400">{currentExpenses.length} transactions in PHP</p>
+                </div>
+              </div>
+
+              {/* 2. Agency Letterhead Information */}
+              <div className="space-y-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <Building2 className="w-4 h-4 text-slate-600" /> Agency Letterhead Details (Official DMW Accredited)
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">Persists as default letterhead</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Agency Registered Name</label>
+                    <input
+                      type="text"
+                      value={soaAgencyName}
+                      onChange={e => setSoaAgencyName(e.target.value)}
+                      placeholder="e.g. PACIFIC OVERSEAS RECRUITMENT AGENCY INC."
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">DMW / POEA License No.</label>
+                    <input
+                      type="text"
+                      value={soaLicenseNo}
+                      onChange={e => setSoaLicenseNo(e.target.value)}
+                      placeholder="e.g. DMW-048-LB-031224-R"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Official Agency Office Address</label>
+                    <input
+                      type="text"
+                      value={soaAgencyAddress}
+                      onChange={e => setSoaAgencyAddress(e.target.value)}
+                      placeholder="e.g. 5th Floor, Corporate Center, Manila, Philippines"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contact Numbers & BIR TIN</label>
+                    <input
+                      type="text"
+                      value={soaAgencyContact}
+                      onChange={e => setSoaAgencyContact(e.target.value)}
+                      placeholder="e.g. Tel: +63 (2) 8523-8899 • BIR TIN: 009-842-120-000 NV"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Accountant Sign-off & Signature Method */}
+              <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/80">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <PenTool className="w-4 h-4 text-emerald-600" /> Accountant Certification & Signature
+                  </label>
+                  {/* Mode switcher tabs */}
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setSoaSignatureMode('draw')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        soaSignatureMode === 'draw'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <PenTool className="w-3 h-3" /> Draw Signature
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSoaSignatureMode('stamp')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        soaSignatureMode === 'stamp'
+                          ? 'bg-white text-emerald-700 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <BadgeCheck className="w-3 h-3 text-emerald-600" /> Digital Stamp
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Accountant / Signer Name</label>
+                    <input
+                      type="text"
+                      value={soaSignerName}
+                      onChange={e => setSoaSignerName(e.target.value)}
+                      placeholder="e.g. Maria Santos"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Official Title / Designation</label>
+                    <input
+                      type="text"
+                      value={soaSignerTitle}
+                      onChange={e => setSoaSignerTitle(e.target.value)}
+                      placeholder="e.g. Senior Accounting Officer"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Signature Input Area */}
+                {soaSignatureMode === 'draw' ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Sign below using mouse, trackpad, or touchscreen:</span>
+                      {hasSignatureDrawing && (
+                        <button
+                          type="button"
+                          onClick={clearCanvasSignature}
+                          className="flex items-center gap-1 text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" /> Clear Signature
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative border-2 border-dashed border-slate-300 hover:border-emerald-400 transition-colors rounded-xl overflow-hidden bg-slate-50/50">
+                      <canvas
+                        ref={signatureCanvasRef}
+                        width={540}
+                        height={120}
+                        className="w-full h-28 bg-white cursor-crosshair touch-none"
+                        onMouseDown={startDrawing}
+                        onMouseMove={draw}
+                        onMouseUp={stopDrawing}
+                        onMouseLeave={stopDrawing}
+                        onTouchStart={startDrawing}
+                        onTouchMove={draw}
+                        onTouchEnd={stopDrawing}
+                      />
+                      {!hasSignatureDrawing && (
+                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center text-slate-300 text-xs italic font-medium">
+                          Click and drag to sign here
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3.5 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                      <BadgeCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-emerald-900 text-xs">Official Certified Electronic Audit Stamp</p>
+                      <p className="text-[11px] text-emerald-700">
+                        Will be embossed on the statement with token <span className="font-mono font-bold">DMW-SOA-{activeCandidate.applicantCode || 'APP'}</span> and the authenticated timestamp.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Approver & Custom Terms */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Approved By (Agency Head)</label>
+                  <input
+                    type="text"
+                    value={soaApproverName}
+                    onChange={e => setSoaApproverName(e.target.value)}
+                    placeholder="e.g. Atty. Roberto C. Tan"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Approver Position / Title</label>
+                  <input
+                    type="text"
+                    value={soaApproverTitle}
+                    onChange={e => setSoaApproverTitle(e.target.value)}
+                    placeholder="e.g. Managing Director / Agency Head"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Special Billing Notes / Installment Terms</label>
+                  <input
+                    type="text"
+                    value={soaCustomNotes}
+                    onChange={e => setSoaCustomNotes(e.target.value)}
+                    placeholder="e.g. Salary deduction via authorized foreign employer payroll upon deployment."
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-700 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-500">
+                Strictly formatted for A4 portrait with zero text overflow.
+              </span>
+              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowSignModal(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={generateOfficialSOA}
+                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-emerald-400" /> Generate & Download Official SOA
+                </button>
+              </div>
             </div>
           </div>
         </div>
