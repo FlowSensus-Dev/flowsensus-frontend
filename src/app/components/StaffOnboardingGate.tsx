@@ -103,16 +103,21 @@ export default function StaffOnboardingGate({ subject, roles, name, onLogout, by
     <PertOnboardingContext.Provider value={step === 'deferred' ? async () => { await refresh('complete', true); } : null}>{children}</PertOnboardingContext.Provider>
   </>;
 
+  // Unknown status and workspace redirects must not present setup requirements.
+  // The existing checks still finish before operational views can mount.
+  if (loading || (workspace && !expired && !error && !editingDeferred)) return <div className="flex h-full items-center justify-center bg-slate-50 p-6">
+    <p role="status" className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" aria-hidden="true" />Loading your workspace…</p>
+  </div>;
+
   return <div className="h-full overflow-y-auto bg-slate-50">
     <main className="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-sky-700">{step === 'pert' ? 'First-login setup · Step 2 of 2' : 'Agency account setup'}</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">{editingDeferred ? 'Finish your agency’s PERT setup' : step === 'pert' ? 'Configure your agency’s PERT baseline' : 'Confirm your agency setup'}</h1>
+          <p className="text-xs font-bold uppercase tracking-wide text-sky-700">{step === 'pert' ? 'First-login setup · Step 2 of 2' : requiredPath || editingDeferred ? 'Agency account setup' : 'Workspace access'}</p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900">{editingDeferred ? 'Finish your agency’s PERT setup' : step === 'pert' ? 'Configure your agency’s PERT baseline' : requiredPath ? 'Confirm your agency setup' : 'Workspace access could not be confirmed'}</h1>
         </div>
         <button type="button" onClick={onLogout} className="flex items-center gap-2 text-sm font-bold text-slate-600 hover:text-rose-600">Sign out <LogOut size={16} /></button>
       </div>
-      {loading && <p role="status" className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" />Checking account and agency setup…</p>}
       {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
       {step === 'reconciliation' && !error && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <p>Your agency configuration needs reconciliation before required setup can continue. Contact support, then refresh setup status. No configuration has been created automatically.</p>
@@ -128,7 +133,6 @@ export default function StaffOnboardingGate({ subject, roles, name, onLogout, by
           onDeferred={step === 'pert' && config && canDeferPert(config) ? async () => { await refresh('deferred'); } : undefined} />
         {editingDeferred && <button type="button" onClick={() => navigate('/app/dashboard')} className="mt-4 text-xs font-bold text-sky-700 underline">Return to workspace</button>}
       </div>}
-      {workspace && !loading && !expired && !error && !editingDeferred && (location.pathname === onboardingPath || location.pathname === finishPertPath) && <p role="status" className="text-sm text-slate-600">Setup status checked. Opening permitted workspace areas…</p>}
       <button type="button" disabled={loading} onClick={() => void refresh().catch(() => {})} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50">Refresh setup status</button>
     </main>
   </div>;

@@ -65,11 +65,52 @@ describe('PF09 staff onboarding navigation (mocked Auth and API)', () => {
   });
 
   it('checks fresh Auth and PF05 before mounting normal operational views, without mutations', async () => {
-    render(); expect(workspaceVisible()).toBe(false); expect(text(render())).toContain('Checking account and agency setup');
+    render(); expect(workspaceVisible()).toBe(false); expect(text(render())).toContain('Loading your workspace');
+    expect(text(render())).not.toContain('Agency account setup'); expect(text(render())).not.toContain('Confirm your agency setup');
     await settle();
     expect(h.getUser).toHaveBeenCalledOnce(); expect(h.get).toHaveBeenCalledWith('/forecasting/pert-configuration');
     expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
     expect(workspaceVisible()).toBe(false); expect(h.path).toBe('/app/onboarding');
+  });
+  it.each(['Management', 'Recruitment', 'Admin'])('shows neutral loading throughout Auth and agency checks for existing %s staff', async (role) => {
+    props.roles = [role];
+    let finishAuth: any; let finishConfiguration: any;
+    h.getUser.mockReturnValueOnce(new Promise((resolve) => { finishAuth = resolve; }));
+    h.get.mockReturnValueOnce(new Promise((resolve) => { finishConfiguration = resolve; }));
+    const expectNeutral = () => {
+      const tree = render();
+      expect(text(tree)).toContain('Loading your workspace');
+      expect(text(tree)).not.toContain('Agency account setup');
+      expect(text(tree)).not.toContain('Confirm your agency setup');
+      expect(button('Refresh setup status')).toBeUndefined();
+      expect(node(StagePertConfiguration)).toBeUndefined(); expect(workspaceVisible()).toBe(false);
+    };
+    expectNeutral(); runEffects(); expectNeutral();
+    expect(h.get).not.toHaveBeenCalled();
+    finishAuth({ data: { user: account }, error: null }); await flush();
+    expect(h.get).toHaveBeenCalledOnce(); expectNeutral();
+    finishConfiguration({ data: complete() }); await settle();
+    expect(workspaceVisible()).toBe(true); expect(h.path).toBe('/app/applicants');
+    expect(text(render())).not.toContain('Confirm your agency setup'); expect(h.navigate).not.toHaveBeenCalled();
+  });
+  it('shows required setup only after the backend confirms it, with operational views still blocked', async () => {
+    let finish: any; h.get.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    await settle();
+    expect(text(render())).toContain('Loading your workspace'); expect(node(StagePertConfiguration)).toBeUndefined();
+    expect(workspaceVisible()).toBe(false); expect(h.navigate).not.toHaveBeenCalled();
+    finish({ data: configuration() }); await settle();
+    expect(text(render())).toContain('Configure your agency’s PERT baseline');
+    expect(node(StagePertConfiguration)).toBeDefined(); expect(workspaceVisible()).toBe(false);
+    expect(h.path).toBe('/app/onboarding');
+  });
+  it.each(['/app/onboarding', '/app/onboarding/pert'])('uses neutral loading during the authorized redirect from %s', async (path) => {
+    h.path = path; h.get.mockResolvedValueOnce({ data: complete() });
+    render(); runEffects(); await flush();
+    const tree = render(); // State is verified; the navigation effect has not run yet.
+    expect(text(tree)).toContain('Loading your workspace'); expect(text(tree)).not.toContain('Confirm your agency setup');
+    expect(workspaceVisible()).toBe(false);
+    runEffects(); await settle();
+    expect(h.path).toBe('/app/dashboard'); expect(workspaceVisible()).toBe(true);
   });
   it('sends a new Manager to the existing password dialog first, even if cached Auth metadata says false', async () => {
     h.get.mockResolvedValue({ data: configuration({ must_change_password: true, next_action: 'change_password' }) });
@@ -139,6 +180,8 @@ describe('PF09 staff onboarding navigation (mocked Auth and API)', () => {
   it.each([503, 403, 404, undefined])('provides retry/logout after failed state reads (%s) and never creates configuration', async (status) => {
     h.get.mockRejectedValueOnce(status ? { response: { status } } : new Error('Network Error'));
     await settle(); expect(workspaceVisible()).toBe(false); expect(nodes(render()).some((n) => n.props?.role === 'alert')).toBe(true);
+    expect(text(render())).toContain('Workspace access could not be confirmed');
+    expect(text(render())).not.toContain('Confirm your agency setup');
     expect(button('Sign out')).toBeDefined();
     await button('Refresh setup status').props.onClick(); await settle(); expect(node(StagePertConfiguration)).toBeDefined();
     expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();

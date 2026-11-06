@@ -7,7 +7,7 @@ import {
 } from '../../../lib/pertConfiguration';
 
 const inputClass = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60';
-const buttonClass = 'rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 disabled:opacity-50';
+const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 disabled:opacity-50';
 const fieldLabels: Record<PertField, string> = { optimistic_days: 'O — Optimistic', most_likely_days: 'M — Most Likely', pessimistic_days: 'P — Pessimistic' };
 const fieldHelp: Record<PertField, string> = {
   optimistic_days: 'The shortest realistic time when work goes smoothly.',
@@ -23,18 +23,28 @@ const stageHelp: Record<number, string> = {
   5: 'Think about final paperwork and preparations for deployment.',
 };
 const duration = (value: number | null | undefined) => value == null ? 'Unavailable' : `${value} days`;
+const statusLabels: Record<PertConfiguration['setup_status'], string> = {
+  complete: 'Complete', required: 'Initial setup required', deferred: 'Deferred', unconfirmed: 'Unconfirmed', inconsistent: 'Needs reconciliation',
+};
 
 export function PertManagerGuide() {
   return <details className="rounded-xl border border-sky-100 bg-sky-50 p-4 text-xs text-slate-600">
     <summary className="cursor-pointer font-bold text-sky-800">PERT guide for Managers</summary>
     <div className="mt-3 space-y-2 leading-relaxed">
       <p>PERT means Program Evaluation and Review Technique. It uses three realistic duration estimates to plan how long each recruitment stage may take.</p>
-      <p><strong>Optimistic (O):</strong> The shortest realistic time when work goes smoothly. <strong>Most Likely (M):</strong> The usual time your team normally needs. <strong>Pessimistic (P):</strong> A longer realistic time when difficulties or delays occur. Use days, including part-days, for each stage separately.</p>
+      <div className="space-y-1">
+        {pertFields.map((field) => <p key={field} id={`pert-${field}-help`}><strong>{fieldLabels[field]}:</strong> {fieldHelp[field]}</p>)}
+      </div>
+      <p>Use days, including part-days, for each stage separately. Enter 0–3650 days with up to four decimal places.</p>
       <p>Keep the estimates in order: <strong>shortest ≤ usual ≤ longer (O ≤ M ≤ P)</strong>. The usual time cannot be shorter than the optimistic time, and the pessimistic time cannot be shorter than the usual time. Equal values are allowed if that reflects your agency’s experience.</p>
-      <p><strong>Expected duration = (O + 4M + P) / 6.</strong> The normal estimate gets more weight. For example only: O = 2, M = 5 and P = 14 gives (2 + 4 × 5 + 14) / 6 = <strong>6 days</strong>. These example values are not entered into your configuration.</p>
+      <p><strong>Expected PERT = (O + 4M + P) / 6</strong>, rounded to four decimal places. The normal estimate gets more weight. For example only: O = 2, M = 5 and P = 14 gives (2 + 4 × 5 + 14) / 6 = <strong>6 days</strong>. These example values are not entered into your configuration.</p>
       <p>Check with the staff who handle each stage and review available agency records. Estimate how long the work realistically takes, rather than setting a target or guessing an extreme delay. Do not enter the whole recruitment timeline into every stage.</p>
+      <ol className="list-decimal space-y-1 pl-4">
+        {Object.entries(stageHelp).map(([order, help]) => <li key={order}>{help}</li>)}
+      </ol>
       <p>The PERT Baseline is the starting estimate, also called the cold-start estimate, used before a stage has real observations. Observations are recorded actual durations. After observations arrive, Simple Exponential Smoothing (SES) learns from them and the Learned SES Forecast takes over.</p>
       <p>Changing PERT updates the baseline. It does not erase learned SES forecasts, observation counts or history. Stages with learning continue to use their learned forecasts.</p>
+      <p>Typing changes or viewing a preview does not save them. FlowSensus reports a successful save only after the backend confirms it, then reloads the saved configuration. If original PERT inputs are unavailable, no suggested durations are filled in and no historical O/M/P values are inferred from the baseline.</p>
     </div>
   </details>;
 }
@@ -48,6 +58,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
   const [deferring, setDeferring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
@@ -87,7 +98,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
     if (busy.current) return;
     const id = ++loadId.current;
     busy.current = true;
-    setLoading(true); setError(null); setSuccess(null); setConfig(null);
+    setLoading(true); setError(null); setSuccess(null); setRefreshFailed(false); setConfig(null);
     try { await read(id); }
     catch (err: any) { if (mounted.current && id === loadId.current) setError(err.response ? pertError(err) : err.message === 'Network Error' ? 'PERT configuration could not be loaded. Check your connection and reload.' : err.message); }
     finally { if (id === loadId.current) { busy.current = false; if (mounted.current) setLoading(false); } }
@@ -113,7 +124,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!permitted || !config || busy.current || loading || blocked || deferring) return;
-    setError(null); setSuccess(null); setShowValidation(true);
+    setError(null); setSuccess(null); setRefreshFailed(false); setShowValidation(true);
     if (!attempt.current) {
       try {
         const command = createPertAttempt(config, drafts, alpha);
@@ -148,6 +159,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
     setSuccess(`PERT configuration saved. Learned SES is preserved. ${onboarding ? 'Checking setup status…' : 'Refreshing configuration and forecasts…'}`);
     const results = await Promise.allSettled([read(), onSaved(!!command.payload.initial_forecast_settings)]);
     if (mounted.current) {
+      setRefreshFailed(results.some((result) => result.status === 'rejected'));
       if (results[0].status === 'rejected') {
         setBlocked(true);
         setError('The save was confirmed, but configuration could not be refreshed. Reload configuration before editing again.');
@@ -183,20 +195,30 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
     }
   };
 
+  const feedback = <div id="pert-save-feedback" aria-live="polite" aria-atomic="true" className="space-y-2">
+    {saving && !success && <p role="status" aria-atomic="true" className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 font-semibold text-sky-800">
+      <RefreshCw size={14} className="shrink-0 animate-spin" aria-hidden="true" />Saving PERT configuration… Please wait for confirmation.
+    </p>}
+    {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-700">{error}</p>}
+    {uncertain && !saving && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">Save outcome unknown. Retry the same save before making further changes. This tab retains the original request across reloads; reloading configuration will not discard it.</p>}
+    {success && <p role="status" aria-atomic="true" className={`flex items-center gap-2 rounded-lg border p-3 ${refreshFailed ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+      {saving && <RefreshCw size={14} className="shrink-0 animate-spin" aria-hidden="true" />}{success}
+    </p>}
+  </div>;
+  const reloadButton = <button type="button" disabled={loading || saving || deferring} onClick={() => void reload()} className="font-semibold text-sky-700 underline disabled:opacity-50">{uncertain ? 'Reload configuration (keep pending save)' : 'Reload configuration (discard draft)'}</button>;
+
   if (!canEdit) return null;
   return <details open={onboarding || undefined} className="border-t border-slate-200 pt-4">
     <summary className="cursor-pointer font-bold text-slate-900 text-sm">PERT Configuration</summary>
     <div className="mt-3 space-y-4 text-xs text-slate-600">
-      <p>For each recruitment stage, enter three estimates in days: the shortest realistic time, the usual time and a longer time when delays occur. Part-days are allowed. Estimate the time for that stage only.</p>
+      <p>Set stage estimates in days. PERT changes preserve learned SES forecasts and observation history.</p>
       <PertManagerGuide />
-      {loading && <p role="status" className="flex items-center gap-2"><RefreshCw size={12} className="animate-spin" />Loading PERT configuration…</p>}
+      {loading && !saving && <p role="status" className="flex items-center gap-2"><RefreshCw size={12} className="animate-spin" aria-hidden="true" />Loading PERT configuration…</p>}
       {config && <>
-        <p>Configuration revision: <strong>{config.revision}</strong></p>
-        {config.setup_status === 'complete' && <div className="rounded-lg bg-slate-50 p-3 space-y-2">
-          <p className="font-semibold text-slate-800">Saved configuration loaded</p>
-          <p>An authorized Manager can review the stored estimates against the team’s experience and edit them below. Saving updates the PERT baselines for all five stages; it is designed to preserve learned SES values and observation counts.</p>
-          <p>Typing changes or viewing a preview does not save them. FlowSensus reports a successful save only after the backend confirms it, then reloads the saved configuration.</p>
-        </div>}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-slate-700">
+          <p>Configuration status: <strong>{statusLabels[config.setup_status]}</strong></p>
+          <p>Configuration revision: <strong>{config.revision}</strong></p>
+        </div>
         {config.setup_status === 'required' && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">Initial PERT setup is required. Complete all five stages and explicitly submit to finish setup.</p>}
         {isPertDeferred(config) && <p className="rounded-lg bg-sky-50 p-3 text-sky-900">Initial PERT setup is deferred, not completed. Confirm all five stages to enable normal application workflow status/phase progression.</p>}
         {config.setup_status === 'unconfirmed' && <p className="rounded-lg bg-slate-50 p-3">This agency’s PERT setup is unconfirmed. You can voluntarily configure and confirm inputs here; this does not require onboarding or redirect your agency.</p>}
@@ -211,55 +233,81 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
           <button type="button" disabled={disabled || !!attempt.current} aria-describedby="pert-defer-help" onClick={() => void defer()}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50">{deferring ? 'Confirming Configure Later…' : 'Configure Later'}</button>
         </div>}
-        <form onSubmit={save} noValidate className="space-y-4">
-          <div id="pert-duration-help" className="space-y-2">
-            <p>Enter all three estimates for each of the five stages. Use 0–3650 days, up to four decimal places, with shortest ≤ usual ≤ longer (O ≤ M ≤ P). Equal values are allowed.</p>
-            <p>Most Likely cannot be shorter than Optimistic. Pessimistic cannot be shorter than Most Likely. Check with your team if you are unsure; no suggested durations are filled in for you.</p>
-            <p>Expected PERT = (O + 4M + P) / 6, rounded to four decimal places. The preview gives more weight to the usual time; the saved baseline is confirmed by the backend.</p>
+        <form onSubmit={save} noValidate className="space-y-3">
+          <p id="pert-duration-help">All estimates in days: 0–3650, up to four decimal places. Optimistic ≤ Most Likely ≤ Pessimistic; equal values are allowed.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="font-semibold text-slate-700">Valid stage estimates: {validStageCount} of 5</p>
+            <p id="pert-preview-help" className="text-slate-500">Previews are unsaved. Current baselines stay in effect until saving is confirmed.</p>
           </div>
-          <p role="status" className="font-semibold text-slate-700">Valid stage estimates: {validStageCount} of 5. Review all five stages before submitting.</p>
-          {config.stages.map((stage) => {
-            const draft = drafts.find((item) => item.stage_order === stage.stage_order)!;
-            const validation = showValidation ? pertStageError(draft) : null;
-            const expected = expectedPertDays(draft);
-            return <fieldset key={stage.stage_order} disabled={disabled} className="min-w-0 rounded-xl border border-slate-200 p-4 space-y-3">
-              <legend className="px-1 font-bold text-sm text-slate-800">{stage.stage_order}. {stage.stage_name}</legend>
-              <p>{stageHelp[stage.stage_order]}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <p>Current PERT Baseline: <strong>{duration(stage.pert_baseline_days)}</strong></p>
-                <p>Learned SES Forecast: <strong>{stage.observation_count == null ? 'Unavailable' : stage.observation_count > 0 ? duration(stage.current_ses_forecast_days) : 'No observations yet'}</strong></p>
-                <p>Observations: {stage.observation_count ?? 'Unavailable'}</p>
-                <p>Effective forecast: {duration(stage.effective_forecast_days)} ({stage.forecast_basis})</p>
-              </div>
-              {pertFields.some((field) => stage[field] == null) && <p className="text-amber-800">Original PERT inputs are unavailable. The current baseline does not reveal historical O/M/P values. Enter new estimates explicitly; no inputs have been inferred.</p>}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {pertFields.map((field) => <div key={field} className="min-w-0">
-                  <label htmlFor={`pert-${stage.stage_order}-${field}`}>{fieldLabels[field]} (days)</label>
-                  <input id={`pert-${stage.stage_order}-${field}`} type="text" inputMode="decimal" required value={draft[field]} disabled={disabled}
-                    aria-invalid={!!validation} aria-describedby={`pert-${stage.stage_order}-${field}-help pert-duration-help${validation ? ` pert-stage-${stage.stage_order}-error` : ''}`}
-                    onChange={(event) => change(stage.stage_order, field, event.target.value)} className={inputClass} />
-                  <span id={`pert-${stage.stage_order}-${field}-help`} className="mt-1 block text-slate-500">{fieldHelp[field]}</span>
-                </div>)}
-              </div>
-              <p>Expected PERT Baseline from these inputs: <output className="font-mono font-bold text-sky-700">{expected === null ? 'Enter valid O/M/P inputs' : `${expected} days`}</output></p>
-              <p className="text-slate-500">Preview only. Changing an input does not save it or change the current PERT Baseline shown above.</p>
-              {validation && <p id={`pert-stage-${stage.stage_order}-error`} className="text-rose-700">{validation}</p>}
-            </fieldset>;
-          })}
+          {config.stages.some((stage) => pertFields.some((field) => stage[field] == null)) && <p className="rounded-lg bg-amber-50 p-2 text-amber-800">Original PERT inputs are unavailable for some stages. Enter the missing estimates; values are not inferred from saved baselines.</p>}
+          <table role="table" className="block w-full rounded-xl border border-slate-200 lg:table lg:table-fixed lg:border-collapse">
+            <caption className="sr-only">Five recruitment stages: saved forecasts and editable Optimistic, Most Likely and Pessimistic estimates in days.</caption>
+            <colgroup className="hidden lg:table-column-group">
+              <col className="w-[24%]" /><col className="w-[14%]" /><col className="w-[17%]" /><col className="w-[9%]" />
+              <col className="w-[12%]" /><col className="w-[12%]" /><col className="w-[12%]" />
+            </colgroup>
+            <thead role="rowgroup" className="hidden bg-slate-50 text-left text-slate-700 lg:table-header-group">
+              <tr role="row">
+                {['Stage', 'PERT baseline', 'Learned SES', 'Obs.', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)'].map((label) =>
+                  <th key={label} role="columnheader" scope="col" className="px-3 py-2 font-semibold">{label}</th>)}
+              </tr>
+            </thead>
+            <tbody role="rowgroup" className="block lg:table-row-group">
+              {config.stages.map((stage) => {
+                const draft = drafts.find((item) => item.stage_order === stage.stage_order)!;
+                const validation = showValidation ? pertStageError(draft) : null;
+                const expected = expectedPertDays(draft);
+                return <React.Fragment key={stage.stage_order}>
+                  <tr role="row" className="grid grid-cols-3 gap-x-3 gap-y-3 border-t border-slate-200 p-3 lg:table-row lg:p-0">
+                    <th role="rowheader" scope="row" className="col-span-3 min-w-0 break-words text-left font-bold text-slate-800 lg:px-3 lg:py-3 lg:align-top">
+                      {stage.stage_order}. {stage.stage_name}
+                    </th>
+                    <td role="cell" className="min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
+                      <span className="block text-slate-500 lg:sr-only">Current PERT Baseline</span>
+                      <span className="font-semibold text-slate-800">{duration(stage.pert_baseline_days)}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">Preview: <output aria-describedby="pert-preview-help" className="font-mono text-sky-700">{expected === null ? 'Enter valid O/M/P inputs' : `${expected} days`}</output></span>
+                    </td>
+                    <td role="cell" className="min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
+                      <span className="block text-slate-500 lg:sr-only">Learned SES Forecast</span>
+                      <span className="font-semibold text-slate-800">{stage.observation_count == null ? 'Unavailable' : stage.observation_count > 0 ? duration(stage.current_ses_forecast_days) : 'No observations yet'}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">Effective forecast: {duration(stage.effective_forecast_days)} ({stage.forecast_basis})</span>
+                    </td>
+                    <td role="cell" className="min-w-0 lg:px-3 lg:py-3 lg:align-top">
+                      <span className="block text-slate-500 lg:sr-only">Observations</span>
+                      <span className="font-semibold tabular-nums text-slate-800">{stage.observation_count ?? 'Unavailable'}</span>
+                    </td>
+                    {pertFields.map((field) => <td role="cell" key={field} className="col-span-3 min-w-0 sm:col-span-1 lg:px-3 lg:py-3 lg:align-top">
+                      <label htmlFor={`pert-${stage.stage_order}-${field}`} className="block lg:sr-only"><span className="sr-only">{stage.stage_name}: </span>{fieldLabels[field]} (days)</label>
+                      <input id={`pert-${stage.stage_order}-${field}`} type="text" inputMode="decimal" required value={draft[field]} disabled={disabled}
+                        aria-invalid={!!validation} aria-describedby={`pert-${field}-help pert-duration-help${validation ? ` pert-stage-${stage.stage_order}-error` : ''}`}
+                        onChange={(event) => change(stage.stage_order, field, event.target.value)} className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60" />
+                    </td>)}
+                  </tr>
+                  {validation && <tr role="row" className="block bg-rose-50 lg:table-row"><td role="cell" colSpan={7} className="block px-3 py-2 lg:table-cell">
+                    <p id={`pert-stage-${stage.stage_order}-error`} role="alert" className="text-rose-700"><strong>{stage.stage_name}:</strong> {validation}</p>
+                  </td></tr>}
+                </React.Fragment>;
+              })}
+            </tbody>
+          </table>
           {config.setup_status !== 'complete' && config.initial_forecast_settings_required && <label className="block max-w-sm">Initial agency SES alpha (0 &lt; alpha ≤ 1)
             <input type="text" inputMode="decimal" required value={alpha} disabled={disabled} aria-describedby="pert-alpha-help" className={inputClass}
               onChange={(event) => { if (!disabled && !attempt.current) { setAlpha(event.target.value); setError(null); } }} />
             <span id="pert-alpha-help" className="mt-1 block">No SES settings exist yet. Alpha controls how strongly new actual durations influence future learning; higher values give newer observations more weight. Choose a value greater than 0 and at most 1. You can review it later in Agency SES Settings.</span>
           </label>}
-          {permitted && <button type="submit" disabled={loading || saving || deferring || blocked} className={buttonClass}>
-            {saving ? 'Saving…' : uncertain ? 'Retry same save' : config.setup_status === 'complete' ? 'Save PERT Configuration' : config.setup_status === 'unconfirmed' ? 'Confirm PERT Configuration' : 'Complete Initial PERT Setup'}
-          </button>}
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            {feedback}
+            <div className="flex flex-wrap items-center gap-3">
+              {permitted && <button type="submit" disabled={loading || saving || deferring || blocked} aria-busy={saving} aria-describedby="pert-save-feedback" className={buttonClass}>
+                {saving && <RefreshCw size={14} className="animate-spin" aria-hidden="true" />}
+                {saving ? success ? 'Refreshing…' : 'Saving…' : uncertain ? 'Retry same save' : config.setup_status === 'complete' ? 'Save PERT Configuration' : config.setup_status === 'unconfirmed' ? 'Confirm PERT Configuration' : 'Complete Initial PERT Setup'}
+              </button>}
+              {reloadButton}
+            </div>
+          </div>
         </form>
       </>}
-      {error && <p role="alert" className="text-rose-700">{error}</p>}
-      {uncertain && <p role="status" className="text-amber-800">Save outcome unknown. Retry the same save before making further changes. This tab retains the original request across reloads; reloading configuration will not discard it.</p>}
-      {success && <p role="status" className="text-emerald-700">{success}</p>}
-      <button type="button" disabled={loading || saving || deferring} onClick={() => void reload()} className="font-semibold text-sky-700 underline disabled:opacity-50">{uncertain ? 'Reload configuration (keep pending save)' : 'Reload configuration (discard draft)'}</button>
+      {!config && <>{feedback}{reloadButton}</>}
     </div>
   </details>;
 }
