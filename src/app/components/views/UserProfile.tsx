@@ -1,13 +1,33 @@
-import { useState, useEffect } from 'react';
-import { User, Mail, Phone, Shield, Calendar, Key, Save, Edit2, CheckCircle, Eye, EyeOff, Check, X, ShieldCheck, Loader2 } from 'lucide-react';
-import { UserRole, ActivityLog } from '../../types';
+import { useState, useEffect, useRef } from 'react';
+import { User, Shield, Key, CheckCircle, Eye, EyeOff, Check, X, ShieldCheck, Loader2 } from 'lucide-react';
+import { UserRole, ActivityLog, ViewType } from '../../types';
 import { supabase } from '../../../lib/supabase';
 import { api } from '../../../lib/api';
 import { validatePassword } from '../../../lib/passwordPolicy';
+import { hasAccessToView } from '../../../lib/accessControl';
+import { knownStaffRoles, normalizeSystemRoles, StaffProfile } from '../../../lib/staffProfile';
+import { changeRequiredStaffPassword } from '../../../lib/staffOnboarding';
+
+const PROFILE_MODULES: { view: ViewType; label: string }[] = [
+  { view: 'dashboard', label: 'Dashboard' }, { view: 'applicants', label: 'Applicants' },
+  { view: 'registration', label: 'Applicant Registration' }, { view: 'screening', label: 'Screening Panel' },
+  { view: 'digital-exams', label: 'Digital Exams' }, { view: 'profiling', label: 'Applicant Profiling' },
+  { view: 'cv', label: 'CV Encoding' }, { view: 'endorsement', label: 'Endorsement Tracker' },
+  { view: 'requirements', label: 'Document Requirements' }, { view: 'joborders', label: 'Job Orders' },
+  { view: 'employers', label: 'Employer Profiles' }, { view: 'fittowork', label: 'Fit-to-Work' },
+  { view: 'ocr', label: 'Document Validation' }, { view: 'alerts', label: '3-2-1 Alerts' },
+  { view: 'expense', label: 'Expense Ledger' }, { view: 'accounting-settings', label: 'Accounting Settings' },
+  { view: 'evaluation', label: 'Evaluation & Workflow' }, { view: 'manager', label: 'CV & Employer Hub' },
+  { view: 'forecast', label: 'Predictive Timeline' }, { view: 'history', label: 'Audit Log' },
+  { view: 'reports', label: 'Operational Reports' }, { view: 'users', label: 'User Management' },
+  { view: 'profile', label: 'Staff Account Profile' },
+];
 
 interface UserProfileProps {
   currentUserName: string;
   currentUserRole: UserRole;
+  currentUserRoles?: UserRole[];
+  workflowPermissions?: Record<string, UserRole[]>;
   activityLogs?: ActivityLog[];
   showToast: (message: string) => void;
 }
@@ -15,104 +35,51 @@ interface UserProfileProps {
 export default function UserProfile({
   currentUserName,
   currentUserRole,
+  currentUserRoles,
+  workflowPermissions,
   activityLogs = [],
   showToast,
 }: UserProfileProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    fullName: currentUserName,
-    email: currentUserName.toLowerCase().replace(' ', '.') + '@flowsensus.com',
-    phone: 'Not provided',
-    department: 'Not provided',
-    employeeId: 'EMP-2026-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
-    joinDate: '',
-  });
+  const [profile, setProfile] = useState<StaffProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState('');
+  const [profileAttempt, setProfileAttempt] = useState(0);
+  const passwordBusy = useRef(false);
 
-  // Dynamically load account metadata and exact created_at timestamp
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadAccountData() {
+    let active = true;
+    setProfile(null);
+    setProfileLoading(true);
+    setProfileError('');
+    async function loadProfile() {
       try {
-        // 1. Fetch live authenticated user from Supabase Auth
-        const { data: { user } } = await supabase.auth.getUser();
-        let exactCreatedAt = user?.created_at;
-        let accountEmail = user?.email;
-
-        // 2. Fetch corresponding database record from USER table
-        let dbUser: any = null;
-        if (accountEmail || currentUserName) {
-          const queryProfile = (fields: string) => {
-            const query = supabase.from('app_user').select(fields);
-            return (accountEmail
-              ? query.eq('email', accountEmail)
-              : query.ilike('full_name', `%${currentUserName}%`)
-            ).maybeSingle();
-          };
-
-          try {
-            const { data, error } = await queryProfile(
-              'user_id, full_name, email, department_id, phone_number, department(department_name)'
-            );
-            if (error) throw error;
-            dbUser = data;
-          } catch (expandedError) {
-            console.warn('Expanded profile query failed; retrying base profile fields:', expandedError);
-            try {
-              const { data, error } = await queryProfile('user_id, full_name, email, department_id');
-              if (error) throw error;
-              dbUser = data;
-            } catch (baseError) {
-              console.warn('Base profile query also failed:', baseError);
-            }
-          }
-        }
-
-        // 3. Fallback to /users/me API if needed
-        if (!exactCreatedAt) {
-          try {
-            const res = await api.get('/users/me');
-            if (res?.data?.created_at) {
-              exactCreatedAt = res.data.created_at;
-            }
-            if (res?.data?.email && !accountEmail) {
-              accountEmail = res.data.email;
-            }
-            if (res?.data?.user_id && !dbUser) {
-              dbUser = res.data;
-            }
-          } catch (e) {
-            // Ignored if API offline
-          }
-        }
-
-        if (isMounted) {
-          setFormData((prev) => ({
-            ...prev,
-            fullName: dbUser?.full_name || user?.user_metadata?.full_name || prev.fullName,
-            email: dbUser?.email || accountEmail || prev.email,
-            phone: dbUser?.phone_number || 'Not provided',
-            department: dbUser?.department?.department_name ||
-              (Array.isArray(dbUser?.department) ? dbUser.department[0]?.department_name : null) ||
-              dbUser?.department_name ||
-              (typeof dbUser?.department === 'string' ? dbUser.department : null) || 'Not provided',
-            employeeId: dbUser?.user_id
-              ? `EMP-2026-${String(dbUser.user_id).padStart(3, '0')}`
-              : prev.employeeId,
-            joinDate: exactCreatedAt || prev.joinDate || new Date().toISOString(),
-          }));
-        }
-      } catch (err) {
-        console.warn('Could not dynamically load account profile:', err);
+        const { data } = await api.get('/users/me');
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid profile response');
+        if (active) setProfile(data);
+      } catch {
+        if (active) setProfileError('Your account profile could not be loaded. Please retry.');
+      } finally {
+        if (active) setProfileLoading(false);
       }
     }
+    void loadProfile();
+    return () => { active = false; };
+  }, [currentUserName, profileAttempt]);
 
-    loadAccountData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [currentUserName]);
+  // Session roles are a presentation fallback for older/unavailable responses
+  // only. An authoritative empty array stays empty; these labels never authorize mutations.
+  const rolesFromProfile = Array.isArray(profile?.role_names);
+  const displayedRoles = normalizeSystemRoles(rolesFromProfile
+    ? profile!.role_names
+    : (currentUserRoles ?? [currentUserRole]));
+  const accessRoles = knownStaffRoles(displayedRoles);
+  const missingValue = profileLoading ? 'Loading...' : 'Not provided';
+  const fullName = profile?.full_name || (profileLoading ? currentUserName : 'Not provided');
+  const department = profile?.department_name || profile?.department || missingValue;
+  const joinDate = profile?.created_at ? new Date(profile.created_at) : null;
+  const roleBadges = () => displayedRoles.length ? displayedRoles.map((role) => (
+    <span key={role} className={`px-3 py-1 rounded-full text-xs font-bold ${getRoleBadgeColor(role)}`}>{role}</span>
+  )) : <span className="text-sm">No system roles assigned</span>;
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -136,12 +103,8 @@ export default function UserProfile({
     (log) => log.performedBy === currentUserName && new Date(log.timestamp).getMonth() === thisMonth
   ).length;
 
-  const handleSaveProfile = () => {
-    setIsEditing(false);
-    showToast('✓ Profile updated successfully');
-  };
-
   const handleChangePassword = async () => {
+    if (passwordBusy.current || !passwordData.currentPassword) return;
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       showToast('❌ Passwords do not match. Please re-type your confirmation password.');
       return;
@@ -152,33 +115,31 @@ export default function UserProfile({
       return;
     }
 
+    passwordBusy.current = true;
     setIsSavingPassword(true);
     try {
-      // 1. Update in Supabase Auth
-      const { error: authError } = await supabase.auth.updateUser({
-        password: passwordData.newPassword,
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user?.email) throw new Error('Your account could not be verified. Sign in again.');
+      const verification = await supabase.auth.signInWithPassword({
+        email: user.email, password: passwordData.currentPassword,
       });
-      if (authError) throw authError;
-
-      // 2. Synchronize password hash in backend USER table
-      try {
-        await api.post('/users/change-password', {
-          new_password: passwordData.newPassword,
-        });
-      } catch (apiErr) {
-        console.warn('Backend sync notice:', apiErr);
+      if (verification.error || verification.data.user?.id !== user.id) {
+        throw new Error('Current password could not be verified. Please try again.');
       }
+      // Reuse the existing backend-confirmed staff password flow and session recovery.
+      await changeRequiredStaffPassword(user, passwordData.newPassword);
 
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      showToast('✓ Password updated successfully with enterprise bcrypt hashing.');
+      showToast('✓ Password updated successfully.');
     } catch (err: any) {
       showToast(`❌ ${err.message || 'Failed to change password. Please try again.'}`);
     } finally {
+      passwordBusy.current = false;
       setIsSavingPassword(false);
     }
   };
 
-  const getRoleBadgeColor = (role: UserRole) => {
+  const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'Recruitment':
         return 'bg-[#0EA5E9] text-white';
@@ -214,145 +175,54 @@ export default function UserProfile({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center font-black text-[#0EA5E9] text-2xl shadow-lg">
-                    {currentUserName
+                    {fullName
                       .split(' ')
                       .map((n) => n[0])
                       .join('')
                       .substring(0, 2)}
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-white">{currentUserName}</h3>
-                    <p className="text-sm text-white/80 font-medium mt-1">{formData.department}</p>
-                    <div className="mt-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${getRoleBadgeColor(currentUserRole)}`}>
-                        {currentUserRole}
-                      </span>
+                    <h3 className="text-2xl font-black text-white">{fullName}</h3>
+                    <p className="text-sm text-white/80 font-medium mt-1">{department}</p>
+                    <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Profile system roles">
+                      {roleBadges()}
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="px-4 py-2 bg-white text-[#0EA5E9] text-sm font-bold rounded-lg hover:bg-slate-50 flex items-center gap-2"
-                >
-                  {isEditing ? (
-                    <>
-                      <Save className="w-4 h-4" />
-                      Save
-                    </>
-                  ) : (
-                    <>
-                      <Edit2 className="w-4 h-4" />
-                      Edit
-                    </>
-                  )}
-                </button>
               </div>
             </div>
 
             {/* Profile Form */}
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                    Full Name
-                  </label>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={formData.fullName}
-                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                    />
-                  ) : (
-                    <p className="text-sm font-bold text-[#0F172A]">{formData.fullName}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">
-                    Employee ID
-                  </label>
-                  <p className="text-sm font-bold text-[#0F172A]">{formData.employeeId}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2 flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    Email Address
-                  </label>
-                  {isEditing ? (
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                    />
-                  ) : (
-                    <p className="text-sm font-bold text-[#0F172A]">{formData.email}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2 flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    Phone Number
-                  </label>
-                  {isEditing ? (
-                    <input
-                      type="tel"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                    />
-                  ) : (
-                    <p className="text-sm font-bold text-[#0F172A]">{formData.phone}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2 flex items-center gap-2">
-                    <Shield className="w-4 h-4" />
-                    Department
-                  </label>
-                  <p className="text-sm font-bold text-[#0F172A]">{formData.department}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Join Date
-                  </label>
-                  <p className="text-sm font-bold text-[#0F172A]">
-                    {formData.joinDate ? (
-                      (() => {
-                        const d = new Date(formData.joinDate);
-                        return isNaN(d.getTime())
-                          ? formData.joinDate
-                          : d.toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric',
-                            });
-                      })()
-                    ) : (
-                      <span className="text-slate-400 font-normal">Loading...</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {isEditing && (
-                <div className="pt-4 border-t border-slate-200">
-                  <button
-                    onClick={handleSaveProfile}
-                    className="w-full px-6 py-3 bg-[#0EA5E9] text-white text-sm font-bold rounded-lg hover:bg-[#0284C7] flex items-center justify-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Changes
-                  </button>
+              {profileLoading && <p role="status" className="text-sm text-slate-500">Loading account profile...</p>}
+              {profileError && (
+                <div role="alert" className="text-sm text-rose-700">
+                  {profileError}
+                  <button type="button" onClick={() => setProfileAttempt((value) => value + 1)} className="ml-2 underline font-bold">Retry profile</button>
                 </div>
               )}
+              <p className="text-xs text-slate-500">Official account information is managed by your agency. Contact Management for name corrections.</p>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  ['Full Name', fullName],
+                  ['Employee ID', profile?.user_id != null ? `EMP-2026-${String(profile.user_id).padStart(3, '0')}` : missingValue],
+                  ['Email Address', profile?.email || missingValue],
+                  ['Phone Number', profile?.phone_number?.trim() || missingValue],
+                  ['Department', department],
+                  ['Join Date', joinDate && !isNaN(joinDate.getTime())
+                    ? joinDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : missingValue],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <dt className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">{label}</dt>
+                    <dd className="text-sm font-bold text-[#0F172A]">{value}</dd>
+                  </div>
+                ))}
+                <div className="sm:col-span-2" role="group" aria-label="System Roles">
+                  <dt className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-2">System Roles</dt>
+                  <dd className="flex flex-wrap gap-2">{roleBadges()}</dd>
+                </div>
+              </dl>
+              {!rolesFromProfile && <p className="text-xs text-slate-500">System roles shown from this session while verified role information is unavailable.</p>}
             </div>
           </div>
 
@@ -546,8 +416,8 @@ export default function UserProfile({
               </div>
 
               <div className="bg-[#8B5CF6]/10 rounded-lg p-4 border border-[#8B5CF6]/30">
-                <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-1">Role</p>
-                <p className="text-lg font-black text-[#8B5CF6]">{currentUserRole}</p>
+                <p className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-1">System Roles</p>
+                <div role="group" aria-label="Role access panel" className="flex flex-wrap gap-2">{roleBadges()}</div>
                 <p className="text-xs text-[#64748B] mt-1">Access Level</p>
               </div>
             </div>
@@ -587,74 +457,16 @@ export default function UserProfile({
               Role Permissions
             </h3>
             <div className="space-y-2 text-sm">
-              {currentUserRole === 'Recruitment' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Applicant Registration</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Screening & Medical</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Applicant Profiling</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">CV Encoding</span>
-                  </div>
-                </>
-              )}
-              {currentUserRole === 'Admin' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Document Validation</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Compliance Monitoring</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">3-2-1 Alerts</span>
-                  </div>
-                </>
-              )}
-              {currentUserRole === 'Accounting' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Expense Ledger</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Financial Tracking</span>
-                  </div>
-                </>
-              )}
-              {currentUserRole === 'Management' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">CV & Employer Hub</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Predictive Timeline</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">Operational Reports</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                    <span className="text-[#0F172A]">All Modules (Read)</span>
-                  </div>
-                </>
-              )}
+              <div role="group" aria-label="Role permissions assignments" className="flex flex-wrap gap-2 mb-3">{roleBadges()}</div>
+              <p className="text-xs text-slate-500 mb-2">Module access based on assigned system roles and current workflow settings.</p>
+              {accessRoles.length > 0 ? PROFILE_MODULES.filter(({ view }) =>
+                hasAccessToView(view, accessRoles, false, workflowPermissions)
+              ).map(({ view, label }) => (
+                <div key={view} className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-[#10B981]" />
+                  <span className="text-[#0F172A]">{label}</span>
+                </div>
+              )) : <p className="text-slate-500">No recognized staff role permissions to display.</p>}
             </div>
           </div>
         </div>

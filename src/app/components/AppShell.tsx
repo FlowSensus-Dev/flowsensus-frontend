@@ -669,6 +669,8 @@ export default function AppShell({
           <UserProfile
             currentUserName={currentUserName}
             currentUserRole={currentUserRole}
+            currentUserRoles={userRolesList}
+            workflowPermissions={workflowPermissions}
             activityLogs={activityLogs}
             showToast={showToastNotification}
           />

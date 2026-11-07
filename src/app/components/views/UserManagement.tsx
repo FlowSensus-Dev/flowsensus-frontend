@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   UserPlus, Edit2, Trash2, ShieldOff, ShieldCheck, X, Key, Copy, Check,
   Mail, Eye, EyeOff, Sparkles, Loader2, RefreshCw, Clock, Users, Ban,
@@ -10,6 +10,7 @@ import { ActivityLog, UserRole, ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
 import { confirmedApplicantResend } from '../../../lib/applicantCredentials';
+import { normalizeSystemRoles, StaffProfile } from '../../../lib/staffProfile';
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -25,6 +26,8 @@ interface StaffAccount {
   onboardingPending?: boolean;
   lastLoginAt?: string | null;
   lastSeenAt?: string | null;
+  agencyId?: number;
+  isSuperAdmin?: boolean;
 }
 
 interface ApplicantPortalAccount {
@@ -104,8 +107,15 @@ const mapStaffFromApi = (u: any): StaffAccount => {
     onboardingPending: Boolean(u.onboarding_pending),
     lastLoginAt: u.last_login_at || null,
     lastSeenAt: u.last_seen_at || null,
+    agencyId: u.agency_id,
+    isSuperAdmin: u.is_super_admin,
   };
 };
+
+// All list sources retain the backend's platform exclusion, including cached props.
+const mapOrdinaryStaff = (rows: any[]): StaffAccount[] => rows
+  .filter((row) => row.is_super_admin === false)
+  .map(mapStaffFromApi);
 
 export default function UserManagement({
   currentUserName,
@@ -123,6 +133,11 @@ export default function UserManagement({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
+  const [originalStaff, setOriginalStaff] = useState<StaffAccount | null>(null);
+  const [actor, setActor] = useState<StaffProfile | null>(null);
+  const [editError, setEditError] = useState('');
+  const [editUncertain, setEditUncertain] = useState(false);
+  const editBusy = useRef(false);
   const [editRoles, setEditRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(!globalStaff || globalStaff.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -132,7 +147,7 @@ export default function UserManagement({
   const [availableRoles, setAvailableRoles] = useState<AvailableRole[]>(DEFAULT_ROLES_CATALOG);
   const [staff, setStaff] = useState<StaffAccount[]>(() => {
     return (globalStaff && Array.isArray(globalStaff) && globalStaff.length > 0)
-      ? globalStaff.map(mapStaffFromApi)
+      ? mapOrdinaryStaff(globalStaff)
       : [];
   });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -206,10 +221,27 @@ export default function UserManagement({
   // Synchronize when globalStaff updates
   useEffect(() => {
     if (globalStaff && Array.isArray(globalStaff) && globalStaff.length > 0) {
-      setStaff(globalStaff.map(mapStaffFromApi));
+      setStaff(mapOrdinaryStaff(globalStaff));
       setLoading(false);
     }
   }, [globalStaff]);
+
+  useEffect(() => {
+    let active = true;
+    setActor(null);
+    api.get('/users/me').then(({ data }) => {
+      if (active) setActor(data);
+    }).catch(() => { /* Name editing stays read-only if identity cannot be verified. */ });
+    return () => { active = false; };
+  }, [currentUserName]);
+
+  const isSelfTarget = Boolean(actor?.user_id != null && selectedStaff?.id === String(actor.user_id));
+  const canCorrectName = Boolean(
+    actor?.user_id != null && actor?.agency_id != null &&
+    normalizeSystemRoles(actor.role_names).includes('Management') &&
+    selectedStaff && selectedStaff.isSuperAdmin === false &&
+    selectedStaff.agencyId === actor.agency_id && !isSelfTarget
+  );
 
   // ── Fetch Staff & Roles ────────────────────────────────────────────────────
   const fetchStaffAndRoles = async (silent = false) => {
@@ -242,7 +274,7 @@ export default function UserManagement({
 
       const res = await api.get('/users');
       if (res.data && Array.isArray(res.data)) {
-        setStaff(res.data.map(mapStaffFromApi));
+        setStaff(mapOrdinaryStaff(res.data));
       }
     } catch (err: any) {
       console.warn('Could not fetch live users from Supabase:', err);
@@ -378,53 +410,73 @@ export default function UserManagement({
   };
 
   const handleEditStaff = async () => {
-    if (!selectedStaff || isEditing) return;
-    setIsEditing(true);
-
-    const numId = parseInt(selectedStaff.id, 10);
+    if (!selectedStaff || !originalStaff || editBusy.current || editUncertain) return;
+    setEditError('');
+    if (isSelfTarget) {
+      setEditError('You cannot edit your own official identity or management-controlled fields.');
+      return;
+    }
+    const numId = Number(selectedStaff.id);
+    if (!Number.isSafeInteger(numId) || numId <= 0 || selectedStaff.isSuperAdmin === true) {
+      setEditError('This staff account cannot be edited. Refresh the staff list.');
+      return;
+    }
     const chosenRoles = editRoles.length > 0 ? editRoles : [selectedStaff.role];
-    const primaryRole = chosenRoles[0] || 'Recruitment';
-
-    try {
-      let savedDept = (selectedStaff.department || '').trim();
-      let updatedRoles = chosenRoles;
-      if (!isNaN(numId)) {
-        const res = await api.put(`/users/${numId}`, {
-          roleNames: chosenRoles,
-          roleName: chosenRoles.join(', '),
-          department: savedDept,
-        });
-        if (res.data?.department || res.data?.department_name) {
-          savedDept = res.data.department || res.data.department_name;
-        }
-        if (res.data?.role_names && Array.isArray(res.data.role_names) && res.data.role_names.length > 0) {
-          updatedRoles = res.data.role_names;
-        }
-      }
-
-      setStaff(
-        staff.map((s) =>
-          s.id === selectedStaff.id
-            ? { ...s, role: updatedRoles[0] || primaryRole, roles: updatedRoles, department: savedDept }
-            : s
-        )
-      );
-
-      addActivityLog({
-        applicantId: '',
-        action: 'Staff Roles Updated',
-        performedBy: currentUserName,
-        department: 'Management',
-        details: `Staff roles updated: ${selectedStaff.name} - Roles: ${updatedRoles.join(', ')}`,
-      });
-
+    const correctedName = selectedStaff.name.trim();
+    const nameChanged = correctedName !== originalStaff.name.trim();
+    if (nameChanged && !canCorrectName) {
+      setEditError('Management permission for another staff account in your agency is required to correct official names.');
+      return;
+    }
+    if (nameChanged && !correctedName) {
+      setEditError('Official full name must not be blank.');
+      return;
+    }
+    const payload: { fullName?: string; roleNames?: UserRole[]; roleName?: string; department?: string } = {};
+    if (nameChanged) payload.fullName = correctedName;
+    if (chosenRoles.length !== originalStaff.roles.length || chosenRoles.some((role) => !originalStaff.roles.includes(role))) {
+      payload.roleNames = chosenRoles;
+      payload.roleName = chosenRoles.join(', ');
+    }
+    if (selectedStaff.department.trim() !== originalStaff.department.trim()) payload.department = selectedStaff.department.trim();
+    if (Object.keys(payload).length === 0) {
       setShowEditModal(false);
       setSelectedStaff(null);
+      return;
+    }
+
+    editBusy.current = true;
+    setIsEditing(true);
+    try {
+      const res = await api.put(`/users/${numId}`, payload);
+      if (res.data?.user_id !== numId || (nameChanged && res.data?.full_name !== correctedName)) {
+        setEditUncertain(true);
+        setEditError('Staff update could not be confirmed. Close this dialog and refresh the staff list before reconciliation.');
+        return;
+      }
+      addActivityLog({
+        applicantId: '',
+        action: nameChanged ? 'Staff Account Updated' : 'Staff Roles Updated',
+        performedBy: currentUserName,
+        department: 'Management',
+        details: `Staff account updated: ${nameChanged ? correctedName : originalStaff.name}${payload.roleNames ? ` - Roles: ${chosenRoles.join(', ')}` : ''}`,
+      });
+      setShowEditModal(false);
+      setSelectedStaff(null);
+      await fetchStaffAndRoles();
     } catch (err: any) {
-      console.error('Backend update user failed:', err);
-      const errMsg = err?.response?.data?.detail || err.message || 'Failed to update staff roles.';
-      alert(errMsg);
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      const serverMessage = typeof detail === 'string' ? detail
+        : Array.isArray(detail) ? detail.map((item: any) => item.msg || 'Invalid staff information').join('; ') : '';
+      const fallback = status === 403 ? 'You do not have permission to edit this staff identity.'
+        : status === 422 ? 'The staff information is invalid. Check the official full name.'
+        : 'Staff update could not be confirmed.';
+      const uncertain = status === 503 || !err?.response;
+      setEditUncertain(uncertain);
+      setEditError(`${serverMessage || fallback}${uncertain ? ' Synchronization may be incomplete. Close this dialog and refresh the staff list; contact support before retrying.' : ''}`);
     } finally {
+      editBusy.current = false;
       setIsEditing(false);
     }
   };
@@ -896,7 +948,10 @@ export default function UserManagement({
                           {/* Edit Roles */}
                           <button
                             onClick={() => {
-                              setSelectedStaff(staffMember);
+                              setSelectedStaff({ ...staffMember });
+                              setOriginalStaff(staffMember);
+                              setEditError('');
+                              setEditUncertain(false);
                               setEditRoles(staffMember.roles && staffMember.roles.length > 0 ? staffMember.roles : [staffMember.role]);
                               setShowEditModal(true);
                             }}
@@ -1715,8 +1770,9 @@ export default function UserManagement({
         <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md mx-4 border border-slate-100">
             <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-[#0F172A] text-lg">Edit Staff Role</h3>
+              <h3 className="font-extrabold text-[#0F172A] text-lg">Edit Staff Account</h3>
               <button
+                disabled={isEditing}
                 onClick={() => {
                   setShowEditModal(false);
                   setSelectedStaff(null);
@@ -1727,15 +1783,22 @@ export default function UserManagement({
               </button>
             </div>
             <div className="space-y-4">
+              {editError && <p role="alert" className="text-sm text-rose-700">{editError}</p>}
+              <p className="text-xs text-slate-500">{canCorrectName
+                ? 'Management can correct the official name of another staff member. Official email changes are unavailable.'
+                : isSelfTarget ? 'Your own official identity and management-controlled fields are read-only.'
+                : 'Official names are read-only. Verified Management access for another staff member in your agency is required.'}</p>
               <div>
-                <label className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
-                  Staff Member
+                <label htmlFor="edit-staff-full-name" className="text-xs font-bold text-[#475569] block mb-1.5 uppercase tracking-wide">
+                  Full Name
                 </label>
                 <input
                   type="text"
+                  id="edit-staff-full-name"
                   value={selectedStaff.name}
-                  readOnly
-                  className="w-full border border-slate-200 px-3 py-2 rounded-lg text-sm bg-slate-50 font-bold text-[#0F172A]"
+                  readOnly={!canCorrectName || isEditing || editUncertain}
+                  onChange={(e) => setSelectedStaff({ ...selectedStaff, name: e.target.value })}
+                  className={`w-full border border-slate-200 px-3 py-2 rounded-lg text-sm font-bold text-[#0F172A] ${canCorrectName && !isSelfTarget ? 'bg-white focus:border-[#0EA5E9] outline-none' : 'bg-slate-50'}`}
                 />
               </div>
               <div>
@@ -1745,6 +1808,7 @@ export default function UserManagement({
                 <input
                   type="text"
                   value={selectedStaff.department}
+                  readOnly={isSelfTarget || isEditing || editUncertain}
                   onChange={(e) => setSelectedStaff({ ...selectedStaff, department: e.target.value })}
                   className="w-full border border-slate-200 px-3 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
                   placeholder="e.g., Documentation Department"
@@ -1761,6 +1825,7 @@ export default function UserManagement({
                       <button
                         type="button"
                         key={r.id}
+                        disabled={isSelfTarget || isEditing || editUncertain}
                         onClick={() => {
                           const current = editRoles || [selectedStaff.role];
                           let next: UserRole[];
@@ -1798,6 +1863,7 @@ export default function UserManagement({
               <div className="flex gap-3 pt-3">
                 <button
                   type="button"
+                  disabled={isEditing}
                   onClick={() => {
                     setShowEditModal(false);
                     setSelectedStaff(null);
@@ -1809,7 +1875,7 @@ export default function UserManagement({
                 <button
                   type="button"
                   onClick={handleEditStaff}
-                  disabled={isEditing}
+                  disabled={isEditing || editUncertain || isSelfTarget}
                   className="flex-1 px-4 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg text-xs font-bold shadow-lg shadow-[#0EA5E9]/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isEditing ? (
