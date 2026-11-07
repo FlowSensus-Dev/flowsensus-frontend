@@ -11,6 +11,7 @@ export interface DatabaseNotificationRow {
   message: string;
   is_read?: boolean;
   created_at?: string;
+  created_by_name?: string;
 }
 
 export interface AppNotification {
@@ -184,8 +185,47 @@ export function notifyListeners(): void {
  * Fetch persistent staff notifications from `public.notification` (via FastAPI `/notifications`
  * with automatic direct Supabase fallback).
  */
-export async function fetchStaffDatabaseNotifications(): Promise<DatabaseNotificationRow[]> {
-  const localSent = getLocalSentNotifications().filter((r) => !r.applicant_id);
+export async function fetchStaffDatabaseNotifications(options?: {
+  currentUserId?: number;
+  currentUserName?: string;
+}): Promise<DatabaseNotificationRow[]> {
+  const cleanSender = options?.currentUserName?.trim().toLowerCase();
+
+  const isSentByCurrentUser = (r: DatabaseNotificationRow) => {
+    if (!cleanSender) return false;
+    if (r.created_by_name && r.created_by_name.trim().toLowerCase() === cleanSender) {
+      return true;
+    }
+    const msg = (r.message || '').toLowerCase();
+    return msg.includes(`requested by ${cleanSender}`) || msg.includes(`by ${cleanSender}`);
+  };
+
+  const isTargetedToOtherHandler = (r: DatabaseNotificationRow) => {
+    if (options?.currentUserId && r.user_id && r.user_id !== options.currentUserId) {
+      return true;
+    }
+    if (cleanSender) {
+      const match = (r.message || '').match(/Assigned to ([^:]+):/i);
+      if (match && match[1]) {
+        const assignedHandler = match[1].trim().toLowerCase();
+        if (
+          assignedHandler !== cleanSender &&
+          !assignedHandler.includes(cleanSender) &&
+          !cleanSender.includes(assignedHandler)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const localSent = getLocalSentNotifications().filter((r) => {
+    if (r.applicant_id) return false;
+    if (isSentByCurrentUser(r)) return false;
+    if (isTargetedToOtherHandler(r)) return false;
+    return true;
+  });
 
   // 1. Try Backend API first
   try {
@@ -196,7 +236,8 @@ export async function fetchStaffDatabaseNotifications(): Promise<DatabaseNotific
       ? res.data.notifications
       : [];
     if (list.length > 0) {
-      return mergeDatabaseNotifications(list, localSent);
+      const filtered = list.filter((r) => !isSentByCurrentUser(r) && !isTargetedToOtherHandler(r));
+      return mergeDatabaseNotifications(filtered, localSent);
     }
   } catch {
     // Fallback to direct Supabase query below
@@ -204,15 +245,24 @@ export async function fetchStaffDatabaseNotifications(): Promise<DatabaseNotific
 
   // 2. Fallback to direct Supabase table query
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('notification')
       .select('*')
       .is('applicant_id', null)
       .order('notification_id', { ascending: false })
       .limit(50);
 
+    if (options?.currentUserId && typeof options.currentUserId === 'number' && options.currentUserId > 0) {
+      query = query.eq('user_id', options.currentUserId);
+    }
+
+    const { data, error } = await query;
+
     if (!error && Array.isArray(data)) {
-      return mergeDatabaseNotifications(data as DatabaseNotificationRow[], localSent);
+      const filtered = (data as DatabaseNotificationRow[]).filter(
+        (r) => !isSentByCurrentUser(r) && !isTargetedToOtherHandler(r)
+      );
+      return mergeDatabaseNotifications(filtered, localSent);
     }
   } catch {
     // ignore
@@ -286,6 +336,21 @@ function mergeDatabaseNotifications(
   );
 }
 
+function deriveStaffUserId(handlerName?: string, handlerUserId?: number): number {
+  if (handlerUserId && typeof handlerUserId === 'number' && handlerUserId > 0) {
+    return handlerUserId;
+  }
+  if (handlerName && !isUnassignedHandlerName(handlerName)) {
+    let hash = 0;
+    for (let i = 0; i < handlerName.length; i++) {
+      hash = (hash << 5) - hash + handlerName.charCodeAt(i);
+      hash |= 0;
+    }
+    return (Math.abs(hash) % 8999) + 100;
+  }
+  return 10;
+}
+
 /**
  * Send a persistent reminder notification to a staff handler (`user_id` in `public.notification`),
  * or broadcast to the responsible department team (`Recruitment` / `Admin`) when the candidate has no handler assigned yet.
@@ -333,12 +398,13 @@ export async function sendHandlerReminderNotification(params: {
       const created: DatabaseNotificationRow = {
         notification_id: res.data.notification_id || Date.now(),
         agency_id: res.data.agency_id || 2,
-        user_id: res.data.user_id || params.handlerUserId || 1,
+        user_id: res.data.user_id || deriveStaffUserId(params.handlerName, params.handlerUserId),
         applicant_id: null,
         title: res.data.title || title,
         message: res.data.message || message,
         is_read: false,
         created_at: res.data.created_at || new Date().toISOString(),
+        created_by_name: params.senderName,
       };
       saveLocalSentNotification(created);
       notifyListeners();
@@ -371,17 +437,6 @@ export async function sendHandlerReminderNotification(params: {
       }
     }
 
-    if (!targetUserId) {
-      const { data: fallbackStaff } = await supabase
-        .from('app_user')
-        .select('user_id, agency_id')
-        .eq('agency_id', targetAgencyId)
-        .limit(1);
-      if (fallbackStaff && fallbackStaff.length > 0) {
-        targetUserId = fallbackStaff[0].user_id;
-      }
-    }
-
     if (targetUserId) {
       const { data: inserted } = await supabase
         .from('notification')
@@ -396,9 +451,13 @@ export async function sendHandlerReminderNotification(params: {
         .single();
 
       if (inserted) {
-        saveLocalSentNotification(inserted as DatabaseNotificationRow);
+        const rowWithSender: DatabaseNotificationRow = {
+          ...(inserted as DatabaseNotificationRow),
+          created_by_name: params.senderName,
+        };
+        saveLocalSentNotification(rowWithSender);
         notifyListeners();
-        return inserted as DatabaseNotificationRow;
+        return rowWithSender;
       }
     }
   } catch {
@@ -408,12 +467,13 @@ export async function sendHandlerReminderNotification(params: {
   const fallbackRow: DatabaseNotificationRow = {
     notification_id: Date.now(),
     agency_id: 2,
-    user_id: params.handlerUserId || 1,
+    user_id: deriveStaffUserId(params.handlerName, params.handlerUserId),
     applicant_id: null,
     title,
     message,
     is_read: false,
     created_at: new Date().toISOString(),
+    created_by_name: params.senderName,
   };
   saveLocalSentNotification(fallbackRow);
   notifyListeners();
@@ -657,6 +717,8 @@ export function buildStaffNotifications(params: {
   activityLogs?: ActivityLog[];
   userRoles: UserRole[];
   isSuperAdmin?: boolean;
+  currentUserId?: number;
+  currentUserName?: string;
 }): AppNotification[] {
   const {
     dbNotifications = [],
@@ -665,6 +727,8 @@ export function buildStaffNotifications(params: {
     expenses = [],
     userRoles = [],
     isSuperAdmin = false,
+    currentUserId,
+    currentUserName,
   } = params;
 
   const readIds = getReadNotificationIds();
@@ -672,10 +736,59 @@ export function buildStaffNotifications(params: {
   const hasRole = (role: UserRole) =>
     isSuperAdmin || userRoles.some((r) => r.toLowerCase() === role.toLowerCase());
 
+  const cleanCurrentUserName = currentUserName?.trim().toLowerCase();
+
   const items: AppNotification[] = [];
 
   // 1. Direct Persistent Reminders & Notices from `public.notification`
   dbNotifications.forEach((row) => {
+    // A. Filter out reminders sent by the current user so they don't receive their own follow-ups
+    if (cleanCurrentUserName) {
+      if (row.created_by_name && row.created_by_name.trim().toLowerCase() === cleanCurrentUserName) {
+        return;
+      }
+      const msg = (row.message || '').toLowerCase();
+      if (
+        msg.includes(`requested by ${cleanCurrentUserName}`) ||
+        msg.includes(`by ${cleanCurrentUserName}`)
+      ) {
+        return;
+      }
+    }
+
+    // B. If targeted to a specific handler user_id and currentUserId is known, only that user sees it
+    if (
+      row.user_id &&
+      typeof row.user_id === 'number' &&
+      currentUserId &&
+      typeof currentUserId === 'number' &&
+      row.user_id !== currentUserId
+    ) {
+      return;
+    }
+
+    // C. If the message specifies "Assigned to <Handler Name>:", ensure only that handler sees it
+    if (cleanCurrentUserName) {
+      const match = (row.message || '').match(/Assigned to ([^:]+):/i);
+      if (match && match[1]) {
+        const assignedHandler = match[1].trim().toLowerCase();
+        if (
+          assignedHandler !== cleanCurrentUserName &&
+          !assignedHandler.includes(cleanCurrentUserName) &&
+          !cleanCurrentUserName.includes(assignedHandler)
+        ) {
+          return;
+        }
+      }
+    }
+
+    // D. If the notification is a team broadcast ("Sent to Recruitment Team:" or "Sent to Admin Team:")
+    if (row.message?.includes('Sent to Recruitment Team:')) {
+      if (!hasRole('Recruitment') && !isSuperAdmin) return;
+    } else if (row.message?.includes('Sent to Admin Team:')) {
+      if (!hasRole('Admin') && !isSuperAdmin) return;
+    }
+
     const id = `db-${row.notification_id}`;
     if (dismissedIds.has(id)) return;
     const isRead = Boolean(row.is_read) || readIds.has(id);

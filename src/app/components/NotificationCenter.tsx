@@ -19,6 +19,8 @@ interface NotificationCenterProps {
   expenses: ExpenseRecord[];
   userRoles: UserRole[];
   isSuperAdmin?: boolean;
+  currentUserId?: number;
+  currentUserName?: string;
   onViewApplicant: (applicantId: string) => void;
   onNavigate: (view: ViewType) => void;
 }
@@ -29,6 +31,8 @@ export default function NotificationCenter({
   expenses,
   userRoles,
   isSuperAdmin = false,
+  currentUserId,
+  currentUserName,
   onViewApplicant,
   onNavigate,
 }: NotificationCenterProps) {
@@ -41,7 +45,10 @@ export default function NotificationCenter({
 
   const loadNotifications = useCallback(async () => {
     try {
-      const dbRows = await fetchStaffDatabaseNotifications();
+      const dbRows = await fetchStaffDatabaseNotifications({
+        currentUserId,
+        currentUserName,
+      });
       setDbNotifications(dbRows);
 
       const canSeeCompliance =
@@ -111,8 +118,21 @@ export default function NotificationCenter({
       activityLogs,
       userRoles,
       isSuperAdmin,
+      currentUserId,
+      currentUserName,
     });
-  }, [dbNotifications, applicants, complianceAlerts, expenses, activityLogs, userRoles, isSuperAdmin, syncVersion]);
+  }, [
+    dbNotifications,
+    applicants,
+    complianceAlerts,
+    expenses,
+    activityLogs,
+    userRoles,
+    isSuperAdmin,
+    currentUserId,
+    currentUserName,
+    syncVersion,
+  ]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !n.isRead).length,

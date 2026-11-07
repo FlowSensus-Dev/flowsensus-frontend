@@ -210,4 +210,48 @@ describe('notificationService', () => {
     expect(unassignedMedical.title).toContain('Unassigned Candidate Follow-Up: Efren Magbanua');
     expect(unassignedMedical.message).toContain('No handler is assigned yet. Sent to Admin Team');
   });
+
+  it('ensures only the assigned handler receives the reminder, and the sender manager is excluded', () => {
+    const reminderRow = {
+      notification_id: 501,
+      agency_id: 2,
+      user_id: 12, // Assigned to handler Louise (user_id=12)
+      applicant_id: null,
+      title: 'Follow-Up Reminder: Maria Santos (APP-008)',
+      message: 'Assigned to Louise Basty Conchada: Please review Maria Santos. Follow-up requested by John Carlo Jamolo.',
+      is_read: false,
+      created_at: new Date().toISOString(),
+      created_by_name: 'John Carlo Jamolo',
+    };
+
+    // 1. When the sender manager (John Carlo Jamolo, user_id=1) views notifications:
+    const senderFeed = buildStaffNotifications({
+      dbNotifications: [reminderRow],
+      applicants: [],
+      userRoles: ['Management'],
+      currentUserId: 1,
+      currentUserName: 'John Carlo Jamolo',
+    });
+    expect(senderFeed.some((n) => n.id === 'db-501')).toBe(false);
+
+    // 2. When the assigned handler (Louise Basty Conchada, user_id=12) views notifications:
+    const handlerFeed = buildStaffNotifications({
+      dbNotifications: [reminderRow],
+      applicants: [],
+      userRoles: ['Recruitment'],
+      currentUserId: 12,
+      currentUserName: 'Louise Basty Conchada',
+    });
+    expect(handlerFeed.some((n) => n.id === 'db-501')).toBe(true);
+
+    // 3. When another unrelated staff member (e.g. user_id=99) views notifications:
+    const otherFeed = buildStaffNotifications({
+      dbNotifications: [reminderRow],
+      applicants: [],
+      userRoles: ['Admin'],
+      currentUserId: 99,
+      currentUserName: 'Other Staff',
+    });
+    expect(otherFeed.some((n) => n.id === 'db-501')).toBe(false);
+  });
 });

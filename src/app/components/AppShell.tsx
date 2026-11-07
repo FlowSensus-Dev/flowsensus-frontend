@@ -301,6 +301,18 @@ export default function AppShell({
 
   const userRolesList: UserRole[] = extractAndNormalizeRoles(currentUserRoles, currentUserRole);
 
+  const resolvedCurrentUserId = (() => {
+    if (!currentUserName || !globalStaff) return undefined;
+    const cleanCurrent = currentUserName.trim().toLowerCase();
+    const found = globalStaff.find(
+      (s: any) =>
+        (s.full_name && s.full_name.trim().toLowerCase() === cleanCurrent) ||
+        (s.name && s.name.trim().toLowerCase() === cleanCurrent) ||
+        (s.email && s.email.trim().toLowerCase() === cleanCurrent)
+    );
+    return found ? (Number(found.user_id || found.id) || undefined) : undefined;
+  })();
+
   const SYSTEM_DASHBOARD_ROLES: ('Management' | 'Recruitment' | 'Admin' | 'Accounting')[] = [
     'Management',
     'Recruitment',
@@ -940,6 +952,8 @@ export default function AppShell({
               expenses={expenses}
               userRoles={userRolesList}
               isSuperAdmin={isSuperAdmin}
+              currentUserId={resolvedCurrentUserId}
+              currentUserName={currentUserName}
               onViewApplicant={handleViewApplicant}
               onNavigate={handleNavigate}
             />
