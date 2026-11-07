@@ -979,6 +979,7 @@ export default function DocumentOCR({
       const numericId = parseInt(applicantId, 10);
       const nowIso = new Date().toISOString();
       const reqName = selectedReq.requirement?.requirement_name || 'Document';
+      const isCurrentlyUnassigned = !modalApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', ''].includes(modalApplicant.currentHandler.trim());
 
       // If verifying passport and expiration date is entered, sync to applicant profile
       if (typedExpirationDate && reqName.toLowerCase().includes('passport')) {
@@ -986,15 +987,28 @@ export default function DocumentOCR({
           api.put(`/applicants/${numericId}`, {
             application_id: modalApplicant.applicationId,
             passport_expiration_date: typedExpirationDate,
+            current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+            current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
             updated_at: nowIso,
           }).catch(console.error);
         }
-        setModalApplicant(prev => prev ? ({ ...prev, passportExpirationDate: typedExpirationDate }) : null);
+        setModalApplicant(prev => prev ? ({
+          ...prev,
+          passportExpirationDate: typedExpirationDate,
+          ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+        }) : null);
         if (modalApplicantRef.current) {
-          modalApplicantRef.current = { ...modalApplicantRef.current, passportExpirationDate: typedExpirationDate };
+          modalApplicantRef.current = {
+            ...modalApplicantRef.current,
+            passportExpirationDate: typedExpirationDate,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+          };
         }
         if (updateApplicant) {
-          updateApplicant(applicantId, { passportExpirationDate: typedExpirationDate });
+          updateApplicant(applicantId, {
+            passportExpirationDate: typedExpirationDate,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+          });
         }
       }
 
@@ -1005,6 +1019,7 @@ export default function DocumentOCR({
           status: 'Provisional',
           phase: 5,
           phaseDescription: reasonText,
+          ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
         };
 
         if (updateApplicant) {
@@ -1023,6 +1038,8 @@ export default function DocumentOCR({
             phase_description: reasonText,
             statusChangeReason: `Document rejected: ${reqName}`,
             statusChangeSource: 'DOCUMENT_VALIDATION',
+            current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+            current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
             updated_at: nowIso,
           }).catch(console.error);
         }
@@ -1051,6 +1068,7 @@ export default function DocumentOCR({
             status: 'Provisional',
             phase: 5,
             phaseDescription: reasonText,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
           };
 
           if (updateApplicant) {
@@ -1069,6 +1087,8 @@ export default function DocumentOCR({
               phase_description: reasonText,
               statusChangeReason: `Document verified, but candidate has rejected document(s): ${rejectedNames}`,
               statusChangeSource: 'DOCUMENT_VALIDATION',
+              current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+              current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
               updated_at: nowIso,
             }).catch(console.error);
           }
@@ -1082,6 +1102,7 @@ export default function DocumentOCR({
               status: 'Endorse for Administrative Processing',
               phase: 5,
               phaseDescription: reasonText,
+              ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
             };
 
             if (updateApplicant) {
@@ -1100,6 +1121,8 @@ export default function DocumentOCR({
                 phase_description: reasonText,
                 statusChangeReason: 'Document rejections resolved',
                 statusChangeSource: 'DOCUMENT_VALIDATION',
+                current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+                current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
                 updated_at: nowIso,
               }).catch(console.error);
             }
@@ -1114,6 +1137,29 @@ export default function DocumentOCR({
 
             showToast(`✓ Document approved. All rejections cleared; candidate returned to Administrative Processing.`);
           } else {
+            if (isCurrentlyUnassigned) {
+              const updates: Partial<ApplicantRecord> = {
+                currentHandler: currentUserName,
+                currentDepartment: 'Admin',
+              };
+              if (updateApplicant) {
+                updateApplicant(applicantId, updates);
+              }
+              setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+              if (modalApplicantRef.current) {
+                modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+              }
+              if (!isNaN(numericId)) {
+                api.put(`/applicants/${numericId}`, {
+                  application_id: modalApplicant.applicationId,
+                  current_handler: currentUserName,
+                  current_department: 'Admin',
+                  statusChangeReason: `Document ${reqName} verified; claimed by ${currentUserName}`,
+                  statusChangeSource: 'DOCUMENT_VALIDATION',
+                  updated_at: nowIso,
+                }).catch(console.error);
+              }
+            }
             showToast(`✓ Document ${reqName} marked as Approved & Verified.`);
           }
         }
@@ -1722,6 +1768,7 @@ export default function DocumentOCR({
 
     setIsSavingDeployment(true);
     try {
+      const isCurrentlyUnassigned = !modalApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', ''].includes(modalApplicant.currentHandler.trim());
       const updates: Partial<ApplicantRecord> = {
         actualDeploymentDate: actualDeploymentInput,
         phase: targetPhase,
@@ -1730,6 +1777,10 @@ export default function DocumentOCR({
           ? `Candidate deployed overseas on ${actualDeploymentInput}. 3-2-1 compliance alert tracking concluded.`
           : `Confirmed DMW deployment date encoded: ${actualDeploymentInput}. Departure scheduled.`,
       };
+      if (isCurrentlyUnassigned) {
+        updates.currentHandler = currentUserName;
+        updates.currentDepartment = 'Admin';
+      }
 
       if (updateApplicant) {
         updateApplicant(applicantId, updates);
@@ -1751,6 +1802,8 @@ export default function DocumentOCR({
           phase_description: updates.phaseDescription,
           statusChangeReason: `${reasonPrefix}: ${actualDeploymentInput}${reasonDetail}`,
           statusChangeSource: 'DMW_RESPONSE',
+          current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+          current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
           updated_at: nowIso,
         });
 
@@ -2381,9 +2434,19 @@ export default function DocumentOCR({
                   <span>Release Claim</span>
                 </button>
               ) : (
-                <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
-                  Handler: {modalApplicant.currentHandler}
-                </span>
+                <div className="flex items-center gap-1.5 bg-slate-100/90 border border-slate-200/80 px-3 py-1.5 rounded-xl flex-shrink-0">
+                  <span className="text-xs font-semibold text-slate-600">
+                    Handler: <strong className="text-slate-800">{modalApplicant.currentHandler}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleClaim(modalApplicant)}
+                    className="text-xs font-bold text-[#0EA5E9] hover:text-[#0284C7] ml-1 cursor-pointer hover:underline"
+                    title="Take over this candidate into your queue"
+                  >
+                    Take over
+                  </button>
+                </div>
               )}
 
               {/* Revert Deployment Status if Ready for Deployment */}

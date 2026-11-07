@@ -849,6 +849,14 @@ export default function EndorsementTracker({
     return applicants.find(a => String(a.id) === String(card.applicant_id));
   }, [applicants]);
 
+  // Helper to preserve assigned handler when advancing endorsement stages
+  const resolveAssignedHandler = useCallback((app?: ApplicantRecord) => {
+    if (app?.currentHandler && !['Unassigned', 'Unassigned Pool', 'System Agent', ''].includes(app.currentHandler.trim())) {
+      return app.currentHandler;
+    }
+    return currentUserName;
+  }, [currentUserName]);
+
   const notify = (msg: string) => {
     if (showToast) showToast(msg);
     else alert(msg);
@@ -858,6 +866,7 @@ export default function EndorsementTracker({
   const handleConfirmUpload = async (card: CvSubmission, uploadRef: string) => {
     const previousSubmissions = submissions;
     const previousApp = getApplicantForCard(card);
+    const assignedHandler = resolveAssignedHandler(previousApp);
     const nowIso = new Date().toISOString();
 
     // 1. Optimistic Update (0ms UI latency)
@@ -872,7 +881,7 @@ export default function EndorsementTracker({
 
     updateApplicant(String(card.applicant_id), {
       status: 'Endorse to Employer',
-      currentHandler: currentUserName,
+      currentHandler: assignedHandler,
       phaseDescription: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
     });
 
@@ -894,7 +903,7 @@ export default function EndorsementTracker({
         tasks.push(
           api.put(`/applicants/${numId}`, {
             application_status: 'Endorse to Employer',
-            current_handler: currentUserName,
+            current_handler: assignedHandler,
             phase_description: 'CV uploaded to foreign employer portal. Awaiting encoding completion.',
             statusChangeReason: 'Confirmed portal upload in Endorsement Tracker',
             statusChangeSource: 'ENDORSEMENT_TRACKER',
@@ -934,6 +943,7 @@ export default function EndorsementTracker({
   const handleConfirmEncoding = async (card: CvSubmission) => {
     const previousSubmissions = submissions;
     const previousApp = getApplicantForCard(card);
+    const assignedHandler = resolveAssignedHandler(previousApp);
     const nowIso = new Date().toISOString();
 
     // 1. Optimistic Update (0ms UI latency)
@@ -947,7 +957,7 @@ export default function EndorsementTracker({
 
     updateApplicant(String(card.applicant_id), {
       status: 'Under Employer Review',
-      currentHandler: currentUserName,
+      currentHandler: assignedHandler,
       phaseDescription: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
     });
 
@@ -966,7 +976,7 @@ export default function EndorsementTracker({
         tasks.push(
           api.put(`/applicants/${numId}`, {
             application_status: 'Under Employer Review',
-            current_handler: currentUserName,
+            current_handler: assignedHandler,
             phase_description: 'Candidate CV encoded in employer portal. Under active review by foreign employer.',
             statusChangeReason: 'Confirmed portal encoding complete; under employer review',
             statusChangeSource: 'ENDORSEMENT_TRACKER',
