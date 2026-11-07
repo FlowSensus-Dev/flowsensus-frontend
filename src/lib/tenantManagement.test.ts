@@ -36,4 +36,19 @@ describe('tenant update safety', () => {
       expect(() => confirmedTenantUpdate(data, 83, 'CLOSED')).toThrow();
     }
   });
+  it('preserves null or expired legacy expiry and color on unrelated edits', () => {
+    for (const expiry of [null, '2020-01-01']) {
+      const row = { ...agency('ACTIVE'), license_expiry_date: expiry, theme_color: null, logo_url: null };
+      expect(tenantEditPayload(row, { ...tenantEditForm(row), agency_name: 'Renamed' }, false)).toEqual({ agency_name: 'Renamed' });
+    }
+  });
+  it('validates deliberate expiry and theme edits while excluding logo_url', () => {
+    const row = agency('ACTIVE');
+    const draft = { ...tenantEditForm(row), license_expiry_date: '2099-12-31', theme_color: '#aabbcc', logo_url: 'https://untrusted.test/logo' };
+    expect(tenantEditPayload(row, draft, false)).toEqual({ license_expiry_date: '2099-12-31', theme_color: '#AABBCC' });
+    expect(() => tenantEditPayload(row, { ...draft, license_expiry_date: '2020-01-01' }, false)).toThrow('later than today');
+    expect(() => tenantEditPayload(row, { ...draft, theme_color: 'red' }, false)).toThrow('six-digit');
+    expect(() => confirmedTenantUpdate(row, 83, undefined, { license_expiry_date: '2099-12-31' })).toThrow();
+    expect(() => confirmedTenantUpdate({ ...row, theme_color: '#112233' }, 83, undefined, { theme_color: '#AABBCC' })).toThrow();
+  });
 });

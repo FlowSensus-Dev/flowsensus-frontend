@@ -77,6 +77,22 @@ describe('PF17S3 App platform isolation (mocked Auth and API)', () => {
     await node(LoginScreen).props.onLogin('Management', 'Operator', undefined, false, ['Management']); await settle();
     expect(h.getUser).toHaveBeenCalledOnce(); expect(node(SuperAdminDashboard)).toBeDefined();
     expect(node(AppShell)).toBeUndefined(); expect(h.get).not.toHaveBeenCalled();
+    expect(node(SuperAdminDashboard).props.currentUserName).toBe('Platform Operator');
+    expect(node(SuperAdminDashboard).props.currentUserEmail).toBe('operator@example.test');
+  });
+  it('passes restored authenticated platform identity and updates it on token refresh', async () => {
+    await settle();
+    expect(node(SuperAdminDashboard).props).toMatchObject({ currentUserName: 'Platform Operator', currentUserEmail: 'operator@example.test' });
+    h.authEvent('TOKEN_REFRESHED', { user: { ...platform, email: 'updated@example.test', user_metadata: { full_name: 'Updated Operator' } } });
+    await settle();
+    expect(node(SuperAdminDashboard).props).toMatchObject({ currentUserName: 'Updated Operator', currentUserEmail: 'updated@example.test' });
+    expect(h.get).not.toHaveBeenCalled();
+  });
+  it('clears platform identity on logout without reusing email in a later session', async () => {
+    await settle(); await node(SuperAdminDashboard).props.onLogout(); await settle();
+    expect(h.signOut).toHaveBeenCalledOnce(); expect(node(SuperAdminDashboard)).toBeUndefined();
+    h.authEvent('SIGNED_IN', { user: { ...platform, email: undefined, user_metadata: {} } }); await settle();
+    expect(node(SuperAdminDashboard).props).toMatchObject({ currentUserName: 'Platform administrator', currentUserEmail: '' });
   });
   it('does not accept a callback privilege claim without the Auth flag, preserving tenant multi-role navigation', async () => {
     h.getSession.mockResolvedValue({ data: { session: null } }); h.getUser.mockResolvedValue({ data: { user: staff }, error: null }); await settle();

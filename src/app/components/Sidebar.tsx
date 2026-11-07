@@ -35,6 +35,7 @@ import { UserRole } from '../types';
 import { ViewType } from './AppShell';
 import { hasAccessToView } from '../../lib/accessControl';
 import Logo from './Logo';
+import TenantSidebarBrand from './TenantSidebarBrand';
 
 interface SidebarProps {
   currentUserRole: UserRole;
@@ -169,12 +170,12 @@ export default function Sidebar({
           </button>
         ) : (
           <>
-            <div className="flex items-center gap-3 min-w-0">
+            {isSuperAdmin ? <div className="flex items-center gap-3 min-w-0">
               <Logo size="small" />
               <span className="font-extrabold text-white text-lg tracking-wider leading-none truncate">
                 FLOWSENSUS
               </span>
-            </div>
+            </div> : <TenantSidebarBrand />}
             {onToggleCollapse && (
               <button
                 type="button"

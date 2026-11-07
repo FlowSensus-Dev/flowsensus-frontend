@@ -14,6 +14,7 @@ import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
 import { isPlatformSuperAdmin } from "../lib/platformIdentity";
 import { mapApplicantFromApi } from "../lib/applicantMapper";
+import { ACCENT_PRESETS } from "../lib/agencyBranding";
 import {
   Check, ChevronRight, Building2, Users, Globe, Shield,
   ArrowRight, X, CheckCircle2, Loader2, Mail, Lock,
@@ -29,17 +30,6 @@ const STEPS = [
   { id: 2, label: "Branding" },
   { id: 3, label: "Admin" },
   { id: 4, label: "Review" },
-];
-
-const ACCENT_PRESETS = [
-  { name: "Sky", value: "#0EA5E9" },
-  { name: "Indigo", value: "#6366F1" },
-  { name: "Emerald", value: "#10B981" },
-  { name: "Amber", value: "#F59E0B" },
-  { name: "Rose", value: "#F43F5E" },
-  { name: "Violet", value: "#8B5CF6" },
-  { name: "Teal", value: "#14B8A6" },
-  { name: "Orange", value: "#F97316" },
 ];
 
 function toSubdomain(name: string): string {
@@ -1138,6 +1128,7 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
   const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [authSubject, setAuthSubject] = useState<string | null>(null);
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
@@ -1170,6 +1161,7 @@ export default function App() {
     const wasPlatform = liveIsPlatform.current;
     liveIsPlatform.current = platform;
     setIsSuperAdmin(platform);
+    setCurrentUserEmail(typeof user?.email === 'string' ? user.email : '');
     setPlatformPasswordUser(platform && (user?.app_metadata?.must_change_password === true || user?.user_metadata?.must_change_password === true) ? user : null);
     if (platform || wasPlatform || !user) {
       setCurrentUserRole('');
@@ -1652,7 +1644,7 @@ export default function App() {
       showAppView("app");
     }
     setCurrentUserRole(isSuper ? '' : role);
-    setCurrentUserName(name || role);
+    if (!isSuper) setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     else setLoggedInApplicantId("");
     if (role !== "Applicant" && !isSuper) {
@@ -1702,6 +1694,7 @@ export default function App() {
     setCurrentUserRole("");
     setCurrentUserRoles([]);
     setCurrentUserName("");
+    setCurrentUserEmail("");
     showAppView("landing");
   };
 
@@ -1796,7 +1789,7 @@ export default function App() {
   if (isSuperAdmin) {
     if (platformPasswordUser) return <LoginScreen key={platformPasswordUser.id} onLogin={handleLogin} onBack={handleLogout}
       requiredPasswordChange={{ user: platformPasswordUser, role: '', roles: [], name: currentUserName, isSuper: true }} />;
-    return <SuperAdminDashboard onLogout={handleLogout} currentUserName={currentUserName} />;
+    return <SuperAdminDashboard onLogout={handleLogout} currentUserName={currentUserName} currentUserEmail={currentUserEmail} />;
   }
 
   // Landing
