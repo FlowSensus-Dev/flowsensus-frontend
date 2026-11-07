@@ -357,6 +357,8 @@ export default function AppShell({
   const handleNavigate = (view: ViewType) => {
     if (view === 'registration') {
       setSelectedApplicantId('new');
+    } else if (view === 'cv') {
+      setSelectedApplicantId(null);
     }
     setCurrentView(view);
   };

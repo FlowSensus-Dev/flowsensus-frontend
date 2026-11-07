@@ -1677,7 +1677,7 @@ export default function EndorsementTracker({
   return (
     <div className="space-y-4">
       {/* Header & Global Controls */}
-      <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-200/90">
+      <div className="space-y-3 pb-3.5 border-b border-slate-200/90">
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-2xl font-bold tracking-tight text-[#0F172A]">Endorsement Tracker</h2>
@@ -1690,8 +1690,10 @@ export default function EndorsementTracker({
           </p>
         </div>
 
-        {/* Global Toolbar */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Global Toolbar: Consistent, rock-solid position across Board and Table views */}
+        <div className="flex items-center justify-between flex-wrap gap-2.5">
+          {/* Left: Quick Search & Stage Filter */}
+          <div className="flex items-center gap-2 flex-wrap">
           {/* Quick Search */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1821,43 +1823,54 @@ export default function EndorsementTracker({
             </button>
           )}
 
-          {/* Board / Table View Switcher */}
-          <div className="inline-flex items-center bg-slate-100 border border-slate-200/80 rounded-lg p-0.5">
-            <button
-              type="button"
-              onClick={() => setViewMode('board')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                viewMode === 'board'
-                  ? 'bg-white text-[#0F172A] shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-              title="Pipeline Board View"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Board</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                viewMode === 'table'
-                  ? 'bg-white text-[#0F172A] shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-              title="Detailed Table View"
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Table</span>
-            </button>
           </div>
 
-          {/* Card Density Toggle (Board mode only) */}
-          {viewMode === 'board' && (
+          {/* Right: Board/Table View Switcher, Density Toggle, and Refresh */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Board / Table View Switcher */}
+            <div className="inline-flex items-center bg-slate-100 border border-slate-200/80 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('board')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  viewMode === 'board'
+                    ? 'bg-white text-[#0F172A] shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Pipeline Board View"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Board</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-white text-[#0F172A] shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Detailed Table View"
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>Table</span>
+              </button>
+            </div>
+
+            {/* Density Toggle (Supported in both Board & Table modes) */}
             <button
               type="button"
               onClick={toggleAllCards}
               className="flex items-center gap-1.5 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors shadow-2xs text-xs font-semibold cursor-pointer"
-              title={allCardsExpanded ? "Switch to compact density" : "Show full audit details on cards"}
+              title={
+                viewMode === 'board'
+                  ? allCardsExpanded
+                    ? "Switch to compact cards"
+                    : "Show full audit details on cards"
+                  : allCardsExpanded
+                    ? "Switch to compact table rows"
+                    : "Switch to comfortable table rows"
+              }
             >
               {allCardsExpanded ? (
                 <>
@@ -1871,18 +1884,18 @@ export default function EndorsementTracker({
                 </>
               )}
             </button>
-          )}
 
-          {/* Refresh Board */}
-          <button
-            type="button"
-            onClick={load}
-            disabled={isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors shadow-2xs text-xs font-semibold cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
+            {/* Refresh Board */}
+            <button
+              type="button"
+              onClick={load}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors shadow-2xs text-xs font-semibold cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2034,16 +2047,18 @@ export default function EndorsementTracker({
                       ? new Date(card.approved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
                       : null;
 
+                    const rowPadClass = allCardsExpanded ? 'py-3.5 px-4' : 'py-2 px-4';
+
                     return (
                       <tr key={card.submission_id} className="hover:bg-slate-50/70 transition-colors">
                         {/* Col 1: Candidate & Role */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className={`${rowPadClass} whitespace-nowrap`}>
                           <div className="font-semibold text-[#0F172A] text-[13.5px]">{details.candidateName}</div>
                           <div className="text-xs text-slate-500 mt-0.5">{formatReadableText(details.candidateAppliedRole)}</div>
                         </td>
 
                         {/* Col 2: Employer, Country & JO Code */}
-                        <td className="py-3.5 px-4">
+                        <td className={rowPadClass}>
                           <div className="font-medium text-slate-700 text-xs">
                             {formatReadableText(details.employerName)}
                             {details.countryName !== '—' ? (
@@ -2059,7 +2074,7 @@ export default function EndorsementTracker({
                         </td>
 
                         {/* Col 3: Stage Badge (Centered) */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className={`${rowPadClass} text-center whitespace-nowrap`}>
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${stageObj.badgeBg}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${stageObj.dotClass}`} />
                             <span>{isEndorsedForAdmin ? 'Endorsed to Admin' : stageObj.label}</span>
@@ -2067,7 +2082,7 @@ export default function EndorsementTracker({
                         </td>
 
                         {/* Col 4: Approver & Date (Centered) */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className={`${rowPadClass} text-center whitespace-nowrap`}>
                           <div className="font-medium text-slate-700 text-xs">
                             {card.approved_by || 'Manager'}
                           </div>
@@ -2077,7 +2092,7 @@ export default function EndorsementTracker({
                         </td>
 
                         {/* Col 5: Standardized Actions Dropdown (Centered) */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className={`${rowPadClass} text-center whitespace-nowrap`}>
                           <div className="relative inline-block text-left" data-dropdown-container>
                             <button
                               type="button"

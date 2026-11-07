@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Lock, Save, Send, Download, Loader2, FileText, Plus, Trash2,
   CheckCircle2, Clock, XCircle, AlertCircle, Edit3, Undo2, Eye,
-  ZoomIn, ZoomOut, X, UserPlus
+  ZoomIn, ZoomOut, X, UserPlus, User
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
@@ -145,7 +145,8 @@ export default function CVEncoding({
   applicants = [],
   onNavigate,
 }: CVEncodingProps) {
-  const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
+  // Staff must manually select an applicant first; never auto-default to any applicant on load
+  const [selectedApplicantId, setSelectedApplicantId] = useState('');
   const [cvRecord, setCvRecord] = useState<CvRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -203,7 +204,7 @@ export default function CVEncoding({
     [eligibleApplicants]
   );
 
-  // Sync selected applicant with initialApplicantId prop ONLY if that candidate is eligible
+  // Sync selected applicant with initialApplicantId prop ONLY if that candidate is eligible and explicitly provided
   useEffect(() => {
     if (initialApplicantId) {
       const isEligible = eligibleApplicants.some(a => String(a.id) === String(initialApplicantId));
@@ -213,15 +214,13 @@ export default function CVEncoding({
     }
   }, [initialApplicantId, eligibleApplicants]);
 
-  // Keep selected applicant synced: if current selection is empty or returned to Profiling, select first eligible
+  // Keep selected applicant synced: if current selection is no longer eligible, reset to none (never auto-default)
   useEffect(() => {
     if (selectedApplicantId) {
       const match = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId));
       if (!match) {
-        setSelectedApplicantId(eligibleApplicants.length > 0 ? String(eligibleApplicants[0].id) : '');
+        setSelectedApplicantId('');
       }
-    } else if (eligibleApplicants.length > 0) {
-      setSelectedApplicantId(String(eligibleApplicants[0].id));
     }
   }, [eligibleApplicants, selectedApplicantId]);
 
@@ -600,10 +599,6 @@ export default function CVEncoding({
     const nowIso = new Date().toISOString();
 
     try {
-      // Determine next eligible candidate BEFORE removing this one from the queue
-      const remaining = eligibleApplicants.filter(a => String(a.id) !== applicantId);
-      const nextId = remaining.length > 0 ? String(remaining[0].id) : '';
-
       // 1. Update applicant state locally (this removes them from eligibleApplicants immediately)
       updateApplicant(applicantId, {
         status: 'Applicant Profiling',
@@ -613,7 +608,7 @@ export default function CVEncoding({
         phaseDescription: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
       });
 
-      setSelectedApplicantId(nextId);
+      setSelectedApplicantId('');
       setShowReturnModal(false);
       setReturnNotes('');
 
@@ -797,7 +792,7 @@ export default function CVEncoding({
                   );
                 })()}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setShowPreview(true)}
@@ -813,6 +808,15 @@ export default function CVEncoding({
                 >
                   {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0EA5E9]" /> : <Download className="w-3.5 h-3.5 text-[#0EA5E9]" />}
                   Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedApplicantId('')}
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center gap-1 transition cursor-pointer"
+                  title="Unselect candidate and return to selection"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Unselect
                 </button>
               </div>
             </div>
@@ -853,7 +857,19 @@ export default function CVEncoding({
       {/* ── One workspace card with two tabs ── */}
       {isLoading ? (
         <SkeletonCVLoader />
-      ) : !currentApplicant ? null : (
+      ) : !currentApplicant ? (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 sm:p-14 text-center max-w-2xl mx-auto my-6 shadow-2xs">
+          <div className="w-14 h-14 rounded-full bg-sky-50 text-[#0EA5E9] flex items-center justify-center mx-auto mb-4 border border-sky-100">
+            <User className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-[#0F172A] mb-1.5">
+            Select an applicant to begin
+          </h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+            Please choose a candidate from the dropdown above to review their qualifications, encode custom CV fields, and submit their profile for management approval.
+          </p>
+        </div>
+      ) : (
         <div className={`bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
           {/* Tab bar */}
           <div className="flex items-center justify-between px-5 border-b border-slate-200">
