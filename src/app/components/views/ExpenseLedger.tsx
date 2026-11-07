@@ -49,7 +49,12 @@ export default function ExpenseLedger({
     }).filter(app => {
       const matchesSearch = (app.name || `${app.firstName || ''} ${app.lastName || ''}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
                             (app.applicantCode || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesPhase = phaseFilter === 'All' || app.workflowPhase === phaseFilter;
+      const matchesPhase =
+        phaseFilter === 'All' ||
+        (phaseFilter === 'Medical' && (app.phase === 2 || /medical/i.test(app.status))) ||
+        (phaseFilter === 'Profiling' && (app.phase === 3 || /profil/i.test(app.status))) ||
+        (phaseFilter === 'Endorsement' && (app.phase === 4 || /endorse/i.test(app.status))) ||
+        (phaseFilter === 'Deployed' && (app.phase === 6 || /deployed/i.test(app.status)));
       return matchesSearch && matchesPhase;
     }).sort((a, b) => b.totalPeso - a.totalPeso);
   }, [applicants, expenses, searchTerm, phaseFilter]);

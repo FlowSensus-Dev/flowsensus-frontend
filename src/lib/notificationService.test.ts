@@ -6,6 +6,8 @@ import {
   dismissNotificationItem,
   sendHandlerReminderNotification,
   sendCandidateNotification,
+  fetchApplicantDatabaseNotifications,
+  isCandidateDocumentNotified,
   getReadNotificationIds,
   getDismissedNotificationIds,
   resetNotificationLocalState,
@@ -253,5 +255,89 @@ describe('notificationService', () => {
       currentUserName: 'Other Staff',
     });
     expect(otherFeed.some((n) => n.id === 'db-501')).toBe(false);
+  });
+
+  it('strictly isolates Notify Candidate notifications to only that candidate and tracks per-candidate/per-document state', async () => {
+    // Send notification to Jayson Mendoza (applicant_id=22, APP-2026-FPT-00022) for NBI Clearance
+    const jaysonRow = await sendCandidateNotification({
+      applicantId: 22,
+      applicantCode: 'APP-2026-FPT-00022',
+      applicantName: 'Jayson Mendoza',
+      documentName: 'NBI Clearance',
+      daysRemaining: 26,
+      senderName: 'Admin',
+    });
+
+    expect(jaysonRow.applicant_id).toBe(22);
+    expect(jaysonRow.user_id).toBeNull();
+    expect(jaysonRow.title).toBe('Document Renewal Notice: NBI Clearance');
+    expect(jaysonRow.message).toContain('Hello Jayson Mendoza');
+
+    // Only Jayson Mendoza + NBI Clearance is marked notified
+    expect(
+      isCandidateDocumentNotified({
+        applicantId: 22,
+        applicantCode: 'APP-2026-FPT-00022',
+        documentName: 'NBI Clearance',
+      })
+    ).toBe(true);
+
+    // Jayson Mendoza's other documents are NOT marked notified
+    expect(
+      isCandidateDocumentNotified({
+        applicantId: 22,
+        applicantCode: 'APP-2026-FPT-00022',
+        documentName: 'Philippine Passport',
+      })
+    ).toBe(false);
+
+    // Other candidates (e.g. Jerome Corpuz, applicant_id=25, who also has NBI Clearance) are NOT marked notified
+    expect(
+      isCandidateDocumentNotified({
+        applicantId: 25,
+        applicantCode: 'APP-2026-FPT-00025',
+        documentName: 'NBI Clearance',
+      })
+    ).toBe(false);
+
+    // Fetch notifications for Jayson Mendoza (22) -> receives only his notification
+    const jaysonNotifs = await fetchApplicantDatabaseNotifications(22, {
+      applicantCode: 'APP-2026-FPT-00022',
+      applicantName: 'Jayson Mendoza',
+    });
+    expect(jaysonNotifs).toHaveLength(1);
+    expect(jaysonNotifs[0].applicant_id).toBe(22);
+
+    // Fetch notifications for Datu Al-Rashid Sinsuat (23) -> receives 0 notifications
+    const datuNotifs = await fetchApplicantDatabaseNotifications(23, {
+      applicantCode: 'APP-2026-FPT-00023',
+      applicantName: 'Datu Al-Rashid Sinsuat',
+    });
+    expect(datuNotifs).toHaveLength(0);
+
+    // Fetch notifications for Applicant 1 -> receives 0 notifications (no fallback to applicant_id=1)
+    const applicant1Notifs = await fetchApplicantDatabaseNotifications(1, {
+      applicantCode: 'APP-2026-FPT-00001',
+      applicantName: 'First Applicant',
+    });
+    expect(applicant1Notifs).toHaveLength(0);
+
+    // Never falls back to applicant_id=1 when given a non-numeric applicant code
+    const codeOnlyRow = await sendCandidateNotification({
+      applicantId: 'APP-2026-FPT-00024',
+      applicantCode: 'APP-2026-FPT-00024',
+      applicantName: 'Ramil Sylver',
+      documentName: 'Philippine Passport',
+      daysRemaining: -4,
+    });
+    expect(codeOnlyRow.applicant_id).not.toBe(1);
+    expect(codeOnlyRow.target_applicant_code).toBe('APP-2026-FPT-00024');
+
+    const ramilNotifs = await fetchApplicantDatabaseNotifications('APP-2026-FPT-00024', {
+      applicantCode: 'APP-2026-FPT-00024',
+      applicantName: 'Ramil Sylver',
+    });
+    expect(ramilNotifs).toHaveLength(1);
+    expect(ramilNotifs[0].message).toContain('Hello Ramil Sylver');
   });
 });

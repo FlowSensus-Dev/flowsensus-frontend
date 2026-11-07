@@ -33,7 +33,7 @@ const text = (tree: any): string => {
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe('Agency SES settings (mocked API)', () => {
-  let onSaved: ReturnType<typeof vi.fn>;
+  let onSaved: any;
   const render = (canEdit = true) => { h.cursor = 0; return AgencySesSettings({ canEdit, onSaved }); };
   const button = (tree: any, label: string) => nodes(tree).find((n) => n.type === 'button' && text(n).trim() === label);
   const edit = () => { button(render(), 'Edit Alpha').props.onClick(); return render(); };

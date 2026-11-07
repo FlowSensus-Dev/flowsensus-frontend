@@ -168,7 +168,7 @@ const PREVIOUS_STAGE_MAP: Record<string, {
   },
 };
 
-export function isCardEndorsedToAdmin(card?: CvSubmission | null, applicant?: ApplicantRecord | null): boolean {
+function isCardEndorsedToAdmin(card?: CvSubmission | null, applicant?: ApplicantRecord | null): boolean {
   if (!card) return false;
   if (card.board_stage_code !== 'ENDORSED_TO_ADMIN') return false;
   const status = applicant?.status || '';
@@ -253,7 +253,7 @@ export interface ResolvedCardDetails {
   hasMatchedEmployer: boolean;
 }
 
-export function resolveCardDetails(
+function resolveCardDetails(
   card: CvSubmission | null | undefined,
   applicant?: ApplicantRecord,
   globalJobOrders: any[] = [],

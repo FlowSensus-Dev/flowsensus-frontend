@@ -246,7 +246,7 @@ function checkDocumentTypeMismatch(
   return null;
 }
 
-export function isNonExpiringDocument(name?: string): boolean {
+function isNonExpiringDocument(name?: string): boolean {
   if (!name) return false;
   const n = name.toLowerCase();
   return (

@@ -5,7 +5,7 @@ import {
   ArrowUpDown, CheckCircle2
 } from 'lucide-react';
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
-import { ApplicantRecord, ActivityLog, ExpenseRecord } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, UserRole } from '../../types';
 import { ViewType } from '../AppShell';
 import ApplicantProfile from './ApplicantProfile';
 

@@ -12,7 +12,7 @@ import {
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 import { calculateExperienceBreakdown } from '../../../lib/profilingUtils';
-import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord, UserRole } from '../../types';
 import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPreview';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────

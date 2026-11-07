@@ -250,7 +250,7 @@ function ApplicantDeploymentCard({ application, agencyId }: { application: Porta
   );
 }
 
-export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
+export default function ApplicantPortal({ onLogout, applicantId: propApplicantId, applicantName: propApplicantName }: ApplicantPortalProps) {
   const [profile, setProfile] = useState<PortalProfile | null>(null);
   const [applications, setApplications] = useState<PortalApplication[]>([]);
   const [documents, setDocuments] = useState<PortalDocument[]>([]);
@@ -293,6 +293,11 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
         api.get('/applicants/me/documents'),
       ]);
 
+      const resolvedProfile =
+        resProfile.status === 'fulfilled' && resProfile.value.data
+          ? (resProfile.value.data as PortalProfile)
+          : profile;
+
       if (resProfile.status === 'fulfilled' && resProfile.value.data) {
         setProfile(resProfile.value.data);
       } else if (resProfile.status === 'rejected') {
@@ -309,17 +314,22 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
         setDocuments([]);
       }
 
-      const resolvedApplicantId =
-        resProfile.status === 'fulfilled' && resProfile.value.data?.applicant_id
-          ? resProfile.value.data.applicant_id
-          : profile?.applicant_id;
-      const fetchedNotifs = await fetchApplicantDatabaseNotifications(resolvedApplicantId);
+      const resolvedApplicantId = resolvedProfile?.applicant_id || propApplicantId;
+      const resolvedFullName = resolvedProfile
+        ? `${resolvedProfile.first_name} ${resolvedProfile.middle_name ? resolvedProfile.middle_name + ' ' : ''}${resolvedProfile.last_name}`
+        : propApplicantName;
+
+      const fetchedNotifs = await fetchApplicantDatabaseNotifications(resolvedApplicantId, {
+        applicantCode: resolvedProfile?.applicant_code || null,
+        applicantName: resolvedFullName || null,
+      });
       setDbNotifications(fetchedNotifs);
       setNotifSyncVersion((v) => v + 1);
 
-      // Persist to session cache for instant future loads
+      // Persist to session cache scoped by candidate ID for instant future loads
       try {
         sessionStorage.setItem('fs_cache_applicant_portal', JSON.stringify({
+          applicantId: resolvedApplicantId,
           profile: resProfile.status === 'fulfilled' ? resProfile.value.data : null,
           applications: resApps.status === 'fulfilled' && Array.isArray(resApps.value.data) ? resApps.value.data : [],
           documents: resDocs.status === 'fulfilled' && Array.isArray(resDocs.value.data) ? resDocs.value.data : [],
@@ -340,18 +350,26 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
     }
   };
 
-  // Instant SWR mount: hydrate from session storage immediately if available
+  // Instant SWR mount: hydrate from session storage immediately only if it matches the active candidate
   useEffect(() => {
     let hasCache = false;
     try {
       const cachedData = sessionStorage.getItem('fs_cache_applicant_portal');
       if (cachedData) {
         const parsed = JSON.parse(cachedData);
-        if (parsed.profile) setProfile(parsed.profile);
-        if (Array.isArray(parsed.applications) && parsed.applications.length > 0) setApplications(parsed.applications);
-        if (Array.isArray(parsed.documents)) setDocuments(parsed.documents);
-        setLoading(false);
-        hasCache = true;
+        const cachedApplicantId = parsed?.profile?.applicant_id ?? parsed?.applicantId;
+        const matchesCurrentApplicant =
+          !propApplicantId ||
+          !cachedApplicantId ||
+          String(cachedApplicantId) === String(propApplicantId);
+
+        if (matchesCurrentApplicant && parsed.profile) {
+          setProfile(parsed.profile);
+          if (Array.isArray(parsed.applications) && parsed.applications.length > 0) setApplications(parsed.applications);
+          if (Array.isArray(parsed.documents)) setDocuments(parsed.documents);
+          setLoading(false);
+          hasCache = true;
+        }
       }
     } catch (e) { }
 
@@ -363,6 +381,8 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   useEffect(() => {
     if (!profile?.applicant_id) return;
     const applicantId = profile.applicant_id;
+    const applicantCode = profile.applicant_code;
+    const applicantFullName = `${profile.first_name} ${profile.middle_name ? profile.middle_name + ' ' : ''}${profile.last_name}`;
 
     let debounceTimer: any = null;
     const triggerDebouncedRefresh = () => {
@@ -397,7 +417,10 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       .subscribe();
 
     const handleLocalSync = () => {
-      fetchApplicantDatabaseNotifications(applicantId).then((rows) => {
+      fetchApplicantDatabaseNotifications(applicantId, {
+        applicantCode,
+        applicantName: applicantFullName,
+      }).then((rows) => {
         setDbNotifications(rows);
         setNotifSyncVersion((v) => v + 1);
       });
@@ -409,7 +432,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
       window.removeEventListener(NOTIFICATION_SYNC_EVENT, handleLocalSync);
       supabase.removeChannel(channel);
     };
-  }, [profile?.applicant_id]);
+  }, [profile?.applicant_id, profile?.applicant_code, profile?.first_name, profile?.middle_name, profile?.last_name]);
 
   const activeApp = applications[0] || null;
   const currentPhaseNumber = activeApp?.current_phase || 1;
@@ -459,8 +482,13 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
     isRead: boolean;
   }> = [];
 
+  const portalApplicantScopeKey = profile?.applicant_id || propApplicantId || 'me';
+
   // 1. Real persistent notifications from public.notification (e.g. Document Renewal Notices sent by Admin)
   dbNotifications.forEach((row) => {
+    if (profile?.applicant_id && Number(row.applicant_id) !== Number(profile.applicant_id)) {
+      return;
+    }
     const itemId = `db-${row.notification_id}`;
     const isRead = Boolean(row.is_read) || readSet.has(itemId);
     notificationsList.push({
@@ -476,7 +504,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
 
   // 2. Live application status milestones
   if (activeApp) {
-    const stageId = `portal-stage-${currentPhaseNumber}-${activeApp.status_code || 'active'}`;
+    const stageId = `portal-stage-${portalApplicantScopeKey}-${currentPhaseNumber}-${activeApp.status_code || 'active'}`;
     notificationsList.push({
       id: stageId,
       title: 'Current Stage Progress',
@@ -488,7 +516,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   }
 
   if (documents.length > 0) {
-    const docStatusId = `portal-docs-${verifiedDocsCount}-${documents.length}`;
+    const docStatusId = `portal-docs-${portalApplicantScopeKey}-${verifiedDocsCount}-${documents.length}`;
     notificationsList.push({
       id: docStatusId,
       title: 'Document Compliance Status',
@@ -500,7 +528,7 @@ export default function ApplicantPortal({ onLogout }: ApplicantPortalProps) {
   }
 
   if (isHandlerAssigned && handlerDisplayName) {
-    const handlerId = `portal-handler-${handlerDisplayName}`;
+    const handlerId = `portal-handler-${portalApplicantScopeKey}-${handlerDisplayName}`;
     notificationsList.push({
       id: handlerId,
       title: 'Officer Assigned',

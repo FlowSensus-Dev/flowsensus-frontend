@@ -37,7 +37,7 @@ const normalizeStatus = (statusStr: string | null | undefined): JobOrder['status
   return 'open';
 };
 
-export const generateNextJobOrderCode = (existingOrders: JobOrder[]): string => {
+const generateNextJobOrderCode = (existingOrders: JobOrder[]): string => {
   const currentYear = new Date().getFullYear();
   const prefix = `JO-${currentYear}-`;
   let maxSeq = 0;

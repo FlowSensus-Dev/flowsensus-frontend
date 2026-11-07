@@ -9,12 +9,16 @@ import {
   Send,
   FileText,
   AlertTriangle,
-  Briefcase
+  Briefcase,
+  Loader2
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog } from '../../../types';
 import { ViewType } from '../../AppShell';
 import { Skeleton } from '../../ui/skeleton';
-import { sendCandidateNotification } from '../../../../lib/notificationService';
+import {
+  sendCandidateNotification,
+  isCandidateDocumentNotified,
+} from '../../../../lib/notificationService';
 
 interface AdminDashboardProps {
   applicants: ApplicantRecord[];
@@ -58,27 +62,33 @@ export default function AdminDashboard({
   const [notifiedAlerts, setNotifiedAlerts] = useState<Record<string, boolean>>({});
   const [sendingAlerts, setSendingAlerts] = useState<Record<string, boolean>>({});
 
-  // 1. Compute dynamic expiration reminders from real applicants
+  // 1. Compute dynamic expiration reminders from real applicants (deduplicated per candidate + document)
   const expirationReminders: ExpirationReminder[] = useMemo(() => {
     if (!applicants || applicants.length === 0) return [];
 
     const docTypes = ['Philippine Passport', 'NBI Clearance', 'Medical Fit-to-Work Certificate'];
     const results: ExpirationReminder[] = [];
+    const seenCandidateIds = new Set<string>();
 
     applicants.forEach((a, idx) => {
+      const candidateId = String(a.id || '').trim();
+      if (!candidateId || seenCandidateIds.has(candidateId)) return;
+
       if (a.phase >= 2 && a.phase <= 5 && !a.isStopped) {
+        seenCandidateIds.add(candidateId);
         const docIndex = idx % docTypes.length;
+        const docName = docTypes[docIndex];
         const days = idx % 3 === 0 ? -4 : idx % 3 === 1 ? 26 : 54;
         const type: 'expired' | 'expiring30' | 'expiring60' =
           days < 0 ? 'expired' : days <= 30 ? 'expiring30' : 'expiring60';
 
         results.push({
-          id: `REM-${a.id}-${docIndex}`,
+          id: `REM-${candidateId}-${docIndex}`,
           type,
-          documentName: docTypes[docIndex],
-          applicantName: a.name || `${a.firstName || ''} ${a.lastName || ''}`.trim() || `Applicant #${a.id}`,
-          applicantId: String(a.id),
-          applicantCode: a.applicantCode || `APP-${a.id}`,
+          documentName: docName,
+          applicantName: a.name || `${a.firstName || ''} ${a.lastName || ''}`.trim() || `Applicant #${candidateId}`,
+          applicantId: candidateId,
+          applicantCode: a.applicantCode || `APP-${candidateId}`,
           daysRemaining: days,
         });
       }
@@ -111,12 +121,24 @@ export default function AdminDashboard({
   const expiring30Count = expirationReminders.filter((r) => r.type === 'expiring30').length;
   const expiring60Count = expirationReminders.filter((r) => r.type === 'expiring60').length;
 
+  const isReminderNotified = (reminder: ExpirationReminder): boolean => {
+    return (
+      Boolean(notifiedAlerts[reminder.id]) ||
+      isCandidateDocumentNotified({
+        applicantId: reminder.applicantId,
+        applicantCode: reminder.applicantCode,
+        documentName: reminder.documentName,
+      })
+    );
+  };
+
   const handleNotifyCandidate = async (reminder: ExpirationReminder) => {
-    if (notifiedAlerts[reminder.id] || sendingAlerts[reminder.id]) return;
+    if (isReminderNotified(reminder) || sendingAlerts[reminder.id]) return;
     setSendingAlerts((prev) => ({ ...prev, [reminder.id]: true }));
     try {
       await sendCandidateNotification({
         applicantId: reminder.applicantId,
+        applicantCode: reminder.applicantCode,
         applicantName: reminder.applicantName,
         documentName: reminder.documentName,
         daysRemaining: reminder.daysRemaining,
@@ -128,11 +150,15 @@ export default function AdminDashboard({
           action: 'Document Renewal Notice Sent',
           performedBy: currentUserName,
           department: 'Admin',
-          details: `Sent document renewal notice to ${reminder.applicantName} for ${reminder.documentName}`,
+          details: `Sent document renewal notice to ${reminder.applicantName} (${reminder.applicantCode}) for ${reminder.documentName}`,
         });
       }
       if (showToast) {
         showToast(`Renewal notice sent to ${reminder.applicantName} for ${reminder.documentName}.`);
+      }
+    } catch (err: any) {
+      if (showToast) {
+        showToast(err?.message || `Failed to notify ${reminder.applicantName}.`);
       }
     } finally {
       setSendingAlerts((prev) => ({ ...prev, [reminder.id]: false }));
@@ -314,8 +340,9 @@ export default function AdminDashboard({
               <p className="text-xs text-slate-400 mt-1">No documents matching this filter have upcoming expiration dates.</p>
             </div>
           ) : (
-            filteredReminders.slice(0, 8).map((reminder) => {
-              const isNotified = Boolean(notifiedAlerts[reminder.id]);
+            filteredReminders.map((reminder) => {
+              const isNotified = isReminderNotified(reminder);
+              const isSending = Boolean(sendingAlerts[reminder.id]);
               const isExpired = reminder.type === 'expired';
               const is30 = reminder.type === 'expiring30';
 
@@ -375,10 +402,12 @@ export default function AdminDashboard({
                     <button
                       type="button"
                       onClick={() => handleNotifyCandidate(reminder)}
-                      disabled={isNotified || Boolean(sendingAlerts[reminder.id])}
+                      disabled={isNotified || isSending}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                         isNotified
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
+                          : isSending
+                          ? 'bg-slate-200 text-slate-600 cursor-wait'
                           : isExpired
                           ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm'
                           : 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm'
@@ -388,6 +417,11 @@ export default function AdminDashboard({
                         <>
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           <span>Reminder Sent</span>
+                        </>
+                      ) : isSending ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Sending...</span>
                         </>
                       ) : (
                         <>

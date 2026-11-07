@@ -22,7 +22,10 @@ import {
 import { ApplicantRecord } from '../../types';
 import { api } from '../../../lib/api';
 import { supabase } from '../../../lib/supabase';
-import { sendCandidateNotification } from '../../../lib/notificationService';
+import {
+  sendCandidateNotification,
+  isCandidateDocumentNotified,
+} from '../../../lib/notificationService';
 
 interface ComplianceAlertsProps {
   applicants?: ApplicantRecord[];
@@ -166,24 +169,76 @@ export default function ComplianceAlerts({
     }
   };
 
+  const resolveAlertCandidate = (a: any) => {
+    const resolvedId =
+      a.applicant_id ||
+      a.applicant_requirement?.applicant?.applicant_id ||
+      a.applicant_requirement?.applicant_id;
+    const rawCode =
+      a.applicant_code ||
+      a.applicant_requirement?.applicant?.applicant_code ||
+      undefined;
+
+    const matched = applicants.find((applicant) => {
+      if (resolvedId != null && String(applicant.id) === String(resolvedId)) {
+        return true;
+      }
+      if (
+        rawCode &&
+        applicant.applicantCode &&
+        applicant.applicantCode.trim().toLowerCase() === String(rawCode).trim().toLowerCase()
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    const fallbackName =
+      a.applicant_name ||
+      (a.applicant_requirement?.applicant
+        ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim()
+        : '') ||
+      (resolvedId ? `Applicant #${resolvedId}` : 'Candidate');
+
+    return {
+      applicantId: matched?.id || (resolvedId != null ? String(resolvedId) : ''),
+      name: matched?.name || fallbackName,
+      applicantCode: matched?.applicantCode || rawCode || (resolvedId ? `APP-${resolvedId}` : ''),
+      role: matched?.role || '',
+      phase: matched?.phase,
+      status: matched?.status || 'In Pipeline',
+    };
+  };
+
   const handleNotifyApplicant = async (
     alertKey: string,
     applicantId: string | number,
+    applicantCode: string | undefined,
     applicantName: string,
     docName: string,
     daysRemaining?: number
   ) => {
-    if (notifiedAlertIds[alertKey] || sendingAlertIds[alertKey]) return;
+    const alreadyNotified =
+      Boolean(notifiedAlertIds[alertKey]) ||
+      isCandidateDocumentNotified({
+        applicantId,
+        applicantCode,
+        documentName: docName,
+      });
+    if (alreadyNotified || sendingAlertIds[alertKey]) return;
     setSendingAlertIds((prev) => ({ ...prev, [alertKey]: true }));
     try {
       await sendCandidateNotification({
         applicantId,
+        applicantCode,
         applicantName,
         documentName: docName,
         daysRemaining,
       });
       setNotifiedAlertIds((prev) => ({ ...prev, [alertKey]: true }));
       showToast(`Compliance notice dispatched to ${applicantName} for ${docName}`);
+    } catch (err: any) {
+      showToast(err?.message || `Failed to notify ${applicantName}`);
     } finally {
       setSendingAlertIds((prev) => ({ ...prev, [alertKey]: false }));
     }
@@ -246,12 +301,9 @@ export default function ComplianceAlerts({
       // Query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const app = applicants.find(
-          applicant => String(applicant.id) === String(a.applicant_id) ||
-                       String(applicant.applicationId) === String(a.applicant_id)
-        );
-        const name = (a.applicant_name || app?.name || '').toLowerCase();
-        const code = (a.applicant_code || app?.applicantCode || '').toLowerCase();
+        const app = resolveAlertCandidate(a);
+        const name = (a.applicant_name || app.name || '').toLowerCase();
+        const code = (a.applicant_code || app.applicantCode || '').toLowerCase();
         const docName = (a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || '').toLowerCase();
         const msg = (a.message || '').toLowerCase();
 
@@ -519,22 +571,16 @@ export default function ComplianceAlerts({
         <div className="space-y-3.5">
           {filteredAlerts.map((a: any) => {
             const alertLevel = a.alert_level || a.alert_type || 'ALERT';
-            const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
-            const isNotified = Boolean(notifiedAlertIds[alertKey]);
-            
-            // Match applicant record from props, or use enriched backend join
-            const app = applicants.find(
-              applicant => String(applicant.id) === String(a.applicant_id) ||
-                           String(applicant.applicationId) === String(a.applicant_id)
-            ) || {
-              name: a.applicant_name || (a.applicant_requirement?.applicant ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim() : `Applicant #${a.applicant_id}`),
-              applicantCode: a.applicant_code || a.applicant_requirement?.applicant?.applicant_code || `APP-${a.applicant_id}`,
-              role: '',
-              phase: undefined,
-              status: 'In Pipeline'
-            };
-
+            const app = resolveAlertCandidate(a);
             const docName = a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || 'Pre-Deployment Document';
+            const alertKey = String(a.alert_id || `${app.applicantId}-${docName}`);
+            const isNotified =
+              Boolean(notifiedAlertIds[alertKey]) ||
+              isCandidateDocumentNotified({
+                applicantId: app.applicantId,
+                applicantCode: app.applicantCode,
+                documentName: docName,
+              });
             const ruleCat = a.rule_category || a.applicant_requirement?.requirement?.rule_category || 'REGULATORY';
             const expDate = a.expiration_date || a.applicant_requirement?.expiration_date;
             const daysRem = typeof a.days_remaining === 'number' ? a.days_remaining : undefined;
@@ -555,11 +601,11 @@ export default function ComplianceAlerts({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
-                          onClick={() => onNavigate?.('ocr', String(a.applicant_id))}
+                          onClick={() => onNavigate?.('ocr', String(app.applicantId || a.applicant_id))}
                           className="font-bold text-slate-900 text-sm hover:text-[#0EA5E9] transition-colors text-left flex items-center gap-1.5"
                           title="Open candidate in Document Validation"
                         >
-                          {app.name || `Applicant #${a.applicant_id}`}
+                          {app.name || `Applicant #${app.applicantId || a.applicant_id}`}
                         </button>
                         {app.applicantCode && (
                           <span className="font-mono text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
@@ -637,7 +683,7 @@ export default function ComplianceAlerts({
                   <div className="flex items-center gap-2 justify-end">
                     {onNavigate && (
                       <button 
-                        onClick={() => onNavigate('ocr', String(a.applicant_id))}
+                        onClick={() => onNavigate('ocr', String(app.applicantId || a.applicant_id))}
                         className="px-3.5 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition-all active:scale-95"
                         title="Open Document Validation workspace for this candidate"
                       >
@@ -650,8 +696,9 @@ export default function ComplianceAlerts({
                       onClick={() =>
                         handleNotifyApplicant(
                           alertKey,
-                          a.applicant_id,
-                          app.name || `Applicant #${a.applicant_id}`,
+                          app.applicantId || a.applicant_id,
+                          app.applicantCode,
+                          app.name || `Applicant #${app.applicantId || a.applicant_id}`,
                           docName,
                           daysRem
                         )
@@ -714,20 +761,16 @@ export default function ComplianceAlerts({
               <tbody className="divide-y divide-slate-100">
                 {filteredAlerts.map((a: any) => {
                   const alertLevel = a.alert_level || a.alert_type || 'ALERT';
-                  const alertKey = String(a.alert_id || `${a.applicant_id}-${a.requirement_name}`);
-                  const isNotified = Boolean(notifiedAlertIds[alertKey]);
-
-                  const app = applicants.find(
-                    applicant => String(applicant.id) === String(a.applicant_id) ||
-                                 String(applicant.applicationId) === String(a.applicant_id)
-                  ) || {
-                    name: a.applicant_name || (a.applicant_requirement?.applicant ? `${a.applicant_requirement.applicant.first_name || ''} ${a.applicant_requirement.applicant.last_name || ''}`.trim() : `Applicant #${a.applicant_id}`),
-                    applicantCode: a.applicant_code || a.applicant_requirement?.applicant?.applicant_code || `APP-${a.applicant_id}`,
-                    role: '',
-                    status: 'In Pipeline'
-                  };
-
+                  const app = resolveAlertCandidate(a);
                   const docName = a.requirement_name || a.applicant_requirement?.requirement?.requirement_name || 'Document';
+                  const alertKey = String(a.alert_id || `${app.applicantId}-${docName}`);
+                  const isNotified =
+                    Boolean(notifiedAlertIds[alertKey]) ||
+                    isCandidateDocumentNotified({
+                      applicantId: app.applicantId,
+                      applicantCode: app.applicantCode,
+                      documentName: docName,
+                    });
                   const ruleCat = a.rule_category || a.applicant_requirement?.requirement?.rule_category || 'REGULATORY';
                   const expDate = a.expiration_date || a.applicant_requirement?.expiration_date;
                   const daysRem = typeof a.days_remaining === 'number' ? a.days_remaining : undefined;
@@ -736,7 +779,7 @@ export default function ComplianceAlerts({
                     <tr key={a.alert_id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-4 font-medium">
                         <button
-                          onClick={() => onNavigate?.('ocr', String(a.applicant_id))}
+                          onClick={() => onNavigate?.('ocr', String(app.applicantId || a.applicant_id))}
                           className="font-bold text-slate-900 hover:text-[#0EA5E9] block text-left"
                         >
                           {app.name}
@@ -772,7 +815,7 @@ export default function ComplianceAlerts({
                         <div className="flex items-center justify-end gap-2">
                           {onNavigate && (
                             <button
-                              onClick={() => onNavigate('ocr', String(a.applicant_id))}
+                              onClick={() => onNavigate('ocr', String(app.applicantId || a.applicant_id))}
                               className="px-3 py-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-semibold text-xs rounded-lg shadow-xs transition-all flex items-center gap-1 active:scale-95"
                               title="Open Document Validation workspace"
                             >
@@ -784,8 +827,9 @@ export default function ComplianceAlerts({
                             onClick={() =>
                               handleNotifyApplicant(
                                 alertKey,
-                                a.applicant_id,
-                                app.name || `Applicant #${a.applicant_id}`,
+                                app.applicantId || a.applicant_id,
+                                app.applicantCode,
+                                app.name || `Applicant #${app.applicantId || a.applicant_id}`,
                                 docName,
                                 daysRem
                               )

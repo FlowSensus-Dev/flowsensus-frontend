@@ -77,7 +77,7 @@ export interface CandidateActivityItem {
   thresholdDays: number;
   isOverdue: boolean;
   severity: 'critical' | 'warning' | 'caution' | 'normal';
-  responsibleTeam: { department: string; label: string };
+  responsibleTeam: { department?: string; role?: string; label: string };
   reason: string;
 }
 

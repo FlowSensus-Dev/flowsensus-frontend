@@ -12,6 +12,8 @@ export interface DatabaseNotificationRow {
   is_read?: boolean;
   created_at?: string;
   created_by_name?: string;
+  target_applicant_code?: string;
+  target_applicant_name?: string;
 }
 
 export interface AppNotification {
@@ -32,6 +34,7 @@ export interface AppNotification {
 const READ_STORAGE_KEY = 'flowsensus_read_notifications_v1';
 const DISMISSED_STORAGE_KEY = 'flowsensus_dismissed_notifications_v1';
 const LOCAL_SENT_DB_CACHE_KEY = 'flowsensus_sent_notifications_cache_v1';
+const NOTIFIED_CANDIDATE_DOCS_KEY = 'flowsensus_notified_candidate_docs_v1';
 
 export const NOTIFICATION_SYNC_EVENT = 'flowsensus:notifications-updated';
 
@@ -73,6 +76,7 @@ export function getResponsibleTeamForPhase(
 // In-memory state synced with localStorage (ensures instant reactivity even if localStorage is restricted)
 const memoryReadIds = new Set<string>();
 const memoryDismissedIds = new Set<string>();
+const memoryNotifiedCandidateDocs = new Set<string>();
 let memorySentNotifications: DatabaseNotificationRow[] = [];
 
 function safeGetSet(key: string, memorySet: Set<string>): Set<string> {
@@ -138,16 +142,94 @@ function saveLocalSentNotification(row: DatabaseNotificationRow): void {
 export function resetNotificationLocalState(): void {
   memoryReadIds.clear();
   memoryDismissedIds.clear();
+  memoryNotifiedCandidateDocs.clear();
   memorySentNotifications = [];
   try {
     if (typeof localStorage !== 'undefined' && typeof localStorage.removeItem === 'function') {
       localStorage.removeItem(READ_STORAGE_KEY);
       localStorage.removeItem(DISMISSED_STORAGE_KEY);
       localStorage.removeItem(LOCAL_SENT_DB_CACHE_KEY);
+      localStorage.removeItem(NOTIFIED_CANDIDATE_DOCS_KEY);
     }
   } catch {
     // ignore
   }
+}
+
+/**
+ * Strictly parse a positive integer applicant_id.
+ * Returns null if the input is non-numeric (e.g. an applicant_code like "APP-2026-FPT-00022"),
+ * preventing accidental fallback to another candidate's ID.
+ */
+export function parseStrictApplicantId(raw?: string | number | null): number | null {
+  if (typeof raw === 'number') {
+    return Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = Number(trimmed);
+      return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a deterministic, collision-free key for tracking whether a specific candidate
+ * has been notified about a specific document expiration.
+ */
+export function buildCandidateDocumentNoticeKey(params: {
+  applicantId?: string | number | null;
+  applicantCode?: string | null;
+  documentName?: string | null;
+}): string {
+  const strictId = parseStrictApplicantId(params.applicantId);
+  const code = (params.applicantCode || '').trim().toLowerCase();
+  const rawId = params.applicantId != null ? String(params.applicantId).trim().toLowerCase() : '';
+  const candidateToken = strictId ? `id:${strictId}` : code ? `code:${code}` : `raw:${rawId}`;
+  const docToken = (params.documentName || 'required document').trim().toLowerCase().replace(/\s+/g, ' ');
+  return `cand-doc-notice::${candidateToken}::${docToken}`;
+}
+
+export function markCandidateDocumentNotified(params: {
+  applicantId?: string | number | null;
+  applicantCode?: string | null;
+  documentName?: string | null;
+}): void {
+  const set = safeGetSet(NOTIFIED_CANDIDATE_DOCS_KEY, memoryNotifiedCandidateDocs);
+  set.add(buildCandidateDocumentNoticeKey(params));
+  if (params.applicantCode && parseStrictApplicantId(params.applicantId)) {
+    // Also record under code key so views keying by either ID or code stay in sync for that exact candidate
+    set.add(
+      buildCandidateDocumentNoticeKey({
+        applicantId: null,
+        applicantCode: params.applicantCode,
+        documentName: params.documentName,
+      })
+    );
+  }
+  safeSaveSet(NOTIFIED_CANDIDATE_DOCS_KEY, set, memoryNotifiedCandidateDocs);
+}
+
+export function isCandidateDocumentNotified(params: {
+  applicantId?: string | number | null;
+  applicantCode?: string | null;
+  documentName?: string | null;
+}): boolean {
+  const set = safeGetSet(NOTIFIED_CANDIDATE_DOCS_KEY, memoryNotifiedCandidateDocs);
+  if (set.has(buildCandidateDocumentNoticeKey(params))) {
+    return true;
+  }
+  if (params.applicantCode) {
+    const codeKey = buildCandidateDocumentNoticeKey({
+      applicantId: null,
+      applicantCode: params.applicantCode,
+      documentName: params.documentName,
+    });
+    if (set.has(codeKey)) return true;
+  }
+  return false;
 }
 
 export function getReadNotificationIds(): Set<string> {
@@ -236,7 +318,9 @@ export async function fetchStaffDatabaseNotifications(options?: {
       ? res.data.notifications
       : [];
     if (list.length > 0) {
-      const filtered = list.filter((r) => !isSentByCurrentUser(r) && !isTargetedToOtherHandler(r));
+      const filtered = list.filter(
+        (r) => !r.applicant_id && !isSentByCurrentUser(r) && !isTargetedToOtherHandler(r)
+      );
       return mergeDatabaseNotifications(filtered, localSent);
     }
   } catch {
@@ -272,38 +356,117 @@ export async function fetchStaffDatabaseNotifications(options?: {
 }
 
 /**
+ * Verify whether a notification row belongs strictly to the target candidate.
+ * Prevents cross-candidate notification leakage in both DB responses and local caches.
+ */
+function doesNotificationMatchCandidate(
+  row: DatabaseNotificationRow,
+  numericId: number | null,
+  options?: { applicantCode?: string; applicantName?: string }
+): boolean {
+  if (!row) return false;
+  // Staff notifications (where user_id is populated) must never appear in a candidate portal
+  if (row.user_id != null) return false;
+
+  const rowApplicantId = parseStrictApplicantId(row.applicant_id);
+  const cleanCode = options?.applicantCode?.trim().toLowerCase() || '';
+  const cleanName = options?.applicantName?.trim().toLowerCase() || '';
+
+  // 1. Primary check: if the candidate's numeric applicant_id is known, row must match it
+  if (numericId !== null) {
+    if (rowApplicantId !== null) {
+      if (rowApplicantId !== numericId) return false;
+    } else if (cleanCode && row.target_applicant_code) {
+      if (row.target_applicant_code.trim().toLowerCase() !== cleanCode) return false;
+    } else {
+      return false;
+    }
+  } else if (cleanCode) {
+    // 2. Fallback check when only applicantCode is known prior to profile load
+    const rowCode = (row.target_applicant_code || '').trim().toLowerCase();
+    const textIncludesCode =
+      (row.title || '').toLowerCase().includes(cleanCode) ||
+      (row.message || '').toLowerCase().includes(cleanCode);
+    if (rowCode !== cleanCode && !textIncludesCode) {
+      return false;
+    }
+  } else {
+    // Without a resolved numeric applicantId or applicantCode, never return any rows
+    return false;
+  }
+
+  // 3. Secondary identity guard: if the row has explicit target_applicant_code and caller supplied applicantCode,
+  // they must not conflict.
+  if (cleanCode && row.target_applicant_code) {
+    if (row.target_applicant_code.trim().toLowerCase() !== cleanCode) {
+      return false;
+    }
+  }
+
+  // 4. Greeting guard: if the message starts with "Hello <Candidate Name>," or "Hello <Candidate Name> (",
+  // ensure it does not address a completely different candidate name when applicantName is known.
+  if (cleanName && cleanName !== 'applicant') {
+    const greetingMatch = (row.message || '').match(/^Hello\s+([^,(]+?)(?:\s*\([^)]+\))?,/i);
+    if (greetingMatch && greetingMatch[1]) {
+      const greetedName = greetingMatch[1].trim().toLowerCase();
+      const nameParts = cleanName.split(/\s+/).filter((p) => p.length > 1);
+      const matchesAnyPart =
+        greetedName === cleanName ||
+        greetedName.includes(cleanName) ||
+        cleanName.includes(greetedName) ||
+        (nameParts.length > 0 && nameParts.every((part) => greetedName.includes(part)));
+      if (!matchesAnyPart) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
  * Fetch persistent candidate notifications from `public.notification` for the Applicant Portal.
+ * Strictly filters by the candidate's `applicant_id` (and optional `applicantCode` / `applicantName`)
+ * so a candidate only ever sees notifications sent specifically to them.
  */
 export async function fetchApplicantDatabaseNotifications(
-  applicantId?: number | string
+  applicantId?: number | string,
+  options?: { applicantCode?: string; applicantName?: string }
 ): Promise<DatabaseNotificationRow[]> {
-  const numericId = applicantId ? Number(applicantId) : NaN;
-  const localSent = !isNaN(numericId)
-    ? getLocalSentNotifications().filter((r) => Number(r.applicant_id) === numericId)
-    : [];
+  const numericId = parseStrictApplicantId(applicantId);
+  const localSent = getLocalSentNotifications().filter((r) =>
+    doesNotificationMatchCandidate(r, numericId, options)
+  );
 
   // 1. Try Backend Portal API
   try {
     const res = await api.get('/applicants/me/notifications');
-    if (Array.isArray(res.data) && res.data.length > 0) {
-      return mergeDatabaseNotifications(res.data, localSent);
+    if (Array.isArray(res.data)) {
+      const filteredRemote = (res.data as DatabaseNotificationRow[]).filter((r) =>
+        doesNotificationMatchCandidate(r, numericId ?? parseStrictApplicantId(r.applicant_id), options)
+      );
+      return mergeDatabaseNotifications(filteredRemote, localSent);
     }
   } catch {
     // Fallback to direct Supabase query below
   }
 
   // 2. Fallback to direct Supabase query
-  if (!isNaN(numericId) && numericId > 0) {
+  if (numericId !== null && numericId > 0) {
     try {
       const { data, error } = await supabase
         .from('notification')
         .select('*')
         .eq('applicant_id', numericId)
+        .is('user_id', null)
         .order('notification_id', { ascending: false })
         .limit(50);
 
       if (!error && Array.isArray(data)) {
-        return mergeDatabaseNotifications(data as DatabaseNotificationRow[], localSent);
+        const filteredData = (data as DatabaseNotificationRow[]).filter((r) =>
+          doesNotificationMatchCandidate(r, numericId, options)
+        );
+        return mergeDatabaseNotifications(filteredData, localSent);
       }
     } catch {
       // ignore
@@ -481,56 +644,82 @@ export async function sendHandlerReminderNotification(params: {
 }
 
 /**
- * Send a persistent compliance or status notification to an applicant (`applicant_id` in `public.notification`).
- * Used when Admin clicks "Notify Candidate" in AdminDashboard or "Notify" in ComplianceAlerts.
+ * Send a persistent compliance or status notification to a single specific applicant (`applicant_id` in `public.notification`).
+ * Used when Admin clicks "Notify Candidate" in AdminDashboard or "Notify Candidate" in ComplianceAlerts.
  */
 export async function sendCandidateNotification(params: {
   applicantId: string | number;
+  applicantCode?: string;
   applicantName: string;
   documentName?: string;
   daysRemaining?: number;
   customTitle?: string;
   customMessage?: string;
+  senderName?: string;
 }): Promise<DatabaseNotificationRow> {
-  const numericApplicantId = Number(params.applicantId) || 0;
-  const docName = params.documentName || 'Required Document';
+  let numericApplicantId = parseStrictApplicantId(params.applicantId);
+  const cleanCode = params.applicantCode?.trim() || undefined;
+  const cleanName = (params.applicantName || 'Candidate').trim();
+  const docName = (params.documentName || 'Required Document').trim();
 
   let statusDetail = 'requires your attention or renewal';
-  if (typeof params.daysRemaining === 'number') {
+  if (typeof params.daysRemaining === 'number' && Number.isFinite(params.daysRemaining)) {
     if (params.daysRemaining < 0) {
-      statusDetail = `expired ${Math.abs(params.daysRemaining)} days ago and requires immediate renewal`;
+      const absDays = Math.abs(params.daysRemaining);
+      statusDetail = `expired ${absDays} ${absDays === 1 ? 'day' : 'days'} ago and requires immediate renewal`;
     } else if (params.daysRemaining === 0) {
       statusDetail = 'expires today and requires immediate renewal';
     } else {
-      statusDetail = `will expire in ${params.daysRemaining} days — please prepare a renewed copy`;
+      statusDetail = `will expire in ${params.daysRemaining} ${params.daysRemaining === 1 ? 'day' : 'days'} — please prepare a renewed copy`;
     }
   }
 
+  const codeLabel = cleanCode ? ` (${cleanCode})` : '';
   const title = params.customTitle || `Document Renewal Notice: ${docName}`;
   const message =
     params.customMessage ||
-    `Hello ${params.applicantName}, your ${docName} ${statusDetail}. Please coordinate with your assigned agency officer and submit an updated copy.`;
+    `Hello ${cleanName}${codeLabel}, your ${docName} ${statusDetail}. Please coordinate with your assigned agency officer and submit an updated copy.`;
 
-  // 1. Try Backend POST /notifications
-  if (numericApplicantId > 0) {
+  // Record per-candidate + per-document notified state
+  markCandidateDocumentNotified({
+    applicantId: numericApplicantId ?? params.applicantId,
+    applicantCode: cleanCode,
+    documentName: docName,
+  });
+
+  // 1. Try Backend POST /notifications (supports applicant_id, applicant_code, and applicant_name resolution)
+  if ((numericApplicantId !== null && numericApplicantId > 0) || cleanCode) {
     try {
       const res = await api.post('/notifications', {
         applicant_id: numericApplicantId,
+        applicant_code: cleanCode || null,
+        applicant_name: cleanName,
         user_id: null,
         title,
         message,
       });
-      if (res.data && (res.data.notification_id || res.data.title)) {
+      const payloadData = res.data?.notification || res.data;
+      if (payloadData && (payloadData.notification_id || payloadData.title)) {
+        const resolvedId = parseStrictApplicantId(payloadData.applicant_id) ?? numericApplicantId;
         const created: DatabaseNotificationRow = {
-          notification_id: res.data.notification_id || Date.now(),
-          agency_id: res.data.agency_id || 2,
+          notification_id: payloadData.notification_id || Date.now(),
+          agency_id: payloadData.agency_id || 2,
           user_id: null,
-          applicant_id: numericApplicantId,
-          title: res.data.title || title,
-          message: res.data.message || message,
+          applicant_id: resolvedId,
+          title: payloadData.title || title,
+          message: payloadData.message || message,
           is_read: false,
-          created_at: res.data.created_at || new Date().toISOString(),
+          created_at: payloadData.created_at || new Date().toISOString(),
+          target_applicant_code: cleanCode,
+          target_applicant_name: cleanName,
         };
+        if (resolvedId) {
+          markCandidateDocumentNotified({
+            applicantId: resolvedId,
+            applicantCode: cleanCode,
+            documentName: docName,
+          });
+        }
         saveLocalSentNotification(created);
         notifyListeners();
         return created;
@@ -542,46 +731,70 @@ export async function sendCandidateNotification(params: {
     // 2. Fallback to direct Supabase insert (enforcing XOR: applicant_id set, user_id = null)
     try {
       let targetAgencyId = 2;
-      const { data: appRow } = await supabase
-        .from('applicant')
-        .select('agency_id')
-        .eq('applicant_id', numericApplicantId)
-        .limit(1);
-      if (appRow && appRow.length > 0 && appRow[0].agency_id) {
-        targetAgencyId = Number(appRow[0].agency_id);
+      if (numericApplicantId !== null && numericApplicantId > 0) {
+        const { data: appRow } = await supabase
+          .from('applicant')
+          .select('applicant_id, agency_id')
+          .eq('applicant_id', numericApplicantId)
+          .limit(1);
+        if (appRow && appRow.length > 0) {
+          if (appRow[0].agency_id) targetAgencyId = Number(appRow[0].agency_id);
+        }
+      } else if (cleanCode) {
+        const { data: appRowByCode } = await supabase
+          .from('applicant')
+          .select('applicant_id, agency_id')
+          .ilike('applicant_code', cleanCode)
+          .limit(1);
+        if (appRowByCode && appRowByCode.length > 0 && appRowByCode[0].applicant_id) {
+          numericApplicantId = Number(appRowByCode[0].applicant_id);
+          if (appRowByCode[0].agency_id) targetAgencyId = Number(appRowByCode[0].agency_id);
+        }
       }
 
-      const { data: inserted } = await supabase
-        .from('notification')
-        .insert({
-          agency_id: targetAgencyId,
-          user_id: null,
-          applicant_id: numericApplicantId,
-          title,
-          message,
-        })
-        .select('*')
-        .single();
+      if (numericApplicantId !== null && numericApplicantId > 0) {
+        const { data: inserted } = await supabase
+          .from('notification')
+          .insert({
+            agency_id: targetAgencyId,
+            user_id: null,
+            applicant_id: numericApplicantId,
+            title,
+            message,
+          })
+          .select('*')
+          .single();
 
-      if (inserted) {
-        saveLocalSentNotification(inserted as DatabaseNotificationRow);
-        notifyListeners();
-        return inserted as DatabaseNotificationRow;
+        if (inserted) {
+          const insertedRow: DatabaseNotificationRow = {
+            ...(inserted as DatabaseNotificationRow),
+            user_id: null,
+            applicant_id: numericApplicantId,
+            target_applicant_code: cleanCode,
+            target_applicant_name: cleanName,
+          };
+          saveLocalSentNotification(insertedRow);
+          notifyListeners();
+          return insertedRow;
+        }
       }
     } catch {
       // Fallback to local cache below
     }
   }
 
+  // 3. Offline / fallback row: strictly preserve the exact candidate's ID (never fallback to applicant_id = 1!)
   const fallbackRow: DatabaseNotificationRow = {
     notification_id: Date.now(),
     agency_id: 2,
     user_id: null,
-    applicant_id: numericApplicantId || 1,
+    applicant_id: numericApplicantId,
     title,
     message,
     is_read: false,
     created_at: new Date().toISOString(),
+    target_applicant_code: cleanCode,
+    target_applicant_name: cleanName,
   };
   saveLocalSentNotification(fallbackRow);
   notifyListeners();
@@ -742,6 +955,11 @@ export function buildStaffNotifications(params: {
 
   // 1. Direct Persistent Reminders & Notices from `public.notification`
   dbNotifications.forEach((row) => {
+    // Candidate portal notices (where applicant_id is set) must never appear in the staff feed
+    if (row.applicant_id != null) {
+      return;
+    }
+
     // A. Filter out reminders sent by the current user so they don't receive their own follow-ups
     if (cleanCurrentUserName) {
       if (row.created_by_name && row.created_by_name.trim().toLowerCase() === cleanCurrentUserName) {
