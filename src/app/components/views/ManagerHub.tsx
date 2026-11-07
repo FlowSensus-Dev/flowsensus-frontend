@@ -458,7 +458,7 @@ function CvDetailGate({
                   ['Email', applicant?.email || '—'],
                   ['Contact', applicant?.contact || '—'],
                   ['Job Order', applicant?.jobOrder || '—'],
-                  ['Passport', applicant?.passport || '—'],
+                  ['Passport', applicant?.passport || applicant?.identifications?.find(i => i.type?.toLowerCase().includes('passport'))?.identificationNo || '—'],
                 ].map(([l, v]) => (
                   <div key={l} className="min-w-0">
                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>

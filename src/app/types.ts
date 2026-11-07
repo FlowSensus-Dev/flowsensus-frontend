@@ -141,6 +141,7 @@ export interface ApplicantRecord {
   // Deployment tracking & Compliance
   actualDeploymentDate?: string;
   predictedDeploymentDate?: string;
+  passport?: string;
   passportExpirationDate?: string;
 }
 
