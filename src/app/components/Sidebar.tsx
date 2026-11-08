@@ -31,6 +31,7 @@ import { UserRole } from '../types';
 import { ViewType } from './AppShell';
 import { hasAccessToView, extractAndNormalizeRoles } from '../../lib/accessControl';
 import Logo from './Logo';
+import TenantSidebarBrand from './TenantSidebarBrand';
 
 interface SidebarProps {
   currentUserRole: UserRole;
@@ -158,17 +159,18 @@ export default function Sidebar({
             onClick={onToggleCollapse}
             className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 hover:border-sky-500/40 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center justify-center group shadow-sm"
             title="Expand sidebar"
+            aria-label={isSuperAdmin ? undefined : 'Expand sidebar'}
           >
-            <ChevronRight className="w-5 h-5 text-sky-400 group-hover:translate-x-0.5 transition-transform" />
+            {isSuperAdmin ? <ChevronRight className="w-5 h-5 text-sky-400 group-hover:translate-x-0.5 transition-transform" /> : <TenantSidebarBrand compact />}
           </button>
         ) : (
           <>
-            <div className="flex items-center gap-3 min-w-0">
+            {isSuperAdmin ? <div className="flex items-center gap-3 min-w-0">
               <Logo size="small" />
               <span className="font-extrabold text-white text-lg tracking-wider leading-none truncate">
                 FLOWSENSUS
               </span>
-            </div>
+            </div> : <TenantSidebarBrand />}
             {onToggleCollapse && (
               <button
                 type="button"

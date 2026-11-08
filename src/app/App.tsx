@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
 import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
+import StaffOnboardingGate from "./components/StaffOnboardingGate";
 import ApplicantPortal from "./components/ApplicantPortal";
 import {
   UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord,
@@ -11,8 +12,10 @@ import {
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
+import { isPlatformSuperAdmin } from "../lib/platformIdentity";
 import { mapApplicantFromApi } from "../lib/applicantMapper";
 import { extractAndNormalizeRoles } from "../lib/accessControl";
+import { ACCENT_PRESETS } from "../lib/agencyBranding";
 import {
   Check, ChevronRight, Building2, Users, Globe, Shield,
   ArrowRight, X, CheckCircle2, Loader2, Mail, Lock,
@@ -28,17 +31,6 @@ const STEPS = [
   { id: 2, label: "Branding" },
   { id: 3, label: "Admin" },
   { id: 4, label: "Review" },
-];
-
-const ACCENT_PRESETS = [
-  { name: "Sky", value: "#0EA5E9" },
-  { name: "Indigo", value: "#6366F1" },
-  { name: "Emerald", value: "#10B981" },
-  { name: "Amber", value: "#F59E0B" },
-  { name: "Rose", value: "#F43F5E" },
-  { name: "Violet", value: "#8B5CF6" },
-  { name: "Teal", value: "#14B8A6" },
-  { name: "Orange", value: "#F97316" },
 ];
 
 function toSubdomain(name: string): string {
@@ -1137,6 +1129,8 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
   const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [authSubject, setAuthSubject] = useState<string | null>(null);
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
@@ -1146,6 +1140,7 @@ export default function App() {
   const [expensesLoaded, setExpensesLoaded] = useState(false);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [platformPasswordUser, setPlatformPasswordUser] = useState<any | null>(null);
 
   // ── Global Shared Context Data ──────────────────────────────────────────
   const [globalJobOrders, setGlobalJobOrders] = useState<any[] | null>(null);
@@ -1155,12 +1150,27 @@ export default function App() {
   const [globalPipelineForecast, setGlobalPipelineForecast] = useState<any | null>(null);
 
   // ── Live Backend Data Fetching ──────────────────────────────────────────
-  const liveSession = useRef<{ userId: string | null; generation: number; ready: boolean }>({
-    userId: null, generation: 0, ready: false,
+  const liveSession = useRef<{ userId: string | null; platform: boolean; generation: number; ready: boolean }>({
+    userId: null, platform: false, generation: 0, ready: false,
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
   const liveIsApplicant = useRef(false);
+  const liveIsPlatform = useRef(false);
+  const syncPlatformIdentity = (user: any) => {
+    const platform = isPlatformSuperAdmin(user);
+    const wasPlatform = liveIsPlatform.current;
+    liveIsPlatform.current = platform;
+    setIsSuperAdmin(platform);
+    setCurrentUserEmail(typeof user?.email === 'string' ? user.email : '');
+    setPlatformPasswordUser(platform && (user?.app_metadata?.must_change_password === true || user?.user_metadata?.must_change_password === true) ? user : null);
+    if (platform || wasPlatform || !user) {
+      setCurrentUserRole('');
+      setCurrentUserRoles([]);
+      setLoggedInApplicantId('');
+      setCurrentUserName(platform ? user.user_metadata?.full_name || user.email || 'Platform administrator' : '');
+    }
+  };
   const isApplicantUser = (u: any) => {
     const am = u?.app_metadata || {};
     const um = u?.user_metadata || {};
@@ -1170,13 +1180,14 @@ export default function App() {
   };
 
   const syncLiveSession = (userId: string | null) => {
-    if (!liveSession.current.ready || liveSession.current.userId !== userId) {
-      liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
+    setAuthSubject(userId);
+    if (!liveSession.current.ready || liveSession.current.userId !== userId || liveSession.current.platform !== liveIsPlatform.current) {
+      liveSession.current = { userId, platform: liveIsPlatform.current, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
 
       // Hydrate from sessionStorage cache for instant 0ms dashboard render (Stale-While-Revalidate)
       let hasCachedApplicants = false;
-      if (userId) {
+      if (userId && !liveIsPlatform.current) {
         try {
           const cachedAppsJson = sessionStorage.getItem(`fs_cache_applicants_${userId}`);
           if (cachedAppsJson) {
@@ -1230,7 +1241,7 @@ export default function App() {
   };
 
   const fetchLiveBackendData = async () => {
-    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current) return;
+    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current || liveIsPlatform.current) return;
     const generation = liveSession.current.generation;
     const currentUserId = liveSession.current.userId;
     const requestId = ++liveRequestId.current;
@@ -1293,7 +1304,7 @@ export default function App() {
     const activeRoles: string[] = (currentUserRoles && currentUserRoles.length > 0)
       ? currentUserRoles
       : [currentUserRole];
-    const canManageStaff = isSuperAdmin || activeRoles.includes('Management') || activeRoles.includes('Admin');
+    const canManageStaff = activeRoles.includes('Management') || activeRoles.includes('Admin');
 
     Promise.allSettled([
       api.get('/audit-logs'),
@@ -1403,20 +1414,12 @@ export default function App() {
         const userId = session?.user?.id ?? null;
         if (liveSession.current.ready && liveSession.current.userId !== userId) return;
         liveIsApplicant.current = isApplicantUser(session?.user);
+        syncPlatformIdentity(session?.user);
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
-          // SECURITY FIX: Only trust app_metadata (service-role managed) or verified admin email.
-          // user_metadata is user-writable in Supabase and MUST NOT be trusted for role elevation.
-          const isSuper = Boolean(
-            session.user.app_metadata?.is_super_admin ||
-            email.toLowerCase() === "admin@findstaff.ph"
-          );
+          const isSuper = isPlatformSuperAdmin(session.user);
           if (isSuper) {
-            setIsSuperAdmin(true);
-            setCurrentUserRole("Management");
-            setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
-            setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
             showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
@@ -1485,9 +1488,10 @@ export default function App() {
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       liveIsApplicant.current = isApplicantUser(session?.user);
+      syncPlatformIdentity(session?.user);
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
-        if (event === 'SIGNED_IN' && !liveIsApplicant.current) {
+        if (event === 'SIGNED_IN' && !liveIsApplicant.current && !liveIsPlatform.current) {
           api.post('/users/record-login', {}).catch(() => { });
         }
         const generation = liveSession.current.generation;
@@ -1506,6 +1510,11 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // A URL or React role selection cannot change the authorization in the Auth token.
+  useEffect(() => {
+    if (isSuperAdmin && location.pathname !== '/super-admin') navigate('/super-admin', { replace: true });
+  }, [isSuperAdmin, location.pathname, navigate]);
 
   // When switching into app view, ensure data is populated if empty
   useEffect(() => {
@@ -1579,14 +1588,23 @@ export default function App() {
   };
 
 
-  const handleLogin = (
+  const handleLogin = async (
     role: UserRole,
     name?: string,
     applicantId?: string,
-    isSuper?: boolean,
+    _isSuper?: boolean,
     roles?: UserRole[],
     rememberMe?: boolean
   ) => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw new Error('Your session could not be verified. Please sign in again.');
+    const isSuper = isPlatformSuperAdmin(data.user);
+    liveIsApplicant.current = isApplicantUser(data.user);
+    syncPlatformIdentity(data.user);
+    syncLiveSession(data.user.id);
+    if (isSuper && (data.user.app_metadata?.must_change_password === true || data.user.user_metadata?.must_change_password === true)) {
+      throw new Error('Complete the required password change before opening the platform console.');
+    }
     // Record session persistence preference
     if (rememberMe) {
       sessionStorage.setItem('fs_remember_me', 'true');
@@ -1598,7 +1616,7 @@ export default function App() {
 
     if (isSuper) {
       setIsSuperAdmin(true);
-      setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
+      setCurrentUserRoles([]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setIsSuperAdmin(false);
@@ -1606,11 +1624,11 @@ export default function App() {
       setCurrentUserRoles(parsedRoles.length > 0 ? parsedRoles : [role]);
       showAppView("app");
     }
-    setCurrentUserRole(role);
-    setCurrentUserName(name || role);
+    setCurrentUserRole(isSuper ? '' : role);
+    if (!isSuper) setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     else setLoggedInApplicantId("");
-    if (role !== "Applicant") {
+    if (role !== "Applicant" && !isSuper) {
       addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
     }
 
@@ -1632,6 +1650,7 @@ export default function App() {
       console.warn("Logout audit skipped:", e);
     }
 
+    syncPlatformIdentity(null);
     syncLiveSession(null);
     sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
@@ -1656,21 +1675,8 @@ export default function App() {
     setCurrentUserRole("");
     setCurrentUserRoles([]);
     setCurrentUserName("");
+    setCurrentUserEmail("");
     showAppView("landing");
-  };
-
-  const handleSwitchSuperAdminRole = (newRole: UserRole) => {
-    setCurrentUserRole(newRole);
-    setCurrentUserRoles([newRole]);
-    showAppView("app"); // Enter operational shell for the chosen role
-    fetchLiveBackendData();
-    addActivityLog({
-      applicantId: "",
-      action: "Superadmin Role Switch",
-      performedBy: currentUserName,
-      department: newRole,
-      details: `Superadmin switched active view to ${newRole}`,
-    });
   };
 
   const updateWorkflow = (updates: Partial<WorkflowState>) => setWorkflow((prev) => ({ ...prev, ...updates }));
@@ -1823,6 +1829,13 @@ export default function App() {
     };
   }, [currentUserRole, isSuperAdmin]);
 
+  // Platform identities are isolated before any landing, onboarding, or tenant route renders.
+  if (isSuperAdmin) {
+    if (platformPasswordUser) return <LoginScreen key={platformPasswordUser.id} onLogin={handleLogin} onBack={handleLogout}
+      requiredPasswordChange={{ user: platformPasswordUser, role: '', roles: [], name: currentUserName, isSuper: true }} />;
+    return <SuperAdminDashboard onLogout={handleLogout} currentUserName={currentUserName} currentUserEmail={currentUserEmail} />;
+  }
+
   // Landing
   if (view === "landing") {
     return (
@@ -1869,18 +1882,7 @@ export default function App() {
     );
   }
 
-  // Super Admin dedicated dashboard
-  if (view === "super-admin" && isSuperAdmin) {
-    return (
-      <SuperAdminDashboard
-        onLogout={handleLogout}
-        onSwitchRole={handleSwitchSuperAdminRole}
-        currentUserName={currentUserName}
-        applicants={applicants}
-        activityLogs={activityLogs}
-      />
-    );
-  }
+  if (view === 'super-admin') return <LoginScreen onLogin={handleLogin} onBack={() => navigateTo('landing')} />;
 
   // Tenant workspace
   if (view === "app") {
@@ -1917,6 +1919,9 @@ export default function App() {
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <StaffOnboardingGate key={authSubject || 'staff-session'} subject={authSubject}
+            roles={currentUserRoles.length ? currentUserRoles : [currentUserRole]} name={currentUserName}
+            onLogout={handleLogout}>
           <AppShell
             currentUserRole={currentUserRole}
             currentUserRoles={currentUserRoles}
@@ -1935,8 +1940,6 @@ export default function App() {
             updateExpense={updateExpense}
             deleteExpense={deleteExpense}
             onLogout={handleLogout}
-            isSuperAdmin={isSuperAdmin}
-            onSuperAdminDashboard={() => showAppView('super-admin')}
             globalJobOrders={globalJobOrders || undefined}
             globalEmployers={globalEmployers || undefined}
             onJobOrdersChange={handleJobOrdersChange}
@@ -1945,6 +1948,7 @@ export default function App() {
             globalRoles={globalRoles || undefined}
             globalPipelineForecast={globalPipelineForecast || undefined}
           />
+          </StaffOnboardingGate>
         </div>
       </div>
     );

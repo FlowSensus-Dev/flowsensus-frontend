@@ -6,10 +6,10 @@ import { UserRole, ViewType } from '../app/types';
 export function normalizeRole(r: any): UserRole | null {
   if (!r || typeof r !== 'string') return null;
   const l = r.trim().toLowerCase();
-  if (l === 'management' || l.includes('manage')) return 'Management';
-  if (l === 'recruitment' || l.includes('recruit')) return 'Recruitment';
-  if (l === 'admin' || l.includes('admin')) return 'Admin';
-  if (l === 'accounting' || l.includes('account') || l.includes('finance')) return 'Accounting';
+  if (l === 'management') return 'Management';
+  if (l === 'recruitment') return 'Recruitment';
+  if (l === 'admin') return 'Admin';
+  if (l === 'accounting') return 'Accounting';
   if (l === 'applicant') return 'Applicant';
   if (l === 'employer') return 'Employer';
   return null;
@@ -40,7 +40,7 @@ export function extractAndNormalizeRoles(...sources: any[]): UserRole[] {
 }
 
 /**
- * Modules strictly reserved for Management and Super Admin.
+ * Tenant modules strictly reserved for Management.
  * Even if manually entered into the browser address bar, access will be blocked.
  */
 export const MANAGEMENT_EXCLUSIVE_VIEWS: ViewType[] = [
@@ -83,7 +83,7 @@ export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
 };
 
 /**
- * Authoritative client-side permission checker.
+ * Client-side navigation guard; backend authorization remains authoritative.
  * Used by both Sidebar (navigation visibility) and AppShell (route guard & URL manipulation barrier).
  *
  * @param view The target ViewType requested (e.g. 'users', 'ocr', 'expense')
@@ -98,8 +98,8 @@ export function hasAccessToView(
   isSuperAdmin?: boolean,
   workflowPermissions?: Record<string, UserRole[]>
 ): boolean {
-  // 1. Super Admin has unrestricted access across all modules
-  if (isSuperAdmin) return true;
+  // Platform identities never inherit tenant operational permissions.
+  if (isSuperAdmin) return false;
 
   // Normalize user roles for case-insensitive verification
   const normalizedUserRoles = extractAndNormalizeRoles(userRoles);

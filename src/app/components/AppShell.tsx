@@ -763,7 +763,7 @@ export default function AppShell({
       case 'history':
         return <DeploymentHistory activityLogs={activityLogs} applicants={applicants} />;
       case 'reports':
-        return <OperationalReports />;
+        return <OperationalReports staffDirectory={globalStaff} />;
       case 'users':
         return (
           <UserManagement
@@ -780,6 +780,8 @@ export default function AppShell({
           <UserProfile
             currentUserName={currentUserName}
             currentUserRole={currentUserRole}
+            currentUserRoles={userRolesList}
+            workflowPermissions={workflowPermissions}
             activityLogs={activityLogs}
             showToast={showToastNotification}
           />
