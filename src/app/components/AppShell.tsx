@@ -55,6 +55,7 @@ interface AppShellProps {
   expensesLoaded?: boolean;
   addExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
   updateExpense?: (id: string, updates: Partial<ExpenseRecord>) => void;
+  deleteExpense?: (id: string) => Promise<void> | void;
   onLogout: () => void;
   isSuperAdmin?: boolean;
   onSuperAdminDashboard?: () => void;
@@ -83,6 +84,7 @@ export default function AppShell({
   expensesLoaded,
   addExpense,
   updateExpense,
+  deleteExpense,
   onLogout,
   isSuperAdmin,
   onSuperAdminDashboard,
@@ -169,80 +171,8 @@ export default function AppShell({
     }
   }, [applicants, selectedApplicantId]);
 
-  // Global Auto-Sync for Phase-based Expenses
-  const processedPhases = useRef<Set<string>>(new Set());
-  
-  useEffect(() => {
-    if (!applicantsLoaded || !expensesLoaded || !expenses) return;
-    
-    // Fetch current rates to use when logging
-    const rates = getStoredRates();
-    
-    applicants.forEach(app => {
-      // Phase 3 (Medical Cleared) -> Medical Package
-      if (app.phase >= 3) {
-        const medicalKey = `${app.id}-medical`;
-        if (!processedPhases.current.has(medicalKey)) {
-          const hasMedicalExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Medical'));
-          if (!hasMedicalExpense) {
-            addExpense({
-              applicantId: app.id,
-              purpose: 'Medical Package (Fit-to-Work)',
-              amount: rates.medical,
-              currency: 'PESO',
-              type: 'expense',
-              remarks: 'Automated medical fee from phase change.',
-              status: 'draft',
-              date: new Date().toISOString().split('T')[0],
-              recordedBy: 'System Auto-Trigger'
-            });
-          }
-          processedPhases.current.add(medicalKey);
-        }
-      }
-      
-      // Phase 5 (Processing - Passporting, OEC) -> Document Processing
-      if (app.phase >= 5) {
-        const oecKey = `${app.id}-oec`;
-        if (!processedPhases.current.has(oecKey)) {
-          const hasOecExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('OEC'));
-          if (!hasOecExpense) {
-            addExpense({
-              applicantId: app.id,
-              purpose: 'OEC Processing',
-              amount: rates.oec,
-              currency: 'PESO',
-              type: 'expense',
-              remarks: 'Automated processing fee from phase change.',
-              status: 'draft',
-              date: new Date().toISOString().split('T')[0],
-              recordedBy: 'System Auto-Trigger'
-            });
-          }
-          processedPhases.current.add(oecKey);
-        }
+  // Phase-based accounting expenses are handled smartly with user confirmation in ExpenseLedger.
 
-        const passportKey = `${app.id}-passport`;
-        if (!processedPhases.current.has(passportKey)) {
-          const hasPassportExpense = expenses.some(e => String(e.applicantId) === String(app.id) && e.purpose.includes('Passport'));
-          if (!hasPassportExpense) {
-            addExpense({
-              applicantId: app.id,
-              purpose: 'Passport Processing',
-              amount: rates.passport,
-              currency: 'PESO',
-              type: 'expense',
-              remarks: 'Automated processing fee from phase change.',
-              status: 'draft',
-              date: new Date().toISOString().split('T')[0],
-              recordedBy: 'System Auto-Trigger'
-            });
-          }
-          processedPhases.current.add(passportKey);
-        }
-      }
-    });
-  }, [applicants, expenses, addExpense, applicantsLoaded]);
 
   const [workflowPermissions, setWorkflowPermissions] = useState<Record<string, UserRole[]> | undefined>(undefined);
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTest[]>([]);
@@ -789,6 +719,7 @@ export default function AppShell({
             expenses={expenses}
             addExpense={addExpense}
             updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
             currentUserName={currentUserName}
             addActivityLog={addActivityLog}
             showToast={showToastNotification}

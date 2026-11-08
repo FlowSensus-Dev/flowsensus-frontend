@@ -1341,58 +1341,25 @@ export default function App() {
       // Process expenses
       if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
         const rawLiveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
-          id: `EXP-${r.financial_record_id}`,
+          id: `EXP-${r.financial_record_id || r.transaction_id}`,
           applicantId: String(r.applicant_id),
-          purpose: r.payment_type || r.transaction_type || r.description || 'General Expense',
-          amount: r.amount || 0,
-          currency: (r.currency === 'USD' ? 'DOLLAR' : 'PESO') as 'PESO' | 'DOLLAR',
-          type: (r.category === 'cash_advance' ? 'cash_advance' : (r.category === 'deduction' ? 'deduction' : 'expense')) as 'expense' | 'cash_advance' | 'deduction',
-          remarks: r.description || '',
+          purpose: r.payment_type || r.transaction_type || 'General Expense',
+          amount: Number(r.amount) || 0,
+          currency: 'PESO' as const,
+          type: (
+            r.transaction_type === 'PLACEMENT_FEE' ? 'placement_fee' :
+            (r.category === 'cash_advance' || r.transaction_type === 'CASH_ADVANCE' ? 'cash_advance' :
+            (r.category === 'deduction' || r.transaction_type === 'SALARY_DEDUCTION' ? 'deduction' : 'expense'))
+          ) as 'expense' | 'cash_advance' | 'deduction' | 'placement_fee',
+          referenceNo: r.reference_no || '',
+          remarks: r.remarks || r.description || '',
           status: (r.status || 'approved') as 'draft' | 'approved',
-          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-          recordedBy: r.recorded_by_name || 'Mark Tan',
-          timestamp: r.created_at || new Date().toISOString(),
+          date: r.transacted_at ? r.transacted_at.split('T')[0] : (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          recordedBy: r.recorded_by_name || 'Accounting Staff',
+          timestamp: r.transacted_at || r.created_at || new Date().toISOString(),
         }));
 
-        // Self-correcting logic: Filter and delete corrupted auto-sync records and duplicates
-        const badExpenses = rawLiveExpenses.filter(e => e.purpose === 'expense');
-        
-        const seenMedical = new Set<string>();
-        const seenOec = new Set<string>();
-        const seenPassport = new Set<string>();
-        const duplicates: ExpenseRecord[] = [];
-        
-        const validExpenses = rawLiveExpenses.filter(e => {
-          if (e.purpose === 'expense') return false; // Handled by badExpenses
-          
-          if (e.purpose.includes('Medical')) {
-            if (seenMedical.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenMedical.add(e.applicantId);
-          }
-          
-          if (e.purpose.includes('OEC')) {
-            if (seenOec.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenOec.add(e.applicantId);
-          }
-          
-          if (e.purpose.includes('Passport')) {
-            if (seenPassport.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenPassport.add(e.applicantId);
-          }
-          
-          return true;
-        });
-
-        const liveExpenses = validExpenses;
+        const liveExpenses = rawLiveExpenses;
         setExpenses(liveExpenses);
         setExpensesLoaded(true);
         try {
@@ -1715,36 +1682,99 @@ export default function App() {
   };
   const addExpense = async (expense: Omit<ExpenseRecord, "id">) => {
     const tempId = `EXP-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-    setExpenses((prev) => [{ ...expense, id: tempId }, ...prev]);
+    const newEntry: ExpenseRecord = {
+      ...expense,
+      id: tempId,
+      currency: 'PESO',
+      amount: Number(expense.amount) || 0,
+    };
+    setExpenses((prev) => [newEntry, ...prev]);
 
     try {
-      const applicantIdInt = parseInt(expense.applicantId, 10) || 1;
-      await api.post('/financial/records', {
+      const applicantIdInt = parseInt(expense.applicantId, 10);
+      if (!applicantIdInt || isNaN(applicantIdInt)) {
+        throw new Error(`Invalid applicant ID: "${expense.applicantId}". Cannot record financial transaction.`);
+      }
+      const res = await api.post('/financial/records', {
         applicant_id: applicantIdInt,
         payment_type: expense.purpose || 'Processing Fee',
-        amount: expense.amount,
-        currency: expense.currency === 'DOLLAR' ? 'USD' : 'PHP',
+        amount: Number(expense.amount) || 0,
+        currency: 'PHP',
+        transaction_type: expense.type === 'placement_fee' ? 'PLACEMENT_FEE' : (expense.type === 'cash_advance' ? 'CASH_ADVANCE' : 'FEE'),
+        reference_no: expense.referenceNo || null,
+        transacted_at: expense.date || new Date().toISOString(),
         recorded_by: 1,
       });
-    } catch (err) {
+
+      if (res.data) {
+        const persistedId = `EXP-${res.data.financial_record_id || res.data.transaction_id || tempId}`;
+        setExpenses((prev) => {
+          const updated = prev.map(e => e.id === tempId ? { 
+            ...e, 
+            id: persistedId, 
+            referenceNo: res.data.reference_no || e.referenceNo 
+          } : e);
+          try {
+            const userId = liveSession.current?.userId;
+            if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+          } catch (e) { }
+          return updated;
+        });
+      }
+    } catch (err: any) {
       console.warn('Could not persist expense to backend:', err);
+      // Roll back optimistic insert if rejected by backend (e.g. DMW violation)
+      setExpenses((prev) => prev.filter(e => e.id !== tempId));
+      throw err;
     }
   };
 
   const updateExpense = async (id: string, updates: Partial<ExpenseRecord>) => {
-    setExpenses((prev) => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    setExpenses((prev) => {
+      const updated = prev.map(e => e.id === id ? { ...e, ...updates } : e);
+      try {
+        const userId = liveSession.current?.userId;
+        if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
     try {
-      if (!id.startsWith('EXP-new-')) {
-        const dbId = id.replace('EXP-', '');
-        await api.put(`/financial/records/${dbId}`, {
+      const dbId = id.replace('EXP-', '');
+      if (/^\d+$/.test(dbId)) {
+        await api.patch(`/financial/records/${dbId}`, {
           payment_type: updates.purpose,
-          amount: updates.amount,
-          currency: updates.currency === 'DOLLAR' ? 'USD' : 'PHP',
-          description: updates.remarks,
+          amount: updates.amount !== undefined ? Number(updates.amount) : undefined,
+          currency: 'PHP',
+          reference_no: updates.referenceNo,
+          transacted_at: updates.date,
+          transaction_type: updates.type === 'placement_fee' ? 'PLACEMENT_FEE' : (updates.type === 'cash_advance' ? 'CASH_ADVANCE' : undefined),
         });
       }
     } catch (err) {
       console.warn('Could not update expense on backend:', err);
+      throw err;
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    setExpenses((prev) => {
+      const updated = prev.filter(e => e.id !== id);
+      try {
+        const userId = liveSession.current?.userId;
+        if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
+    try {
+      const dbId = id.replace('EXP-', '');
+      if (/^\d+$/.test(dbId)) {
+        await api.delete(`/financial/records/${dbId}`);
+      }
+    } catch (err) {
+      console.warn('Could not delete expense on backend:', err);
+      throw err;
     }
   };
 
@@ -1903,6 +1933,7 @@ export default function App() {
             expensesLoaded={expensesLoaded}
             addExpense={addExpense}
             updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
             onLogout={handleLogout}
             isSuperAdmin={isSuperAdmin}
             onSuperAdminDashboard={() => showAppView('super-admin')}
