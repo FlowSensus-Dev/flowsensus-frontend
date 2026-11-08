@@ -1,4 +1,4 @@
-import React, { useState, FormEvent } from 'react';
+import React, { useState, useRef, FormEvent } from 'react';
 import { UserRole, ApplicantRecord } from '../types';
 import Logo from './Logo';
 import { supabase } from '../../lib/supabase';
@@ -23,6 +23,9 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { validatePassword } from '../../lib/passwordPolicy';
+import { extractAndNormalizeRoles } from '../../lib/accessControl';
+import { isPlatformSuperAdmin } from '../../lib/platformIdentity';
+import { changeRequiredStaffPassword, PasswordChangeAccount } from '../../lib/staffOnboarding';
 
 type PortalType = 'staff' | 'applicant';
 
@@ -34,10 +37,14 @@ interface LoginScreenProps {
     isSuperAdmin?: boolean,
     roles?: UserRole[],
     rememberMe?: boolean
-  ) => void;
+  ) => void | Promise<void>;
   applicants?: ApplicantRecord[];
   tenantName?: string;
   onBack?: () => void;
+  requiredPasswordChange?: PasswordChangeAccount;
+  passwordSetupLabel?: string;
+  onPasswordChanged?: () => Promise<void>;
+  onRetryOnboarding?: () => Promise<void>;
 }
 
 const PORTALS: {
@@ -80,6 +87,10 @@ export default function LoginScreen({
   applicants = [],
   tenantName,
   onBack,
+  requiredPasswordChange,
+  passwordSetupLabel,
+  onPasswordChanged,
+  onRetryOnboarding,
 }: LoginScreenProps) {
   const [portal, setPortal] = useState<PortalType | null>(null);
   const [username, setUsername] = useState('');
@@ -91,21 +102,14 @@ export default function LoginScreen({
   const [errorMessage, setErrorMessage] = useState('');
 
   // First-time password change prompt state
-  const [forcePasswordChangeUser, setForcePasswordChangeUser] = useState<{
-    user: any;
-    role: UserRole;
-    name: string;
-    isSuper: boolean;
-    roles?: UserRole[];
-    rememberMe?: boolean;
-    applicantId?: string;
-  } | null>(null);
+  const [forcePasswordChangeUser, setForcePasswordChangeUser] = useState<PasswordChangeAccount | null>(requiredPasswordChange ?? null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
+  const passwordBusy = useRef(false);
 
   const selectedPortal = PORTALS.find((p) => p.key === portal);
 
@@ -190,7 +194,7 @@ export default function LoginScreen({
       }
 
       const user = data.user;
-      const isSuper = Boolean(user?.app_metadata?.is_super_admin);
+      const isSuper = isPlatformSuperAdmin(user);
       const userRoleMeta = (user?.app_metadata?.role || user?.user_metadata?.role || '').toLowerCase();
       const userRolesMeta: string[] = (user?.app_metadata?.roles || user?.user_metadata?.roles || []).map((r: any) => String(r).toLowerCase());
       const isApplicantAccount =
@@ -255,32 +259,47 @@ export default function LoginScreen({
           return;
         }
 
-        onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
+        await onLogin('Applicant', applicantName, applicantId ? String(applicantId) : undefined, false, ['Applicant'], rememberMe);
       } else {
         // Parse all assigned roles from metadata
-        let assignedRoles: UserRole[] = [];
-        if (Array.isArray(user?.user_metadata?.roles) && user.user_metadata.roles.length > 0) {
-          assignedRoles = user.user_metadata.roles;
-        } else if (typeof user?.user_metadata?.role === 'string') {
-          assignedRoles = user.user_metadata.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
-        } else if (Array.isArray(user?.app_metadata?.roles) && user.app_metadata.roles.length > 0) {
-          assignedRoles = user.app_metadata.roles;
-        }
+        const assignedRoles: UserRole[] = extractAndNormalizeRoles(
+          user?.user_metadata?.roles,
+          user?.user_metadata?.role_names,
+          user?.user_metadata?.role,
+          user?.app_metadata?.roles,
+          user?.app_metadata?.role_names,
+          user?.app_metadata?.role
+        );
 
         const dynamicRole = (assignedRoles[0] || user?.user_metadata?.role || user?.app_metadata?.role || resolveStaffRole(trimmedUser)) as UserRole;
-        const role = isSuper ? 'Management' : dynamicRole;
+        const role: UserRole = isSuper ? '' : dynamicRole;
         const name = user?.user_metadata?.full_name || resolveStaffName(trimmedUser);
-        const roles = isSuper
-          ? (['Management', 'Admin', 'Recruitment', 'Accounting'] as UserRole[])
+        let roles: UserRole[] = isSuper
+          ? []
           : (assignedRoles.length > 0 ? assignedRoles : [role]);
 
-        // Check if user is required to change password on first login
+        // Attempt to fetch authoritative user roles from DB for tenant staff
+        if (!isSuper) {
+          try {
+            const meRes = await api.get('/users/me');
+            if (meRes?.data) {
+              const dbRoles = extractAndNormalizeRoles(meRes.data.role_names, meRes.data.role_name, meRes.data.roles);
+              if (dbRoles.length > 0) {
+                roles = Array.from(new Set([...roles, ...dbRoles]));
+              }
+            }
+          } catch {
+            // Ignored if offline
+          }
+        }
+
+        // Tenant staff enter the authoritative onboarding gate. Keep the existing Super Admin flow.
         const mustChange = Boolean(
           user?.user_metadata?.must_change_password ??
           user?.app_metadata?.must_change_password
         );
 
-        if (mustChange) {
+        if (isSuper && mustChange) {
           setForcePasswordChangeUser({ user, role, name, isSuper, roles, rememberMe });
           setLoading(false);
           return;
@@ -289,7 +308,7 @@ export default function LoginScreen({
         // Record login in app_user to update last_login_at and broadcast realtime update
         api.post('/users/record-login', {}).catch(e => console.warn('Could not record login timestamp:', e));
 
-        onLogin(role, name, undefined, isSuper, roles, rememberMe);
+        await onLogin(role, name, undefined, isSuper, roles, rememberMe);
       }
       return;
     } catch (err: any) {
@@ -302,7 +321,7 @@ export default function LoginScreen({
 
   const handleForcePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!forcePasswordChangeUser) return;
+    if (!forcePasswordChangeUser || passwordBusy.current) return;
 
     const val = validatePassword(newPasswordInput);
     if (!val.isValid) {
@@ -314,10 +333,18 @@ export default function LoginScreen({
       return;
     }
 
+    passwordBusy.current = true;
     setIsUpdatingPassword(true);
     setPasswordChangeError('');
 
     try {
+      if (!forcePasswordChangeUser.isSuper && forcePasswordChangeUser.role !== 'Applicant') {
+        await changeRequiredStaffPassword(forcePasswordChangeUser.user, newPasswordInput);
+        if (!onPasswordChanged) throw new Error('Authoritative setup confirmation is unavailable. Refresh setup status before continuing.');
+        await onPasswordChanged();
+        setNewPasswordInput(''); setConfirmPasswordInput('');
+        return;
+      }
       // 1. Update password in Supabase Auth and clear must_change_password flag
       const { error: authError } = await supabase.auth.updateUser({
         password: newPasswordInput,
@@ -353,11 +380,12 @@ export default function LoginScreen({
 
       // 4. Complete login into workspace or applicant portal
       const { role, name, isSuper, roles, rememberMe: userRememberMe, applicantId } = forcePasswordChangeUser;
+      await onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
       setForcePasswordChangeUser(null);
-      onLogin(role, name, applicantId, isSuper, roles, userRememberMe);
     } catch (err: any) {
       setPasswordChangeError(err.message || 'Failed to update password. Please try again.');
     } finally {
+      passwordBusy.current = false;
       setIsUpdatingPassword(false);
     }
   };
@@ -385,7 +413,7 @@ export default function LoginScreen({
 
       <div className="w-full max-w-md relative z-10">
         {/* Top Right Close Button */}
-        {onBack && (
+        {onBack && !requiredPasswordChange && (
           <button
             onClick={onBack}
             className="absolute -top-10 -right-2 sm:-right-8 text-white/50 hover:text-white transition-colors"
@@ -396,7 +424,7 @@ export default function LoginScreen({
         )}
 
         {/* ── Portal selector ──────────────────────────────────────────── */}
-        {!portal && (
+        {!portal && !requiredPasswordChange && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
             {/* Header */}
             <div className="bg-gradient-to-br from-[#0EA5E9] to-[#0284C7] px-8 pt-8 pb-6 text-center">
@@ -471,7 +499,7 @@ export default function LoginScreen({
         )}
 
         {/* ── Login form ───────────────────────────────────────────────── */}
-        {portal && selectedPortal && (
+        {portal && selectedPortal && !requiredPasswordChange && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
             {/* Portal header */}
             <div className={`bg-gradient-to-br ${selectedPortal.gradient} px-8 pt-6 pb-5`}>
@@ -619,11 +647,12 @@ export default function LoginScreen({
       {/* ── Force Change Password Modal (First Login) ────────────────── */}
       {forcePasswordChangeUser && (
         <div className="fixed inset-0 bg-[#0F172A]/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-slate-100 relative">
+          <div role="dialog" aria-modal="true" aria-labelledby="required-password-heading" className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto p-8 border border-slate-100 relative">
             <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mb-4 mx-auto shadow-sm">
               <Lock size={26} />
             </div>
-            <h2 className="text-xl font-extrabold text-center text-[#0F172A]">Set Your Private Password</h2>
+            {passwordSetupLabel && <p className="mb-2 text-center text-xs font-bold text-sky-700">{passwordSetupLabel}</p>}
+            <h2 id="required-password-heading" className="text-xl font-extrabold text-center text-[#0F172A]">Set Your Private Password</h2>
             <p className="text-xs text-slate-500 text-center mt-2 mb-6 leading-relaxed">
               {forcePasswordChangeUser.role === 'Applicant'
                 ? 'Welcome! Your applicant portal account was initialized with a temporary password. Please set a new private password before accessing your applicant portal.'
@@ -631,7 +660,7 @@ export default function LoginScreen({
             </p>
 
             {passwordChangeError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
+              <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
                 <AlertCircle size={15} className="flex-shrink-0" />
                 <span>{passwordChangeError}</span>
               </div>
@@ -647,6 +676,7 @@ export default function LoginScreen({
                   <input
                     type={showNewPassword ? 'text' : 'password'}
                     required
+                    disabled={isUpdatingPassword}
                     value={newPasswordInput}
                     onChange={(e) => setNewPasswordInput(e.target.value)}
                     placeholder="Enter your new private password"
@@ -718,6 +748,7 @@ export default function LoginScreen({
                   <input
                     type={showConfirmPassword ? 'text' : 'password'}
                     required
+                    disabled={isUpdatingPassword}
                     value={confirmPasswordInput}
                     onChange={(e) => setConfirmPasswordInput(e.target.value)}
                     placeholder="Re-type your new private password"
@@ -763,13 +794,23 @@ export default function LoginScreen({
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    {forcePasswordChangeUser.role === 'Applicant'
+                    {forcePasswordChangeUser.isSuper ? 'Save Password & Open Console' : requiredPasswordChange ? 'Save Password & Continue Setup' : forcePasswordChangeUser.role === 'Applicant'
                       ? 'Save Password & Enter Portal'
                       : 'Save Password & Enter Workspace'}
                   </>
                 )}
               </button>
             </form>
+            {requiredPasswordChange && <div className="mt-4 flex flex-wrap justify-between gap-3 text-xs font-bold text-sky-700">
+              {onRetryOnboarding && <button type="button" disabled={isUpdatingPassword} className="underline disabled:opacity-50" onClick={async () => {
+                if (passwordBusy.current) return;
+                passwordBusy.current = true; setIsUpdatingPassword(true); setPasswordChangeError('');
+                try { await onRetryOnboarding(); }
+                catch { setPasswordChangeError('Setup status could not be verified. Retry, or sign out and sign in again.'); }
+                finally { passwordBusy.current = false; setIsUpdatingPassword(false); }
+              }}>Refresh setup status</button>}
+              {onBack && <button type="button" onClick={onBack} className="text-slate-600 underline">Sign out</button>}
+            </div>}
           </div>
         </div>
       )}

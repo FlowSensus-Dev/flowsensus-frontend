@@ -1,7 +1,46 @@
 import { UserRole, ViewType } from '../app/types';
 
 /**
- * Modules strictly reserved for Management and Super Admin.
+ * Normalizes any role representation into a valid UserRole.
+ */
+export function normalizeRole(r: any): UserRole | null {
+  if (!r || typeof r !== 'string') return null;
+  const l = r.trim().toLowerCase();
+  if (l === 'management') return 'Management';
+  if (l === 'recruitment') return 'Recruitment';
+  if (l === 'admin') return 'Admin';
+  if (l === 'accounting') return 'Accounting';
+  if (l === 'applicant') return 'Applicant';
+  if (l === 'employer') return 'Employer';
+  return null;
+}
+
+/**
+ * Extracts, parses, normalizes, and deduplicates roles from any combination
+ * of arrays, comma-separated strings, or objects.
+ */
+export function extractAndNormalizeRoles(...sources: any[]): UserRole[] {
+  const result: UserRole[] = [];
+  for (const src of sources) {
+    if (!src) continue;
+    if (Array.isArray(src)) {
+      for (const item of src) {
+        const norm = normalizeRole(item);
+        if (norm && !result.includes(norm)) result.push(norm);
+      }
+    } else if (typeof src === 'string') {
+      const parts = src.split(',');
+      for (const part of parts) {
+        const norm = normalizeRole(part);
+        if (norm && !result.includes(norm)) result.push(norm);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Tenant modules strictly reserved for Management.
  * Even if manually entered into the browser address bar, access will be blocked.
  */
 export const MANAGEMENT_EXCLUSIVE_VIEWS: ViewType[] = [
@@ -44,7 +83,7 @@ export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
 };
 
 /**
- * Authoritative client-side permission checker.
+ * Client-side navigation guard; backend authorization remains authoritative.
  * Used by both Sidebar (navigation visibility) and AppShell (route guard & URL manipulation barrier).
  *
  * @param view The target ViewType requested (e.g. 'users', 'ocr', 'expense')
@@ -59,11 +98,14 @@ export function hasAccessToView(
   isSuperAdmin?: boolean,
   workflowPermissions?: Record<string, UserRole[]>
 ): boolean {
-  // 1. Super Admin has unrestricted access across all modules
-  if (isSuperAdmin) return true;
+  // Platform identities never inherit tenant operational permissions.
+  if (isSuperAdmin) return false;
+
+  // Normalize user roles for case-insensitive verification
+  const normalizedUserRoles = extractAndNormalizeRoles(userRoles);
 
   // 2. Management role has universal access to all agency operations & oversight
-  if (userRoles.includes('Management')) return true;
+  if (normalizedUserRoles.includes('Management')) return true;
 
   // 3. Universal modules accessible to all authenticated staff
   if (UNIVERSAL_VIEWS.includes(view)) return true;
@@ -77,14 +119,18 @@ export function hasAccessToView(
   if (workflowPermissions && workflowPermissions[view]) {
     const allowedRoles = workflowPermissions[view];
     if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
-      return allowedRoles.some((r) => userRoles.includes(r));
+      return allowedRoles.some((r) =>
+        normalizedUserRoles.some((ur) => ur.toLowerCase() === (r || '').toLowerCase())
+      );
     }
   }
 
   // 6. Default static fallback role permissions
   const staticAllowed = STATIC_VIEW_ROLES[view];
   if (staticAllowed && staticAllowed.length > 0) {
-    return staticAllowed.some((r) => userRoles.includes(r));
+    return staticAllowed.some((r) =>
+      normalizedUserRoles.some((ur) => ur.toLowerCase() === (r || '').toLowerCase())
+    );
   }
 
   return false;

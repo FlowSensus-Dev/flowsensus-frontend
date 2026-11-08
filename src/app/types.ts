@@ -103,6 +103,7 @@ export interface ApplicantRecord {
   selectedJobOrderId?: string;
   appliedPosition?: string;
   appliedRole?: string;
+  country?: string;
 
   // Stop / Reject processing
   isStopped?: boolean;
@@ -141,6 +142,7 @@ export interface ApplicantRecord {
   // Deployment tracking & Compliance
   actualDeploymentDate?: string;
   predictedDeploymentDate?: string;
+  passport?: string;
   passportExpirationDate?: string;
 }
 
@@ -298,7 +300,9 @@ export interface ExpenseRecord {
   purpose: string;
   amount: number;
   currency: 'PESO' | 'DOLLAR';
-  type: 'expense' | 'cash_advance' | 'deduction';
+  type: 'expense' | 'cash_advance' | 'deduction' | 'placement_fee';
+  category?: 'worker_document' | 'employer_processing' | 'placement_fee' | 'cash_advance';
+  referenceNo?: string;
   remarks?: string;
   description?: string;
   status: 'draft' | 'approved';
@@ -309,11 +313,11 @@ export interface ExpenseRecord {
 
 export interface ApplicantLedgerSummary {
   applicantId: string;
-  targetCurrency: string;
-  exchangeRateUsdToPhp: number;
-  accommodationPerDay: number;
-  accommodationDays: number;
-  remittance: number;
+  totalWorkerCostPhp: number;
+  totalEmployerCostPhp: number;
+  placementFeePhp: number;
+  totalCashAdvancePhp: number;
+  netRemainingPhp: number;
 }
 export interface DynamicTestScore {
   id?: string;

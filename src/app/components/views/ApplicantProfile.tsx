@@ -12,7 +12,7 @@ import {
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
 import { calculateExperienceBreakdown } from '../../../lib/profilingUtils';
-import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, EmploymentFlag, EmploymentFlagType, EvaluationTest, LanguageRecord, UserRole } from '../../types';
 import ScreeningExamPreview, { DigitalExamSummaryItem } from './ScreeningExamPreview';
 
 // ─── Flag engine types ────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ const SENSITIVE_AUDIT_KEYS = new Set([
   'applicant_id', 'agency_id', 'system_performance'
 ]);
 
-export function isStaffAction(log: any): boolean {
+function isStaffAction(log: any): boolean {
   if (!log) return false;
   const actorName = String(log.actor_name || log.performed_by || log.performedBy || '').trim().toUpperCase();
   const actorRole = String(log.actor_role || log.department || '').trim().toUpperCase();
@@ -195,6 +195,7 @@ interface ApplicantProfileProps {
   applicantIndexText?: string;
   onEdit?: () => void;
   currentUserRole?: string;
+  currentUserRoles?: UserRole[] | string[];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -213,8 +214,9 @@ export default function ApplicantProfile({
   applicantIndexText,
   onEdit,
   currentUserRole,
+  currentUserRoles,
 }: ApplicantProfileProps) {
-  const isAccounting = currentUserRole === 'Accounting';
+  const isAccounting = currentUserRole === 'Accounting' || (Boolean(currentUserRoles) && currentUserRoles!.some(r => String(r).toLowerCase() === 'accounting'));
 
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -847,7 +849,12 @@ export default function ApplicantProfile({
           )}
           <div className="flex flex-col items-end gap-2">
             <div className="text-right text-xs text-white/40">
-              <p>Handler: {applicant.currentHandler}</p>
+              <p>
+                Handler:{' '}
+                {applicant.status === 'Deployed' || applicant.phase === 6
+                  ? 'Not needed (Deployed)'
+                  : (applicant.currentHandler || 'Unassigned')}
+              </p>
               <p className="mt-0.5">{applicant.currentDepartment}</p>
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>

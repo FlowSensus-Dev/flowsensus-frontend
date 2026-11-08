@@ -181,7 +181,7 @@
   }
 
   button {
-    font-size: var(--text-base);
+    font-size: inherit;
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
     transition: all 0.2s ease-in-out;
