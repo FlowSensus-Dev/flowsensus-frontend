@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  ArchiveRestore,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { ViewType } from './AppShell';
@@ -124,7 +125,7 @@ export default function Sidebar({
     },
     {
       title: 'Oversight Controls',
-      roles: ['Management'],
+      roles: ['Admin', 'Management'],
       items: [
         { id: 'evaluation', label: 'Evaluation & Workflow', icon: SlidersHorizontal, roles: ['Management'] },
         { id: 'manager', label: 'CV & Employer Hub', icon: CheckSquare, roles: ['Management'] },
@@ -132,6 +133,7 @@ export default function Sidebar({
         { id: 'history', label: 'Audit Log', icon: History, roles: ['Admin', 'Management'] },
         { id: 'reports', label: 'Operational Reports', icon: FileBarChart, roles: ['Management'] },
         { id: 'users', label: 'User Management', icon: Users, roles: ['Management'] },
+        { id: 'archive', label: 'Applicant Archive', icon: ArchiveRestore, roles: ['Admin', 'Management'] },
       ],
     },
   ];

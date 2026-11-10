@@ -278,5 +278,14 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     photoDocumentId: item.photo_document_id || item.photoDocumentId || undefined,
     photoUrl: item.photo_url || item.photo || '',
     photoDataUrl: item.photo_url || item.photo || '',
+    isStopped: Boolean(item.is_stopped ?? item.isStopped),
+    stoppedReason: item.stopped_reason || item.stoppedReason || '',
+    stoppedBy: item.stopped_by || item.stoppedBy || '',
+    stoppedAt: item.stopped_at || item.stoppedAt || '',
+    stoppedPhase: item.stopped_phase || item.stoppedPhase || undefined,
+    deletedAt: item.deleted_at || item.deletedAt || undefined,
+    deletedBy: item.deleted_by || item.deletedBy || undefined,
+    deletedByName: item.deleted_by_name || item.deletedByName || undefined,
+    archiveType: item.archive_type || item.archiveType || undefined,
   };
 }

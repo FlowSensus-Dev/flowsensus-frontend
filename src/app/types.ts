@@ -6,6 +6,7 @@ export type ViewType =
   | 'registration'
   | 'screening'
   | 'profiling'
+  | 'archive'
   | 'cv'
   | 'endorsement'
   | 'fittowork'
@@ -105,13 +106,6 @@ export interface ApplicantRecord {
   appliedRole?: string;
   country?: string;
 
-  // Stop / Reject processing
-  isStopped?: boolean;
-  stoppedReason?: string;
-  stoppedBy?: string;
-  stoppedAt?: string;
-  stoppedPhase?: number;
-
   // System fields
   address?: string;
   documents?: DocumentRecord[];
@@ -144,6 +138,17 @@ export interface ApplicantRecord {
   predictedDeploymentDate?: string;
   passport?: string;
   passportExpirationDate?: string;
+
+  // Stopped & Archive fields
+  isStopped?: boolean;
+  stoppedReason?: string;
+  stoppedBy?: string;
+  stoppedAt?: string;
+  stoppedPhase?: number;
+  deletedAt?: string;
+  deletedBy?: string | number;
+  deletedByName?: string;
+  archiveType?: 'deleted' | 'stopped';
 }
 
 export interface Clinic {
