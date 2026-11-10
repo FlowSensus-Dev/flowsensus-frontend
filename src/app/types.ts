@@ -148,6 +148,7 @@ export interface ApplicantRecord {
   deletedAt?: string;
   deletedBy?: string | number;
   deletedByName?: string;
+  deletedByEmail?: string;
   archiveType?: 'deleted' | 'stopped';
 }
 

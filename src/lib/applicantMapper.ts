@@ -286,6 +286,7 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     deletedAt: item.deleted_at || item.deletedAt || undefined,
     deletedBy: item.deleted_by || item.deletedBy || undefined,
     deletedByName: item.deleted_by_name || item.deletedByName || undefined,
+    deletedByEmail: item.deleted_by_email || item.deletedByEmail || (typeof item.deleted_by === 'string' && item.deleted_by.includes('@') ? item.deleted_by : undefined),
     archiveType: item.archive_type || item.archiveType || undefined,
   };
 }

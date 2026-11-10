@@ -72,6 +72,7 @@ export default function ApplicantList({
   const uniqueRoles = Array.from(new Set(applicants.map(a => a.role).filter(Boolean))).sort();
 
   const filtered = applicants.filter(a => {
+    if (a.deletedAt || a.archiveType === 'deleted' || a.status === 'Deleted') return false;
     const q = search.toLowerCase();
     const matchSearch = !search ||
       a.name.toLowerCase().includes(q) ||

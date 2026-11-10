@@ -95,6 +95,7 @@ describe('ApplicantArchive Component', () => {
       deleted_at: '2026-11-01T10:00:00Z',
       deleted_by: 5,
       deleted_by_name: 'Manager Rose',
+      deleted_by_email: 'rose.recruiter@gmail.com',
       archive_type: 'deleted',
       job_order_code: 'JO-2026-0002',
     },
@@ -149,54 +150,25 @@ describe('ApplicantArchive Component', () => {
     const allText = text(output);
 
     expect(allText).toContain('Applicant Archive');
-    expect(allText).toContain('Browse soft-deleted applicants');
+    expect(allText).toContain('Browse deleted applicant records');
     expect(h.get).toHaveBeenCalledWith('/applicants/archived');
-    expect(allText).toContain('Juan Dela Cruz');
     expect(allText).toContain('Maria Santos');
+    expect(allText).toContain('rose.recruiter@gmail.com');
   });
 
-  it('displays count badge and segmented filter pills', async () => {
+  it('only lists deleted records, not stopped applicants, and has no filter tabs', async () => {
     render();
     h.effects.splice(0).forEach((e) => e());
     await flush();
 
-    const output = render();
-    const allText = text(output);
-
-    expect(allText).toContain('2 records');
-    expect(allText).toContain('All');
-    expect(allText).toContain('Soft-Deleted');
-    expect(allText).toContain('Processing Stopped');
+    const allText = text(render());
+    expect(allText).toContain('1 records');
+    expect(allText).toContain('Maria Santos');
+    expect(allText).not.toContain('Juan Dela Cruz');
+    expect(allText).toContain('Deleted By');
+    expect(allText).not.toContain('Applied Role');
+    expect(allText).not.toContain('Processing Stopped');
   });
-
-  it('filters by archive type: soft-deleted vs stopped', async () => {
-    render();
-    h.effects.splice(0).forEach((e) => e());
-    await flush();
-
-    // Click "Soft-Deleted" filter button
-    const deletedFilterBtn = nodes(render()).find(
-      (n) => n.type === 'button' && text(n).includes('Soft-Deleted')
-    );
-    expect(deletedFilterBtn).toBeDefined();
-    deletedFilterBtn.props.onClick();
-
-    const deletedView = text(render());
-    expect(deletedView).toContain('Maria Santos');
-    expect(deletedView).not.toContain('Juan Dela Cruz');
-
-    // Click "Processing Stopped" filter button
-    const stoppedFilterBtn = nodes(render()).find(
-      (n) => n.type === 'button' && text(n).includes('Processing Stopped')
-    );
-    expect(stoppedFilterBtn).toBeDefined();
-    stoppedFilterBtn.props.onClick();
-
-    const stoppedView = text(render());
-    expect(stoppedView).toContain('Juan Dela Cruz');
-    expect(stoppedView).not.toContain('Maria Santos');
-  });
-
   it('opens clean restore modal and restores candidate to active processing upon confirmation', async () => {
     render();
     h.effects.splice(0).forEach((e) => e());
@@ -204,11 +176,11 @@ describe('ApplicantArchive Component', () => {
 
     // Find "Restore" button for the first record
     const returnBtns = nodes(render()).filter(
-      (n) => n.type === 'button' && text(n).includes('Restore')
+      (n) => n.type === 'button' && n.props['aria-label'] === 'Restore to active records'
     );
     expect(returnBtns.length).toBeGreaterThan(0);
 
-    // Click Restore for Juan Dela Cruz
+    // Click Restore for Maria Santos
     returnBtns[0].props.onClick();
 
     // Check clean modal opens
@@ -224,7 +196,7 @@ describe('ApplicantArchive Component', () => {
     await confirmBtn.props.onClick();
 
     expect(h.post).toHaveBeenCalledWith(
-      '/applicants/101/restore',
+      '/applicants/102/restore',
       expect.objectContaining({ targetPhase: expect.any(Number) })
     );
     expect(mockShowToast).toHaveBeenCalledWith(
@@ -245,11 +217,10 @@ describe('ApplicantArchive Component', () => {
     );
     expect(searchInput).toBeDefined();
 
-    searchInput.props.onChange({ target: { value: 'Welder' } });
+    searchInput.props.onChange({ target: { value: 'rose.recruiter' } });
 
     const searchResult = text(render());
-    expect(searchResult).toContain('Juan Dela Cruz');
-    expect(searchResult).not.toContain('Maria Santos');
+    expect(searchResult).toContain('Maria Santos');
   });
 
   it('safeguards permanent deletion with required confirmation checkbox before allowing deletion', async () => {
@@ -259,12 +230,12 @@ describe('ApplicantArchive Component', () => {
 
     // Find "Delete Record" button for Maria Santos (applicant 102)
     const deleteBtns = nodes(render()).filter(
-      (n) => n.type === 'button' && text(n).includes('Delete Record')
+      (n) => n.type === 'button' && n.props['aria-label'] === 'Permanently delete this record'
     );
     expect(deleteBtns.length).toBeGreaterThan(0);
 
     // Click "Delete Record" on the second applicant
-    deleteBtns[1].props.onClick();
+    deleteBtns[0].props.onClick();
 
     // Check modal opens with staff-friendly warning
     let modalText = text(render());

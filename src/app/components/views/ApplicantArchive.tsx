@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ArchiveRestore, Search, RotateCcw, Trash2, OctagonX,
   X, Info, ShieldCheck, Clock, User, Briefcase, Phone, Mail,
-  CheckCircle2, RefreshCw, AlertTriangle
+  CheckCircle2, RefreshCw, AlertTriangle, Eye, ArrowLeft
 } from 'lucide-react';
 import { Skeleton, SkeletonAvatar } from '../ui/skeleton';
 import { ApplicantRecord, ActivityLog, UserRole, ViewType } from '../../types';
 import { api } from '../../../lib/api';
 import { mapApplicantFromApi } from '../../../lib/applicantMapper';
+import ApplicantProfile from './ApplicantProfile';
 
 interface ApplicantArchiveProps {
   showToast: (msg: string) => void;
@@ -21,7 +22,6 @@ interface ApplicantArchiveProps {
   addActivityLog?: (log: Omit<ActivityLog, 'id' | 'timestamp'>) => void;
 }
 
-type ArchiveFilterType = 'all' | 'deleted' | 'stopped';
 
 export default function ApplicantArchive({
   showToast,
@@ -37,7 +37,6 @@ export default function ApplicantArchive({
   const [archivedRecords, setArchivedRecords] = useState<ApplicantRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<ArchiveFilterType>('all');
 
   // Restore Modal State
   const [applicantToRestore, setApplicantToRestore] = useState<ApplicantRecord | null>(null);
@@ -52,73 +51,41 @@ export default function ApplicantArchive({
 
   // Detail Modal State
   const [selectedRecord, setSelectedRecord] = useState<ApplicantRecord | null>(null);
+  const [viewingProfile, setViewingProfile] = useState<ApplicantRecord | null>(null);
 
-  // ── Fetch Archived Applicants from Backend ─────────────────────────────
+  // Fetch deleted applicants from the backend
   const fetchArchived = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await api.get('/applicants/archived');
       if (res.data && Array.isArray(res.data)) {
-        const mapped: ApplicantRecord[] = res.data.map(mapApplicantFromApi);
-        setArchivedRecords(mapped);
+        setArchivedRecords(res.data.map(mapApplicantFromApi));
       } else {
-        const clientStopped = applicants.filter(
-          (a) => a.status === 'Processing Stopped' || a.isStopped === true
-        );
-        setArchivedRecords(clientStopped);
+        setArchivedRecords([]);
       }
     } catch (err) {
-      console.warn('Could not fetch archived applicants from backend, using active applicants fallback:', err);
-      const clientStopped = applicants.filter(
-        (a) => a.status === 'Processing Stopped' || a.isStopped === true
-      );
-      setArchivedRecords(clientStopped);
+      console.warn('Could not fetch archived applicants from backend:', err);
+      setArchivedRecords([]);
     } finally {
       setIsLoading(false);
     }
-  }, [applicants]);
+  }, []);
 
   useEffect(() => {
     fetchArchived();
   }, [fetchArchived]);
 
-  // Merge client-side stopped records if not already in list
-  const allArchivePool = useMemo(() => {
-    const existingIds = new Set(archivedRecords.map((r) => r.id));
-    const merged = [...archivedRecords];
+  // The archive only holds deleted records. Stopped applicants stay in the active lists.
+  const allArchivePool = useMemo(
+    () => archivedRecords.filter((r) => r.archiveType === 'deleted' || Boolean(r.deletedAt)),
+    [archivedRecords]
+  );
 
-    applicants.forEach((a) => {
-      if ((a.status === 'Processing Stopped' || a.isStopped === true) && !existingIds.has(a.id)) {
-        merged.push({
-          ...a,
-          archiveType: 'stopped',
-        });
-        existingIds.add(a.id);
-      }
-    });
+  const counts = useMemo(() => ({ total: allArchivePool.length }), [allArchivePool]);
 
-    return merged;
-  }, [archivedRecords, applicants]);
-
-  // Counts for clean segmented control
-  const counts = useMemo(() => {
-    const total = allArchivePool.length;
-    const deleted = allArchivePool.filter((r) => r.archiveType === 'deleted' || Boolean(r.deletedAt)).length;
-    const stopped = allArchivePool.filter((r) => r.archiveType === 'stopped' || r.status === 'Processing Stopped' || r.isStopped).length;
-    return { total, deleted, stopped };
-  }, [allArchivePool]);
-
-  // Filter & Search Logic
+  // Search logic
   const filteredRecords = useMemo(() => {
     return allArchivePool.filter((rec) => {
-      if (filterType === 'deleted') {
-        const isDel = rec.archiveType === 'deleted' || Boolean(rec.deletedAt);
-        if (!isDel) return false;
-      } else if (filterType === 'stopped') {
-        const isStop = rec.archiveType === 'stopped' || rec.status === 'Processing Stopped' || rec.isStopped;
-        if (!isStop) return false;
-      }
-
       if (search.trim()) {
         const q = search.toLowerCase();
         return (
@@ -126,15 +93,12 @@ export default function ApplicantArchive({
           (rec.applicantCode || '').toLowerCase().includes(q) ||
           (rec.role || rec.appliedRole || '').toLowerCase().includes(q) ||
           (rec.email || '').toLowerCase().includes(q) ||
-          (rec.contact || '').toLowerCase().includes(q) ||
-          (rec.jobOrder || '').toLowerCase().includes(q) ||
-          (rec.stoppedReason || '').toLowerCase().includes(q)
+          (rec.deletedByEmail || '').toLowerCase().includes(q)
         );
       }
-
       return true;
     });
-  }, [allArchivePool, filterType, search]);
+  }, [allArchivePool, search]);
 
   // Restore Action
   const openRestoreModal = (rec: ApplicantRecord) => {
@@ -298,6 +262,39 @@ export default function ApplicantArchive({
     }
   };
 
+  if (viewingProfile) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 shadow-2xs px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setViewingProfile(null)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-[#0284C7] rounded-lg border border-slate-200 hover:border-sky-200 hover:bg-sky-50 transition-colors cursor-pointer"
+          >
+            <ArrowLeft size={13} />
+            <span>Back to Archive</span>
+          </button>
+          <span className="text-xs font-semibold text-slate-700">{viewingProfile.name}</span>
+          <span className="font-mono text-[11px] text-slate-400">
+            {viewingProfile.applicantCode || `APP-${viewingProfile.id}`}
+          </span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+            Deleted
+          </span>
+        </div>
+        <ApplicantProfile
+          applicant={viewingProfile}
+          isArchived
+          onBack={() => setViewingProfile(null)}
+          currentUserName={currentUserName}
+          currentUserRole={currentUserRole}
+          currentUserRoles={currentUserRoles}
+          showToast={showToast}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* ── Clean Header ─────────────────────────────────────────────────── */}
@@ -310,7 +307,7 @@ export default function ApplicantArchive({
             </span>
           </div>
           <p className="text-slate-500 text-xs mt-1">
-            Browse soft-deleted applicants and paused candidate records. Restore candidates directly back to active processing when needed.
+            Browse deleted applicant records. Restore an applicant back to active processing when needed.
           </p>
         </div>
       </div>
@@ -337,26 +334,6 @@ export default function ApplicantArchive({
           )}
         </div>
 
-        {/* Segmented Filter Pills */}
-        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200/70 text-xs">
-          {[
-            { id: 'all' as ArchiveFilterType, label: 'All', count: counts.total },
-            { id: 'deleted' as ArchiveFilterType, label: 'Soft-Deleted', count: counts.deleted },
-            { id: 'stopped' as ArchiveFilterType, label: 'Processing Stopped', count: counts.stopped },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilterType(tab.id)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                filterType === tab.id
-                  ? 'bg-white text-[#0F172A] font-bold shadow-2xs border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label} <span className="text-[10px] opacity-60">({tab.count})</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* ── Table of Archived Records ────────────────────────────────────── */}
@@ -379,7 +356,7 @@ export default function ApplicantArchive({
             <ArchiveRestore size={28} className="mx-auto mb-2 text-slate-300" />
             <p className="font-semibold text-slate-600">No archived applicants found</p>
             <p className="mt-0.5 text-slate-400">
-              {search || filterType !== 'all' ? 'Try adjusting your search query.' : 'There are no deleted or stopped candidate records.'}
+              {search ? 'Try adjusting your search.' : 'No deleted applicant records yet.'}
             </p>
           </div>
         ) : (
@@ -387,11 +364,11 @@ export default function ApplicantArchive({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50/70 border-b border-slate-200/90 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-4 font-semibold">Applicant</th>
-                  <th className="py-3 px-4 font-semibold">Archive Reason</th>
-                  <th className="py-3 px-4 font-semibold">Applied Role</th>
-                  <th className="py-3 px-4 font-semibold">Archived Date</th>
-                  <th className="py-3 px-4 text-right font-semibold">Action</th>
+                  <th className="py-3 px-4 text-left font-semibold w-[30%]">Applicant</th>
+                  <th className="py-3 px-4 text-center font-semibold w-[24%]">Archive Reason</th>
+                  <th className="py-3 px-4 text-center font-semibold w-[26%]">Deleted By</th>
+                  <th className="py-3 px-4 text-center font-semibold w-[12%]">Archived Date</th>
+                  <th className="py-3 px-4 text-center font-semibold w-32">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -408,7 +385,7 @@ export default function ApplicantArchive({
                     >
                       {/* Name & Code */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-start gap-3">
                           <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-600 shrink-0 text-xs">
                             {(rec.firstName?.[0] || rec.name?.[0] || 'A').toUpperCase()}
                           </div>
@@ -425,30 +402,44 @@ export default function ApplicantArchive({
 
                       {/* Reason & Category */}
                       <td className="py-3.5 px-4">
-                        <div className="space-y-0.5">
-                          {isDeleted ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">
-                              <Trash2 size={10} /> Soft-Deleted
-                            </span>
-                          ) : (
+                        {isDeleted ? (
+                          <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-red-600">
+                            <Trash2 size={12} className="text-red-500 shrink-0" />
+                            <span>Deleted from active records</span>
+                          </div>
+                        ) : (
+                          <div className="space-y-0.5">
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
                               <OctagonX size={10} /> Stopped at Phase {stoppedPhase}
                             </span>
-                          )}
-                          <p className="text-[11px] text-slate-500 truncate max-w-xs">
-                            {rec.stoppedReason || (isDeleted ? 'Deleted from active records' : 'Processing stopped')}
-                          </p>
-                        </div>
+                            <p className="text-[11px] text-slate-500 truncate max-w-xs">
+                              {rec.stoppedReason || 'Processing stopped'}
+                            </p>
+                          </div>
+                        )}
                       </td>
 
-                      {/* Role & Job Order */}
+                      {/* Staff Email Who Deleted It */}
                       <td className="py-3.5 px-4">
-                        <div className="font-medium text-slate-700">{rec.role || rec.appliedRole || 'Applicant'}</div>
-                        <div className="text-[11px] text-slate-400">{rec.jobOrder || 'No Job Order'}</div>
+                        {rec.deletedByEmail ? (
+                          <div className="flex items-center justify-center gap-1 text-[11px] text-slate-600 font-mono">
+                            <Mail size={11} className="text-slate-400 shrink-0" />
+                            <span className="truncate max-w-[220px]" title={rec.deletedByEmail}>
+                              {rec.deletedByEmail}
+                            </span>
+                          </div>
+                        ) : rec.deletedByName ? (
+                          <div className="flex items-center justify-center gap-1 text-[11px] text-slate-600">
+                            <User size={11} className="text-slate-400 shrink-0" />
+                            <span className="truncate max-w-[220px]">{rec.deletedByName}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
                       </td>
 
                       {/* Date */}
-                      <td className="py-3.5 px-4 text-slate-500 whitespace-nowrap">
+                      <td className="py-3.5 px-4 text-center text-slate-500 whitespace-nowrap">
                         {archiveDate
                           ? new Date(archiveDate).toLocaleDateString('en-PH', {
                               month: 'short',
@@ -460,26 +451,36 @@ export default function ApplicantArchive({
 
                       {/* Actions: Restore & Permanent Delete */}
                       <td
-                        className="py-3.5 px-4 text-right whitespace-nowrap"
+                        className="py-3.5 px-4 text-center whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setViewingProfile(rec)}
+                            title="View applicant profile"
+                            aria-label="View applicant profile"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-600 hover:text-[#0284C7] hover:bg-sky-50 border border-slate-200 hover:border-sky-200 transition-all cursor-pointer"
+                          >
+                            <Eye size={14} />
+                          </button>
                           <button
                             type="button"
                             onClick={() => openRestoreModal(rec)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-50 hover:bg-[#0EA5E9] text-[#0284C7] hover:text-white border border-sky-200 hover:border-transparent transition-all cursor-pointer shadow-2xs"
+                            title="Restore to active records"
+                            aria-label="Restore to active records"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-sky-50 hover:bg-[#0EA5E9] text-[#0284C7] hover:text-white border border-sky-200 hover:border-transparent transition-all cursor-pointer"
                           >
-                            <RotateCcw size={12} />
-                            <span>Restore</span>
+                            <RotateCcw size={14} />
                           </button>
                           <button
                             type="button"
                             onClick={() => openPermanentDeleteModal(rec)}
-                            title="Permanently remove this applicant record"
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-slate-500 hover:text-red-700 hover:bg-red-50 border border-slate-200 hover:border-red-200 transition-all cursor-pointer"
+                            title="Permanently delete this record"
+                            aria-label="Permanently delete this record"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 border border-slate-200 hover:border-red-200 transition-all cursor-pointer"
                           >
-                            <Trash2 size={12} className="text-red-500" />
-                            <span>Delete Record</span>
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </td>
@@ -604,9 +605,15 @@ export default function ApplicantArchive({
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/70 space-y-1">
                 <div className="font-semibold text-slate-700">
                   {selectedRecord.archiveType === 'deleted' || selectedRecord.deletedAt
-                    ? 'Soft-Deleted Record'
+                    ? 'Deleted from Active Records'
                     : `Processing Stopped at Phase ${selectedRecord.stoppedPhase || selectedRecord.phase || 1}`}
                 </div>
+                {selectedRecord.deletedByEmail && (
+                  <p className="text-[11px] text-slate-600 flex items-center gap-1 font-mono">
+                    <Mail size={11} className="text-slate-400 shrink-0" />
+                    <span>Deleted by: {selectedRecord.deletedByEmail}</span>
+                  </p>
+                )}
                 {selectedRecord.stoppedReason && (
                   <p className="text-slate-500 italic">"{selectedRecord.stoppedReason}"</p>
                 )}

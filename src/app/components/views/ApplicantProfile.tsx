@@ -196,6 +196,8 @@ interface ApplicantProfileProps {
   onEdit?: () => void;
   currentUserRole?: string;
   currentUserRoles?: UserRole[] | string[];
+  /** View-only mode for deleted applicants opened from the Applicant Archive. */
+  isArchived?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -215,8 +217,16 @@ export default function ApplicantProfile({
   onEdit,
   currentUserRole,
   currentUserRoles,
+  isArchived = false,
 }: ApplicantProfileProps) {
-  const isAccounting = currentUserRole === 'Accounting' || (Boolean(currentUserRoles) && currentUserRoles!.some(r => String(r).toLowerCase() === 'accounting'));
+  // A user is only strictly read-only accounting if they DO NOT possess staff/management/admin roles
+  const rolesArray = (Array.isArray(currentUserRoles) ? currentUserRoles : [currentUserRoles])
+    .filter(Boolean)
+    .map(r => String(r).toLowerCase());
+  const activeRoleLower = String(currentUserRole || '').toLowerCase();
+  const hasElevatedAccess = rolesArray.some(r => ['management', 'admin', 'recruitment'].includes(r)) ||
+    ['management', 'admin', 'recruitment'].includes(activeRoleLower);
+  const isAccountingOnly = !hasElevatedAccess && (activeRoleLower === 'accounting' || rolesArray.includes('accounting'));
 
   const [activeSection, setActiveSection] = useState('overview');
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -232,12 +242,12 @@ export default function ApplicantProfile({
     if (!applicantProp?.id) return;
     setEnrichedData(null);
     setIsEnriching(true);
-    api.get(`/applicants/${applicantProp.id}`)
+    api.get(isArchived ? `/applicants/${applicantProp.id}/archived` : `/applicants/${applicantProp.id}`)
       .then(res => {
         if (res.data) {
           const mapped = mapApplicantFromApi(res.data);
           setEnrichedData(mapped);
-          updateApplicant?.(applicantProp.id, mapped);
+          if (!isArchived) updateApplicant?.(applicantProp.id, mapped);
         }
       })
       .catch(err => {
@@ -251,6 +261,8 @@ export default function ApplicantProfile({
   const applicant = enrichedData
     ? { ...applicantProp, ...enrichedData }
     : applicantProp;
+
+  const isCandidateStopped = applicant?.status === 'Processing Stopped' || applicant?.isStopped === true;
 
   // ── Recalculate / Update Details (Item 5) ─────────────────────────────────
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -426,6 +438,7 @@ export default function ApplicantProfile({
     setStopReason('');
   };
 
+  const [showResumeModal, setShowResumeModal] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const handleResumeProcessing = async () => {
     if (!applicant || !updateApplicant || isResuming) return;
@@ -482,7 +495,12 @@ export default function ApplicantProfile({
     setIsDeleting(true);
     try {
       await api.delete(`/applicants/${applicant.id}`);
-      showToast?.('Applicant deleted successfully.');
+      updateApplicant?.(applicant.id, {
+        deletedAt: new Date().toISOString(),
+        archiveType: 'deleted',
+        status: 'Deleted',
+      });
+      showToast?.('Applicant file moved to archive.');
       if (onBack) {
         onBack();
       } else {
@@ -908,25 +926,20 @@ export default function ApplicantProfile({
               <p className="mt-0.5 italic">{applicant.lastUpdated}</p>
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
-              <button
-                onClick={handleRecalculateApplicant}
-                disabled={isRecalculating}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-sky-400/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 transition-all cursor-pointer font-medium disabled:opacity-50"
-                title="Re-check database for newest documents, certifications, and test scores"
-              >
-                <RefreshCw size={13} className={isRecalculating ? 'animate-spin' : ''} />
-                {isRecalculating ? 'Recalculating...' : 'Update Details / Recalculate'}
-              </button>
-              {!isAccounting && applicant.status === 'Processing Stopped' && (
+              {isArchived ? (
+                <span className="text-[11px] px-3 py-1.5 rounded-lg border border-slate-500/40 bg-slate-500/10 text-slate-300 font-medium">
+                  Deleted record &mdash; view only
+                </span>
+              ) : !isAccountingOnly && isCandidateStopped ? (
                 <>
                   <button
-                    onClick={handleResumeProcessing}
+                    onClick={() => setShowResumeModal(true)}
                     disabled={isResuming}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-emerald-400/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer font-medium disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-xs px-3.5 py-1.5 rounded-lg border border-emerald-400/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer font-medium disabled:opacity-50"
                     title="Return candidate to active processing pipeline"
                   >
                     <RotateCcw size={13} className={isResuming ? 'animate-spin' : ''} />
-                    {isResuming ? 'Resuming...' : 'Return to Active'}
+                    <span>{isResuming ? 'Resuming...' : 'Return to Active'}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -934,18 +947,24 @@ export default function ApplicantProfile({
                       setDeleteConfirmed(false);
                     }}
                     disabled={isDeleting}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-xs px-3.5 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-white transition-all cursor-pointer font-medium disabled:opacity-50"
+                    title="Delete applicant record"
                   >
-                    <Trash2 size={13} /> {isDeleting ? 'Deleting...' : 'Delete'}
+                    <Trash2 size={13} />
+                    <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
                   </button>
                 </>
-              )}
-              {!isAccounting && !(applicant.status === 'Processing Stopped') && updateApplicant && (
+              ) : !isAccountingOnly && updateApplicant && (
                 <button
-                  onClick={() => setShowStopModal(true)}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-400/50 text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-all cursor-pointer"
+                  onClick={() => {
+                    setShowStopModal(true);
+                    setStopReason('');
+                  }}
+                  className="flex items-center gap-1.5 text-xs px-3.5 py-1.5 rounded-lg border border-red-400/50 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-white transition-all cursor-pointer font-medium"
+                  title="Pause or stop candidate processing"
                 >
-                  <OctagonX size={13} /> Stop Processing
+                  <OctagonX size={13} />
+                  <span>Stop Processing</span>
                 </button>
               )}
             </div>
@@ -1767,7 +1786,7 @@ export default function ApplicantProfile({
 
         {/* Regulatory & Compliance Requirements from Supabase */}
         <div className="space-y-2 relative">
-          {isAccounting && (
+          {isAccountingOnly && (
             <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed pointer-events-auto" title="Read-only access"></div>
           )}
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-1.5">
@@ -2276,6 +2295,58 @@ export default function ApplicantProfile({
                 className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-sm font-semibold rounded-lg transition-colors"
               >
                 <OctagonX size={15} /> Confirm Stop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Return to Active Confirmation Modal ───────────────────────────────── */}
+      {showResumeModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-100">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-100">
+            <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-200 bg-emerald-50/50">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 text-emerald-600">
+                <RotateCcw size={18} />
+              </div>
+              <div>
+                <h2 className="font-bold text-[#0F172A] text-base">Return to Active</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Resume recruitment processing for this candidate</p>
+              </div>
+              <button
+                onClick={() => setShowResumeModal(false)}
+                className="ml-auto text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4 text-xs">
+              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3.5 text-emerald-900 space-y-2">
+                <p className="font-bold text-sm">
+                  Resume processing for {applicant?.name}?
+                </p>
+                <p className="text-emerald-800 leading-relaxed">
+                  This candidate will be reinstated back to active status at <strong>Phase {applicant?.stoppedPhase || applicant?.phase || 1}: {PHASE_TITLES[applicant?.stoppedPhase || applicant?.phase || 1] || 'Registration & Screening'}</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 rounded-b-2xl border-t border-slate-200">
+              <button
+                onClick={() => setShowResumeModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await handleResumeProcessing();
+                  setShowResumeModal(false);
+                }}
+                disabled={isResuming}
+                className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-2xs"
+              >
+                {isResuming ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                <span>Confirm and Return to Active</span>
               </button>
             </div>
           </div>
