@@ -40,9 +40,10 @@ vi.mock('react', async (original) => ({ ...(await original() as any),
   },
 }));
 import OperationalReports from './OperationalReports';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 function nodes(tree: any): any[] { return !tree || typeof tree !== 'object' || tree.props?.hidden ? [] : [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)]; }
-const text = (tree: any): string => tree == null || typeof tree === 'boolean' ? '' : typeof tree !== 'object' ? String(tree) :
+const text = (tree: any): string => tree == null || typeof tree === 'boolean' || tree.props?.hidden ? '' : typeof tree !== 'object' ? String(tree) :
   [tree.props?.children].flat(Infinity).map(text).join(' ').replace(/\s+/g, ' ').trim();
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const deferred = () => { let resolve!: (value: any) => void; let reject!: (value: any) => void;
@@ -92,12 +93,13 @@ const drivers: any[] = [];
 function driver(props: any = {}) {
   const instances = new Map<string, any[]>(); const effects: any[] = [];
   const tabElements = new Map<string, { focus: ReturnType<typeof vi.fn>; scrollIntoView: ReturnType<typeof vi.fn> }>();
+  const elements = new Map<string, any>();
   const render = () => {
     const seen = new Set<string>();
     const expand = (element: any, path: string): any => {
       if (!element || typeof element !== 'object') return element;
       if (Array.isArray(element)) return element.map((child, index) => expand(child, `${path}/${child?.key ?? index}`));
-      if (typeof element.type === 'function' && ['OperationalReports', 'MonthlyDeploymentCard', 'ReportCard'].includes(element.type.name)) {
+      if (typeof element.type === 'function' && ['OperationalReports', 'MonthlyDeploymentCard', 'ReportCard', 'ReportFilterCombobox'].includes(element.type.name)) {
         path = `${path}/${element.type.name}/${element.key ?? ''}`;
         seen.add(path);
         const slots = instances.get(path) || []; instances.set(path, slots);
@@ -108,6 +110,11 @@ function driver(props: any = {}) {
         const id = element.props.id;
         if (!tabElements.has(id)) tabElements.set(id, { focus: vi.fn(), scrollIntoView: vi.fn() });
         element.ref(tabElements.get(id));
+      }
+      if (element.ref && typeof element.ref === 'object') {
+        const id = element.props.id;
+        if (!elements.has(id)) elements.set(id, { focus: vi.fn(), scrollIntoView: vi.fn(), contains: vi.fn() });
+        element.ref.current = elements.get(id);
       }
       return { ...element, props: { ...element.props, children: expand(element.props?.children, `${path}/children`) } };
     };
@@ -123,12 +130,27 @@ function driver(props: any = {}) {
   const button = (label: string) => all().find((n) => n.type === 'button' && (text(n) === label || n.props['aria-label'] === label));
   const input = (label: string) => {
     const wrapper = all().find((n) => n.type === 'label' && text(n).startsWith(label));
+    if (wrapper?.props.htmlFor) return all().find((n) => n.type === 'input' && n.props.id === wrapper.props.htmlFor);
     return nodes(wrapper).find((n) => n.type === 'input' || n.type === 'select');
   };
-  const result = { render, settle, runEffects, all, button, input,
+  const expandFilters = () => { const toggle = button('Filters'); if (toggle && !toggle.props['aria-expanded']) toggle.props.onClick(); render(); };
+  const openFilter = (label: string) => {
+    expandFilters(); const id = input(label).props.id;
+    all().find((n) => n.type === Popover && nodes(n).some((child) => child.type === 'input' && child.props.id === id)).props.onOpenChange(true);
+    render();
+  };
+  const chooseFilter = (label: string, choice: string) => {
+    openFilter(label); all().find((n) => n.props?.role === 'option' && n.props['aria-label'] === choice).props.onClick(); render();
+  };
+  const result = { render, settle, runEffects, all, button, input, expandFilters, openFilter, chooseFilter,
+    element: (id: string) => elements.get(id),
+    option: (label: string) => all().find((n) => n.props?.role === 'option' && n.props['aria-label'] === label),
     tabElement: (label: string) => tabElements.get(button(label).props.id)!,
-    change: (label: string, value: string) => input(label).props.onChange({ target: { value } }),
-    apply: async () => { all().find((n) => n.type === 'form' && n.props['aria-label'] === 'Monthly deployment filters').props.onSubmit({ preventDefault() {} }); return settle(); },
+    change: (label: string, value: string) => {
+      if (['Applicant name or code', 'Position (exact match)', 'Destination country', 'Employer'].includes(label)) expandFilters();
+      input(label).props.onChange({ target: { value } });
+    },
+    apply: async () => { expandFilters(); all().find((n) => n.type === 'form' && n.props['aria-label'] === 'Monthly deployment filters').props.onSubmit({ preventDefault() {} }); return settle(); },
     applyPeriod: async () => { all().find((n) => n.type === 'form' && n.props['aria-label'] === 'Reporting period').props.onSubmit({ preventDefault() {} }); return settle(); },
     select: async (label: string) => { button(label).props.onClick(); return settle(); },
     unmount: () => { instances.forEach((slots) => slots.filter((slot) => slot?.cleanup).forEach((slot) => slot.cleanup())); instances.clear(); },
@@ -137,7 +159,7 @@ function driver(props: any = {}) {
 }
 const reportLabels: Record<string, string> = { monthly_deployments: 'Monthly Deployment', staff_performance: 'Staff Activity',
   financial_summary: 'Financial Summary', workflow_efficiency: 'Workflow Efficiency' };
-const monthlyDriver = () => driver();
+const monthlyDriver = () => { const d = driver(); d.expandFilters(); return d; };
 const reportDriver = (name: string) => { const d = driver(); d.button(reportLabels[name]).props.onClick(); return d; };
 
 beforeEach(() => {
@@ -149,9 +171,14 @@ beforeEach(() => {
       { applicant_id: 2101, agency_id: 7, first_name: 'Alice', middle_name: 'M.', last_name: 'Directory', applicant_code: 'AG7-2101' },
       { applicant_id: 2102, agency_id: 7, first_name: 'Bob', last_name: 'Directory', applicant_code: 'AG7-2102' },
     ] };
+    if (url === '/job-orders') return { data: [
+      { job_order_id: 9, agency_id: 7, position: 'Registered Nurse', position_title: 'Registered Nurse' },
+      { job_order_id: 10, agency_id: 7, position: 'Welder' },
+    ] };
     if (url === '/reports/monthly-deployments') return { data: monthly(params) };
-    if (url === '/lookups/countries') return { data: [{ country_id: 2, country_name: 'Japan' }] };
+    if (url === '/lookups/countries') return { data: [{ country_id: 2, country_name: 'Japan' }, { country_id: 63, country_name: 'Philippines' }] };
     if (url === '/employers') return { data: [{ employer_id: 4, agency_id: 7, company_name: 'Verified Employer' },
+      { employer_id: 5, agency_id: 7, company_name: 'Pacific Staffing' },
       { employer_id: 8, agency_id: 99, company_name: 'Foreign Employer' }] };
     if (url === '/reports/staff-performance') return { data: staff(params) };
     if (url === '/reports/workflow-efficiency') return { data: workflow(params) };
@@ -201,13 +228,110 @@ describe('Final report UX consistency', () => {
   });
 });
 
-describe('Optional agency applicant picker (mocked authenticated GET only)', () => {
+describe('Collapsible monthly filters', () => {
+  it('starts collapsed with report results, refresh and export available', async () => {
+    const d = driver(); await d.settle();
+    expect(d.button('Filters').props['aria-expanded']).toBe(false);
+    expect(d.input('Applicant name or code')).toBeUndefined(); expect(d.input('Position (exact match)')).toBeUndefined();
+    expect(d.input('Destination country')).toBeUndefined(); expect(d.input('Employer')).toBeUndefined();
+    expect(d.button('Apply Filters')).toBeUndefined(); expect(d.button('Browse agency applicants')).toBeUndefined();
+    expect(d.button('Refresh report').props.disabled).toBe(false); expect(d.button('Export PDF').props.disabled).toBe(false);
+    expect(text(d.render())).toContain('Applicant 100'); expect(text(d.render())).toContain('Applied filters: None');
+    expect(h.get.mock.calls.some(([url]) => url === '/applicants')).toBe(false);
+    d.button('Filters').props.onClick(); await d.settle();
+    const form = d.all().find((n) => n.type === 'form' && n.props['aria-label'] === 'Monthly deployment filters');
+    expect(form.props.id).toBe(d.button('Filters').props['aria-controls']); expect(d.button('Apply Filters')).toBeDefined();
+    d.button('Filters').props.onClick(); await d.settle(); expect(d.button('Apply Filters')).toBeUndefined();
+  });
+  it('retains applied filters, pagination, pending drafts and results across collapse and expansion', async () => {
+    const d = driver(); await d.settle();
+    d.change('Applicant name or code', 'APP'); d.change('Position (exact match)', 'Nurse');
+    d.chooseFilter('Destination country', 'Japan'); d.chooseFilter('Employer', 'Verified Employer'); await d.apply();
+    d.button('Next').props.onClick(); await d.settle(); d.change('Applicant name or code', 'Pending draft');
+    const reads = h.get.mock.calls.length;
+    d.button('Filters').props.onClick(); await d.settle();
+    const summary = d.all().find((n) => n.props['aria-label'] === 'Applied monthly filters');
+    for (const label of ['Applicant contains: APP', 'Position (exact): Nurse', 'Country: Japan', 'Employer: Verified Employer']) expect(text(summary)).toContain(label);
+    expect(text(summary)).not.toContain('Pending draft'); expect(text(d.render())).toContain('Page 2 of 2');
+    expect(d.input('Applicant name or code')).toBeUndefined(); expect(h.get).toHaveBeenCalledTimes(reads);
+    d.expandFilters(); await d.settle();
+    expect(d.input('Applicant name or code').props.value).toBe('Pending draft');
+    expect(d.input('Position (exact match)').props.value).toBe('Nurse');
+    expect(d.input('Destination country').props.value).toBe('Japan'); expect(d.input('Employer').props.value).toBe('Verified Employer');
+    expect(lastParams()).toMatchObject({ search: 'APP', position: 'Nurse', countryId: 2, employerId: 4, page: 2 });
+  });
+  it('exports the applied filters while collapsed, excluding pending edits and pagination', async () => {
+    const d = driver(); await d.settle(); d.change('Applicant name or code', 'APP'); await d.apply();
+    d.change('Applicant name or code', 'Unapplied'); d.button('Filters').props.onClick(); await d.settle();
+    d.button('Export PDF').props.onClick(); await flush();
+    expect(lastParams()).toEqual({ year: 2026, month: 11, search: 'APP' });
+    expect(h.table.mock.calls[0][1].body).toHaveLength(27);
+    const labels = h.pdfText.mock.calls.map(([value]) => value).join(' ');
+    expect(labels).toContain('Example Reporting Agency'); expect(labels).toContain('Applicant contains: APP');
+    expect(labels).not.toContain('Unapplied'); expect(d.button('Filters').props['aria-expanded']).toBe(false);
+  });
+});
+
+describe('Unified agency applicant combobox (mocked authenticated GET only)', () => {
   const calls = () => h.get.mock.calls.filter(([url]) => url === '/applicants');
   const picker = (d: ReturnType<typeof driver>) => d.all().find((n) => n.props?.['aria-label'] === 'Agency applicant picker');
-  const open = async (d: ReturnType<typeof driver>) => { d.button('Choose Applicant').props.onClick(); await d.settle(); };
+  const open = async (d: ReturnType<typeof driver>) => { d.expandFilters(); d.all().find((n) => n.type === Popover).props.onOpenChange(true); await d.settle(); };
+  const key = async (d: ReturnType<typeof driver>, value: string, extra = {}) => {
+    const preventDefault = vi.fn();
+    d.input('Applicant name or code').props.onKeyDown({ key: value, preventDefault, nativeEvent: {}, ...extra });
+    await d.settle(); await d.settle(); return preventDefault;
+  };
+  it('anchors the portalled list to the one combobox input with bounded viewport-aware sizing', async () => {
+    const d = driver(); await d.settle(); await open(d);
+    const root = d.all().find((n) => n.type === Popover);
+    const trigger = d.all().find((n) => n.type === PopoverTrigger);
+    const content = picker(d);
+    expect(root.props.open).toBe(true); expect(trigger.props.asChild).toBe(true);
+    expect(nodes(trigger).some((n) => n.type === 'button' && n.props['aria-label'] === 'Browse agency applicants')).toBe(true);
+    expect(d.button('Browse agency applicants').props['aria-expanded']).toBe(true);
+    const anchor = d.all().find((n) => n.type === PopoverAnchor);
+    expect(nodes(anchor).some((n) => n.type === 'input' && n.props.role === 'combobox')).toBe(true);
+    const input = d.input('Applicant name or code');
+    expect(input.props).toMatchObject({ role: 'combobox', 'aria-expanded': true, 'aria-autocomplete': 'list', 'aria-haspopup': 'listbox' });
+    expect(content.type).toBe(PopoverContent);
+    expect(nodes(content).filter((n) => n.type === 'input')).toHaveLength(0);
+    expect(d.all().filter((n) => n.type === 'input' && n.props.type === 'search')).toHaveLength(4);
+    expect(d.button('Choose Applicant')).toBeUndefined();
+    expect(content.props).toMatchObject({ align: 'start', side: 'bottom', sideOffset: 8, collisionPadding: 12,
+      avoidCollisions: true, sticky: 'always', hideWhenDetached: true });
+    expect(content.props.style).toEqual({ width: 'min(22rem, calc(100vw - 24px))',
+      maxHeight: 'min(24rem, var(--radix-popover-content-available-height))' });
+    expect(content.props.className).toContain('overflow-x-hidden');
+    expect(content.props.className).toContain('overflow-y-auto');
+    const list = nodes(content).find((n) => n.type === 'ul');
+    expect(list.props.role).toBe('listbox'); expect(list.props.id).toBe(input.props['aria-controls']);
+    expect(list.props.id).toBe(d.button('Browse agency applicants').props['aria-controls']);
+    expect(list.props.className).toContain('max-h-48'); expect(list.props.className).toContain('overflow-y-auto');
+    const primitive = readFileSync(new URL('../ui/popover.tsx', import.meta.url), 'utf8');
+    expect(primitive).toContain('<PopoverPrimitive.Portal>');
+    expect(primitive).toContain('<PopoverPrimitive.Content');
+    // Radix owns Escape/outside dismissal and focus restoration. The controlled
+    // callback must accept its close request without applying filters or reading again.
+    const reads = h.get.mock.calls.length;
+    root.props.onOpenChange(false); await d.settle();
+    expect(picker(d)).toBeUndefined(); expect(d.button('Browse agency applicants').props['aria-expanded']).toBe(false);
+    expect(h.get).toHaveBeenCalledTimes(reads); expect(lastParams()).not.toHaveProperty('search');
+  });
+  it('uses content-width breakpoints for one, two or five compact columns and an inset dropdown arrow', async () => {
+    const d = driver(); await d.settle(); d.expandFilters();
+    const form = d.all().find((n) => n.type === 'form' && n.props['aria-label'] === 'Monthly deployment filters');
+    expect(form.props.className).toContain('@container');
+    const grid = form.props.children[0];
+    expect(grid.props.className).toContain('grid-cols-1'); expect(grid.props.className).toContain('@sm:grid-cols-2');
+    expect(grid.props.className).toContain('@3xl:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))_auto]');
+    expect(grid.props.children).toHaveLength(5);
+    expect(grid.props.children.slice(0, 4).every((n: any) => n.props.className.includes('min-w-0'))).toBe(true);
+    expect(d.input('Applicant name or code').props.className).toContain('pr-10');
+    expect(d.button('Browse agency applicants').props.className).toContain('absolute');
+  });
   it('loads on demand from the established applicant endpoint, independently of report-page rows', async () => {
     const d = driver(); await d.settle(); expect(calls()).toHaveLength(0);
-    expect(d.button('Choose Applicant').props.type).toBe('button'); await open(d);
+    d.expandFilters(); expect(d.button('Browse agency applicants').props.type).toBe('button'); await open(d);
     expect(calls()).toHaveLength(1); expect(calls()[0][1].signal).toBeInstanceOf(AbortSignal);
     expect(calls()[0][1]).not.toHaveProperty('params');
     expect(text(picker(d))).toContain('Alice M. Directory'); expect(text(picker(d))).toContain('AG7-2101');
@@ -221,7 +345,7 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
     const fallback = h.get.getMockImplementation()!;
     h.get.mockImplementation((url, config) => url === '/applicants' ? Promise.resolve({ data: rows }) : fallback(url, config));
     const d = driver(); await d.settle(); await open(d); const reads = h.get.mock.calls.length;
-    d.button('Choose Alice M. Directory (AG7-2101)').props.onClick(); await d.settle();
+    d.option('Choose Alice M. Directory (AG7-2101)').props.onClick(); await d.settle();
     expect(d.input('Applicant name or code').props.value).toBe('AG7-2101');
     expect(text(d.render())).toContain('Chosen: Alice M. Directory (AG7-2101)');
     expect(picker(d)).toBeUndefined(); expect(lastParams()).not.toHaveProperty('search');
@@ -233,32 +357,99 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
     expect(h.table.mock.calls[0][1].body).toHaveLength(27);
   });
   it('preserves manual typing and never auto-selects another applicant from typed text', async () => {
-    const d = driver(); await d.settle(); await open(d); d.button('Choose Alice M. Directory (AG7-2101)').props.onClick();
+    const d = driver(); await d.settle(); await open(d); d.option('Choose Alice M. Directory (AG7-2101)').props.onClick();
     d.change('Applicant name or code', 'AG7-2102'); await d.settle();
     expect(text(d.render())).not.toContain('Chosen:'); expect(d.button('Clear applicant')).toBeUndefined();
     expect(d.input('Applicant name or code').props.value).toBe('AG7-2102'); expect(lastParams()).not.toHaveProperty('search');
     await d.apply(); expect(lastParams().search).toBe('AG7-2102');
   });
   it('clears the chosen applicant as a draft change and keeps applied results until Apply Filters', async () => {
-    const d = driver(); await d.settle(); await open(d); d.button('Choose Bob Directory (AG7-2102)').props.onClick(); await d.apply();
-    const count = monthlyCalls().length; d.button('Clear applicant').props.onClick(); await d.settle();
+    const d = driver(); await d.settle(); await open(d); d.option('Choose Bob Directory (AG7-2102)').props.onClick(); await d.apply();
+    const count = monthlyCalls().length; d.change('Applicant name or code', ''); await d.settle();
     expect(d.input('Applicant name or code').props.value).toBe(''); expect(text(d.render())).not.toContain('Chosen:');
     expect(monthlyCalls()).toHaveLength(count); expect(lastParams().search).toBe('AG7-2102');
     await d.apply(); expect(lastParams()).not.toHaveProperty('search');
   });
   it('filters cached picker options locally without changing report filters and reuses the directory', async () => {
     const d = driver(); await d.settle(); await open(d); const count = h.get.mock.calls.length;
-    d.change('Find applicant', 'Bob'); await d.settle();
+    d.change('Applicant name or code', 'Bob'); await d.settle();
     expect(text(picker(d))).toContain('Bob Directory'); expect(text(picker(d))).not.toContain('Alice M. Directory');
-    expect(d.input('Applicant name or code').props.value).toBe(''); expect(h.get).toHaveBeenCalledTimes(count);
+    expect(d.input('Applicant name or code').props.value).toBe('Bob'); expect(h.get).toHaveBeenCalledTimes(count);
+    expect(lastParams()).not.toHaveProperty('search');
     d.button('Close applicant picker').props.onClick(); await open(d); expect(calls()).toHaveLength(1);
-    picker(d).props.onKeyDown({ key: 'Escape', preventDefault: vi.fn() }); await d.settle(); expect(picker(d)).toBeUndefined();
+    expect(text(picker(d))).toContain('Alice M. Directory');
+    d.all().find((n) => n.type === Popover).props.onOpenChange(false); await d.settle(); expect(picker(d)).toBeUndefined();
+  });
+  it('searches applicant codes case-insensitively and exposes listbox options', async () => {
+    const d = driver(); await d.settle(); await open(d);
+    d.change('Applicant name or code', '  ag7-2102  '); await d.settle();
+    expect(text(picker(d))).toContain('Bob Directory'); expect(text(picker(d))).not.toContain('Alice M. Directory');
+    const choice = d.option('Choose Bob Directory (AG7-2102)');
+    expect(choice.props.role).toBe('option'); expect(choice.props.tabIndex).toBeUndefined();
+    choice.props.onClick(); await d.settle();
+    expect(d.input('Applicant name or code').props.value).toBe('AG7-2102'); expect(picker(d)).toBeUndefined();
+    expect(lastParams()).not.toHaveProperty('search');
   });
   it('does not submit report filters when Enter is pressed in the picker search', async () => {
     const d = driver(); await d.settle(); await open(d); const count = monthlyCalls().length;
-    const preventDefault = vi.fn(); d.input('Find applicant').props.onKeyDown({ key: 'Enter', preventDefault }); await d.settle();
+    const preventDefault = await key(d, 'Enter');
     expect(preventDefault).toHaveBeenCalledOnce(); expect(monthlyCalls()).toHaveLength(count);
     expect(lastParams()).not.toHaveProperty('search');
+  });
+  it('navigates suggestions with arrow keys and selects with Enter without applying report filters', async () => {
+    const d = driver(); await d.settle(); d.expandFilters();
+    const reads = monthlyCalls().length;
+    expect(await key(d, 'ArrowDown')).toHaveBeenCalledOnce();
+    expect(d.input('Applicant name or code').props['aria-activedescendant']).toBe('deployment-applicant-option-2101');
+    expect(d.element('deployment-applicant-option-2101').scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    await key(d, 'ArrowDown');
+    expect(d.input('Applicant name or code').props['aria-activedescendant']).toBe('deployment-applicant-option-2102');
+    await key(d, 'ArrowDown');
+    expect(d.input('Applicant name or code').props['aria-activedescendant']).toBe('deployment-applicant-option-2101');
+    await key(d, 'ArrowUp');
+    expect(d.input('Applicant name or code').props['aria-activedescendant']).toBe('deployment-applicant-option-2102');
+    const content = picker(d);
+    expect(await key(d, 'Enter')).toHaveBeenCalledOnce(); expect(picker(d)).toBeUndefined();
+    expect(d.input('Applicant name or code').props.value).toBe('AG7-2102'); expect(monthlyCalls()).toHaveLength(reads);
+    const event = { preventDefault: vi.fn() }; content.props.onCloseAutoFocus(event);
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(d.element('deployment-applicant-search').focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+  it('supports Escape, resets active suggestions after editing, and leaves Tab navigation native', async () => {
+    const d = driver(); await d.settle(); await open(d); await key(d, 'ArrowDown');
+    d.change('Applicant name or code', 'No such applicant'); await d.settle();
+    expect(d.input('Applicant name or code').props['aria-activedescendant']).toBeUndefined();
+    expect(await key(d, 'Enter')).toHaveBeenCalledOnce(); expect(d.input('Applicant name or code').props.value).toBe('No such applicant');
+    expect(await key(d, 'Escape')).toHaveBeenCalledOnce(); expect(picker(d)).toBeUndefined();
+    expect(d.input('Applicant name or code').props['aria-expanded']).toBe(false);
+    expect(d.input('Applicant name or code').props['aria-controls']).toBeUndefined();
+    await open(d); const content = picker(d); d.element('deployment-applicant-search').focus.mockClear();
+    expect(await key(d, 'Tab')).not.toHaveBeenCalled(); expect(picker(d)).toBeUndefined();
+    content.props.onCloseAutoFocus({ preventDefault() {} }); expect(d.element('deployment-applicant-search').focus).not.toHaveBeenCalled();
+    expect(lastParams()).not.toHaveProperty('search');
+  });
+  it('keeps focus in the input while typing and allows outside dismissal without stealing focus', async () => {
+    const d = driver(); await d.settle(); await open(d); const content = picker(d);
+    const focusEvent = { preventDefault: vi.fn() }; content.props.onOpenAutoFocus(focusEvent);
+    expect(focusEvent.preventDefault).toHaveBeenCalledOnce(); expect(d.element('deployment-applicant-search').focus).toHaveBeenCalledWith({ preventScroll: true });
+    const anchor = d.element('deployment-applicant-field'); anchor.contains.mockReturnValue(true);
+    const inside = { target: {}, preventDefault: vi.fn() }; content.props.onInteractOutside(inside);
+    expect(inside.preventDefault).toHaveBeenCalledOnce();
+    anchor.contains.mockReturnValue(false); const outside = { target: {}, preventDefault: vi.fn() };
+    content.props.onInteractOutside(outside); expect(outside.preventDefault).not.toHaveBeenCalled();
+    d.all().find((n) => n.type === Popover).props.onOpenChange(false); await d.settle(); expect(picker(d)).toBeUndefined();
+    d.element('deployment-applicant-search').focus.mockClear(); content.props.onCloseAutoFocus({ preventDefault() {} });
+    expect(d.element('deployment-applicant-search').focus).not.toHaveBeenCalled();
+  });
+  it('closes suggestions on filter collapse, retaining the input value and focus on the toggle', async () => {
+    const d = driver(); await d.settle(); d.change('Applicant name or code', 'Bob'); await d.settle(); const content = picker(d);
+    d.element('deployment-applicant-search').focus.mockClear(); d.button('Filters').props.onClick(); await d.settle();
+    expect(picker(d)).toBeUndefined(); content.props.onCloseAutoFocus({ preventDefault() {} });
+    expect(d.element('deployment-applicant-search').focus).not.toHaveBeenCalled();
+    d.expandFilters(); expect(d.input('Applicant name or code').props.value).toBe('Bob'); expect(picker(d)).toBeUndefined();
+  });
+  it.each([{ nativeEvent: { isComposing: true } }, { ctrlKey: true }, { altKey: true }, { metaKey: true }])('preserves IME and modified input shortcuts: %j', async (extra) => {
+    const d = driver(); await d.settle(); d.expandFilters();
+    expect(await key(d, 'ArrowDown', extra)).not.toHaveBeenCalled(); expect(picker(d)).toBeUndefined(); expect(calls()).toHaveLength(0);
   });
   it('shows loading, a truthful error and retry while manual report search remains usable', async () => {
     const d = driver(); await d.settle(); const pending = deferred(); const fallback = h.get.getMockImplementation()!;
@@ -268,6 +459,7 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
     await open(d); expect(text(picker(d))).toContain('Loading applicant options');
     pending.reject(new Error('offline')); await flush(); expect(text(picker(d))).toContain('Could not load applicant options');
     d.change('Applicant name or code', 'Manual applicant'); await d.apply(); expect(lastParams().search).toBe('Manual applicant');
+    d.change('Applicant name or code', ''); await d.settle();
     d.button('Retry applicant options').props.onClick(); await d.settle(); expect(text(picker(d))).toContain('Alice M. Directory');
   });
   it.each(['foreign agency', 'missing agency', 'invalid shape', 'conflicting identity', '403'])('rejects %s applicant options without exposing names', async (kind) => {
@@ -286,7 +478,7 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
     const rows = [row(1, null), row(2, ' '), row(3, 'DUPLICATE'), row(4, 'duplicate'), row(5, 'x'.repeat(101)), row(6, 'UNIQUE'), row(6, 'UNIQUE')];
     h.get.mockImplementation((url, config) => url === '/applicants' ? Promise.resolve({ data: rows }) : fallback(url, config));
     const d = driver(); await d.settle(); await open(d);
-    const choices = nodes(picker(d)).filter((n) => n.type === 'button' && n.props['aria-label']?.startsWith('Choose '));
+    const choices = nodes(picker(d)).filter((n) => n.props?.role === 'option');
     expect(choices).toHaveLength(1); expect(choices[0].props['aria-label']).toBe('Choose Name 6 (UNIQUE)');
   });
   it('shows a useful empty picker without inventing applicants or a complete-directory claim', async () => {
@@ -298,8 +490,11 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
   it('requires a verified report agency before loading the picker', async () => {
     const fallback = h.get.getMockImplementation()!;
     h.get.mockImplementation((url, config) => url === '/reports/monthly-deployments' ? Promise.reject({ response: { status: 403 } }) : fallback(url, config));
-    const d = driver(); expect(d.button('Choose Applicant').props.disabled).toBe(true); await d.settle();
-    expect(d.button('Choose Applicant').props.disabled).toBe(true); expect(calls()).toHaveLength(0);
+    const d = driver(); d.expandFilters(); expect(d.button('Browse agency applicants').props.disabled).toBe(true); await d.settle();
+    expect(d.button('Browse agency applicants').props.disabled).toBe(true); expect(calls()).toHaveLength(0);
+    expect(d.input('Applicant name or code').props.disabled).toBe(false);
+    d.change('Applicant name or code', 'Manual'); await d.apply();
+    expect(lastParams().search).toBe('Manual'); expect(calls()).toHaveLength(0);
   });
   it('cancels old picker reads when the applied period changes and ignores late responses', async () => {
     const d = driver(); await d.settle(); const pending = deferred(); const fallback = h.get.getMockImplementation()!;
@@ -308,7 +503,238 @@ describe('Optional agency applicant picker (mocked authenticated GET only)', () 
     expect(calls()[0][1].signal.aborted).toBe(true);
     pending.resolve({ data: [{ applicant_id: 1, agency_id: 7, first_name: 'Stale Picker Applicant', applicant_code: 'OLD' }] }); await flush();
     expect(picker(d)).toBeUndefined(); expect(text(d.render())).not.toContain('Stale Picker Applicant');
+    expect(d.button('Filters').props['aria-expanded']).toBe(false); d.expandFilters();
     expect(d.input('Applicant name or code').props.value).toBe('');
+  });
+});
+
+describe('Position suggestions from authenticated agency Job Orders', () => {
+  const calls = () => h.get.mock.calls.filter(([url]) => url === '/job-orders');
+  const picker = (d: ReturnType<typeof driver>) => d.all().find((n) => n.props['aria-label'] === 'Position filter picker');
+  it('loads only on demand and selects a complete position from partial case-insensitive suggestions without applying', async () => {
+    const d = monthlyDriver(); await d.settle(); expect(calls()).toHaveLength(0);
+    d.change('Position (exact match)', 'nUr'); await d.settle();
+    expect(calls()).toHaveLength(1); expect(calls()[0][1].signal).toBeInstanceOf(AbortSignal);
+    expect(calls()[0][1]).not.toHaveProperty('params'); expect(monthlyCalls()).toHaveLength(1);
+    expect(d.option('Registered Nurse')).toBeDefined(); expect(d.option('Welder')).toBeUndefined();
+    expect(d.option('Nurse')).toBeUndefined(); // The paginated report contains Nurse; it is not the suggestion source.
+    expect(text(picker(d))).toContain('Historical positions or orders outside the returned list may be missing');
+    d.option('Registered Nurse').props.onClick(); await d.settle();
+    expect(d.input('Position (exact match)').props.value).toBe('Registered Nurse'); expect(picker(d)).toBeUndefined();
+    expect(lastParams()).not.toHaveProperty('position'); await d.apply(); expect(lastParams().position).toBe('Registered Nurse');
+    d.openFilter('Position (exact match)'); await d.settle(); expect(d.option('Welder')).toBeDefined(); expect(calls()).toHaveLength(1);
+    d.change('Position (exact match)', 'Historical Nurse_%'); await d.apply(); expect(lastParams().position).toBe('Historical Nurse_%');
+    expect(calls()).toHaveLength(1); expect(d.button('Apply Filters').props.disabled).toBe(false);
+  });
+  it('deduplicates equivalent complete titles and supports the response alias without inventing unusable positions', async () => {
+    const fallback = h.get.getMockImplementation()!;
+    const data = [
+      { job_order_id: 1, agency_id: 7, position: 'Registered Nurse' },
+      { job_order_id: 2, agency_id: 7, position: ' registered nurse ' },
+      { job_order_id: 3, agency_id: 7, position_title: 'Pipe Welder' },
+      { job_order_id: 4, agency_id: 7, position: '  ' },
+      { job_order_id: 5, agency_id: 7, position: 'x'.repeat(201) },
+      { job_order_id: 6, agency_id: 7, position: 'Bad\nPosition' },
+      { job_order_id: 7, agency_id: 7, position: 'Deleted position', deleted_at: date },
+    ];
+    const original = structuredClone(data);
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? Promise.resolve({ data }) : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Position (exact match)'); await d.settle();
+    const choices = nodes(picker(d)).filter((n) => n.props?.role === 'option');
+    expect(choices.map((n) => n.props['aria-label'])).toEqual(['Pipe Welder', 'Registered Nurse']); expect(data).toEqual(original);
+  });
+  it('uses every returned Job Order without introducing an unsupported pagination contract or claiming completeness', async () => {
+    const fallback = h.get.getMockImplementation()!;
+    const data = Array.from({ length: 1007 }, (_, index) => ({ job_order_id: index + 1, agency_id: 7, position: `Position ${index + 1}` }));
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? Promise.resolve({ data }) : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Position (exact match)'); await d.settle();
+    expect(nodes(picker(d)).filter((n) => n.props?.role === 'option')).toHaveLength(1007);
+    expect(d.option('Position 1007')).toBeDefined(); expect(calls()).toHaveLength(1); expect(calls()[0][1]).not.toHaveProperty('params');
+    expect(text(picker(d))).not.toContain('all historical positions');
+  });
+  it.each(['foreign agency', 'missing agency', 'malformed envelope', 'invalid position', 'conflicting aliases', 'conflicting identity', '403'])('rejects %s Job Order data while retaining manual exact-match entry', async (kind) => {
+    const fallback = h.get.getMockImplementation()!;
+    const row: any = { job_order_id: 1, agency_id: kind === 'foreign agency' ? 99 : 7, position: 'Untrusted Position' };
+    if (kind === 'missing agency') delete row.agency_id;
+    if (kind === 'invalid position') row.position = 55;
+    if (kind === 'conflicting aliases') row.position_title = 'Other Title';
+    const data = kind === 'malformed envelope' ? { rows: [row], total: 1 } :
+      kind === 'conflicting identity' ? [row, { ...row, position: 'Different Position' }] : [row];
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? kind === '403' ? Promise.reject({ response: { status: 403 } }) : Promise.resolve({ data }) : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Position (exact match)'); await d.settle();
+    expect(text(picker(d))).toContain('Could not load Job Order positions'); expect(text(picker(d))).not.toContain('Untrusted Position');
+    expect(d.input('Position (exact match)').props.disabled).toBe(false);
+    d.change('Position (exact match)', ' Manual Historical Position '); await d.apply();
+    expect(lastParams().position).toBe('Manual Historical Position'); expect(calls()).toHaveLength(1);
+  });
+  it('shows truthful loading and empty states, with retry and manual position filtering still available', async () => {
+    const pending = deferred(); const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? pending.promise : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Position (exact match)'); await d.settle();
+    expect(text(picker(d))).toContain('Loading position options');
+    d.change('Position (exact match)', 'Unavailable title'); await d.apply(); expect(lastParams().position).toBe('Unavailable title');
+    expect(calls()).toHaveLength(1); pending.reject(new Error('Offline')); await flush();
+    expect(text(picker(d))).toContain('Could not load Job Order positions');
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? Promise.resolve({ data: [] }) : fallback(url, config));
+    d.button('Retry position options').props.onClick(); await d.settle(); expect(text(picker(d))).toContain('No available Job Order positions match');
+    expect(d.button('Apply Filters').props.disabled).toBe(false); expect(calls()).toHaveLength(2);
+  });
+  it('cancels a pending position read when the applied period changes and ignores its late result', async () => {
+    const pending = deferred(); const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation((url, config) => url === '/job-orders' ? pending.promise : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Position (exact match)'); await d.settle();
+    d.change('Reporting month', '2026-10'); await d.applyPeriod(); expect(calls()[0][1].signal.aborted).toBe(true);
+    pending.resolve({ data: [{ job_order_id: 1, agency_id: 7, position: 'Stale Job Position' }] }); await flush();
+    expect(picker(d)).toBeUndefined(); expect(text(d.render())).not.toContain('Stale Job Position');
+    d.expandFilters(); expect(d.input('Position (exact match)').props.value).toBe('');
+  });
+  it('supports keyboard selection and opens only one of the four filter popovers', async () => {
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Employer'); await d.settle();
+    d.change('Position (exact match)', 'weld'); await d.settle();
+    expect(d.input('Position (exact match)').props).toMatchObject({ role: 'combobox', 'aria-autocomplete': 'list', 'aria-haspopup': 'listbox', 'aria-expanded': true });
+    expect(d.input('Employer').props['aria-expanded']).toBe(false); expect(d.all().filter((n) => n.type === PopoverContent)).toHaveLength(1);
+    const preventDefault = vi.fn(); d.input('Position (exact match)').props.onKeyDown({ key: 'ArrowDown', preventDefault }); await d.settle(); await d.settle();
+    expect(d.input('Position (exact match)').props['aria-activedescendant']).toBe('deployment-position-option-10');
+    d.input('Position (exact match)').props.onKeyDown({ key: 'Enter', preventDefault }); await d.settle();
+    expect(d.input('Position (exact match)').props.value).toBe('Welder'); expect(picker(d)).toBeUndefined(); expect(monthlyCalls()).toHaveLength(1);
+    await d.apply(); expect(lastParams().position).toBe('Welder');
+  });
+  it('requires a validated report agency before reading Job Orders, without disabling manual entry', async () => {
+    const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation((url, config) => url === '/reports/monthly-deployments' ? Promise.reject({ response: { status: 403 } }) : fallback(url, config));
+    const d = monthlyDriver(); await d.settle(); expect(d.button('Browse Job Order positions').props.disabled).toBe(true);
+    d.change('Position (exact match)', 'Welder'); await d.apply(); expect(calls()).toHaveLength(0); expect(lastParams().position).toBe('Welder');
+  });
+});
+
+describe('Searchable country and employer filters', () => {
+  const fields = [
+    { label: 'Destination country', term: 'pH', name: 'Philippines', id: 63, parameter: 'countryId', reset: 'All countries', prefix: 'deployment-country', picker: 'Country filter picker', excluded: 'Japan' },
+    { label: 'Employer', term: 'sTaF', name: 'Pacific Staffing', id: 5, parameter: 'employerId', reset: 'All employers', prefix: 'deployment-employer', picker: 'Employer filter picker', excluded: 'Verified Employer' },
+  ];
+  const key = async (d: ReturnType<typeof driver>, label: string, value: string) => {
+    const preventDefault = vi.fn(); d.input(label).props.onKeyDown({ key: value, preventDefault, nativeEvent: {} });
+    await d.settle(); await d.settle(); return preventDefault;
+  };
+  it.each(fields)('filters $label by case-insensitive contained text, selecting readable names and sending only IDs on Apply', async (field) => {
+    const d = monthlyDriver(); await d.settle(); const reads = h.get.mock.calls.length;
+    d.change(field.label, field.term); await d.settle();
+    expect(d.option(field.name)).toBeDefined(); expect(d.option(field.excluded)).toBeUndefined();
+    expect(d.input(field.label).props.value).toBe(field.term); expect(d.input(field.label).props['aria-invalid']).toBe(true);
+    expect(d.button('Apply Filters').props.disabled).toBe(true); expect(h.get).toHaveBeenCalledTimes(reads);
+    d.option(field.name).props.onClick(); await d.settle();
+    expect(d.input(field.label).props.value).toBe(field.name); expect(d.input(field.label).props['aria-invalid']).toBeUndefined();
+    expect(d.button('Apply Filters').props.disabled).toBe(false); expect(h.get).toHaveBeenCalledTimes(reads);
+    await d.apply(); expect(lastParams()[field.parameter]).toBe(field.id);
+    expect(text(d.render())).toContain(`${field.parameter === 'countryId' ? 'Country' : 'Employer'}: ${field.name}`);
+    expect(typeof lastParams()[field.parameter]).toBe('number');
+    const input = d.input(field.label); d.openFilter(field.label); await d.settle();
+    expect(d.option(field.excluded)).toBeDefined(); expect(d.input(field.label).props.value).toBe(input.props.value);
+    expect(d.all().filter((n) => n.props?.role === 'option' && n.props['aria-selected'])).toHaveLength(1);
+  });
+  it.each(fields)('resets $label through its All option or by clearing the same input', async (field) => {
+    const d = monthlyDriver(); await d.settle(); d.chooseFilter(field.label, field.name); await d.apply();
+    let count = monthlyCalls().length;
+    d.chooseFilter(field.label, field.reset); await d.settle();
+    expect(d.input(field.label).props.value).toBe(''); expect(d.input(field.label).props.placeholder).toBe(field.reset);
+    expect(monthlyCalls()).toHaveLength(count); expect(lastParams()[field.parameter]).toBe(field.id);
+    await d.apply(); expect(lastParams()).not.toHaveProperty(field.parameter);
+    d.chooseFilter(field.label, field.name); await d.apply(); count = monthlyCalls().length;
+    d.change(field.label, ''); await d.settle(); expect(monthlyCalls()).toHaveLength(count);
+    expect(d.button('Apply Filters').props.disabled).toBe(false);
+    await d.apply(); expect(lastParams()).not.toHaveProperty(field.parameter);
+  });
+  it.each(fields.flatMap((field) => ['unmatched', 'numeric', 'full name'].map((kind) => ({ ...field, kind }))))('blocks unintended $label filtering for $kind text and preserves applied PDF filters', async (field) => {
+    const d = monthlyDriver(); await d.settle(); d.chooseFilter(field.label, field.name); await d.apply();
+    const count = monthlyCalls().length;
+    const query = field.kind === 'numeric' ? String(field.id) : field.kind === 'full name' ? field.name : 'No such lookup value';
+    d.change(field.label, query); await d.settle();
+    expect(d.input(field.label).props['aria-invalid']).toBe(true);
+    expect(d.input(field.label).props['aria-describedby']).toBe('monthly-filter-error');
+    expect(d.button('Apply Filters').props.disabled).toBe(true);
+    await d.apply(); expect(monthlyCalls()).toHaveLength(count); expect(lastParams()[field.parameter]).toBe(field.id);
+    const summary = d.all().find((n) => n.props['aria-label'] === 'Applied monthly filters'); expect(text(summary)).toContain(field.name);
+    d.button('Export PDF').props.onClick(); await flush();
+    expect(lastParams()[field.parameter]).toBe(field.id); expect(lastParams()).not.toHaveProperty('page');
+    expect(h.table.mock.calls[0][1].body).toHaveLength(27); expect(h.save).toHaveBeenCalledOnce();
+    expect(h.pdfText.mock.calls[0][0]).toBe('Example Reporting Agency');
+  });
+  it.each(fields)('supports accessible floating $label options, keyboard selection, Escape and native Tab behavior', async (field) => {
+    const d = monthlyDriver(); await d.settle(); d.change(field.label, field.term); await d.settle();
+    const content = d.all().find((n) => n.props['aria-label'] === field.picker);
+    const input = d.input(field.label);
+    expect(input.props).toMatchObject({ role: 'combobox', 'aria-autocomplete': 'list', 'aria-haspopup': 'listbox', 'aria-expanded': true });
+    expect(nodes(content).some((n) => n.props?.id === input.props['aria-controls'] && n.props.role === 'listbox')).toBe(true);
+    expect(nodes(content).filter((n) => n.type === 'input')).toHaveLength(0);
+    expect(content.type).toBe(PopoverContent); expect(content.props).toMatchObject({ align: 'start', avoidCollisions: true, collisionPadding: 12 });
+    expect(content.props.style.maxHeight).toContain('--radix-popover-content-available-height');
+    expect(nodes(content).find((n) => n.props?.role === 'listbox').props.className).toContain('overflow-y-auto');
+    expect(await key(d, field.label, 'ArrowDown')).toHaveBeenCalledOnce();
+    expect(d.input(field.label).props['aria-activedescendant']).toBe(`${field.prefix}-option-${field.id}`);
+    expect(d.element(`${field.prefix}-option-${field.id}`).scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(await key(d, field.label, 'Enter')).toHaveBeenCalledOnce(); expect(d.input(field.label).props.value).toBe(field.name);
+    content.props.onCloseAutoFocus({ preventDefault() {} }); expect(d.element(`${field.prefix}-search`).focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(monthlyCalls()).toHaveLength(1);
+    d.openFilter(field.label); await d.settle(); expect(await key(d, field.label, 'Escape')).toHaveBeenCalledOnce();
+    expect(d.input(field.label).props['aria-expanded']).toBe(false);
+    d.openFilter(field.label); await d.settle(); expect(await key(d, field.label, 'Tab')).not.toHaveBeenCalled();
+    expect(d.input(field.label).props['aria-expanded']).toBe(false);
+  });
+  it('keeps only one dropdown open and prevents the previous picker from stealing the next input focus', async () => {
+    const d = monthlyDriver(); await d.settle(); d.openFilter('Applicant name or code'); await d.settle();
+    const applicant = d.all().find((n) => n.props['aria-label'] === 'Agency applicant picker');
+    d.element('deployment-applicant-search').focus.mockClear();
+    d.openFilter('Destination country'); await d.settle();
+    expect(d.all().filter((n) => n.type === PopoverContent)).toHaveLength(1);
+    expect(d.input('Applicant name or code').props['aria-expanded']).toBe(false);
+    applicant.props.onCloseAutoFocus({ preventDefault() {} }); expect(d.element('deployment-applicant-search').focus).not.toHaveBeenCalled();
+    const country = d.all().find((n) => n.props['aria-label'] === 'Country filter picker'); d.element('deployment-country-search').focus.mockClear();
+    d.openFilter('Employer'); await d.settle(); expect(d.all().filter((n) => n.type === PopoverContent)).toHaveLength(1);
+    country.props.onCloseAutoFocus({ preventDefault() {} }); expect(d.element('deployment-country-search').focus).not.toHaveBeenCalled();
+    expect(d.input('Employer').props['aria-expanded']).toBe(true);
+  });
+  it('retains selected IDs and search text independently across collapse, then resets pagination only when applied', async () => {
+    const d = monthlyDriver(); await d.settle();
+    d.chooseFilter('Destination country', 'Japan'); d.chooseFilter('Employer', 'Verified Employer'); await d.apply();
+    d.button('Next').props.onClick(); await d.settle();
+    d.change('Destination country', 'pH'); d.change('Employer', 'sTaF'); await d.settle();
+    const count = monthlyCalls().length; d.button('Filters').props.onClick(); await d.settle();
+    expect(d.input('Destination country')).toBeUndefined(); expect(text(d.render())).toContain('Country: Japan');
+    expect(text(d.render())).toContain('Employer: Verified Employer'); expect(text(d.render())).toContain('Page 2 of 2');
+    d.expandFilters(); expect(d.input('Destination country').props.value).toBe('pH'); expect(d.input('Employer').props.value).toBe('sTaF');
+    expect(d.button('Apply Filters').props.disabled).toBe(true); expect(monthlyCalls()).toHaveLength(count);
+    const error = d.all().find((n) => n.props.id === 'monthly-filter-error');
+    expect(text(error)).toContain('Choose a destination country'); expect(text(error)).toContain('Choose an employer');
+    d.chooseFilter('Destination country', 'Philippines'); d.chooseFilter('Employer', 'Pacific Staffing'); await d.apply();
+    expect(lastParams()).toMatchObject({ countryId: 63, employerId: 5, page: 1 });
+    d.button('Export PDF').props.onClick(); await flush(); expect(lastParams()).toEqual({ year: 2026, month: 11, countryId: 63, employerId: 5 });
+    const labels = h.pdfText.mock.calls.map(([value]) => value).join(' '); expect(labels).toContain('Country: Philippines'); expect(labels).toContain('Employer: Pacific Staffing');
+  });
+  it('uses only the established authenticated lookup reads, excluding foreign employers and preserving manual exact positions', async () => {
+    const d = monthlyDriver(); await d.settle();
+    for (const url of ['/lookups/countries', '/employers']) {
+      const calls = h.get.mock.calls.filter(([path]) => path === url); expect(calls).toHaveLength(1);
+      expect(calls[0][1].signal).toBeInstanceOf(AbortSignal); expect(calls[0][1]).not.toHaveProperty('params');
+    }
+    d.openFilter('Employer'); await d.settle(); expect(d.option('Foreign Employer')).toBeUndefined();
+    d.change('Employer', 'Foreign Employer'); await d.settle(); expect(d.option('Foreign Employer')).toBeUndefined();
+    expect(text(d.render())).toContain('No employers match'); expect(d.button('Apply Filters').props.disabled).toBe(true);
+    d.change('Employer', ''); d.change('Position (exact match)', ' Registered Nurse '); await d.apply();
+    expect(lastParams().position).toBe('Registered Nurse'); expect(lastParams()).not.toHaveProperty('employerId');
+    expect(d.input('Position (exact match)').props.role).toBe('combobox'); expect(d.input('Position (exact match)').props.placeholder).toBe('Full position name');
+    expect(h.get.mock.calls.every(([url]) => ['/lookups/agency', '/lookups/countries', '/employers', '/job-orders', '/reports/monthly-deployments'].includes(url))).toBe(true);
+  });
+  it.each([
+    ['/lookups/countries', { rows: [{ country_id: 1, country_name: 'Invalid country' }] }, 'Destination country'],
+    ['/lookups/countries', [{ country_id: '63', country_name: 'Invalid country' }], 'Destination country'],
+    ['/employers', [{ employer_id: 5, company_name: 'Unscoped employer' }], 'Employer'],
+    ['/employers', [{ employer_id: 5, agency_id: 99, company_name: 'Foreign employer only' }], 'Employer'],
+  ])('excludes unauthorized or malformed options from %s', async (url, data, label) => {
+    const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation((path, config) => path === url ? Promise.resolve({ data }) : fallback(path, config));
+    const d = monthlyDriver(); await d.settle(); expect(d.input(label as string).props.disabled).toBe(true);
+    expect(d.all().some((n) => n.props?.role === 'option')).toBe(false);
+    await d.apply(); expect(lastParams()).not.toHaveProperty(label === 'Employer' ? 'employerId' : 'countryId');
   });
 });
 
@@ -494,6 +920,7 @@ describe('Compact report tabs and shared UTC period', () => {
     const staffCount = h.get.mock.calls.filter(([url]) => url === '/reports/staff-performance').length;
     d.change('Reporting month', '2026-10'); await d.applyPeriod();
     expect(lastParams()).toEqual({ year: 2026, month: 10, page: 1, pageSize: 25 });
+    expect(d.button('Filters').props['aria-expanded']).toBe(false); d.expandFilters();
     expect(d.input('Applicant name or code').props.value).toBe(''); expect(text(d.render())).toContain('Applied filters: None');
     expect(h.get.mock.calls.filter(([url]) => url === '/reports/staff-performance')).toHaveLength(staffCount);
     await d.select('Staff Activity'); expect(h.get.mock.calls.filter(([url]) => url === '/reports/staff-performance')).toHaveLength(staffCount + 1);
@@ -608,9 +1035,9 @@ describe('Operational Reports: monthly table and contract', () => {
   });
   it('uses existing named country/employer options, redacting foreign employers', async () => {
     const d = monthlyDriver(); await d.settle();
-    expect(text(d.input('Destination country'))).toContain('Japan');
-    expect(text(d.input('Employer'))).toContain('Verified Employer'); expect(text(d.input('Employer'))).not.toContain('Foreign Employer');
-    d.change('Destination country', '2'); d.change('Employer', '4'); await d.apply();
+    d.openFilter('Destination country'); expect(text(d.render())).toContain('Japan');
+    d.openFilter('Employer'); expect(text(d.render())).toContain('Verified Employer'); expect(text(d.render())).not.toContain('Foreign Employer');
+    d.chooseFilter('Destination country', 'Japan'); d.chooseFilter('Employer', 'Verified Employer'); await d.apply();
     expect(lastParams()).toMatchObject({ countryId: 2, employerId: 4 });
     expect(text(d.render())).toContain('Country: Japan'); expect(text(d.render())).toContain('Employer: Verified Employer');
   });
@@ -623,9 +1050,9 @@ describe('Operational Reports: monthly table and contract', () => {
   });
   it('keeps tenant employer options usable during loading and after a failed filtered read', async () => {
     const d = monthlyDriver(); await d.settle(); const pending = deferred(); h.get.mockReturnValue(pending.promise);
-    d.change('Employer', '4'); await d.apply();
+    d.chooseFilter('Employer', 'Verified Employer'); await d.apply();
     expect(text(d.render())).toContain('Loading recorded deployments');
-    expect(d.input('Employer').props.disabled).toBe(false); expect(text(d.input('Employer'))).toContain('Verified Employer');
+    expect(d.input('Employer').props.disabled).toBe(false); expect(d.input('Employer').props.value).toBe('Verified Employer');
     expect(text(d.render())).not.toContain('Applicant 100');
     pending.reject(new Error('offline')); await flush();
     expect(text(d.render())).toContain('Could not load the deployment report');
@@ -667,7 +1094,9 @@ describe('Operational Reports: monthly table and contract', () => {
     const d = monthlyDriver(); await d.settle(); d.button('Next').props.onClick(); await d.settle();
     const values: Record<string, string> = { 'Applicant name or code': 'Ada', 'Position (exact match)': 'Nurse',
       'Destination country': '2', Employer: '4', 'Narrow from': '2026-11-02', 'Narrow to': '2026-11-06', 'Reporting month': '2026-10' };
-    d.change(field, values[field]);
+    if (field === 'Destination country') d.chooseFilter(field, 'Japan');
+    else if (field === 'Employer') d.chooseFilter(field, 'Verified Employer');
+    else d.change(field, values[field]);
     if (['Narrow from', 'Narrow to', 'Reporting month'].includes(field)) await d.applyPeriod(); else await d.apply();
     expect(lastParams().page).toBe(1);
   });
@@ -722,7 +1151,7 @@ describe('Monthly PDF: complete applied dataset', () => {
     const d = monthlyDriver(); await d.settle();
     d.change('Narrow from', '2026-11-02'); d.change('Narrow to', '2026-11-06'); await d.applyPeriod();
     d.change('Applicant name or code', 'APP'); d.change('Position (exact match)', 'Nurse');
-    d.change('Destination country', '2'); d.change('Employer', '4'); await d.apply();
+    d.chooseFilter('Destination country', 'Japan'); d.chooseFilter('Employer', 'Verified Employer'); await d.apply();
     d.button('Next').props.onClick(); await d.settle();
     const appliedParams = lastParams(); d.change('Applicant name or code', 'Not applied');
     d.button('Export PDF').props.onClick(); await flush();
@@ -786,28 +1215,96 @@ describe('PDF readability, trusted identity and complete breakdowns', () => {
     const fallback = h.get.getMockImplementation()!;
     h.get.mockImplementation((url, config) => url === '/reports/staff-performance' ? Promise.resolve({ data: report }) : fallback(url, config));
   };
+  it.each(Object.keys(reportLabels))('omits Scope and uses consistent truthful UTC generation formatting for %s', async (name) => {
+    vi.setSystemTime(new Date('2026-11-10T11:26:00Z'));
+    const d = reportDriver(name); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
+    const labels = h.pdfText.mock.calls.map(([value]) => value);
+    expect(labels.filter((line) => line === 'Example Reporting Agency')).toHaveLength(1);
+    expect(pdfText()).not.toContain('Scope:'); expect(pdfText()).not.toContain('(download time)');
+    const generated = labels.filter((line) => line.startsWith('Generated:'));
+    expect(generated).toEqual([name === 'financial_summary' ? 'Generated: 10 Nov 2026, 11:26 UTC' : 'Generated: 07 Nov 2026, 08:00 UTC']);
+    expect(generated[0]).toMatch(/^Generated: \d{2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC$/);
+    expect(pdfText()).toContain('2026-11'); expect(h.save).toHaveBeenCalledOnce();
+  });
   it('uses the left and right header columns with the matching authenticated agency name', async () => {
     const d = driver(); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
-    expect(pdfText()).toContain('Scope: Example Reporting Agency (Agency 7)');
+    expect(pdfText()).not.toContain('Scope:');
     expect(pdfText()).not.toContain('FindStaff Test Agency');
-    const brand = h.pdfText.mock.calls.find(([value]) => value === 'FLOWSENSUS')!;
-    const scope = h.pdfText.mock.calls.find(([value]) => value.startsWith('Scope:'))!;
+    const brand = h.pdfText.mock.calls.find(([value]) => value === 'Example Reporting Agency')!;
     const period = h.pdfText.mock.calls.find(([value]) => value.startsWith('Reporting Period:'))!;
     const generated = h.pdfText.mock.calls.find(([value]) => value.startsWith('Generated:'))!;
-    expect(brand[1]).toBe(14); expect(scope[1]).toBeGreaterThan(150);
-    expect(period[1]).toBe(scope[1]); expect(generated[1]).toBe(scope[1]);
+    expect(brand[1]).toBe(14); expect(period[1]).toBeGreaterThan(150);
+    expect(generated[1]).toBe(period[1]); expect(brand[2]).toBe(period[2]); expect(generated[2]).toBeGreaterThan(period[2]);
     expect(pdfText()).toContain('Total Recorded Deployments: 27');
     expect(h.table.mock.calls[0][1].body).toHaveLength(27);
   });
-  it.each(['failure', 'missing name', 'blank name', 'invalid id', 'foreign agency'])('uses an accurate scope fallback for %s', async (kind) => {
+  it.each(Object.keys(reportLabels).flatMap((name) =>
+    ['failure', 'missing name', 'blank name', 'invalid id', 'foreign agency', 'invalid name', 'control characters']
+      .map((kind) => [name, kind])))('uses an accurate heading fallback for %s with %s', async (name, kind) => {
     const fallback = h.get.getMockImplementation()!;
     const agency: any = { agency_id: kind === 'foreign agency' ? 99 : kind === 'invalid id' ? '7' : 7,
       agency_name: kind === 'blank name' ? '  ' : 'Untrusted name' };
     if (kind === 'missing name') delete agency.agency_name;
+    if (kind === 'invalid name') agency.agency_name = { name: 'Untrusted name' };
+    if (kind === 'control characters') agency.agency_name = 'Untrusted name\nAnother heading';
     h.get.mockImplementation((url, config) => url === '/lookups/agency' ? kind === 'failure' ? Promise.reject(new Error('offline')) : Promise.resolve({ data: agency }) : fallback(url, config));
-    const d = driver(); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
-    expect(pdfText()).toContain('Scope: Agency 7'); expect(pdfText()).not.toContain('Untrusted name');
+    const d = reportDriver(name); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
+    expect(h.pdfText.mock.calls[0][0]).toBe('Agency 7');
+    expect(pdfText()).not.toContain('Scope:'); expect(pdfText()).not.toContain('Untrusted name');
     expect(h.save).toHaveBeenCalledOnce();
+  });
+  it.each(Object.keys(reportLabels))('uses distinct verified agency headings in %s while preserving its data', async (name) => {
+    const first = reportDriver(name); await first.settle(); first.button('Export PDF').props.onClick(); await flush();
+    const firstHeading = h.pdfText.mock.calls[0][0];
+    expect(firstHeading).toBe('Example Reporting Agency');
+    const originalTables = h.table.mock.calls.map(([, table]) => table);
+    const originalLabels = h.pdfText.mock.calls.map(([value]) => value);
+    first.unmount(); h.pdfText.mockClear(); h.table.mockClear(); h.save.mockClear();
+    const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation(async (url, config) => {
+      if (url === '/lookups/agency') return { data: { agency_id: 83, agency_name: 'Second Reporting Agency' } };
+      const response = await fallback(url, config);
+      const data = structuredClone(response.data);
+      const reScope = (row: any) => ({ ...row, agency_id: 83,
+        ...(row.applicant ? { applicant: { ...row.applicant, agency_id: 83 } } : {}) });
+      if (data.metadata) { data.metadata.agency_id = 83; data.rows = data.rows.map(reScope); }
+      return { data: url === '/financial/records' ? data.map(reScope) : data };
+    });
+    const second = reportDriver(name); await second.settle(); second.button('Export PDF').props.onClick(); await flush();
+    expect(h.pdfText.mock.calls[0][0]).toBe('Second Reporting Agency');
+    expect(h.pdfText.mock.calls[0][0]).not.toBe(firstHeading);
+    expect(pdfText()).not.toContain('Scope:');
+    expect(pdfText()).not.toContain('Example Reporting Agency'); expect(pdfText()).not.toContain('FLOWSENSUS');
+    expect(h.table.mock.calls.map(([, table]) => table)).toEqual(originalTables);
+    const metadataLines = (labels: string[]) => labels.filter((line) => line.startsWith('Reporting Period:') || line.startsWith('Generated:'));
+    expect(metadataLines(h.pdfText.mock.calls.map(([value]) => value))).toEqual(metadataLines(originalLabels));
+    expect(h.save).toHaveBeenCalledOnce();
+  });
+  it.each(['verified name', 'missing name', 'unavailable identity'])('uses authenticated financial scope safely with %s when records have no agency IDs', async (kind) => {
+    const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation(async (url, config) => {
+      if (url === '/lookups/agency') return { data: kind === 'unavailable identity' ? null :
+        { agency_id: 7, ...(kind === 'verified name' ? { agency_name: 'Example Reporting Agency' } : {}) } };
+      const response = await fallback(url, config);
+      if (url === '/financial/records') return { data: response.data.map((row: any) => ({ ...row, agency_id: null, applicant: null })) };
+      return response;
+    });
+    const d = reportDriver('financial_summary'); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
+    expect(h.pdfText.mock.calls[0][0]).toBe(kind === 'verified name' ? 'Example Reporting Agency' : kind === 'missing name' ? 'Agency 7' : 'Authenticated agency');
+    expect(pdfText()).not.toContain('Agency null'); expect(pdfText()).toContain('Financial Records: 1');
+    expect(pdfText()).not.toContain('(download time)'); expect(h.table.mock.calls[0][1].body).toHaveLength(1);
+  });
+  it('does not label an all-agencies report with the current tenant name', async () => {
+    const report = staff({ dateFrom: '2026-11-01', dateTo: '2026-11-30' });
+    Object.assign(report.metadata, { scope: 'all_agencies', agency_id: null }); mockedStaff(report);
+    const d = reportDriver('staff_performance'); await d.settle(); d.button('Export PDF').props.onClick(); await flush();
+    expect(h.pdfText.mock.calls[0][0]).toBe('All agencies'); expect(pdfText()).not.toContain('Scope:');
+    expect(pdfText()).not.toContain('Example Reporting Agency'); expect(h.table.mock.calls[0][1].head[0][0]).toBe('Agency');
+  });
+  it('keeps report branding dynamic without hardcoded sample agencies', () => {
+    const source = readFileSync(new URL('./OperationalReports.tsx', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/FindStaff|Agency 2/);
+    expect(source).not.toContain("write('FLOWSENSUS'");
   });
   it('uses late trusted agency metadata without refetching the current report', async () => {
     const pending = deferred(); const fallback = h.get.getMockImplementation()!;
@@ -815,7 +1312,7 @@ describe('PDF readability, trusted identity and complete breakdowns', () => {
     const d = driver(); await d.settle(); const count = monthlyCalls().length;
     pending.resolve({ data: { agency_id: 7, agency_name: 'Late Authorized Agency' } }); await flush(); await d.settle();
     expect(monthlyCalls()).toHaveLength(count); d.button('Export PDF').props.onClick(); await flush();
-    expect(pdfText()).toContain('Late Authorized Agency (Agency 7)');
+    expect(h.pdfText.mock.calls[0][0]).toBe('Late Authorized Agency');
   });
   it('renders known action labels and deduplicated roles without changing counts or source events', async () => {
     const report = staff({ dateFrom: '2026-11-01', dateTo: '2026-11-30' });
@@ -929,6 +1426,23 @@ describe('PDF readability, trusted identity and complete breakdowns', () => {
     const d = driver({ staffDirectory: [{ user_id: 21, agency_id: 7, is_super_admin: false, full_name: 'Current Directory Name' }] });
     await d.settle(); await d.select('Financial Summary'); d.button('Export PDF').props.onClick(); await flush();
     const table = tableWith('Recorded By'); expect(compact(table.body[0][table.head[0].indexOf('Recorded By')])).toBe('Name In Record (User ID: 21)');
+  });
+  it('never attributes financial User ID 1 to a platform actor merely because Staff Activity names that actor', async () => {
+    const fallback = h.get.getMockImplementation()!;
+    h.get.mockImplementation(async (url, config) => {
+      const response = await fallback(url, config);
+      if (url === '/financial/records') return { data: response.data.map((row: any) => ({ ...row, recorded_by: 1 })) };
+      if (url === '/reports/staff-performance') response.data.rows[0] = { ...response.data.rows[0], actor_user_id: 1, actor_name: 'Dev Superadmin', roles: ['Super Admin'] };
+      return response;
+    });
+    const d = driver({ staffDirectory: [{ user_id: 1, agency_id: 7, is_super_admin: true, full_name: 'Dev Superadmin' }] });
+    await d.settle(); await d.select('Staff Activity'); d.button('Export PDF').props.onClick(); await flush();
+    expect(tableWith('Recorded Roles').body[0][0]).toContain('Dev Superadmin');
+    h.table.mockClear(); h.pdfText.mockClear(); h.save.mockClear();
+    await d.select('Financial Summary'); d.button('Export PDF').props.onClick(); await flush();
+    const table = tableWith('Recorded By'); expect(table.body[0][table.head[0].indexOf('Recorded By')]).toBe('User ID: 1');
+    expect(table.body.flat().join(' ')).not.toContain('Dev Superadmin'); expect(pdfText()).toContain('Financial Records: 1');
+    expect(pdfText()).toContain('PHP: 12.35'); expect(h.get.mock.calls.some(([url]) => url === '/users')).toBe(false);
   });
 });
 
