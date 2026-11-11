@@ -248,15 +248,9 @@ export default function ApplicantArchive({
         setSelectedRecord(null);
       }
     } catch (err: any) {
-      console.warn('Backend permanent delete fallback:', err);
-      // Fallback local removal
-      setArchivedRecords((prev) => prev.filter((r) => r.id !== applicantToDelete.id));
-      showToast(`Applicant "${applicantName}" record removed.`);
-      setApplicantToDelete(null);
-      setPermanentDeleteConfirmed(false);
-      if (selectedRecord?.id === applicantToDelete.id) {
-        setSelectedRecord(null);
-      }
+      console.error('Backend permanent delete failed:', err);
+      const detail = err?.response?.data?.detail || err?.message || 'Failed to permanently delete applicant.';
+      showToast(detail);
     } finally {
       setIsPermanentDeleting(false);
     }
