@@ -134,7 +134,9 @@ export default function LoginScreen({
         return;
       }
       try {
-        const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`);
+        const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`, {
+          timeout: 2500,
+        });
         resolvedApplicantData = resolveRes.data;
       } catch {
         resolvedApplicantData = null;
@@ -281,7 +283,7 @@ export default function LoginScreen({
         // Attempt to fetch authoritative user roles from DB for tenant staff
         if (!isSuper) {
           try {
-            const meRes = await api.get('/users/me');
+            const meRes = await api.get('/users/me', { timeout: 2500 });
             if (meRes?.data) {
               const dbRoles = extractAndNormalizeRoles(meRes.data.role_names, meRes.data.role_name, meRes.data.roles);
               if (dbRoles.length > 0) {
@@ -289,7 +291,7 @@ export default function LoginScreen({
               }
             }
           } catch {
-            // Ignored if offline
+            // Ignored if offline or slow; user session metadata already has assigned roles
           }
         }
 
