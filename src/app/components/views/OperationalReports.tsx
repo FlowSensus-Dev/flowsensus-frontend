@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { api } from '../../../lib/api';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 type ReportName = 'monthly_deployments' | 'staff_performance' | 'financial_summary' | 'workflow_efficiency';
 
@@ -133,7 +134,7 @@ interface ReportResponse {
 }
 
 interface ReportPdfContext {
-  agency: { agency_id: number; agency_name: string } | null;
+  agency: { agency_id: number; agency_name: string | null } | null;
   staffDirectory?: unknown[];
 }
 type ReportPdfContextRef = { current: ReportPdfContext };
@@ -393,7 +394,7 @@ async function loadFinancialReport(period: ReportPeriod, signal: AbortSignal): P
   end.setUTCDate(end.getUTCDate() + 1);
   return {
     // The records API has no report metadata. Scope comes from returned agency IDs;
-    // the PDF explicitly uses download time rather than claiming a backend timestamp.
+    // the PDF uses its creation time when no backend generation timestamp exists.
     metadata: { report: 'financial_summary', generated_at: null, scope: agencyId === null ? 'authenticated_agency' : 'agency',
       agency_id: agencyId, timezone: 'UTC', date_from: `${period.dateFrom}T00:00:00Z`,
       date_to_exclusive: end.toISOString(), date_field: 'financial_record_date' },
@@ -591,6 +592,17 @@ function wrapPdfText(doc: jsPDF, value: string, availableWidth: number): string[
   });
 }
 
+function reportAgencyIdentity(metadata: ReportMetadata, context?: ReportPdfContext) {
+  if (metadata.scope === 'all_agencies') return { heading: 'All agencies', scope: 'All agencies' };
+  // Both reads use the authenticated API. Explicit report agency IDs must match;
+  // the financial endpoint can instead identify its scope as authenticated agency.
+  const agency = context?.agency;
+  const verified = agency && (agency.agency_id === metadata.agency_id || metadata.scope === 'authenticated_agency') ? agency : null;
+  const agencyId = metadata.agency_id ?? verified?.agency_id;
+  const heading = verified?.agency_name || (agencyId ? `Agency ${agencyId}` : 'Authenticated agency');
+  return { heading, scope: verified?.agency_name ? `${heading} (Agency ${agencyId})` : heading };
+}
+
 function downloadReport<T extends ReportResponse>(definition: ReportDefinition<T>, report: T, period: ReportPeriod,
   details: string[] = [], context?: ReportPdfContext) {
   const doc = new jsPDF({ orientation: 'landscape', format: 'a4' });
@@ -616,23 +628,18 @@ function downloadReport<T extends ReportResponse>(definition: ReportDefinition<T
   const leftWidth = contentWidth * 0.51;
   const rightX = margin + leftWidth + 10;
   const rightWidth = width - margin - rightX;
+  const identity = reportAgencyIdentity(report.metadata, context);
   doc.setTextColor(14, 165, 233);
-  write('FLOWSENSUS', 13, true, margin, leftWidth);
+  write(identity.heading, 13, true, margin, leftWidth);
   doc.setTextColor(15, 23, 42);
   write(definition.title, 17, true, margin, leftWidth);
   write(definition.description, 8.5, false, margin, leftWidth);
   const leftBottom = y;
   const headerPage = doc.getNumberOfPages();
   y = 16;
-  const agency = context?.agency;
-  const scope = report.metadata.scope === 'all_agencies' ? 'All agencies' :
-    agency && (agency.agency_id === report.metadata.agency_id || report.metadata.scope === 'authenticated_agency') ?
-      `${agency.agency_name} (Agency ${agency.agency_id})` :
-      report.metadata.scope === 'authenticated_agency' ? 'Authenticated agency' : `Agency ${report.metadata.agency_id}`;
-  write(`Scope: ${scope}`, 9.5, true, rightX, rightWidth);
   write(`Reporting Period: ${periodLabel(period)} (${report.metadata.timezone})`, 8.5, false, rightX, rightWidth);
   const generatedAt = report.metadata.generated_at ?? new Date().toISOString();
-  write(`Generated: ${displayTimestamp(generatedAt)} UTC${report.metadata.generated_at ? '' : ' (download time)'}`, 8.5, false, rightX, rightWidth);
+  write(`Generated: ${displayTimestamp(generatedAt)} UTC`, 8.5, false, rightX, rightWidth);
   y = Math.max(y, doc.getNumberOfPages() === headerPage ? leftBottom : 16) + 2;
   doc.setDrawColor(203, 213, 225);
   doc.setLineWidth(0.2);
@@ -726,6 +733,163 @@ const reportInputClass = 'w-full bg-white border border-slate-300 rounded-lg px-
 const reportButtonClass = 'px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed';
 const monthlyPageSize = 25;
 
+type FilterComboboxKind = 'applicant' | 'position' | 'country' | 'employer';
+interface FilterChoice { id: string; label: string; value: string; detail?: string }
+const filterComboboxText = {
+  applicant: { label: 'Applicant name or code', browse: 'Browse agency applicants', list: 'Agency applicants',
+    picker: 'Agency applicant picker', close: 'Close applicant picker', placeholder: 'Type name or code',
+    empty: 'No available applicants match. You can still type a name or code.' },
+  position: { label: 'Position (exact match)', browse: 'Browse Job Order positions', list: 'Job Order positions',
+    picker: 'Position filter picker', close: 'Close position picker', placeholder: 'Full position name',
+    empty: 'No available Job Order positions match. You can still type a full position name.' },
+  country: { label: 'Destination country', browse: 'Browse countries', list: 'Destination countries',
+    picker: 'Country filter picker', close: 'Close country picker', placeholder: 'All countries',
+    empty: 'No countries match. Choose a listed country or clear the field for All countries.' },
+  employer: { label: 'Employer', browse: 'Browse employers', list: 'Agency employers',
+    picker: 'Employer filter picker', close: 'Close employer picker', placeholder: 'All employers',
+    empty: 'No employers match. Choose a listed employer or clear the field for All employers.' },
+};
+
+function ReportFilterCombobox({ kind, value, choices, selectedId, open, enabled, restoreFocusAllowed,
+  onOpenChange, onChange, onSelect, requestOptions, retry, canBrowse = true, disabled = false,
+  loading = false, error = null, invalid = false, announcement }: {
+  kind: FilterComboboxKind; value: string; choices: FilterChoice[]; selectedId?: string;
+  open: boolean; enabled: boolean; restoreFocusAllowed: boolean;
+  onOpenChange: (open: boolean) => void; onChange: (value: string) => void; onSelect: (choice: FilterChoice) => void;
+  requestOptions?: (browseAll: boolean) => void; retry?: () => void; canBrowse?: boolean; disabled?: boolean;
+  loading?: boolean; error?: string | null; invalid?: boolean; announcement?: string;
+}) {
+  const copy = filterComboboxText[kind];
+  const prefix = `deployment-${kind}`;
+  const [browseAll, setBrowseAll] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const input = useRef<HTMLInputElement | null>(null);
+  const anchor = useRef<HTMLDivElement | null>(null);
+  const activeOption = useRef<HTMLLIElement | null>(null);
+  const restoreFocus = useRef(true);
+  const allowFocus = useRef(restoreFocusAllowed);
+  allowFocus.current = restoreFocusAllowed;
+  const search = value.trim().toLowerCase();
+  const matches = choices.filter((choice) =>
+    choice.label.toLowerCase().includes(search) || choice.detail?.toLowerCase().includes(search));
+  const available = browseAll ? choices : matches;
+  const active = open ? available[activeIndex] : undefined;
+  useEffect(() => {
+    if (active) activeOption.current?.scrollIntoView({ block: 'nearest' });
+  }, [active?.id]);
+  useEffect(() => { if (!open) setActiveIndex(-1); }, [open]);
+  const close = () => { onOpenChange(false); setActiveIndex(-1); };
+  const show = (browse: boolean) => {
+    if (!enabled || disabled || !canBrowse) return;
+    restoreFocus.current = true;
+    setBrowseAll(browse);
+    setActiveIndex(-1);
+    onOpenChange(true);
+    requestOptions?.(browse);
+  };
+  const choose = (choice: FilterChoice) => {
+    onSelect(choice);
+    restoreFocus.current = true;
+    close();
+  };
+  const optionId = (choice: FilterChoice) => `${prefix}-option-${choice.id || 'all'}`;
+
+  return <div className="min-w-0">
+    <label htmlFor={`${prefix}-search`} className="block text-xs font-bold text-slate-600">{copy.label}</label>
+    <Popover open={open} onOpenChange={(next) => next ? show(true) : close()}>
+      <PopoverAnchor asChild>
+        <div id={`${prefix}-field`} ref={anchor} className="relative min-w-0 mt-1">
+          <input id={`${prefix}-search`} ref={input} type="search" role="combobox" autoComplete="off"
+            aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={open}
+            aria-controls={open ? `${prefix}-listbox` : undefined} aria-activedescendant={active ? optionId(active) : undefined}
+            aria-invalid={invalid || undefined} aria-describedby={invalid ? 'monthly-filter-error' : undefined}
+            disabled={disabled} maxLength={kind === 'applicant' ? 100 : kind === 'position' ? 200 : 255}
+            value={value} placeholder={copy.placeholder} className={`${reportInputClass} pr-10`}
+            onChange={(event) => { onChange(event.target.value); show(false); }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent?.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+              if (event.key === 'Escape' && open) { event.preventDefault(); close(); }
+              if (event.key === 'Tab') { restoreFocus.current = false; close(); }
+              if (event.key === 'Enter' && open) { event.preventDefault(); if (active) choose(active); }
+              if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && enabled && canBrowse && !disabled) {
+                event.preventDefault();
+                const options = open ? available : matches;
+                if (!open) show(false);
+                setActiveIndex(event.key === 'ArrowDown' ? (activeIndex + 1) % (options.length || 1) :
+                  activeIndex <= 0 ? options.length - 1 : activeIndex - 1);
+              }
+            }} />
+          <PopoverTrigger asChild>
+            <button type="button" tabIndex={-1} aria-label={copy.browse} aria-haspopup="listbox"
+              aria-expanded={open} aria-controls={`${prefix}-listbox`} disabled={disabled || !canBrowse}
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50">
+              <ChevronDown aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+        </div>
+      </PopoverAnchor>
+      {announcement && <span role="status" className="sr-only">{announcement}</span>}
+      {open && <PopoverContent id={`${prefix}-picker`} aria-label={copy.picker} role="presentation"
+        align="start" side="bottom" sideOffset={8} collisionPadding={12} avoidCollisions sticky="always" hideWhenDetached
+        style={{ width: 'min(22rem, calc(100vw - 24px))', maxHeight: 'min(24rem, var(--radix-popover-content-available-height))' }}
+        onOpenAutoFocus={(event) => { event.preventDefault(); input.current?.focus({ preventScroll: true }); }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (restoreFocus.current && allowFocus.current) input.current?.focus({ preventScroll: true });
+        }}
+        onInteractOutside={(event) => {
+          if (anchor.current?.contains(event.target as Node)) event.preventDefault();
+          else restoreFocus.current = false;
+        }}
+        className="flex flex-col gap-2 overflow-x-hidden overflow-y-auto bg-white border-slate-200 rounded-lg p-3 shadow-lg">
+        {kind === 'applicant' && <p className="text-xs text-slate-500">Available agency applicants with usable codes. Historical or unavailable applicants may be missing. Choosing fills a code search; results still use substring matching.</p>}
+        {kind === 'position' && <p className="text-xs text-slate-500">Suggestions use available agency Job Orders. Historical positions or orders outside the returned list may be missing. You can still type any full position name for exact matching.</p>}
+        {loading ? <p role="status" className="text-xs text-slate-500">Loading {kind === 'position' ? 'position' : 'applicant'} options…</p> : error ? <>
+          <p role="alert" className="text-xs text-red-600">{error}</p>
+          {retry && <button type="button" className="text-xs text-sky-700 font-semibold" onClick={retry}>Retry {kind === 'position' ? 'position' : 'applicant'} options</button>}
+        </> : null}
+        <ul id={`${prefix}-listbox`} role="listbox" aria-label={copy.list} aria-busy={loading}
+          className="min-h-0 max-h-48 overflow-y-auto overscroll-contain divide-y divide-slate-100">
+          {available.map((choice, index) => <li key={choice.id} id={optionId(choice)}
+            ref={activeIndex === index ? activeOption : undefined} role="option"
+            aria-label={choice.detail ? `Choose ${choice.label} (${choice.detail})` : choice.label} aria-selected={selectedId === choice.id}
+            className={`cursor-pointer break-words px-2 py-2 text-xs rounded ${activeIndex === index ? 'bg-sky-100' : 'hover:bg-sky-50'}`}
+            style={{ overflowWrap: 'anywhere' }} onMouseDown={(event) => event.preventDefault()}
+            onPointerMove={() => setActiveIndex(index)} onClick={() => choose(choice)}>
+            <span className="block font-semibold text-slate-800">{choice.label}</span>
+            {choice.detail && <span className="block text-slate-500">{choice.detail}</span>}
+          </li>)}
+          {!loading && !error && !available.length && <li role="presentation" className="text-xs text-slate-500 py-2">{copy.empty}</li>}
+        </ul>
+        <button type="button" className="shrink-0 text-xs font-semibold text-sky-700" onClick={close}>{copy.close}</button>
+      </PopoverContent>}
+    </Popover>
+  </div>;
+}
+
+function jobOrderPositions(value: unknown, agencyId: number): FilterChoice[] {
+  if (!Array.isArray(value) || !value.every((row) => isObject(row) && isId(row.job_order_id) &&
+      row.agency_id === agencyId && fieldsMatch(row, ['position', 'position_title'], optionalText))) {
+    throw new Error('Invalid agency Job Orders');
+  }
+  const identities = new Map<number, string>();
+  const positions = new Map<string, FilterChoice>();
+  for (const row of value) {
+    const position = row.position?.trim();
+    const alias = row.position_title?.trim();
+    if (position && alias && position.toLowerCase() !== alias.toLowerCase()) throw new Error('Conflicting position aliases');
+    const label = position || alias || '';
+    const key = label.toLowerCase();
+    if (identities.has(row.job_order_id) && identities.get(row.job_order_id) !== key) throw new Error('Conflicting Job Order identity');
+    identities.set(row.job_order_id, key);
+    if (row.deleted_at != null || !label || label.length > 200 || /[\u0000-\u001f\u007f]/.test(label)) continue;
+    if (!positions.has(key)) positions.set(key, { id: String(row.job_order_id), label, value: label });
+  }
+  // The endpoint exposes an array, without page/total parameters. Use every
+  // returned position, but never claim the result is a complete historical catalog.
+  return [...positions.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
 function applicantOptions(value: unknown, agencyId: number): ApplicantOption[] {
   if (!Array.isArray(value) || !value.every((row) => isObject(row) && isId(row.applicant_id) &&
       row.agency_id === agencyId && fieldsMatch(row, ['first_name', 'middle_name', 'last_name', 'applicant_code'], optionalText))) {
@@ -813,12 +977,16 @@ function MonthlyDeploymentCard({ period, visible, pdfContext }: { period: Shared
   const [options, setOptions] = useState<{ countries: FilterOption[]; employers: FilterOption[]; notices: string[] }>(
     { countries: [], employers: [], notices: [] });
   const [reportAgencyId, setReportAgencyId] = useState<number | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [openFilter, setOpenFilter] = useState<FilterComboboxKind | null>(null);
+  const [countryText, setCountryText] = useState('');
+  const [employerText, setEmployerText] = useState('');
   const [chosenApplicant, setChosenApplicant] = useState<ApplicantOption | null>(null);
   const [picker, setPicker] = useState<{ loading: boolean; error: string | null; items: ApplicantOption[] | null }>({ loading: false, error: null, items: null });
+  const [positions, setPositions] = useState<{ agencyId: number | null; loading: boolean; error: string | null; items: FilterChoice[] | null }>(
+    { agencyId: null, loading: false, error: null, items: null });
   const pickerRequest = useRef<AbortController | null>(null);
-  const pickerTrigger = useRef<HTMLButtonElement | null>(null);
+  const positionRequest = useRef<AbortController | null>(null);
   const requestSequence = useRef(0);
   const exportRequest = useRef<AbortController | null>(null);
 
@@ -874,7 +1042,8 @@ function MonthlyDeploymentCard({ period, visible, pdfContext }: { period: Shared
 
   useEffect(() => () => { exportRequest.current?.abort(); }, [key]);
   useEffect(() => () => { pickerRequest.current?.abort(); }, []);
-  useEffect(() => { if (!visible) setPickerOpen(false); }, [visible]);
+  useEffect(() => () => { positionRequest.current?.abort(); }, []);
+  useEffect(() => { if (!visible) setOpenFilter(null); }, [visible]);
 
   const loadApplicants = async () => {
     if (!isId(reportAgencyId) || pickerRequest.current) return;
@@ -891,15 +1060,42 @@ function MonthlyDeploymentCard({ period, visible, pdfContext }: { period: Shared
       if (pickerRequest.current === controller) pickerRequest.current = null;
     }
   };
-  const closePicker = () => { setPickerOpen(false); pickerTrigger.current?.focus({ preventScroll: true }); };
-  const availableApplicants = (picker.items || []).filter((row) =>
-    row.name.toLowerCase().includes(pickerQuery.trim().toLowerCase()) || row.code.toLowerCase().includes(pickerQuery.trim().toLowerCase()));
-
   const current = state.key === key ? state : { loading: true, error: null, data: null };
+  const canBrowseApplicants = isId(reportAgencyId) && !current.error;
+  const positionDirectory = positions.agencyId === reportAgencyId ? positions : { loading: false, error: null, items: null };
+  const loadPositions = async () => {
+    if (!isId(reportAgencyId) || positionRequest.current) return;
+    const agencyId = reportAgencyId;
+    const controller = new AbortController();
+    positionRequest.current = controller;
+    setPositions({ agencyId, loading: true, error: null, items: null });
+    try {
+      const { data } = await api.get<unknown>('/job-orders', { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setPositions({ agencyId, loading: false, error: null, items: jobOrderPositions(data, agencyId) });
+    } catch {
+      if (!controller.signal.aborted) setPositions({ agencyId, loading: false,
+        error: 'Could not load Job Order positions. You can still type a full position name.', items: null });
+    } finally {
+      if (positionRequest.current === controller) positionRequest.current = null;
+    }
+  };
+  const changeOpenFilter = (kind: FilterComboboxKind, open: boolean) =>
+    setOpenFilter((previous) => open ? kind : previous === kind ? null : previous);
   const report = current.data;
   // Keep verified option context usable while replacing rows or recovering from a failed read.
   const employers = options.employers.filter((option) => option.agencyId === reportAgencyId);
-  const invalid = monthlyFilterError(draft);
+  const invalidCountry = Boolean(countryText && !options.countries.some((option) => String(option.id) === draft.countryId && option.label === countryText));
+  const invalidEmployer = Boolean(employerText && !employers.some((option) => String(option.id) === draft.employerId && option.label === employerText));
+  const invalid = [monthlyFilterError(draft),
+    invalidCountry ? 'Choose a destination country from the suggestions or clear the field for All countries.' : null,
+    invalidEmployer ? 'Choose an employer from the suggestions or clear the field for All employers.' : null,
+  ].filter(Boolean).join(' ') || null;
+  const comboboxState = (kind: FilterComboboxKind) => ({
+    kind, open: filtersOpen && visible && openFilter === kind, enabled: filtersOpen && visible,
+    restoreFocusAllowed: filtersOpen && visible && (openFilter === null || openFilter === kind),
+    onOpenChange: (open: boolean) => changeOpenFilter(kind, open),
+  });
   const pending = JSON.stringify(draft) !== JSON.stringify(filters);
   const activeFilters = [
     ...(filters.search ? [`Applicant contains: ${filters.search}`] : []),
@@ -958,78 +1154,62 @@ function MonthlyDeploymentCard({ period, visible, pdfContext }: { period: Shared
         </div>
       </header>
 
-      <form aria-label="Monthly deployment filters" noValidate onSubmit={(event) => {
+      <div className="min-w-0 flex items-center gap-3">
+        <button type="button" aria-label="Filters" aria-expanded={filtersOpen} aria-controls="monthly-deployment-filters"
+          className={`${reportButtonClass} shrink-0 flex items-center gap-2`}
+          onClick={() => {
+            setFiltersOpen(!filtersOpen);
+            if (filtersOpen) setOpenFilter(null);
+          }}>
+          Filters<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+        </button>
+        <p aria-label="Applied monthly filters" title={activeFilters.join(' · ') || 'None'} className="min-w-0 truncate text-xs text-slate-600">
+          Applied filters: {activeFilters.join(' · ') || 'None'}
+        </p>
+      </div>
+
+      <form id="monthly-deployment-filters" hidden={!filtersOpen} aria-label="Monthly deployment filters" noValidate onSubmit={(event) => {
         event.preventDefault();
         if (invalid || exportRequest.current) return;
         const applied = { ...draft, search: draft.search.trim(), position: draft.position.trim() };
         setDraft(applied);
         setQuery({ filters: applied, page: 1, revision: query.revision + 1 });
         setExportState({ loading: false, message: null, error: null });
-      }} className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="min-w-0">
-            <div className="flex items-end gap-2">
-              <label className="min-w-0 flex-1 text-xs font-bold text-slate-600">Applicant name or code
-                <input type="search" maxLength={100} value={draft.search} placeholder="Contains name or code" className={`${reportInputClass} mt-1`}
-                  onChange={(event) => { setDraft({ ...draft, search: event.target.value }); setChosenApplicant(null); }} />
-              </label>
-              <button ref={pickerTrigger} type="button" aria-expanded={pickerOpen} aria-controls="deployment-applicant-picker"
-                disabled={!reportAgencyId || Boolean(current.error)} className={`${reportButtonClass} px-2 text-xs flex items-center gap-1`}
-                onClick={() => { setPickerOpen(!pickerOpen); if (!pickerOpen && picker.items === null) void loadApplicants(); }}>
-                Choose Applicant<ChevronDown aria-hidden="true" className="w-3 h-3 shrink-0" />
-              </button>
-            </div>
-            {chosenApplicant && <div className="text-xs text-slate-600 mt-2">
-              <p>{`Chosen: ${chosenApplicant.name} (${chosenApplicant.code})`}</p>
-              <button type="button" className="text-sky-700 font-semibold underline mt-1" onClick={() => { setChosenApplicant(null); setDraft({ ...draft, search: '' }); }}>Clear applicant</button>
-            </div>}
-            {pickerOpen && <div id="deployment-applicant-picker" role="group" aria-label="Agency applicant picker" className="mt-2 bg-white border border-slate-200 rounded-lg p-3 space-y-2"
-              onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closePicker(); } }}>
-              <label className="block text-xs font-semibold text-slate-600">Find applicant
-                <input type="search" autoFocus value={pickerQuery} className={`${reportInputClass} mt-1`} placeholder="Filter available names or codes"
-                  onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }}
-                  onChange={(event) => setPickerQuery(event.target.value)} />
-              </label>
-              <p className="text-xs text-slate-500">Available agency applicants with usable codes. Historical or unavailable applicants may be missing. Choosing fills a code search; results still use substring matching.</p>
-              {picker.loading ? <p role="status" className="text-xs text-slate-500">Loading applicant options…</p> : picker.error ? <>
-                <p role="alert" className="text-xs text-red-600">{picker.error}</p>
-                <button type="button" className="text-xs text-sky-700 font-semibold" onClick={() => void loadApplicants()}>Retry applicant options</button>
-              </> : <ul className="max-h-48 overflow-y-auto divide-y divide-slate-100">
-                {availableApplicants.map((applicant) => <li key={applicant.id}>
-                  <button type="button" aria-label={`Choose ${applicant.name} (${applicant.code})`} className="w-full text-left px-2 py-2 text-xs hover:bg-sky-50 focus-visible:ring-2 focus-visible:ring-sky-500 rounded"
-                    onClick={() => { setChosenApplicant(applicant); setDraft({ ...draft, search: applicant.code }); setPickerQuery(''); closePicker(); }}>
-                    <span className="block font-semibold text-slate-800">{applicant.name}</span><span className="block text-slate-500">{applicant.code}</span>
-                  </button>
-                </li>)}
-                {!availableApplicants.length && <li className="text-xs text-slate-500 py-2">No available applicants match. You can still type a name or code.</li>}
-              </ul>}
-              <button type="button" className="text-xs font-semibold text-sky-700" onClick={closePicker}>Close applicant picker</button>
-            </div>}
-          </div>
-          <label className="text-xs font-bold text-slate-600">Position (exact match)
-            <input type="text" maxLength={200} value={draft.position} placeholder="Full position name" className={`${reportInputClass} mt-1`}
-              onChange={(event) => setDraft({ ...draft, position: event.target.value })} />
-          </label>
-          <label className="text-xs font-bold text-slate-600">Destination country
-            <select value={draft.countryId} disabled={!options.countries.length} className={`${reportInputClass} mt-1`}
-              onChange={(event) => setDraft({ ...draft, countryId: event.target.value })}>
-              <option value="">All countries</option>
-              {options.countries.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-bold text-slate-600">Employer
-            <select value={draft.employerId} disabled={!employers.length} className={`${reportInputClass} mt-1`}
-              onChange={(event) => setDraft({ ...draft, employerId: event.target.value })}>
-              <option value="">All employers</option>
-              {employers.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
-          </label>
+      }} className="@container rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="grid grid-cols-1 @sm:grid-cols-2 @3xl:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))_auto] items-end gap-3">
+          <ReportFilterCombobox {...comboboxState('applicant')} value={draft.search}
+            choices={(picker.items || []).map((row) => ({ id: String(row.id), label: row.name, value: row.code, detail: row.code }))}
+            selectedId={chosenApplicant ? String(chosenApplicant.id) : undefined} canBrowse={canBrowseApplicants}
+            loading={picker.loading} error={picker.error} retry={() => void loadApplicants()}
+            requestOptions={(browseAll) => { if (picker.items === null && (browseAll || !picker.error)) void loadApplicants(); }}
+            announcement={chosenApplicant ? `Chosen: ${chosenApplicant.name} (${chosenApplicant.code})` : undefined}
+            onChange={(value) => { setDraft({ ...draft, search: value }); setChosenApplicant(null); }}
+            onSelect={(choice) => {
+              setChosenApplicant({ id: Number(choice.id), name: choice.label, code: choice.value });
+              setDraft({ ...draft, search: choice.value });
+            }} />
+          <ReportFilterCombobox {...comboboxState('position')} value={draft.position} choices={positionDirectory.items || []}
+            selectedId={positionDirectory.items?.find((choice) => choice.value === draft.position)?.id} canBrowse={canBrowseApplicants}
+            loading={positionDirectory.loading} error={positionDirectory.error} retry={() => void loadPositions()}
+            requestOptions={(browseAll) => { if (positionDirectory.items === null && (browseAll || !positionDirectory.error)) void loadPositions(); }}
+            onChange={(value) => setDraft({ ...draft, position: value })}
+            onSelect={(choice) => setDraft({ ...draft, position: choice.value })} />
+          <ReportFilterCombobox {...comboboxState('country')} value={countryText} selectedId={draft.countryId}
+            choices={[{ id: '', label: 'All countries', value: '' }, ...options.countries.map((row) => ({ id: String(row.id), label: row.label, value: row.label }))]}
+            disabled={!options.countries.length} invalid={invalidCountry}
+            onChange={(value) => { setCountryText(value); setDraft({ ...draft, countryId: '' }); }}
+            onSelect={(choice) => { setCountryText(choice.value); setDraft({ ...draft, countryId: choice.id }); }} />
+          <ReportFilterCombobox {...comboboxState('employer')} value={employerText} selectedId={draft.employerId}
+            choices={[{ id: '', label: 'All employers', value: '' }, ...employers.map((row) => ({ id: String(row.id), label: row.label, value: row.label }))]}
+            disabled={!employers.length} invalid={invalidEmployer}
+            onChange={(value) => { setEmployerText(value); setDraft({ ...draft, employerId: '' }); }}
+            onSelect={(choice) => { setEmployerText(choice.value); setDraft({ ...draft, employerId: choice.id }); }} />
           <div className="flex items-end"><button type="submit" disabled={Boolean(invalid) || exportState.loading}
-            className={`${reportButtonClass} bg-white w-full`}>Apply Filters</button></div>
+            className={`${reportButtonClass} bg-white w-full whitespace-nowrap`}>Apply Filters</button></div>
         </div>
         <p className="text-xs text-slate-500">Applicant search contains the entered text; position matches the full position name. Both ignore case. All filters combine with the reporting period.</p>
         {options.notices.map((notice) => <p key={notice} className="text-xs text-slate-600">{notice}</p>)}
-        {invalid ? <p role="alert" className="text-sm text-red-600">{invalid}</p> : pending &&
+        {invalid ? <p id="monthly-filter-error" role="alert" className="text-sm text-red-600">{invalid}</p> : pending &&
           <p className="text-xs font-semibold text-sky-700">Unapplied changes. Table and PDF use the applied filters below.</p>}
       </form>
 
@@ -1041,7 +1221,6 @@ function MonthlyDeploymentCard({ period, visible, pdfContext }: { period: Shared
         </div>
         <div className="min-w-0 text-sm text-slate-600 space-y-1">
           <p className="font-semibold text-[#0F172A]">Applied period: {periodLabel(period)} UTC</p>
-          <p className="break-words">Applied filters: {activeFilters.join(' · ') || 'None'}</p>
           <p className="text-xs">Counts applications, not distinct applicants. Recorded state does not independently verify departure.</p>
           {report && <p className="text-xs">Generated {displayTimestamp(report.metadata.generated_at!)} UTC. Records may change before a later export.</p>}
         </div>
@@ -1193,9 +1372,10 @@ export default function OperationalReports({ staffDirectory }: { staffDirectory?
   useEffect(() => {
     const controller = new AbortController();
     void api.get<unknown>('/lookups/agency', { signal: controller.signal }).then(({ data }) => {
-      if (!controller.signal.aborted && isObject(data) && isId(data.agency_id) &&
-          typeof data.agency_name === 'string' && data.agency_name.trim()) {
-        pdfContext.current.agency = { agency_id: data.agency_id, agency_name: data.agency_name.trim() };
+      if (!controller.signal.aborted && isObject(data) && isId(data.agency_id)) {
+        const name = typeof data.agency_name === 'string' ? data.agency_name.trim() : '';
+        pdfContext.current.agency = { agency_id: data.agency_id,
+          agency_name: name && !/[\u0000-\u001f\u007f]/.test(name) ? name : null };
       }
     }).catch(() => { /* Keep report scope identifiers when trusted agency details are unavailable. */ });
     return () => controller.abort();

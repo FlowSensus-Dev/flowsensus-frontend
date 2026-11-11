@@ -1709,7 +1709,6 @@ export default function App() {
         transaction_type: expense.type === 'placement_fee' ? 'PLACEMENT_FEE' : (expense.type === 'cash_advance' ? 'CASH_ADVANCE' : 'FEE'),
         reference_no: expense.referenceNo || null,
         transacted_at: expense.date || new Date().toISOString(),
-        recorded_by: 1,
       });
 
       if (res.data) {
