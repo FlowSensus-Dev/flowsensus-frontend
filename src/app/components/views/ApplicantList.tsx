@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Plus, Search, User, Briefcase, Clock,
   ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX,
-  ArrowUpDown, CheckCircle2
+  ArrowUpDown, CheckCircle2, ArchiveRestore
 } from 'lucide-react';
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
 import { ApplicantRecord, ActivityLog, ExpenseRecord, UserRole } from '../../types';
@@ -72,6 +72,7 @@ export default function ApplicantList({
   const uniqueRoles = Array.from(new Set(applicants.map(a => a.role).filter(Boolean))).sort();
 
   const filtered = applicants.filter(a => {
+    if (a.deletedAt || a.archiveType === 'deleted' || a.status === 'Deleted') return false;
     const q = search.toLowerCase();
     const matchSearch = !search ||
       a.name.toLowerCase().includes(q) ||
@@ -327,7 +328,7 @@ export default function ApplicantList({
         </div>
         <button
           onClick={() => onNavigate?.('registration')}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm flex-shrink-0"
+          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm flex-shrink-0 cursor-pointer"
         >
           <Plus size={16} /> Add New Applicant
         </button>

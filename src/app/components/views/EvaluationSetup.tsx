@@ -6,7 +6,7 @@ import {
   ShieldCheck, Lock, Check, RefreshCw, UserPlus, Microscope, Sparkles,
   FileText, KanbanSquare, HeartPulse, ScanText, BellRing, Receipt,
   CheckSquare, Briefcase, Factory, ClipboardList, Layers, Monitor,
-  HelpCircle, ChevronDown, ChevronUp, BookOpen, Globe
+  HelpCircle, ChevronDown, ChevronUp, BookOpen, Globe, ArchiveRestore
 } from 'lucide-react';
 import { EvaluationTest, WorkflowModuleAccess, UserRole } from '../../types';
 import { api } from '../../../lib/api';
@@ -50,6 +50,7 @@ const MODULE_ICONS: Record<string, React.ReactNode> = {
   joborders: <Briefcase size={16} className="text-sky-600" />,
   employers: <Factory size={16} className="text-violet-600" />,
   ocr: <ScanText size={16} className="text-cyan-600" />,
+  archive: <ArchiveRestore size={16} className="text-amber-600" />,
   alerts: <BellRing size={16} className="text-orange-500" />,
   expense: <Receipt size={16} className="text-emerald-600" />,
 };
@@ -152,6 +153,13 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
     assignedRoles: ['Accounting', 'Management'],
     isActive: true,
     description: 'Deployment processing fee disbursement, worker cash advances, receipts, and financial ledger accounting.'
+  },
+  {
+    moduleKey: 'archive',
+    moduleName: 'Applicant Archive',
+    assignedRoles: ['Admin', 'Management'],
+    isActive: true,
+    description: 'Repository for soft-deleted applicants and halted candidate workflows with restoration controls.'
   }
 ];
 
