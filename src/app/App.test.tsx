@@ -128,4 +128,79 @@ describe('PF17S3 App platform isolation (mocked Auth and API)', () => {
     expect(node(SuperAdminDashboard)).toBeUndefined(); expect(node(AppShell)).toBeUndefined(); expect(node(LoginScreen)).toBeDefined();
     h.authEvent('SIGNED_OUT', null); await settle(); expect(node(SuperAdminDashboard)).toBeUndefined();
   });
+
+  describe('Financial creation through AppShell (mocked authenticated API)', () => {
+    const expense = { applicantId: '201', purpose: 'Document Processing', amount: 1250.50, currency: 'PESO',
+      type: 'expense', referenceNo: 'REF-TEST-27', date: '2026-11-11', remarks: 'Synthetic transaction',
+      status: 'approved', recordedBy: 'Display name only' };
+    const businessPayload = { applicant_id: 201, payment_type: 'Document Processing', amount: 1250.50,
+      currency: 'PHP', transaction_type: 'FEE', reference_no: 'REF-TEST-27', transacted_at: '2026-11-11' };
+    const financialCalls = () => h.post.mock.calls.filter(([url]) => url === '/financial/records');
+    beforeEach(() => {
+      vi.setSystemTime(new Date('2026-11-11T00:00:00Z')); h.path = '/app/expenses';
+      const accountant = { ...staff, app_metadata: { agency_id: 7, is_super_admin: false },
+        user_metadata: { full_name: 'Verified Accountant', roles: ['Accounting'] } };
+      h.getSession.mockResolvedValue({ data: { session: { user: accountant } } });
+      h.getUser.mockResolvedValue({ data: { user: accountant }, error: null });
+      h.get.mockImplementation(async (url) => ({ data: url === '/financial/records' ? [
+        { financial_record_id: 41, applicant_id: 201, payment_type: 'Existing Fee', amount: 50,
+          transacted_at: '2026-10-05', recorded_by: 1 },
+      ] : [] }));
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => { vi.restoreAllMocks(); });
+
+    it.each([
+      ['expense', 'FEE'], ['placement_fee', 'PLACEMENT_FEE'], ['cash_advance', 'CASH_ADVANCE'], ['deduction', 'FEE'],
+    ])('preserves %s business fields without sending recorder identity', async (type, transactionType) => {
+      await settle(); const before = structuredClone(node(AppShell).props.expenses);
+      h.post.mockResolvedValue({ data: { transaction_id: 910, recorded_by: 27 } });
+      await node(AppShell).props.addExpense({ ...expense, type }); await settle();
+      expect(financialCalls()).toEqual([['/financial/records', { ...businessPayload, transaction_type: transactionType }]]);
+      expect(node(AppShell).props.expenses[0]).toMatchObject({ id: 'EXP-910', amount: 1250.50, currency: 'PESO', type });
+      expect(node(AppShell).props.expenses.slice(1)).toEqual(before);
+    });
+    it('does not forward supplied recorder hints, applicant identity as recorder, Auth UUIDs or agency overrides', async () => {
+      await settle(); h.post.mockResolvedValue({ data: { financial_record_id: 911, recorded_by: 27 } });
+      await node(AppShell).props.addExpense({ ...expense, recorded_by: 1, recordedBy: 99,
+        recorded_by_name: 'Unverified name', user_id: 99, auth_id: staff.id, agency_id: 99 });
+      expect(financialCalls()).toEqual([['/financial/records', businessPayload]]);
+      const payload = financialCalls()[0][1];
+      for (const field of ['recorded_by', 'recordedBy', 'recorded_by_name', 'user_id', 'auth_id', 'agency_id']) expect(payload).not.toHaveProperty(field);
+    });
+    it('preserves required defaults and numeric amount conversion', async () => {
+      await settle(); h.post.mockResolvedValue({ data: { financial_record_id: 912 } });
+      await node(AppShell).props.addExpense({ ...expense, amount: '1250.50', purpose: '', referenceNo: '', date: undefined });
+      expect(financialCalls()).toEqual([['/financial/records', { ...businessPayload, payment_type: 'Processing Fee',
+        reference_no: null, transacted_at: '2026-11-11T00:00:00.000Z' }]]);
+    });
+    it.each(['financial_record_id', 'transaction_id'])('replaces the pending expense using the returned %s and caches the persisted record', async (idField) => {
+      await settle(); let resolve!: (response: any) => void;
+      h.post.mockReturnValue(new Promise((done) => { resolve = done; }));
+      const submit = node(AppShell).props.addExpense(expense);
+      expect(node(AppShell).props.expenses[0].id).toMatch(/^EXP-\d+-\d+$/);
+      resolve({ data: { [idField]: 913, reference_no: 'SERVER-REF', recorded_by: 27 } });
+      await submit; await settle();
+      expect(node(AppShell).props.expenses[0]).toMatchObject({ id: 'EXP-913', referenceNo: 'SERVER-REF' });
+      const cache = vi.mocked(sessionStorage.setItem).mock.calls.filter(([key]) => key === `fs_cache_expenses_${staff.id}`).at(-1)!;
+      expect(JSON.parse(cache[1])[0]).toMatchObject({ id: 'EXP-913', referenceNo: 'SERVER-REF' });
+      expect(financialCalls()[0][1]).not.toHaveProperty('recorded_by');
+    });
+    it.each(['', 'not-an-applicant', '0'])('rejects invalid applicant ID %j without a POST and restores existing expenses', async (applicantId) => {
+      await settle(); const before = structuredClone(node(AppShell).props.expenses);
+      await expect(node(AppShell).props.addExpense({ ...expense, applicantId })).rejects.toThrow('Invalid applicant ID');
+      expect(financialCalls()).toHaveLength(0); expect(node(AppShell).props.expenses).toEqual(before);
+    });
+    it.each([400, 403, 409, 'network'])('rolls back a rejected %s creation and propagates the original error to the financial screen', async (status) => {
+      await settle(); const before = structuredClone(node(AppShell).props.expenses);
+      let reject!: (error: any) => void; h.post.mockReturnValue(new Promise((_done, fail) => { reject = fail; }));
+      const error = status === 'network' ? new Error('Network unavailable') :
+        Object.assign(new Error('Server rejected transaction'), { response: { status, data: { detail: 'Synthetic validation error' } } });
+      const submit = node(AppShell).props.addExpense(expense); const rejection = expect(submit).rejects.toBe(error);
+      expect(node(AppShell).props.expenses).toHaveLength(before.length + 1);
+      reject(error); await rejection; await settle();
+      expect(node(AppShell).props.expenses).toEqual(before); expect(financialCalls()).toEqual([['/financial/records', businessPayload]]);
+      expect(console.warn).toHaveBeenCalledWith('Could not persist expense to backend:', error);
+    });
+  });
 });

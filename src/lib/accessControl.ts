@@ -70,6 +70,7 @@ export const STATIC_VIEW_ROLES: Partial<Record<ViewType, UserRole[]>> = {
   screening: ['Recruitment'],
   'digital-exams': ['Recruitment', 'Admin'],
   profiling: ['Recruitment', 'Admin'],
+  archive: ['Admin', 'Management'],
   cv: ['Recruitment'],
   endorsement: ['Recruitment', 'Admin'],
   fittowork: ['Admin'],

@@ -18,7 +18,8 @@ vi.mock('react', async (original) => {
     useEffect: (effect: any) => { if (!h.effects.length) h.effects.push(effect); },
   };
 });
-import AgencySesSettings, { validAlpha } from './AgencySesSettings';
+import AgencySesSettings from './AgencySesSettings';
+import { validAlpha } from '../../../lib/sesAlpha';
 import SesAlphaDecisionGuide from './SesAlphaDecisionGuide';
 
 function nodes(tree: any): any[] {

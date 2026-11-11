@@ -1681,7 +1681,12 @@ export default function App() {
 
   const updateWorkflow = (updates: Partial<WorkflowState>) => setWorkflow((prev) => ({ ...prev, ...updates }));
   const updateApplicant = (id: string, updates: Partial<ApplicantRecord>) => {
-    setApplicants((prev) => prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a));
+    setApplicants((prev) => {
+      if (updates.deletedAt || updates.archiveType === 'deleted' || updates.status === 'Deleted') {
+        return prev.filter((a) => a.id !== id);
+      }
+      return prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a);
+    });
   };
   const addApplicant = (newApplicant: ApplicantRecord) => {
     setApplicants((prev) => [newApplicant, ...prev.filter((a) => a.id !== newApplicant.id)]);
@@ -1709,7 +1714,6 @@ export default function App() {
         transaction_type: expense.type === 'placement_fee' ? 'PLACEMENT_FEE' : (expense.type === 'cash_advance' ? 'CASH_ADVANCE' : 'FEE'),
         reference_no: expense.referenceNo || null,
         transacted_at: expense.date || new Date().toISOString(),
-        recorded_by: 1,
       });
 
       if (res.data) {

@@ -33,6 +33,7 @@ import EvaluationSetup from './views/EvaluationSetup';
 import JobOrders from './views/JobOrders';
 import EmployerProfiles from './views/EmployerProfiles';
 import DigitalExams from './views/DigitalExams';
+import ApplicantArchive from './views/ApplicantArchive';
 import AccountingSettings, { getStoredRates } from './views/dashboards/AccountingSettings';
 
 import { hasAccessToView, extractAndNormalizeRoles } from '../../lib/accessControl';
@@ -643,6 +644,24 @@ export default function AppShell({
             globalJobOrders={globalJobOrders}
             onNavigate={(view: string) => setCurrentView(view as any)}
             evaluationTemplates={evaluationTemplates}
+          />
+        );
+
+      case 'archive':
+        return (
+          <ApplicantArchive
+            showToast={showToastNotification}
+            currentUserName={currentUserName}
+            currentUserRole={currentUserRole}
+            currentUserRoles={currentUserRoles}
+            onNavigate={(view: string, applicantId?: string) => {
+              if (applicantId) setSelectedApplicantId(applicantId);
+              setCurrentView(view as any);
+            }}
+            applicants={applicants}
+            updateApplicant={updateApplicant}
+            addApplicant={addApplicant}
+            addActivityLog={addActivityLog}
           />
         );
 

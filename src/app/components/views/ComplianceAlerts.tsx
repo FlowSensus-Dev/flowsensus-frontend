@@ -96,9 +96,6 @@ export default function ComplianceAlerts({
     try {
       if (triggerScan) {
         await api.post('/documents/alerts/scan').catch(console.warn);
-      } else {
-        // Trigger non-blocking scan in background on initial load
-        api.post('/documents/alerts/scan').catch(() => {});
       }
       
       const res = await api.get('/documents/alerts');
@@ -141,6 +138,7 @@ export default function ComplianceAlerts({
   useEffect(() => {
     loadAlerts(false);
 
+    let debounceTimer: any = null;
     // Live Real-Time Subscription to document_alert table
     const channel = supabase
       .channel('realtime:compliance_alerts')
@@ -149,12 +147,16 @@ export default function ComplianceAlerts({
         { event: '*', schema: 'public', table: 'document_alert' },
         (payload: any) => {
           console.log('[ComplianceAlerts] Realtime alert update:', payload.eventType);
-          loadAlerts(false);
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            loadAlerts(false);
+          }, 600);
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);

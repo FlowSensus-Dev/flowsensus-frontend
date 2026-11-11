@@ -14,5 +14,9 @@ describe('platform and tenant navigation boundaries', () => {
     expect(hasAccessToView('expense', ['Accounting'], false)).toBe(true);
     expect(hasAccessToView('expense', ['Recruitment'], false)).toBe(false);
     expect(hasAccessToView('screening', ['Admin'], false, { screening: ['Admin'] })).toBe(true);
+    expect(hasAccessToView('archive', ['Admin'], false)).toBe(true);
+    expect(hasAccessToView('archive', ['Management'], false)).toBe(true);
+    expect(hasAccessToView('archive', ['Recruitment'], false)).toBe(false);
+    expect(hasAccessToView('archive', ['Recruitment'], false, { archive: ['Recruitment', 'Management'] })).toBe(true);
   });
 });

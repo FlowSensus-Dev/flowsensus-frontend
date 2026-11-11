@@ -6,7 +6,7 @@ import {
   Briefcase, DollarSign, ShieldAlert, ShieldCheck, AlertTriangle,
   ArrowLeftRight, Check, FileCheck, Ban, ArrowRight, UserCheck, Undo2,
   ChevronDown, ChevronUp, Maximize2, Minimize2, Search,
-  LayoutGrid, List, ArrowLeft, ZoomIn, ZoomOut
+  LayoutGrid, List, ArrowLeft, ZoomIn, ZoomOut, MoreVertical
 } from 'lucide-react';
 import { ApplicantRecord, ActivityLog } from '../../types';
 import { Skeleton, SkeletonText } from '../ui/skeleton';
@@ -2097,18 +2097,15 @@ export default function EndorsementTracker({
                             <button
                               type="button"
                               onClick={() => setOpenTableDropdownId(isOpen ? null : card.submission_id)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer ${
                                 isOpen
                                   ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-xs'
-                                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+                                  : 'bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200/90 hover:border-slate-300 shadow-2xs'
                               }`}
+                              title="Actions"
+                              aria-label="Actions"
                             >
-                              <span>Actions</span>
-                              <ChevronDown
-                                className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                                  isOpen ? 'rotate-180 text-white' : 'text-slate-400'
-                                }`}
-                              />
+                              <MoreVertical className="w-4 h-4" />
                             </button>
 
                             {isOpen && (

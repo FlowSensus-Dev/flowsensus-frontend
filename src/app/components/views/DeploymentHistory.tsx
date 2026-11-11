@@ -19,7 +19,6 @@ import {
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
-  FileSpreadsheet,
   Activity,
   History,
   Check,
@@ -118,7 +117,6 @@ export default function DeploymentHistory({ activityLogs = [], applicants = [] }
   const [totalPages, setTotalPages] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [isExporting, setIsExporting] = useState<boolean>(false);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
   const [selectedDiffItem, setSelectedDiffItem] = useState<AuditItem | null>(null);
 
@@ -286,43 +284,6 @@ export default function DeploymentHistory({ activityLogs = [], applicants = [] }
     setSortBy('occurred_at');
     setSortDir('desc');
     setPage(1);
-  };
-
-  // ── CSV Export ───────────────────────────────────────────────────────────
-  const handleExportCSV = async () => {
-    try {
-      setIsExporting(true);
-      const params: Record<string, any> = {
-        sortBy,
-        sortDir,
-      };
-      if (search.trim()) params.search = search.trim();
-      if (selectedModule !== 'All') params.module = selectedModule;
-      if (selectedAction !== 'All') params.action = selectedAction;
-      if (actorType !== 'all') params.actorType = actorType;
-      if (dateFrom) params.dateFrom = dateFrom;
-      if (dateTo) params.dateTo = dateTo;
-
-      const response = await api.get('/audit-logs/export', {
-        params,
-        responseType: 'blob',
-      });
-
-      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `Flowsensus_Deployment_History_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('CSV Export failed:', err);
-      alert('Could not generate CSV export. Please check network connection.');
-    } finally {
-      setIsExporting(false);
-    }
   };
 
   const toggleRowExpanded = (id: number) => {
@@ -571,17 +532,6 @@ export default function DeploymentHistory({ activityLogs = [], applicants = [] }
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#0EA5E9]' : 'text-slate-500'}`} />
             <span className="hidden sm:inline">Refresh</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            disabled={isExporting || totalCount === 0}
-            className="flex items-center gap-2 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 px-3.5 py-2 rounded text-sm font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Download audit records as CSV"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>{isExporting ? 'Exporting...' : 'Export CSV'}</span>
           </button>
         </div>
       </div>
