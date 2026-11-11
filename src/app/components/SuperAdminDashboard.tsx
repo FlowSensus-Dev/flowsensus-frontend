@@ -1071,7 +1071,16 @@ export default function SuperAdminDashboard({
                         </div>
                       </div>
 
-                      <p className="text-xs">Securely share these login credentials with the initial Manager. No email has been sent.</p>
+                      {provisionResult.emailDispatched ? (
+                        <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 p-3 text-xs text-emerald-900 flex items-start gap-2">
+                          <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <p>
+                            An onboarding email with login credentials and initial workspace setup instructions has been sent to <strong>{provisionResult.email}</strong>.
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-xs">Securely share these login credentials with the initial Manager. No email has been sent.</p>
+                      )}
                       <p className="mt-2 text-xs">Sign in through <a href={SHARED_PORTAL} target="_blank" rel="noreferrer" className="font-bold underline">{SHARED_PORTAL}</a>.</p>
                       {provisionResult.mustChangePassword && <p className="mt-2 text-xs font-semibold">The Manager must complete the password-change prompt at first sign-in.</p>}
                       {logoUploading && <p className="mt-2 text-xs">Uploading agency logo…</p>}

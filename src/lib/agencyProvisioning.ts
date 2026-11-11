@@ -106,6 +106,7 @@ export interface ProvisionedAgency {
   email: string;
   temporaryPassword: string;
   mustChangePassword: true;
+  emailDispatched?: boolean;
 }
 
 export class UnconfirmedProvisioning extends Error {
@@ -131,8 +132,12 @@ export function confirmedProvisioning(response: { data: any; status: number; hea
     !text(admin?.email) || admin.email.toLowerCase() !== payload.gm_email ||
     !text(admin?.temporary_password) || admin.temporary_password.length < 8 || admin.temporary_password.length > 128 ||
     admin?.must_change_password !== true) throw new UnconfirmedProvisioning(recoveryReference(response.data?.detail));
-  return { agencyId: agency.agency_id, workspace: agency, agencyName: agency.agency_name, workspaceCode: agency.workspace_code,
+  const result: ProvisionedAgency = { agencyId: agency.agency_id, workspace: agency, agencyName: agency.agency_name, workspaceCode: agency.workspace_code,
     email: admin.email, temporaryPassword: admin.temporary_password, mustChangePassword: true };
+  if (admin?.email_dispatched !== undefined) {
+    result.emailDispatched = Boolean(admin.email_dispatched);
+  }
+  return result;
 }
 
 export interface ProvisioningIssue { message: string; uncertain: boolean; reference?: string }

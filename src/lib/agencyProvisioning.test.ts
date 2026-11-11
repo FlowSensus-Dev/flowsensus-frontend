@@ -120,6 +120,15 @@ describe('agency provisioning contract (no live requests)', () => {
     const workspace = { ...r.data.agency, license_expiry_date: '2099-12-31', agency_prefix: 'DB', logo_url: null, theme_color: '#0EA5E9' };
     expect(confirmedProvisioning({ ...r, data: { workspace, admin: r.data.admin } }, provisioningPayload(form))).toMatchObject({ agencyId: 83, workspace });
   });
+  it('parses email_dispatched status when returned by the backend', () => {
+    const r = response();
+    (r.data.admin as any).email_dispatched = true;
+    expect(confirmedProvisioning(r, provisioningPayload(form)).emailDispatched).toBe(true);
+
+    const r2 = response();
+    (r2.data.admin as any).email_dispatched = false;
+    expect(confirmedProvisioning(r2, provisioningPayload(form)).emailDispatched).toBe(false);
+  });
   it('creates a fresh strong password only for a valid payload and normalizes custom colors', () => {
     const a = provisioningPayload({ ...form, themeColor: '#aabbcc' });
     const b = provisioningPayload(form);
