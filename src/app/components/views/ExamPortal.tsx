@@ -202,12 +202,17 @@ function MyExamsDashboard({
                           Untimed
                         </span>
                       )}
-                      {exam.retake_allowed && exam.status === 'completed' && (
-                        <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-                          <RotateCcw size={11} /> Retake Granted
+                      {exam.retake_allowed && (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2.5 py-0.5 flex items-center gap-1 shadow-2xs">
+                          <RotateCcw size={11} className="text-amber-600 animate-spin" /> Retake In Progress
                         </span>
                       )}
-                      <StatusBadge status={exam.status === 'completed' && exam.retake_allowed ? 'pending' : exam.status} />
+                      {exam.retake_allowed && exam.latest_percentage !== undefined && exam.latest_percentage !== null && (
+                        <span className="text-xs text-slate-500 font-medium">
+                          (Previous attempt: {exam.latest_percentage.toFixed(1)}%)
+                        </span>
+                      )}
+                      <StatusBadge status={exam.status} />
                     </div>
                     {exam.due_date && (
                       <p className="text-xs text-slate-400 mt-1">
@@ -220,7 +225,7 @@ function MyExamsDashboard({
                   onClick={() => onStart(exam.assignment_id)}
                   className="sm:self-center flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer shrink-0"
                 >
-                  {exam.status === 'in_progress' ? 'Continue Test' : exam.retake_allowed ? 'Retake Test' : 'Take Test'}
+                  {exam.status === 'in_progress' ? (exam.retake_allowed ? 'Continue Retake' : 'Continue Test') : exam.retake_allowed ? 'Start Retake' : 'Take Test'}
                   <ArrowRight size={14} />
                 </button>
               </div>
@@ -592,8 +597,8 @@ function ExamTaker({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 md:p-6 animate-in fade-in duration-150">
-      <div className="bg-white sm:rounded-2xl lg:rounded-3xl shadow-2xl w-full max-w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl h-[100dvh] sm:h-[94vh] lg:h-[90vh] flex flex-col overflow-hidden border-0 sm:border border-slate-200">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col animate-in fade-in duration-150">
+      <div className="bg-white w-full h-full flex flex-col overflow-hidden">
         {/* ── TOP HEADER (Save & Exit, Title, Mode, Timer) ── */}
         <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 shrink-0 flex items-center justify-between gap-2 sm:gap-3 shadow-2xs">
           {/* Left: Save & Exit button */}
@@ -747,10 +752,10 @@ function ExamTaker({
                     </span>
                   </div>
 
-                  {/* Description / notes if available */}
+                  {/* Description / instructions if available */}
                   {examData.description && (
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-700 leading-relaxed">
-                      <span className="font-semibold text-slate-900 block mb-0.5">Note:</span>
+                      <span className="font-semibold text-slate-900 block mb-0.5">Instructions:</span>
                       {examData.description}
                     </div>
                   )}

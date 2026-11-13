@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
 import LoginScreen from "./components/LoginScreen";
 import AppShell from "./components/AppShell";
+import StaffOnboardingGate from "./components/StaffOnboardingGate";
 import ApplicantPortal from "./components/ApplicantPortal";
 import {
   UserRole, WorkflowState, ApplicantRecord, ActivityLog, ExpenseRecord,
@@ -11,7 +12,10 @@ import {
 import SuperAdminDashboard from "./components/SuperAdminDashboard";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/api";
+import { isPlatformSuperAdmin } from "../lib/platformIdentity";
 import { mapApplicantFromApi } from "../lib/applicantMapper";
+import { extractAndNormalizeRoles } from "../lib/accessControl";
+import { ACCENT_PRESETS } from "../lib/agencyBranding";
 import {
   Check, ChevronRight, Building2, Users, Globe, Shield,
   ArrowRight, X, CheckCircle2, Loader2, Mail, Lock,
@@ -27,17 +31,6 @@ const STEPS = [
   { id: 2, label: "Branding" },
   { id: 3, label: "Admin" },
   { id: 4, label: "Review" },
-];
-
-const ACCENT_PRESETS = [
-  { name: "Sky", value: "#0EA5E9" },
-  { name: "Indigo", value: "#6366F1" },
-  { name: "Emerald", value: "#10B981" },
-  { name: "Amber", value: "#F59E0B" },
-  { name: "Rose", value: "#F43F5E" },
-  { name: "Violet", value: "#8B5CF6" },
-  { name: "Teal", value: "#14B8A6" },
-  { name: "Orange", value: "#F97316" },
 ];
 
 function toSubdomain(name: string): string {
@@ -1136,6 +1129,8 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("");
   const [currentUserRoles, setCurrentUserRoles] = useState<UserRole[]>([]);
   const [currentUserName, setCurrentUserName] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [authSubject, setAuthSubject] = useState<string | null>(null);
   const [loggedInApplicantId, setLoggedInApplicantId] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState>({ screeningPassed: false, medicalCleared: false, cvApproved: false, employerAccepted: false });
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([]);
@@ -1145,6 +1140,7 @@ export default function App() {
   const [expensesLoaded, setExpensesLoaded] = useState(false);
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [platformPasswordUser, setPlatformPasswordUser] = useState<any | null>(null);
 
   // ── Global Shared Context Data ──────────────────────────────────────────
   const [globalJobOrders, setGlobalJobOrders] = useState<any[] | null>(null);
@@ -1154,12 +1150,27 @@ export default function App() {
   const [globalPipelineForecast, setGlobalPipelineForecast] = useState<any | null>(null);
 
   // ── Live Backend Data Fetching ──────────────────────────────────────────
-  const liveSession = useRef<{ userId: string | null; generation: number; ready: boolean }>({
-    userId: null, generation: 0, ready: false,
+  const liveSession = useRef<{ userId: string | null; platform: boolean; generation: number; ready: boolean }>({
+    userId: null, platform: false, generation: 0, ready: false,
   });
   const liveRequestId = useRef(0);
   const liveMounted = useRef(false);
   const liveIsApplicant = useRef(false);
+  const liveIsPlatform = useRef(false);
+  const syncPlatformIdentity = (user: any) => {
+    const platform = isPlatformSuperAdmin(user);
+    const wasPlatform = liveIsPlatform.current;
+    liveIsPlatform.current = platform;
+    setIsSuperAdmin(platform);
+    setCurrentUserEmail(typeof user?.email === 'string' ? user.email : '');
+    setPlatformPasswordUser(platform && (user?.app_metadata?.must_change_password === true || user?.user_metadata?.must_change_password === true) ? user : null);
+    if (platform || wasPlatform || !user) {
+      setCurrentUserRole('');
+      setCurrentUserRoles([]);
+      setLoggedInApplicantId('');
+      setCurrentUserName(platform ? user.user_metadata?.full_name || user.email || 'Platform administrator' : '');
+    }
+  };
   const isApplicantUser = (u: any) => {
     const am = u?.app_metadata || {};
     const um = u?.user_metadata || {};
@@ -1169,13 +1180,14 @@ export default function App() {
   };
 
   const syncLiveSession = (userId: string | null) => {
-    if (!liveSession.current.ready || liveSession.current.userId !== userId) {
-      liveSession.current = { userId, generation: liveSession.current.generation + 1, ready: true };
+    setAuthSubject(userId);
+    if (!liveSession.current.ready || liveSession.current.userId !== userId || liveSession.current.platform !== liveIsPlatform.current) {
+      liveSession.current = { userId, platform: liveIsPlatform.current, generation: liveSession.current.generation + 1, ready: true };
       ++liveRequestId.current;
 
       // Hydrate from sessionStorage cache for instant 0ms dashboard render (Stale-While-Revalidate)
       let hasCachedApplicants = false;
-      if (userId) {
+      if (userId && !liveIsPlatform.current) {
         try {
           const cachedAppsJson = sessionStorage.getItem(`fs_cache_applicants_${userId}`);
           if (cachedAppsJson) {
@@ -1229,7 +1241,7 @@ export default function App() {
   };
 
   const fetchLiveBackendData = async () => {
-    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current) return;
+    if (!liveMounted.current || !liveSession.current.userId || liveIsApplicant.current || liveIsPlatform.current) return;
     const generation = liveSession.current.generation;
     const currentUserId = liveSession.current.userId;
     const requestId = ++liveRequestId.current;
@@ -1292,7 +1304,7 @@ export default function App() {
     const activeRoles: string[] = (currentUserRoles && currentUserRoles.length > 0)
       ? currentUserRoles
       : [currentUserRole];
-    const canManageStaff = isSuperAdmin || activeRoles.includes('Management') || activeRoles.includes('Admin');
+    const canManageStaff = activeRoles.includes('Management') || activeRoles.includes('Admin');
 
     Promise.allSettled([
       api.get('/audit-logs'),
@@ -1340,58 +1352,25 @@ export default function App() {
       // Process expenses
       if (expRes.status === 'fulfilled' && expRes.value.data && Array.isArray(expRes.value.data) && expRes.value.data.length > 0) {
         const rawLiveExpenses: ExpenseRecord[] = expRes.value.data.map((r: any) => ({
-          id: `EXP-${r.financial_record_id}`,
+          id: `EXP-${r.financial_record_id || r.transaction_id}`,
           applicantId: String(r.applicant_id),
-          purpose: r.payment_type || r.transaction_type || r.description || 'General Expense',
-          amount: r.amount || 0,
-          currency: (r.currency === 'USD' ? 'DOLLAR' : 'PESO') as 'PESO' | 'DOLLAR',
-          type: (r.category === 'cash_advance' ? 'cash_advance' : (r.category === 'deduction' ? 'deduction' : 'expense')) as 'expense' | 'cash_advance' | 'deduction',
-          remarks: r.description || '',
+          purpose: r.payment_type || r.transaction_type || 'General Expense',
+          amount: Number(r.amount) || 0,
+          currency: 'PESO' as const,
+          type: (
+            r.transaction_type === 'PLACEMENT_FEE' ? 'placement_fee' :
+            (r.category === 'cash_advance' || r.transaction_type === 'CASH_ADVANCE' ? 'cash_advance' :
+            (r.category === 'deduction' || r.transaction_type === 'SALARY_DEDUCTION' ? 'deduction' : 'expense'))
+          ) as 'expense' | 'cash_advance' | 'deduction' | 'placement_fee',
+          referenceNo: r.reference_no || '',
+          remarks: r.remarks || r.description || '',
           status: (r.status || 'approved') as 'draft' | 'approved',
-          date: r.expense_date || (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-          recordedBy: r.recorded_by_name || 'Mark Tan',
-          timestamp: r.created_at || new Date().toISOString(),
+          date: r.transacted_at ? r.transacted_at.split('T')[0] : (r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          recordedBy: r.recorded_by_name || 'Accounting Staff',
+          timestamp: r.transacted_at || r.created_at || new Date().toISOString(),
         }));
 
-        // Self-correcting logic: Filter and delete corrupted auto-sync records and duplicates
-        const badExpenses = rawLiveExpenses.filter(e => e.purpose === 'expense');
-        
-        const seenMedical = new Set<string>();
-        const seenOec = new Set<string>();
-        const seenPassport = new Set<string>();
-        const duplicates: ExpenseRecord[] = [];
-        
-        const validExpenses = rawLiveExpenses.filter(e => {
-          if (e.purpose === 'expense') return false; // Handled by badExpenses
-          
-          if (e.purpose.includes('Medical')) {
-            if (seenMedical.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenMedical.add(e.applicantId);
-          }
-          
-          if (e.purpose.includes('OEC')) {
-            if (seenOec.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenOec.add(e.applicantId);
-          }
-          
-          if (e.purpose.includes('Passport')) {
-            if (seenPassport.has(e.applicantId)) {
-              duplicates.push(e);
-              return false;
-            }
-            seenPassport.add(e.applicantId);
-          }
-          
-          return true;
-        });
-
-        const liveExpenses = validExpenses;
+        const liveExpenses = rawLiveExpenses;
         setExpenses(liveExpenses);
         setExpensesLoaded(true);
         try {
@@ -1435,20 +1414,12 @@ export default function App() {
         const userId = session?.user?.id ?? null;
         if (liveSession.current.ready && liveSession.current.userId !== userId) return;
         liveIsApplicant.current = isApplicantUser(session?.user);
+        syncPlatformIdentity(session?.user);
         syncLiveSession(userId);
         if (session && session.user) {
           const email = session.user.email || "";
-          // SECURITY FIX: Only trust app_metadata (service-role managed) or verified admin email.
-          // user_metadata is user-writable in Supabase and MUST NOT be trusted for role elevation.
-          const isSuper = Boolean(
-            session.user.app_metadata?.is_super_admin ||
-            email.toLowerCase() === "admin@findstaff.ph"
-          );
+          const isSuper = isPlatformSuperAdmin(session.user);
           if (isSuper) {
-            setIsSuperAdmin(true);
-            setCurrentUserRole("Management");
-            setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
-            setCurrentUserName(session.user.user_metadata?.full_name || email || "Superadmin");
             showAppView("super-admin");
           } else {
             const userMeta = session.user.user_metadata || {};
@@ -1472,16 +1443,14 @@ export default function App() {
               return;
             }
 
-            let roles: UserRole[] = [];
-            if (Array.isArray(userMeta.roles) && userMeta.roles.length > 0) {
-              roles = userMeta.roles;
-            } else if (typeof userMeta.role === 'string') {
-              roles = userMeta.role.split(',').map((r: string) => r.trim() as UserRole).filter(Boolean);
-            } else if (Array.isArray(appMeta.roles) && appMeta.roles.length > 0) {
-              roles = appMeta.roles;
-            } else if (userMeta.role) {
-              roles = [userMeta.role];
-            }
+            let roles: UserRole[] = extractAndNormalizeRoles(
+              userMeta.roles,
+              userMeta.role_names,
+              userMeta.role,
+              appMeta.roles,
+              appMeta.role_names,
+              appMeta.role
+            );
             if (roles.length > 0) {
               setCurrentUserRole(roles[0]);
               setCurrentUserRoles(roles);
@@ -1491,6 +1460,20 @@ export default function App() {
                 navigateTo("app");
               }
             }
+
+            // Asynchronously enrich roles from /users/me DB record
+            api.get('/users/me')
+              .then((meRes) => {
+                if (meRes?.data) {
+                  const dbRoles = extractAndNormalizeRoles(meRes.data.role_names, meRes.data.role_name, meRes.data.roles);
+                  if (dbRoles.length > 0) {
+                    setCurrentUserRoles((prev) => Array.from(new Set([...prev, ...dbRoles])));
+                  }
+                }
+              })
+              .catch(() => {
+                // Ignore API error; session metadata already resolved
+              });
           }
         }
       } catch (err) {
@@ -1505,9 +1488,10 @@ export default function App() {
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       liveIsApplicant.current = isApplicantUser(session?.user);
+      syncPlatformIdentity(session?.user);
       syncLiveSession(session?.user?.id ?? null);
       if (session?.user && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
-        if (event === 'SIGNED_IN' && !liveIsApplicant.current) {
+        if (event === 'SIGNED_IN' && !liveIsApplicant.current && !liveIsPlatform.current) {
           api.post('/users/record-login', {}).catch(() => { });
         }
         const generation = liveSession.current.generation;
@@ -1526,6 +1510,11 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // A URL or React role selection cannot change the authorization in the Auth token.
+  useEffect(() => {
+    if (isSuperAdmin && location.pathname !== '/super-admin') navigate('/super-admin', { replace: true });
+  }, [isSuperAdmin, location.pathname, navigate]);
 
   // When switching into app view, ensure data is populated if empty
   useEffect(() => {
@@ -1599,14 +1588,23 @@ export default function App() {
   };
 
 
-  const handleLogin = (
+  const handleLogin = async (
     role: UserRole,
     name?: string,
     applicantId?: string,
-    isSuper?: boolean,
+    _isSuper?: boolean,
     roles?: UserRole[],
     rememberMe?: boolean
   ) => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw new Error('Your session could not be verified. Please sign in again.');
+    const isSuper = isPlatformSuperAdmin(data.user);
+    liveIsApplicant.current = isApplicantUser(data.user);
+    syncPlatformIdentity(data.user);
+    syncLiveSession(data.user.id);
+    if (isSuper && (data.user.app_metadata?.must_change_password === true || data.user.user_metadata?.must_change_password === true)) {
+      throw new Error('Complete the required password change before opening the platform console.');
+    }
     // Record session persistence preference
     if (rememberMe) {
       sessionStorage.setItem('fs_remember_me', 'true');
@@ -1618,18 +1616,19 @@ export default function App() {
 
     if (isSuper) {
       setIsSuperAdmin(true);
-      setCurrentUserRoles(["Management", "Admin", "Recruitment", "Accounting"]);
+      setCurrentUserRoles([]);
       showAppView("super-admin"); // Superadmin lands on dedicated dashboard
     } else {
       setIsSuperAdmin(false);
-      setCurrentUserRoles(roles && roles.length > 0 ? roles : [role]);
+      const parsedRoles = extractAndNormalizeRoles(roles, role);
+      setCurrentUserRoles(parsedRoles.length > 0 ? parsedRoles : [role]);
       showAppView("app");
     }
-    setCurrentUserRole(role);
-    setCurrentUserName(name || role);
+    setCurrentUserRole(isSuper ? '' : role);
+    if (!isSuper) setCurrentUserName(name || role);
     if (applicantId) setLoggedInApplicantId(applicantId);
     else setLoggedInApplicantId("");
-    if (role !== "Applicant") {
+    if (role !== "Applicant" && !isSuper) {
       addActivityLog({ applicantId: applicantId || "", action: "LOGIN", performedBy: name || role, department: role, details: `${name || role} logged into the system` });
     }
 
@@ -1651,6 +1650,7 @@ export default function App() {
       console.warn("Logout audit skipped:", e);
     }
 
+    syncPlatformIdentity(null);
     syncLiveSession(null);
     sessionStorage.removeItem('fs_remember_me');
     sessionStorage.removeItem('fs_session_active');
@@ -1675,62 +1675,116 @@ export default function App() {
     setCurrentUserRole("");
     setCurrentUserRoles([]);
     setCurrentUserName("");
+    setCurrentUserEmail("");
     showAppView("landing");
-  };
-
-  const handleSwitchSuperAdminRole = (newRole: UserRole) => {
-    setCurrentUserRole(newRole);
-    setCurrentUserRoles([newRole]);
-    showAppView("app"); // Enter operational shell for the chosen role
-    fetchLiveBackendData();
-    addActivityLog({
-      applicantId: "",
-      action: "Superadmin Role Switch",
-      performedBy: currentUserName,
-      department: newRole,
-      details: `Superadmin switched active view to ${newRole}`,
-    });
   };
 
   const updateWorkflow = (updates: Partial<WorkflowState>) => setWorkflow((prev) => ({ ...prev, ...updates }));
   const updateApplicant = (id: string, updates: Partial<ApplicantRecord>) => {
-    setApplicants((prev) => prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a));
+    setApplicants((prev) => {
+      if (updates.deletedAt || updates.archiveType === 'deleted' || updates.status === 'Deleted') {
+        return prev.filter((a) => a.id !== id);
+      }
+      return prev.map((a) => a.id === id ? { ...a, ...updates, lastUpdated: new Date().toLocaleString() } : a);
+    });
   };
   const addApplicant = (newApplicant: ApplicantRecord) => {
     setApplicants((prev) => [newApplicant, ...prev.filter((a) => a.id !== newApplicant.id)]);
   };
   const addExpense = async (expense: Omit<ExpenseRecord, "id">) => {
     const tempId = `EXP-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-    setExpenses((prev) => [{ ...expense, id: tempId }, ...prev]);
+    const newEntry: ExpenseRecord = {
+      ...expense,
+      id: tempId,
+      currency: 'PESO',
+      amount: Number(expense.amount) || 0,
+    };
+    setExpenses((prev) => [newEntry, ...prev]);
 
     try {
-      const applicantIdInt = parseInt(expense.applicantId, 10) || 1;
-      await api.post('/financial/records', {
+      const applicantIdInt = parseInt(expense.applicantId, 10);
+      if (!applicantIdInt || isNaN(applicantIdInt)) {
+        throw new Error(`Invalid applicant ID: "${expense.applicantId}". Cannot record financial transaction.`);
+      }
+      const res = await api.post('/financial/records', {
         applicant_id: applicantIdInt,
         payment_type: expense.purpose || 'Processing Fee',
-        amount: expense.amount,
-        currency: expense.currency === 'DOLLAR' ? 'USD' : 'PHP',
-        recorded_by: 1,
+        amount: Number(expense.amount) || 0,
+        currency: 'PHP',
+        transaction_type: expense.type === 'placement_fee' ? 'PLACEMENT_FEE' : (expense.type === 'cash_advance' ? 'CASH_ADVANCE' : 'FEE'),
+        reference_no: expense.referenceNo || null,
+        transacted_at: expense.date || new Date().toISOString(),
       });
-    } catch (err) {
+
+      if (res.data) {
+        const persistedId = `EXP-${res.data.financial_record_id || res.data.transaction_id || tempId}`;
+        setExpenses((prev) => {
+          const updated = prev.map(e => e.id === tempId ? { 
+            ...e, 
+            id: persistedId, 
+            referenceNo: res.data.reference_no || e.referenceNo 
+          } : e);
+          try {
+            const userId = liveSession.current?.userId;
+            if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+          } catch (e) { }
+          return updated;
+        });
+      }
+    } catch (err: any) {
       console.warn('Could not persist expense to backend:', err);
+      // Roll back optimistic insert if rejected by backend (e.g. DMW violation)
+      setExpenses((prev) => prev.filter(e => e.id !== tempId));
+      throw err;
     }
   };
 
   const updateExpense = async (id: string, updates: Partial<ExpenseRecord>) => {
-    setExpenses((prev) => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    setExpenses((prev) => {
+      const updated = prev.map(e => e.id === id ? { ...e, ...updates } : e);
+      try {
+        const userId = liveSession.current?.userId;
+        if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
     try {
-      if (!id.startsWith('EXP-new-')) {
-        const dbId = id.replace('EXP-', '');
-        await api.put(`/financial/records/${dbId}`, {
+      const dbId = id.replace('EXP-', '');
+      if (/^\d+$/.test(dbId)) {
+        await api.patch(`/financial/records/${dbId}`, {
           payment_type: updates.purpose,
-          amount: updates.amount,
-          currency: updates.currency === 'DOLLAR' ? 'USD' : 'PHP',
-          description: updates.remarks,
+          amount: updates.amount !== undefined ? Number(updates.amount) : undefined,
+          currency: 'PHP',
+          reference_no: updates.referenceNo,
+          transacted_at: updates.date,
+          transaction_type: updates.type === 'placement_fee' ? 'PLACEMENT_FEE' : (updates.type === 'cash_advance' ? 'CASH_ADVANCE' : undefined),
         });
       }
     } catch (err) {
       console.warn('Could not update expense on backend:', err);
+      throw err;
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    setExpenses((prev) => {
+      const updated = prev.filter(e => e.id !== id);
+      try {
+        const userId = liveSession.current?.userId;
+        if (userId) sessionStorage.setItem(`fs_cache_expenses_${userId}`, JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
+    try {
+      const dbId = id.replace('EXP-', '');
+      if (/^\d+$/.test(dbId)) {
+        await api.delete(`/financial/records/${dbId}`);
+      }
+    } catch (err) {
+      console.warn('Could not delete expense on backend:', err);
+      throw err;
     }
   };
 
@@ -1779,6 +1833,13 @@ export default function App() {
     };
   }, [currentUserRole, isSuperAdmin]);
 
+  // Platform identities are isolated before any landing, onboarding, or tenant route renders.
+  if (isSuperAdmin) {
+    if (platformPasswordUser) return <LoginScreen key={platformPasswordUser.id} onLogin={handleLogin} onBack={handleLogout}
+      requiredPasswordChange={{ user: platformPasswordUser, role: '', roles: [], name: currentUserName, isSuper: true }} />;
+    return <SuperAdminDashboard onLogout={handleLogout} currentUserName={currentUserName} currentUserEmail={currentUserEmail} />;
+  }
+
   // Landing
   if (view === "landing") {
     return (
@@ -1825,18 +1886,7 @@ export default function App() {
     );
   }
 
-  // Super Admin dedicated dashboard
-  if (view === "super-admin" && isSuperAdmin) {
-    return (
-      <SuperAdminDashboard
-        onLogout={handleLogout}
-        onSwitchRole={handleSwitchSuperAdminRole}
-        currentUserName={currentUserName}
-        applicants={applicants}
-        activityLogs={activityLogs}
-      />
-    );
-  }
+  if (view === 'super-admin') return <LoginScreen onLogin={handleLogin} onBack={() => navigateTo('landing')} />;
 
   // Tenant workspace
   if (view === "app") {
@@ -1873,6 +1923,9 @@ export default function App() {
       <div className="h-screen flex flex-col bg-[#F8FAFC] overflow-hidden">
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <StaffOnboardingGate key={authSubject || 'staff-session'} subject={authSubject}
+            roles={currentUserRoles.length ? currentUserRoles : [currentUserRole]} name={currentUserName}
+            onLogout={handleLogout}>
           <AppShell
             currentUserRole={currentUserRole}
             currentUserRoles={currentUserRoles}
@@ -1889,9 +1942,8 @@ export default function App() {
             expensesLoaded={expensesLoaded}
             addExpense={addExpense}
             updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
             onLogout={handleLogout}
-            isSuperAdmin={isSuperAdmin}
-            onSuperAdminDashboard={() => showAppView('super-admin')}
             globalJobOrders={globalJobOrders || undefined}
             globalEmployers={globalEmployers || undefined}
             onJobOrdersChange={handleJobOrdersChange}
@@ -1900,6 +1952,7 @@ export default function App() {
             globalRoles={globalRoles || undefined}
             globalPipelineForecast={globalPipelineForecast || undefined}
           />
+          </StaffOnboardingGate>
         </div>
       </div>
     );

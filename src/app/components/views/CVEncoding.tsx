@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Lock, Save, Send, Download, Loader2, FileText, Plus, Trash2, ChevronDown,
-  ChevronUp, CheckCircle2, Clock, XCircle, AlertCircle, User, Briefcase,
-  GraduationCap, Star, Edit3, RefreshCw, Undo2, Sparkles, Eye, EyeOff,
-  ZoomIn, ZoomOut, X, UserPlus, UserCheck
+  Lock, Save, Send, Download, Loader2, FileText, Plus, Trash2,
+  CheckCircle2, Clock, XCircle, AlertCircle, Edit3, Undo2, Eye,
+  ZoomIn, ZoomOut, X, UserPlus, User
 } from 'lucide-react';
 import { WorkflowState, ActivityLog, ApplicantRecord } from '../../types';
 import InlineApplicantSelector from '../InlineApplicantSelector';
 import { SkeletonText } from '../ui/skeleton';
 import { api } from '../../../lib/api';
-import { CVPreviewDoc, buildCVHtml, downloadCVPdf } from '../CVPreview';
+import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface CVEncodingProps {
   workflow: WorkflowState;
@@ -42,28 +41,65 @@ interface CustomField {
   value: string;
 }
 
+// Statuses where the candidate has NOT yet reached CV Encoding (or was returned to an earlier stage)
+const PRE_CV_STATUSES = [
+  'Applicant Registration',
+  'Initial Screening',
+  'Pending Interview',
+  'Review Score for Medical Referral',
+  'Medical Clearance',
+  'Medical Referral',
+  'Applicant Profiling',
+  'Profiling',
+  'Provisional',
+  'Processing Stopped',
+];
+
+// Statuses where the candidate's CV was already approved and they have advanced past CV Encoding
+// (Visible in CV Encoding for read-only viewing & A4 preview/export, but locked from editing/resubmitting)
+const POST_CV_STATUSES = [
+  'CV Approved - Sending to Employer',
+  'Endorse to Employer',
+  'Under Employer Review',
+  'Employer Review',
+  'Waiting Selection',
+  'Endorse for Administrative Processing',
+  'Pre-Deployment Processing',
+  'Document Validation',
+  'Ready for Deployment',
+  'Deployed',
+  'Completed',
+];
+
+// Statuses actively in the CV Encoding / CV Review stage (editable unless already approved)
+const CV_ENCODING_STATUSES = [
+  'CV Encoding',
+  'Pending Manager Approval',
+  'CV Approval',
+];
+
 const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   DRAFT: {
-    label: 'Draft',
-    color: '#64748b',
+    label: 'Draft CV',
+    color: '#475569',
     bg: '#f8fafc',
     icon: <Edit3 className="w-3.5 h-3.5" />,
   },
   PENDING_APPROVAL: {
     label: 'Pending Approval',
-    color: '#f59e0b',
+    color: '#d97706',
     bg: '#fffbeb',
     icon: <Clock className="w-3.5 h-3.5" />,
   },
   REJECTED: {
-    label: 'Rejected',
-    color: '#ef4444',
+    label: 'Needs Revision',
+    color: '#dc2626',
     bg: '#fef2f2',
     icon: <XCircle className="w-3.5 h-3.5" />,
   },
   APPROVED: {
-    label: 'Approved',
-    color: '#10b981',
+    label: 'CV Approved',
+    color: '#059669',
     bg: '#ecfdf5',
     icon: <CheckCircle2 className="w-3.5 h-3.5" />,
   },
@@ -73,8 +109,8 @@ function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] || STATUS_META.DRAFT;
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border"
-      style={{ color: meta.color, background: meta.bg, borderColor: `${meta.color}33` }}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border"
+      style={{ color: meta.color, background: meta.bg, borderColor: `${meta.color}30` }}
     >
       {meta.icon}
       {meta.label}
@@ -82,40 +118,19 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function SectionCard({ title, icon, children, defaultOpen = true }: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2 text-[#0F172A] font-bold text-sm">
-          {icon}
-          {title}
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-      </button>
-      {open && <div className="p-5">{children}</div>}
-    </div>
-  );
-}
-
 function SkeletonCVLoader() {
   return (
-    <div className="space-y-4">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
-          <SkeletonText className="w-32 h-4" />
-          <SkeletonText className="w-full h-3" />
-          <SkeletonText className="w-3/4 h-3" />
-        </div>
-      ))}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+        <SkeletonText className="w-40 h-5" />
+        <SkeletonText className="w-full h-24" />
+        <SkeletonText className="w-48 h-5" />
+        <SkeletonText className="w-full h-12" />
+      </div>
+      <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+        <SkeletonText className="w-36 h-5" />
+        <SkeletonText className="w-full h-40" />
+      </div>
     </div>
   );
 }
@@ -130,7 +145,8 @@ export default function CVEncoding({
   applicants = [],
   onNavigate,
 }: CVEncodingProps) {
-  const [selectedApplicantId, setSelectedApplicantId] = useState(initialApplicantId);
+  // Staff must manually select an applicant first; never auto-default to any applicant on load
+  const [selectedApplicantId, setSelectedApplicantId] = useState('');
   const [cvRecord, setCvRecord] = useState<CvRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -147,7 +163,7 @@ export default function CVEncoding({
   const [returnNotes, setReturnNotes] = useState('');
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
 
-  // Custom fields state
+  // Custom fields state (editable ONLY while in CV Encoding & before approval)
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [newFieldKey, setNewFieldKey] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
@@ -155,49 +171,50 @@ export default function CVEncoding({
   // Summary override (stored in custom_fields.summary_override)
   const [summaryOverride, setSummaryOverride] = useState('');
 
-  // ── Eligible candidates: Strictly those endorsed for CV Encoding or in Phase 3+ ──
+  // Active tab for the compact read-only Profile Reference card
+  const [mainTab, setMainTab] = useState<'details' | 'profile'>('details');
+
+  // ── Eligible candidates ──
+  // 1) Strictly EXCLUDES anyone in earlier phases or returned to Applicant Profiling / Medical / Screening
+  // 2) INCLUDES candidates actively in CV Encoding AND candidates who have advanced past CV Encoding
+  //    (so staff can still view & preview their CV, while editing/resubmitting is locked for advanced candidates)
   const eligibleApplicants = useMemo(() => {
-    return applicants.filter(a => {
+    const list = applicants.filter(a => {
       if (a.isStopped || a.status === 'Processing Stopped') return false;
       const s = String(a.status || '').trim();
-      const cvStatuses = [
-        'CV Encoding',
-        'Pending Manager Approval',
-        'CV Approval',
-        'CV Approved - Sending to Employer',
-        'Under Employer Review',
-        'Employer Review',
-        'Waiting Selection',
-        'Endorse for Administrative Processing',
-        'Pre-Deployment Processing',
-        'Ready for Deployment',
-        'Deployed'
-      ];
-      if (cvStatuses.includes(s)) return true;
+      // Never show candidates in Applicant Profiling, Medical Clearance, Screening, or Registration
+      if (PRE_CV_STATUSES.includes(s)) return false;
+      if (CV_ENCODING_STATUSES.includes(s) || POST_CV_STATUSES.includes(s)) return true;
       if (typeof a.phase === 'number' && a.phase >= 3) {
-        const nonCvStatuses = [
-          'Applicant Registration',
-          'Initial Screening',
-          'Pending Interview',
-          'Review Score for Medical Referral',
-          'Medical Clearance',
-          'Medical Referral',
-          'Provisional'
-        ];
-        return !nonCvStatuses.includes(s);
+        return !PRE_CV_STATUSES.includes(s);
       }
       return false;
     });
+
+    // Sort so candidates actively in CV Encoding appear first, followed by advanced/approved candidates
+    return list.sort((a, b) => {
+      const aActive = CV_ENCODING_STATUSES.includes(String(a.status || '').trim()) ? 0 : 1;
+      const bActive = CV_ENCODING_STATUSES.includes(String(b.status || '').trim()) ? 0 : 1;
+      return aActive - bActive;
+    });
   }, [applicants]);
 
-  // Sync selected applicant with initialApplicantId prop if provided
+  const activeEncodingCount = useMemo(
+    () => eligibleApplicants.filter(a => CV_ENCODING_STATUSES.includes(String(a.status || '').trim())).length,
+    [eligibleApplicants]
+  );
+
+  // Sync selected applicant with initialApplicantId prop ONLY if that candidate is eligible and explicitly provided
   useEffect(() => {
     if (initialApplicantId) {
-      setSelectedApplicantId(initialApplicantId);
+      const isEligible = eligibleApplicants.some(a => String(a.id) === String(initialApplicantId));
+      if (isEligible) {
+        setSelectedApplicantId(initialApplicantId);
+      }
     }
-  }, [initialApplicantId]);
+  }, [initialApplicantId, eligibleApplicants]);
 
-  // Keep selected applicant synced if currently selected candidate is no longer eligible
+  // Keep selected applicant synced: if current selection is no longer eligible, reset to none (never auto-default)
   useEffect(() => {
     if (selectedApplicantId) {
       const match = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId));
@@ -207,10 +224,13 @@ export default function CVEncoding({
     }
   }, [eligibleApplicants, selectedApplicantId]);
 
-  const currentApplicant = eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId))
-    || applicants.find(a => String(a.id) === String(selectedApplicantId));
+  // Strictly resolve currentApplicant from eligibleApplicants so returned candidates never linger here
+  const currentApplicant = useMemo(
+    () => eligibleApplicants.find(a => String(a.id) === String(selectedApplicantId)),
+    [eligibleApplicants, selectedApplicantId]
+  );
 
-  // Effective custom fields including any pending entry typed into the inputs
+  // Effective custom fields including any pending entry typed into the "Add Field" inputs
   const effectiveCustomFields = useMemo(() => {
     const list = [...customFields];
     if (newFieldKey.trim()) {
@@ -218,6 +238,27 @@ export default function CVEncoding({
     }
     return list;
   }, [customFields, newFieldKey, newFieldValue]);
+
+  // Check if there are unsaved edits to Summary or Custom Fields compared to cvRecord
+  const hasUnsavedChanges = useMemo(() => {
+    if (newFieldKey.trim() || newFieldValue.trim()) return true;
+    const savedRaw = cvRecord?.custom_fields || {};
+    const savedSummary = String(savedRaw.summary_override || '');
+    if (summaryOverride.trim() !== savedSummary.trim()) return true;
+
+    const savedEntries = Object.entries(savedRaw).filter(
+      ([k]) => !['summary_override', 'return_reason', 'returned_at', 'returned_by'].includes(k)
+    );
+    const currentValid = customFields.filter(f => f.key.trim());
+    if (savedEntries.length !== currentValid.length) return true;
+    for (let i = 0; i < currentValid.length; i++) {
+      const [sKey, sVal] = savedEntries[i];
+      if (currentValid[i].key.trim() !== sKey || currentValid[i].value !== String(sVal ?? '')) {
+        return true;
+      }
+    }
+    return false;
+  }, [cvRecord, summaryOverride, customFields, newFieldKey, newFieldValue]);
 
   // Determine whether CV has 2 pages
   const hasPage2 = useMemo(() => {
@@ -231,16 +272,33 @@ export default function CVEncoding({
     );
   }, [currentApplicant, effectiveCustomFields]);
 
-  // Check if module is accessible: phase >= 3 or appropriate status
+  const currentStatus = String(currentApplicant?.status || '').trim();
+  const isCandidateInCvStage = Boolean(currentApplicant && CV_ENCODING_STATUSES.includes(currentStatus));
+  const isCvAlreadyApproved = cvRecord?.status_code === 'APPROVED';
+
+  // A candidate who has already advanced past CV Encoding (e.g., Deployed, Endorse to Employer, Pre-Deployment)
+  // OR whose CV is already APPROVED (and has not been returned to 'CV Encoding' status) is View & Preview Only
+  const isReadOnlyAdvanced = Boolean(
+    currentApplicant && (!isCandidateInCvStage || (isCvAlreadyApproved && currentStatus !== 'CV Encoding'))
+  );
+
+  // Check if module is locked due to medical clearance
   const isLocked = !workflow.medicalCleared && !(currentApplicant && (
     (typeof currentApplicant.phase === 'number' && currentApplicant.phase >= 3) ||
-    ['CV Encoding', 'Pending Manager Approval', 'CV Approved - Sending to Employer',
-      'Under Employer Review', 'Deployed'].includes(currentApplicant.status)
+    CV_ENCODING_STATUSES.includes(currentStatus) ||
+    POST_CV_STATUSES.includes(currentStatus)
   ));
 
-  const isEditable = !isLocked && (cvRecord?.status_code !== 'APPROVED' || currentApplicant?.status === 'CV Encoding');
-  const canSubmit = !isLocked && (!cvRecord || ['DRAFT', 'REJECTED'].includes(cvRecord.status_code) || currentApplicant?.status === 'CV Encoding');
+  // Custom fields & summary are editable ONLY when the candidate is actively in CV Encoding (or returned to it) and NOT advanced/approved
+  const isEditable = !isLocked && !isReadOnlyAdvanced;
   const canSaveDraft = isEditable;
+  const canSubmit = isEditable && (
+    !cvRecord ||
+    cvRecord.status_code === 'DRAFT' ||
+    cvRecord.status_code === 'REJECTED' ||
+    (cvRecord.status_code === 'PENDING_APPROVAL' && hasUnsavedChanges) ||
+    (currentStatus === 'CV Encoding' && cvRecord.status_code === 'APPROVED')
+  );
 
   // Close overlay on Escape key
   useEffect(() => {
@@ -284,7 +342,7 @@ export default function CVEncoding({
       details: `${currentUserName} claimed CV Encoding of applicant ${app.name} from the queue.`
     });
 
-    showToast(`✓ Candidate ${app.name} claimed into your queue as current handler.`);
+    showToast(`✓ ${app.name} assigned to you.`);
   };
 
   const handleReleaseApplicant = async (app: ApplicantRecord) => {
@@ -318,8 +376,24 @@ export default function CVEncoding({
       details: `${currentUserName} returned applicant ${app.name} to the unassigned queue.`
     });
 
-    showToast(`Applicant ${app.name} returned to unassigned.`);
+    showToast(`${app.name} returned to unassigned pool.`);
   };
+
+  // ─── Apply custom_fields from a loaded/saved CvRecord into state ────────────
+  const applyCvCustomFields = useCallback((rec: CvRecord | null) => {
+    if (rec?.custom_fields && typeof rec.custom_fields === 'object') {
+      const { summary_override, return_reason, returned_at, returned_by, ...rest } = rec.custom_fields;
+      setSummaryOverride(summary_override || '');
+      setCustomFields(
+        Object.entries(rest).map(([key, value]) => ({ key, value: String(value ?? '') }))
+      );
+    } else {
+      setCustomFields([]);
+      setSummaryOverride('');
+    }
+    setNewFieldKey('');
+    setNewFieldValue('');
+  }, []);
 
   // ─── Load CV record whenever applicant changes ──────────────────────────────
   const loadCvRecord = useCallback(async (applicantId: string) => {
@@ -327,32 +401,16 @@ export default function CVEncoding({
       setCvRecord(null);
       setCustomFields([]);
       setSummaryOverride('');
+      setNewFieldKey('');
+      setNewFieldValue('');
       return;
     }
     setIsLoading(true);
     try {
       const res = await api.get(`/cv/applicant/${applicantId}`);
       const rec: CvRecord | null = res.data || null;
-      if (rec && rec.status_code === 'APPROVED') {
-        const app = applicants.find(a => String(a.id) === String(applicantId));
-        if (app?.status === 'CV Encoding') {
-          // Candidate returned for revision - update to DRAFT so it can be re-encoded
-          api.patch(`/cv/${rec.cv_id}`, { statusCode: 'DRAFT' }).catch(console.error);
-          rec.status_code = 'DRAFT';
-        }
-      }
       setCvRecord(rec);
-      if (rec?.custom_fields) {
-        // Extract summary_override from custom_fields
-        const { summary_override, ...rest } = rec.custom_fields;
-        setSummaryOverride(summary_override || '');
-        setCustomFields(
-          Object.entries(rest).map(([key, value]) => ({ key, value: String(value) }))
-        );
-      } else {
-        setCustomFields([]);
-        setSummaryOverride('');
-      }
+      applyCvCustomFields(rec);
     } catch {
       setCvRecord(null);
       setCustomFields([]);
@@ -360,11 +418,17 @@ export default function CVEncoding({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applyCvCustomFields]);
 
   useEffect(() => {
-    loadCvRecord(selectedApplicantId);
-  }, [selectedApplicantId, loadCvRecord]);
+    if (currentApplicant) {
+      loadCvRecord(String(currentApplicant.id));
+    } else {
+      setCvRecord(null);
+      setCustomFields([]);
+      setSummaryOverride('');
+    }
+  }, [currentApplicant?.id, loadCvRecord]);
 
   // ─── Build custom_fields payload ─────────────────────────────────────────────
   const buildCustomFields = () => {
@@ -373,36 +437,63 @@ export default function CVEncoding({
     effectiveCustomFields.forEach(f => {
       if (f.key.trim()) fields[f.key.trim()] = f.value;
     });
-    return Object.keys(fields).length > 0 ? fields : null;
+    return fields;
   };
 
-  // ─── Save draft ───────────────────────────────────────────────────────────────
+  const resolveEffectiveJobOrderId = () => {
+    const raw = currentApplicant?.selectedJobOrderId && !isNaN(Number(currentApplicant.selectedJobOrderId))
+      ? Number(currentApplicant.selectedJobOrderId)
+      : (currentApplicant as any)?.job_order_id || (currentApplicant as any)?.jobOrderId;
+    const num = Number(raw);
+    return !isNaN(num) && num > 0 ? num : undefined;
+  };
+
+  // ─── Save draft / Save changes ──────────────────────────────────────────────
   const handleSaveDraft = async () => {
-    if (isSaving || !currentApplicant || isLocked) return;
+    if (!canSaveDraft || isSaving || !currentApplicant || isLocked || isReadOnlyAdvanced) return;
     setIsSaving(true);
     try {
       const customFieldsPayload = buildCustomFields();
-      const effectiveJobOrderId = currentApplicant?.selectedJobOrderId && !isNaN(Number(currentApplicant.selectedJobOrderId))
-        ? Number(currentApplicant.selectedJobOrderId)
-        : (currentApplicant as any)?.job_order_id || (currentApplicant as any)?.jobOrderId || undefined;
+      const effectiveJobOrderId = resolveEffectiveJobOrderId();
+
+      if (newFieldKey.trim()) {
+        setCustomFields(effectiveCustomFields);
+        setNewFieldKey('');
+        setNewFieldValue('');
+      }
 
       if (cvRecord) {
+        const nextStatus = cvRecord.status_code === 'REJECTED' || (currentStatus === 'CV Encoding' && cvRecord.status_code === 'APPROVED')
+          ? 'DRAFT'
+          : cvRecord.status_code;
+
         const res = await api.patch(`/cv/${cvRecord.cv_id}`, {
-          statusCode: (cvRecord.status_code === 'REJECTED' || cvRecord.status_code === 'APPROVED') ? 'DRAFT' : cvRecord.status_code,
+          statusCode: nextStatus,
           customFields: customFieldsPayload,
           jobOrderId: effectiveJobOrderId,
         });
         setCvRecord(res.data);
+        applyCvCustomFields(res.data);
       } else {
         const res = await api.post('/cv', {
-          applicantId: Number(selectedApplicantId),
+          applicantId: Number(currentApplicant.id),
           jobOrderId: effectiveJobOrderId,
           statusCode: 'DRAFT',
           customFields: customFieldsPayload,
         });
         setCvRecord(res.data);
+        applyCvCustomFields(res.data);
       }
-      showToast('✓ CV draft saved');
+
+      addActivityLog({
+        applicantId: String(currentApplicant.id),
+        action: cvRecord ? 'CV Custom Fields Updated' : 'CV Draft Saved',
+        performedBy: currentUserName,
+        department: 'Recruitment',
+        details: `CV saved for ${currentApplicant.name}.`,
+      });
+
+      showToast(cvRecord ? '✓ CV changes saved' : '✓ CV draft saved');
     } catch (err: any) {
       showToast(`❌ Save failed: ${err?.response?.data?.detail || err.message}`);
     } finally {
@@ -410,19 +501,30 @@ export default function CVEncoding({
     }
   };
 
-  // ─── Submit for approval ──────────────────────────────────────────────────────
+  // ─── Submit / Resubmit for approval ─────────────────────────────────────────
   const handleSubmitForApproval = async () => {
-    if (!canSubmit || isSubmitting) return;
+    if (!canSubmit || isSubmitting || !currentApplicant || isLocked || isReadOnlyAdvanced) return;
     setIsSubmitting(true);
     try {
       const customFieldsPayload = buildCustomFields();
-      const effectiveJobOrderId = currentApplicant?.selectedJobOrderId && !isNaN(Number(currentApplicant.selectedJobOrderId))
-        ? Number(currentApplicant.selectedJobOrderId)
-        : (currentApplicant as any)?.job_order_id || (currentApplicant as any)?.jobOrderId || undefined;
+      const effectiveJobOrderId = resolveEffectiveJobOrderId();
       let rec = cvRecord;
 
-      // Save latest changes first
+      if (newFieldKey.trim()) {
+        setCustomFields(effectiveCustomFields);
+        setNewFieldKey('');
+        setNewFieldValue('');
+      }
+
       if (rec) {
+        // If candidate was returned to 'CV Encoding' with a previously APPROVED CV, reset to DRAFT first
+        if (rec.status_code === 'APPROVED' && currentStatus === 'CV Encoding') {
+          await api.patch(`/cv/${rec.cv_id}`, {
+            statusCode: 'DRAFT',
+            customFields: customFieldsPayload,
+            jobOrderId: effectiveJobOrderId,
+          });
+        }
         const saveRes = await api.patch(`/cv/${rec.cv_id}`, {
           statusCode: 'PENDING_APPROVAL',
           customFields: customFieldsPayload,
@@ -431,7 +533,7 @@ export default function CVEncoding({
         rec = saveRes.data;
       } else {
         const createRes = await api.post('/cv', {
-          applicantId: Number(selectedApplicantId),
+          applicantId: Number(currentApplicant.id),
           jobOrderId: effectiveJobOrderId,
           statusCode: 'PENDING_APPROVAL',
           customFields: customFieldsPayload,
@@ -439,18 +541,18 @@ export default function CVEncoding({
         rec = createRes.data;
       }
       setCvRecord(rec);
+      applyCvCustomFields(rec);
 
-      // Update applicant workflow status
-      updateApplicant(selectedApplicantId, {
+      const appIdStr = String(currentApplicant.id);
+      updateApplicant(appIdStr, {
         status: 'Pending Manager Approval',
         currentHandler: currentUserName,
         currentDepartment: 'Management',
         phaseDescription: 'CV submitted and awaiting management review',
       });
 
-      // Synchronize with backend applicant table
-      const numId = parseInt(selectedApplicantId, 10);
-      if (!isNaN(numId) && currentApplicant) {
+      const numId = parseInt(appIdStr, 10);
+      if (!isNaN(numId)) {
         await api.put(`/applicants/${numId}`, {
           application_id: currentApplicant.applicationId,
           application_status: 'Pending Manager Approval',
@@ -465,14 +567,14 @@ export default function CVEncoding({
       }
 
       addActivityLog({
-        applicantId: selectedApplicantId,
-        action: 'CV Submitted for Approval',
+        applicantId: appIdStr,
+        action: cvRecord ? 'CV Updated & Resubmitted for Approval' : 'CV Submitted for Approval',
         performedBy: currentUserName,
         department: 'Recruitment',
         details: `CV (ID: ${rec!.cv_id}) submitted to management for review.`,
       });
 
-      showToast('✓ CV submitted for manager approval');
+      showToast(cvRecord ? '✓ Updated CV submitted for manager approval' : '✓ CV submitted for manager approval');
     } catch (err: any) {
       showToast(`❌ Submission failed: ${err?.response?.data?.detail || err.message}`);
     } finally {
@@ -483,7 +585,7 @@ export default function CVEncoding({
   // ─── Return Candidate to Applicant Profiling ───────────────────────────────
   const handleConfirmReturnToProfiling = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!currentApplicant || isSubmittingReturn) return;
+    if (!currentApplicant || isSubmittingReturn || isReadOnlyAdvanced) return;
 
     if (!returnNotes.trim()) {
       showToast('Please state a reason for returning candidate to profiling.');
@@ -497,7 +599,7 @@ export default function CVEncoding({
     const nowIso = new Date().toISOString();
 
     try {
-      // 1. Update applicant state locally
+      // 1. Update applicant state locally (this removes them from eligibleApplicants immediately)
       updateApplicant(applicantId, {
         status: 'Applicant Profiling',
         phase: 3,
@@ -505,6 +607,10 @@ export default function CVEncoding({
         currentDepartment: 'Recruitment',
         phaseDescription: `Returned from CV Encoding to Profiling by ${currentUserName}. Note: ${reasonText}`,
       });
+
+      setSelectedApplicantId('');
+      setShowReturnModal(false);
+      setReturnNotes('');
 
       // 2. Persist to Backend Supabase API
       if (!isNaN(numericId)) {
@@ -521,7 +627,7 @@ export default function CVEncoding({
         }).catch(console.error);
       }
 
-      // 3. If CV record exists, update to DRAFT and record return reason in custom_fields
+      // 3. If CV record exists, reset status to DRAFT
       if (cvRecord) {
         await api.patch(`/cv/${cvRecord.cv_id}`, {
           statusCode: 'DRAFT',
@@ -544,16 +650,6 @@ export default function CVEncoding({
       });
 
       showToast(`↩ ${currentApplicant.name} returned to Applicant Profiling.`);
-      setShowReturnModal(false);
-      setReturnNotes('');
-
-      // Auto-select next candidate
-      const remaining = eligibleApplicants.filter(a => String(a.id) !== applicantId);
-      if (remaining.length > 0) {
-        setSelectedApplicantId(String(remaining[0].id));
-      } else {
-        setSelectedApplicantId('');
-      }
     } catch (err) {
       console.error('Failed to return candidate to profiling:', err);
       showToast('Error returning candidate to profiling.');
@@ -575,13 +671,13 @@ export default function CVEncoding({
         cvRecord?.cv_id,
       );
       addActivityLog({
-        applicantId: selectedApplicantId,
+        applicantId: String(currentApplicant.id),
         action: 'CV Exported to PDF',
         performedBy: currentUserName,
         department: 'Recruitment',
         details: `CV exported for ${currentApplicant.name}`,
       });
-      showToast(`✓ CV-${currentApplicant.name}.pdf downloaded successfully`);
+      showToast(`✓ CV-${currentApplicant.name}.pdf downloaded`);
     } catch (err) {
       console.error('PDF export failed:', err);
       showToast('Error exporting CV to PDF. Please try again.');
@@ -590,670 +686,537 @@ export default function CVEncoding({
     }
   };
 
-
-  // ─── Add / remove custom field ────────────────────────────────────────────────
+  // ─── Add / update / remove custom field ──────────────────────────────────────
   const handleAddCustomField = () => {
-    if (!newFieldKey.trim()) return;
+    if (!newFieldKey.trim() || !isEditable) return;
     setCustomFields(prev => [...prev, { key: newFieldKey.trim(), value: newFieldValue.trim() }]);
     setNewFieldKey('');
     setNewFieldValue('');
   };
 
+  const handleUpdateCustomField = (idx: number, patch: Partial<CustomField>) => {
+    if (!isEditable) return;
+    setCustomFields(prev => prev.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
+  };
+
   const handleRemoveCustomField = (idx: number) => {
+    if (!isEditable) return;
     setCustomFields(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const profileRows: [string, any][] = currentApplicant ? [
+    ['Full name', currentApplicant.name],
+    ['Applied position', currentApplicant.role || currentApplicant.appliedRole],
+    ['Date of birth', currentApplicant.dateOfBirth],
+    ['Age / Sex', `${currentApplicant.age ? `${currentApplicant.age} yrs` : '—'} · ${currentApplicant.sex || '—'}`],
+    ['Civil status', currentApplicant.civilStatus],
+    ['Children', currentApplicant.noOfChildren !== undefined && currentApplicant.noOfChildren !== null ? String(currentApplicant.noOfChildren) : '0'],
+    ['Religion', currentApplicant.religion],
+    ['Citizenship', currentApplicant.citizenship || 'Filipino'],
+    ['Height / Weight', `${currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : '—'} / ${currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : '—'}`],
+    ['Mobile', currentApplicant.contact],
+    ['Email', currentApplicant.email],
+    ['Address', currentApplicant.presentAddress],
+  ] : [];
+
+  const submitLabel = cvRecord?.status_code === 'REJECTED'
+    ? 'Resubmit for approval'
+    : cvRecord?.status_code === 'PENDING_APPROVAL'
+      ? (hasUnsavedChanges ? 'Update submitted CV' : 'Waiting for manager')
+      : 'Submit for approval';
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 w-full">
-      {/* ── Header ── */}
-      <div className="flex items-end justify-between flex-wrap gap-4">
+    <div className="space-y-4 w-full">
+      {/* ── Page header ── */}
+      <div className="flex items-end justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-[#0F172A]">CV Encoding</h2>
-          <p className="text-sm text-[#64748B] mt-1 font-medium">
-            Format applicant CVs, add custom fields, and submit for manager approval.
+          <h2 className="text-2xl font-bold tracking-tight text-[#0F172A]">CV Encoding</h2>
+          <p className="text-sm text-[#64748B] mt-0.5">
+            Add a short summary and extra details to each candidate&apos;s CV, then send it for approval.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {cvRecord && <StatusBadge status={currentApplicant?.status === 'CV Encoding' && cvRecord.status_code === 'APPROVED' ? 'DRAFT' : cvRecord.status_code} />}
-          {currentApplicant && (
-            <button
-              onClick={() => setShowReturnModal(true)}
-              disabled={isLocked || isSubmittingReturn}
-              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Return candidate to Applicant Profiling stage"
-            >
-              <Undo2 className="w-3.5 h-3.5 text-amber-600" />
-              Return to Profiling
-            </button>
-          )}
-          <button
-            onClick={handleExportToPDF}
-            disabled={!currentApplicant || isExporting}
-            className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-bold rounded-lg shadow-md shadow-[#0EA5E9]/20 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-          >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export PDF
-          </button>
-        </div>
+        {eligibleApplicants.length > 0 && (
+          <p className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">{activeEncodingCount}</span> to work on
+            {' · '}
+            <span className="font-semibold text-slate-700">{eligibleApplicants.length - activeEncodingCount}</span> already moved on (view only)
+          </p>
+        )}
       </div>
 
-      {/* ── Applicant Selector / Empty Queue State ── */}
       {eligibleApplicants.length > 0 ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-            <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Active CV Queue ({eligibleApplicants.length} candidate{eligibleApplicants.length !== 1 ? 's' : ''})
-            </span>
-            <span className="text-[11px] text-slate-400">
-              Showing candidates endorsed from Profiling or at Phase 3+
-            </span>
-          </div>
+        <>
           <InlineApplicantSelector
             applicants={eligibleApplicants}
             selectedApplicantId={selectedApplicantId}
-            onSelectApplicant={(id) => { setSelectedApplicantId(id); }}
+            onSelectApplicant={(id) => setSelectedApplicantId(id)}
             allowNew={false}
           />
 
-          {/* ── Candidate Handler & Claim Banner ── */}
+          {/* ── Selected candidate: one plain line, no extra card ── */}
           {currentApplicant && (
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center font-bold text-sm border border-sky-100 flex-shrink-0">
-                  {currentApplicant.name?.charAt(0) || 'A'}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-slate-900">{currentApplicant.name}</span>
-                    <span className="text-xs font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-semibold border border-sky-200">
-                      {currentApplicant.applicantCode || `#${currentApplicant.id}`}
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">({currentApplicant.role || currentApplicant.appliedRole || 'Candidate'})</span>
-                  </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
-                    <span>Current Handler: <strong className={currentApplicant.currentHandler === currentUserName ? 'text-emerald-700 font-bold' : 'text-slate-800 font-semibold'}>{currentApplicant.currentHandler || 'Unassigned'}</strong></span>
-                    <span>•</span>
-                    <span>Status: <strong className="text-slate-700 font-semibold">{currentApplicant.status || 'CV Encoding'}</strong></span>
-                    <span>•</span>
-                    <span>Phase {currentApplicant.phase || 3}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Handler Claim / Release Actions */}
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const isAssignedToMe = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
-                  const isUnassigned = !currentApplicant.currentHandler || currentApplicant.currentHandler === 'Unassigned' || currentApplicant.currentHandler === 'Unassigned Pool' || currentApplicant.currentHandler === 'System Agent';
-
-                  if (isAssignedToMe) {
-                    return (
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Handled by You
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleReleaseApplicant(currentApplicant)}
-                          className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer font-medium"
-                          title="Release candidate back to unassigned"
-                        >
-                          <Undo2 className="w-3 h-3 inline mr-1" />
-                          Return to Unassigned
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  if (isUnassigned) {
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => handleClaimApplicant(currentApplicant)}
-                        className="inline-flex items-center gap-1.5 text-xs px-3.5 py-1.5 rounded-lg bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-bold transition-all shadow-xs cursor-pointer"
-                        title="Claim applicant and become current handler"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" /> Claim Candidate
-                      </button>
-                    );
-                  }
-
+            <div className="flex items-center justify-between flex-wrap gap-3 px-1">
+              <div className="min-w-0 flex items-center gap-2.5 flex-wrap text-sm">
+                <span className="font-semibold text-[#0F172A]">{currentApplicant.name}</span>
+                {cvRecord && <StatusBadge status={cvRecord.status_code} />}
+                {isReadOnlyAdvanced && (
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                    <Lock className="w-3 h-3" /> View only
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">·</span>
+                <span className="text-xs text-slate-500">{currentApplicant.status || 'CV Encoding'}</span>
+                {!isReadOnlyAdvanced && (() => {
+                  const isMine = currentApplicant.currentHandler?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
+                  const isFree = !currentApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', 'System Agent'].includes(currentApplicant.currentHandler);
                   return (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-500 italic">
-                        Handled by {currentApplicant.currentHandler}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleClaimApplicant(currentApplicant)}
-                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold transition-colors cursor-pointer"
-                        title="Reassign this candidate to yourself"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" /> Take Over
-                      </button>
-                    </div>
+                    <>
+                      <span className="text-xs text-slate-400">·</span>
+                      {isMine ? (
+                        <span className="text-xs text-slate-500">
+                          Yours{' '}
+                          <button type="button" onClick={() => handleReleaseApplicant(currentApplicant)} className="underline hover:text-slate-800 cursor-pointer">Release</button>
+                        </span>
+                      ) : isFree ? (
+                        <button type="button" onClick={() => handleClaimApplicant(currentApplicant)} className="text-xs font-semibold text-[#0EA5E9] hover:text-[#0284C7] inline-flex items-center gap-1 cursor-pointer">
+                          <UserPlus className="w-3 h-3" /> Take this candidate
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          With {currentApplicant.currentHandler}{' '}
+                          <button type="button" onClick={() => handleClaimApplicant(currentApplicant)} className="font-semibold text-[#0EA5E9] hover:text-[#0284C7] cursor-pointer">Take over</button>
+                        </span>
+                      )}
+                    </>
                   );
                 })()}
               </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(true)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-white hover:shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#0EA5E9]" /> Preview CV
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportToPDF}
+                  disabled={isExporting}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-700 hover:bg-white hover:shadow-2xs flex items-center gap-1.5 disabled:opacity-40 transition cursor-pointer"
+                >
+                  {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0EA5E9]" /> : <Download className="w-3.5 h-3.5 text-[#0EA5E9]" />}
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedApplicantId('')}
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center gap-1 transition cursor-pointer"
+                  title="Unselect candidate and return to selection"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Unselect
+                </button>
+              </div>
             </div>
           )}
-        </div>
+        </>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center shadow-sm max-w-xl mx-auto my-6">
-          <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 border border-amber-200 shadow-xs">
-            <FileText className="w-7 h-7 text-amber-500" />
-          </div>
-          <h3 className="text-lg font-extrabold text-[#0F172A] mb-1.5">No Candidates in CV Encoding Queue</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto mb-5 leading-relaxed">
-            Candidates only appear here after completing Medical Clearance and being endorsed from the <strong>Applicant Profiling</strong> module.
+        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center max-w-xl mx-auto my-6">
+          <FileText className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-[#0F172A] mb-1">No candidates here yet</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto mb-4">
+            Candidates show up here after they are sent over from Applicant Profiling.
           </p>
           {onNavigate && (
             <button
               onClick={() => onNavigate('profiling')}
-              className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold rounded-lg shadow-md shadow-[#0EA5E9]/20 inline-flex items-center gap-2 transition-all cursor-pointer"
+              className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              Go to Smart Profiling
+              Go to Applicant Profiling
             </button>
           )}
         </div>
       )}
 
-      {/* ── Locked overlay ── */}
+      {/* ── Short notices (single line each) ── */}
       {isLocked && currentApplicant && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex items-center gap-3">
-          <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
-          <div>
-            <p className="font-bold text-amber-800 text-sm">Waiting for Medical Clearance</p>
-            <p className="text-xs text-amber-600 mt-0.5">CV encoding is unlocked after the applicant passes Fit-to-Work.</p>
-          </div>
-        </div>
+        <p className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+          <Lock className="w-4 h-4 flex-shrink-0" />
+          Waiting for the medical result. CV encoding opens once the candidate is fit to work.
+        </p>
+      )}
+      {cvRecord?.status_code === 'REJECTED' && cvRecord.rejection_reason && !isReadOnlyAdvanced && (
+        <p className="flex items-start gap-2 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span><strong>Manager asked for changes:</strong> {cvRecord.rejection_reason}</span>
+        </p>
       )}
 
-      {/* ── Rejection notice ── */}
-      {cvRecord?.status_code === 'REJECTED' && cvRecord.rejection_reason && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-red-700 text-sm">CV Rejected by Manager</p>
-            <p className="text-sm text-red-600 mt-0.5">{cvRecord.rejection_reason}</p>
-            <p className="text-xs text-red-400 mt-1">You may revise and resubmit.</p>
-          </div>
-        </div>
-      )}
-
-      {/* ── Main body ── */}
+      {/* ── One workspace card with two tabs ── */}
       {isLoading ? (
         <SkeletonCVLoader />
       ) : !currentApplicant ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
-          <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <p className="font-bold text-slate-500">Select an applicant to begin CV encoding</p>
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 sm:p-14 text-center max-w-2xl mx-auto my-6 shadow-2xs">
+          <div className="w-14 h-14 rounded-full bg-sky-50 text-[#0EA5E9] flex items-center justify-center mx-auto mb-4 border border-sky-100">
+            <User className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-[#0F172A] mb-1.5">
+            Select an applicant to begin
+          </h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+            Please choose a candidate from the dropdown above to review their qualifications, encode custom CV fields, and submit their profile for management approval.
+          </p>
         </div>
       ) : (
-        <div className={`space-y-4 ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
-
-          {/* ── Live CV Preview Overlay Modal ── */}
-          {showPreview && currentApplicant && (
-            <div
-              className="fixed inset-0 z-[100] flex flex-col bg-black/80 backdrop-blur-sm"
-              onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}
-            >
-              {/* Toolbar */}
-              <div className="flex items-center justify-between px-6 py-3 bg-[#1e293b] border-b border-white/10 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <Eye className="w-5 h-5 text-white/60" />
-                  <span className="text-white font-bold text-sm">
-                    CV Preview — {currentApplicant.name}
-                  </span>
-                  <span className="px-2 py-0.5 bg-white/10 text-white/80 rounded text-[11px] font-mono">
-                    {hasPage2 ? '2 Pages · A4' : '1 Page · A4'}
-                  </span>
-                  {cvRecord && (
-                    <span className="text-white/40 text-xs">CV #{cvRecord.cv_id}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Zoom controls */}
-                  <button
-                    onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    title="Zoom out"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </button>
-                  <span className="text-white/60 text-xs font-mono min-w-[48px] text-center">
-                    {Math.round(zoomLevel * 100)}%
-                  </span>
-                  <button
-                    onClick={() => setZoomLevel(z => Math.min(2, +(z + 0.1).toFixed(1)))}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    title="Zoom in"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </button>
-                  <div className="w-px h-5 bg-white/20 mx-1" />
-                  <button
-                    onClick={handleExportToPDF}
-                    disabled={isExporting}
-                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Export PDF
-                  </button>
-                  <button
-                    onClick={() => setShowPreview(false)}
-                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1"
-                    title="Close preview (Esc)"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              {/* Scrollable A4 canvas area */}
-              <div className="flex-1 overflow-auto flex items-start justify-center p-8 bg-slate-900/80">
-                <div
-                  style={{
-                    width: 794 * zoomLevel,
-                    minHeight: (hasPage2 ? 2340 : 1160) * zoomLevel,
-                    flexShrink: 0,
-                    position: 'relative',
-                    paddingBottom: 40 * zoomLevel,
-                  }}
+        <div className={`bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden ${isLocked ? 'opacity-60 pointer-events-none select-none' : ''}`}>
+          {/* Tab bar */}
+          <div className="flex items-center justify-between px-5 border-b border-slate-200">
+            <div className="flex items-center gap-6 xl:hidden">
+              {([
+                ['details', 'CV details'],
+                ['profile', 'Candidate profile'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMainTab(key)}
+                  className={`py-3.5 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer ${
+                    mainTab === key
+                      ? 'border-[#0EA5E9] text-[#0F172A]'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
                 >
-                  <div
-                    style={{
-                      transformOrigin: 'top left',
-                      transform: `scale(${zoomLevel})`,
-                      width: 794,
-                    }}
-                  >
-                    <CVPreviewDoc
-                      applicant={currentApplicant}
-                      summaryOverride={summaryOverride}
-                      customFields={effectiveCustomFields}
-                      cvId={cvRecord?.cv_id}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Personal Information (all fields matching CV preview) ── */}
-          <SectionCard title="Personal Information" icon={<User className="w-4 h-4 text-[#0EA5E9]" />}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-              {[
-                ['Full Name', currentApplicant.name],
-                ['Date of Birth', currentApplicant.dateOfBirth],
-                ['Place of Birth', currentApplicant.placeOfBirth],
-                ['Age', currentApplicant.age ? `${currentApplicant.age} yrs old` : undefined],
-                ['Sex', currentApplicant.sex],
-                ['Civil Status', currentApplicant.civilStatus],
-                ['No. of Children', currentApplicant.noOfChildren !== undefined && currentApplicant.noOfChildren !== null ? String(currentApplicant.noOfChildren) : undefined],
-                ['Religion', currentApplicant.religion],
-                ['Citizenship', currentApplicant.citizenship || 'Filipino'],
-                ['Height', currentApplicant.heightCm ? `${currentApplicant.heightCm} cm` : undefined],
-                ['Weight', currentApplicant.weightKg ? `${currentApplicant.weightKg} kg` : undefined],
-                ['Present Address', currentApplicant.presentAddress],
-                ['Provincial Address', currentApplicant.provincialAddress],
-                ['Email', currentApplicant.email],
-                ['Mobile No.', currentApplicant.contact],
-                ['Facebook', currentApplicant.facebookUrl],
-                ['WhatsApp', currentApplicant.whatsappNumber],
-                ['LinkedIn', currentApplicant.linkedinUrl],
-                ['Languages Spoken', (currentApplicant.languagesSpoken || []).length > 0 ? (currentApplicant.languagesSpoken || []).join(', ') : undefined],
-                ['Applied Position', currentApplicant.role || currentApplicant.appliedRole],
-                ['Applicant Code', currentApplicant.applicantCode],
-              ].map(([label, val]) => (
-                <div key={label}>
-                  <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide">{label}</p>
-                  <p className="font-medium text-[#0F172A] break-words">
-                    {val || <span className="text-slate-400 font-normal italic">—</span>}
-                  </p>
-                </div>
+                  {label}
+                </button>
               ))}
             </div>
-            {/* Emergency Contact */}
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide mb-2">Emergency Contact</p>
-              {currentApplicant.emergencyContactName ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
-                  {[
-                    ['Name', currentApplicant.emergencyContactName],
-                    ['Relationship', currentApplicant.emergencyContactRelationship || '—'],
-                    ['Contact No.', currentApplicant.emergencyContactNumber || '—'],
-                  ].map(([label, val]) => (
-                    <div key={label}>
-                      <p className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wide">{label}</p>
-                      <p className="font-medium text-[#0F172A]">{val}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400 italic">None on file</p>
+            <div className="hidden xl:flex items-center py-3.5 text-sm font-semibold text-[#0F172A]">Candidate CV</div>
+            <span className="text-xs">
+              {hasUnsavedChanges && isEditable ? (
+                <span className="text-amber-700 font-semibold">Unsaved changes</span>
+              ) : cvRecord ? (
+                <span className="text-slate-400">Saved {new Date(cvRecord.updated_at).toLocaleDateString('en-PH')}</span>
+              ) : null}
+            </span>
+          </div>
+
+          <div className="xl:grid xl:grid-cols-5 xl:divide-x xl:divide-slate-200">
+          {/* ── CV details (editable) ── */}
+          <div className={`${mainTab === 'details' ? '' : 'hidden xl:block'} xl:col-span-3`}>
+            <div className="px-5 py-5 space-y-7">
+              {!isEditable && (
+                <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" />
+                  This CV can only be viewed. It can be edited again if the candidate is returned to CV Encoding.
+                </p>
               )}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-4 flex items-center gap-1.5">
-              <Lock className="w-3 h-3" /> Personal data is pulled live from the applicant profile and cannot be edited here.
-            </p>
-          </SectionCard>
 
-          {/* ── Employment History ── */}
-          <SectionCard title="Employment History" icon={<Briefcase className="w-4 h-4 text-[#0EA5E9]" />}>
-            {(currentApplicant.employmentHistory || []).length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No employment records — add them in the Registration module.</p>
-            ) : (
-              <div className="space-y-3">
-                {(currentApplicant.employmentHistory || []).map((e, idx) => (
-                  <div key={idx} className="flex gap-4 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-[#0F172A] text-sm">{e.company}</p>
-                      <p className="text-xs text-[#64748B] font-medium">{e.position}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {e.dateStarted} – {e.isPresent ? 'Present' : e.dateEnded} · {e.country}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
+              <section>
+                <label htmlFor="cv-summary" className="block text-sm font-semibold text-[#0F172A]">About the candidate</label>
+                <p className="text-xs text-slate-500 mb-2">A short summary shown at the top of the CV. Leave blank to use the standard one.</p>
+                <textarea
+                  id="cv-summary"
+                  rows={3}
+                  value={summaryOverride}
+                  onChange={e => setSummaryOverride(e.target.value)}
+                  disabled={!isEditable}
+                  placeholder={`e.g. Experienced ${currentApplicant.role || 'worker'} looking for work overseas.`}
+                  className="w-full border border-slate-200 px-3.5 py-2.5 rounded-lg text-sm text-[#0F172A] focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/15 outline-none resize-none disabled:bg-slate-50 disabled:text-slate-500 transition"
+                />
+              </section>
 
-          {/* ── Education ── */}
-          <SectionCard title="Educational Background" icon={<GraduationCap className="w-4 h-4 text-[#0EA5E9]" />} defaultOpen={false}>
-            {(currentApplicant.education || []).length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No education records on file.</p>
-            ) : (
-              <div className="space-y-2">
-                {(currentApplicant.education || []).map((ed, idx) => (
-                  <div key={idx} className="flex gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 text-sm">
-                    <div>
-                      <p className="font-bold text-[#0F172A]">{ed.school}</p>
-                      <p className="text-xs text-slate-500">{ed.level} — {ed.course || 'N/A'} · Graduated {ed.yearGraduated || 'N/A'}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
-
-          {/* ── Skills & Languages ── */}
-          <SectionCard title="Skills & Languages" icon={<Star className="w-4 h-4 text-[#0EA5E9]" />} defaultOpen={false}>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-bold text-[#475569] uppercase tracking-wide mb-2">Skills</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(currentApplicant.skills || []).length === 0 ? (
-                    <span className="text-sm text-slate-400 italic">None on file</span>
-                  ) : (
-                    (currentApplicant.skills || []).map(s => (
-                      <span key={s} className="px-2.5 py-1 bg-[#0EA5E9]/10 text-[#0EA5E9] text-xs font-bold rounded-full">
-                        {s}
-                      </span>
-                    ))
-                  )}
+              <section>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-sm font-semibold text-[#0F172A]">Extra details {customFields.length > 0 && <span className="text-slate-400 font-normal">({customFields.length})</span>}</h3>
                 </div>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-[#475569] uppercase tracking-wide mb-2">Languages</p>
-                <div className="space-y-1">
-                  {(currentApplicant.languageRecords || []).length === 0 ? (
-                    <span className="text-sm text-slate-400 italic">None on file</span>
-                  ) : (
-                    (currentApplicant.languageRecords || []).map((l, i) => (
-                      <div key={i} className="flex items-center gap-3 text-sm">
-                        <span className="font-medium text-[#0F172A] w-28">{l.language}</span>
-                        <span className="text-xs text-slate-500">Spoken {l.spokenRating}/5 · Written {l.writtenRating}/5</span>
+                <p className="text-xs text-slate-500 mb-3">
+                  Anything the employer asked for, such as a video link, expected salary or availability.
+                </p>
+
+                {customFields.length > 0 ? (
+                  <div className="divide-y divide-slate-100 border-y border-slate-100">
+                    {customFields.map((field, idx) => (
+                      <div key={idx} className="flex items-center gap-3 py-2">
+                        <input
+                          type="text"
+                          value={field.key}
+                          onChange={e => handleUpdateCustomField(idx, { key: e.target.value })}
+                          disabled={!isEditable}
+                          placeholder="Label"
+                          aria-label={`Label ${idx + 1}`}
+                          className="w-2/5 px-2.5 py-1.5 rounded-md text-sm font-medium text-[#0F172A] border border-transparent hover:border-slate-200 focus:border-[#0EA5E9] outline-none bg-transparent disabled:text-slate-600 transition"
+                        />
+                        <input
+                          type="text"
+                          value={field.value}
+                          onChange={e => handleUpdateCustomField(idx, { value: e.target.value })}
+                          disabled={!isEditable}
+                          placeholder="Value"
+                          aria-label={`Value ${idx + 1}`}
+                          className="flex-1 px-2.5 py-1.5 rounded-md text-sm text-[#0F172A] border border-transparent hover:border-slate-200 focus:border-[#0EA5E9] outline-none bg-transparent disabled:text-slate-600 transition"
+                        />
+                        {isEditable && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCustomField(idx)}
+                            title="Remove"
+                            className="p-1.5 text-slate-300 hover:text-red-600 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-[#475569] uppercase tracking-wide mb-2">Certifications</p>
-                {(currentApplicant.certifications || []).length === 0 ? (
-                  <span className="text-sm text-slate-400 italic">None on file</span>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {(currentApplicant.certifications || []).map(c => (
-                      <span key={c} className="px-2.5 py-1 bg-amber-500/10 text-amber-700 text-xs font-bold rounded-full">
-                        {c}
-                      </span>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-sm text-slate-400 py-2">Nothing added yet.</p>
                 )}
-              </div>
+
+                {isEditable && (
+                  <div className="flex items-center gap-2 pt-3">
+                    <input
+                      type="text"
+                      value={newFieldKey}
+                      onChange={e => setNewFieldKey(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && newFieldKey.trim()) { e.preventDefault(); handleAddCustomField(); } }}
+                      placeholder="Label (e.g. Video link)"
+                      className="w-2/5 border border-slate-200 px-3 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none transition"
+                    />
+                    <input
+                      type="text"
+                      value={newFieldValue}
+                      onChange={e => setNewFieldValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && newFieldKey.trim()) { e.preventDefault(); handleAddCustomField(); } }}
+                      placeholder="Value"
+                      className="flex-1 border border-slate-200 px-3 py-2 rounded-lg text-sm focus:border-[#0EA5E9] outline-none transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomField}
+                      disabled={!newFieldKey.trim()}
+                      className="px-3 py-2 text-sm font-semibold text-[#0EA5E9] hover:bg-sky-50 rounded-lg disabled:opacity-40 flex items-center gap-1 transition-colors cursor-pointer flex-shrink-0"
+                    >
+                      <Plus className="w-4 h-4" /> Add
+                    </button>
+                  </div>
+                )}
+              </section>
             </div>
-          </SectionCard>
+          </div>
 
-          {/* ── Professional Summary (staff override) ── */}
-          <SectionCard title="Professional Summary" icon={<FileText className="w-4 h-4 text-[#0EA5E9]" />}>
-            <label className="text-xs font-bold text-[#475569] uppercase tracking-wide block mb-2">
-              Summary Override <span className="text-slate-400 font-normal normal-case">(optional — leave blank to use auto-generated)</span>
-            </label>
-            <textarea
-              rows={4}
-              value={summaryOverride}
-              onChange={e => setSummaryOverride(e.target.value)}
-              disabled={!isEditable}
-              placeholder={`Experienced ${currentApplicant.role || 'professional'} seeking overseas employment opportunities...`}
-              className="w-full border-2 border-slate-200 px-4 py-2.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none resize-none disabled:bg-slate-50 disabled:text-slate-400 transition-colors"
-            />
-          </SectionCard>
+          {/* ── Candidate profile (read only, one calm scroll) ── */}
+          <div className={`${mainTab === 'profile' ? '' : 'hidden xl:block'} xl:col-span-2`}>
+            <div className="px-5 py-5 space-y-7 xl:max-h-[calc(100vh-280px)] overflow-y-auto">
+              <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" /> Taken from the candidate&apos;s registration. Edit it in Registration.
+              </p>
 
-          {/* ── Custom Fields ── */}
-          <SectionCard title="Custom Fields (Staff-added)" icon={<Plus className="w-4 h-4 text-[#0EA5E9]" />} defaultOpen={false}>
-            <p className="text-xs text-slate-500 mb-4">
-              Add any employer-specific or agency-specific data not captured in the standard profile.
-            </p>
-
-            {customFields.map((field, idx) => (
-              <div key={idx} className="flex gap-2 mb-2 items-center">
-                <input
-                  type="text"
-                  value={field.key}
-                  onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, key: e.target.value } : f))}
-                  disabled={!isEditable}
-                  placeholder="Field name"
-                  className="w-1/3 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                />
-                <input
-                  type="text"
-                  value={field.value}
-                  onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
-                  disabled={!isEditable}
-                  placeholder="Value"
-                  className="flex-1 border-2 border-slate-200 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                />
-                <button
-                  onClick={() => handleRemoveCustomField(idx)}
-                  disabled={!isEditable}
-                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-
-            {isEditable && (
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="text"
-                    value={newFieldKey}
-                    onChange={e => setNewFieldKey(e.target.value)}
-                    placeholder="Field name (e.g. YouTube Link)"
-                    className="w-1/3 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={newFieldValue}
-                    onChange={e => setNewFieldValue(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleAddCustomField(); }}
-                    placeholder="Value (e.g. https://youtu.be/...)"
-                    className="flex-1 border-2 border-dashed border-slate-300 px-3 py-1.5 rounded-lg text-sm focus:border-[#0EA5E9] outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddCustomField}
-                    disabled={!newFieldKey.trim()}
-                    className="px-4 py-2 bg-[#0EA5E9] text-white text-xs font-bold rounded-lg hover:bg-[#0284C7] disabled:opacity-40 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer flex-shrink-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Field
-                  </button>
-                </div>
-                {newFieldKey.trim() && (
-                  <p className="text-[11px] text-sky-700 mt-2 bg-sky-50 px-3 py-1 rounded-md border border-sky-200 inline-flex items-center gap-1.5 font-medium">
-                    <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-                    Custom field &ldquo;{newFieldKey.trim()}&rdquo; is ready and will appear in the CV preview and exported PDF.
+              <section>
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Personal details</h3>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                  {profileRows.map(([label, val]) => (
+                    <div key={label} className={label === 'Address' || label === 'Email' ? 'sm:col-span-2' : ''}>
+                      <dt className="text-xs text-slate-400">{label}</dt>
+                      <dd className="text-[#0F172A] break-words">{val || <span className="text-slate-300">—</span>}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {currentApplicant.emergencyContactName && (
+                  <p className="text-sm mt-3">
+                    <span className="text-xs text-slate-400 block">Emergency contact</span>
+                    {currentApplicant.emergencyContactName} ({currentApplicant.emergencyContactRelationship || 'Contact'}) · {currentApplicant.emergencyContactNumber || '—'}
                   </p>
                 )}
-              </div>
-            )}
-          </SectionCard>
+              </section>
 
-          {/* ── Actions ── */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              {cvRecord && (
-                <button
-                  onClick={() => loadCvRecord(selectedApplicantId)}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                  title="Refresh CV record"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              )}
-              {cvRecord && (
-                <span className="text-xs text-slate-400">
-                  CV #{cvRecord.cv_id} · Last updated: {new Date(cvRecord.updated_at).toLocaleDateString('en-PH')}
-                </span>
-              )}
+              <section className="pt-5 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Work experience</h3>
+                {(currentApplicant.employmentHistory || []).length === 0 ? (
+                  <p className="text-sm text-slate-400">None on file.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {(currentApplicant.employmentHistory || []).map((e, idx) => (
+                      <li key={idx} className="text-sm">
+                        <p className="font-medium text-[#0F172A]">{e.position} <span className="font-normal text-slate-500">at {e.company}</span></p>
+                        <p className="text-xs text-slate-400">{e.dateStarted} – {e.isPresent ? 'Present' : e.dateEnded} · {e.country}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="pt-5 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-3">Education</h3>
+                {(currentApplicant.education || []).length === 0 ? (
+                  <p className="text-sm text-slate-400">None on file.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {(currentApplicant.education || []).map((ed, idx) => (
+                      <li key={idx} className="text-sm">
+                        <p className="font-medium text-[#0F172A]">{ed.school}</p>
+                        <p className="text-xs text-slate-400">{ed.level} — {ed.course || 'N/A'} · {ed.yearGraduated || 'N/A'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="pt-5 border-t border-slate-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Skills</h3>
+                  {(currentApplicant.skills || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
+                  ) : (
+                    <p className="text-sm text-slate-700">{(currentApplicant.skills || []).join(' · ')}</p>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Languages</h3>
+                  {(currentApplicant.languageRecords || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
+                  ) : (
+                    <ul className="text-sm space-y-0.5">
+                      {(currentApplicant.languageRecords || []).map((l, i) => (
+                        <li key={i} className="text-slate-700">{l.language} <span className="text-xs text-slate-400">— speaks {l.spokenRating}/5, writes {l.writtenRating}/5</span></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F172A] mb-2">Certificates</h3>
+                  {(currentApplicant.certifications || []).length === 0 ? (
+                    <p className="text-sm text-slate-400">None on file.</p>
+                  ) : (
+                    <p className="text-sm text-slate-700">{(currentApplicant.certifications || []).join(' · ')}</p>
+                  )}
+                </div>
+              </section>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+          </div>
+          </div>
+
+          {/* ── Footer: only when editing ── */}
+          {isEditable && (
+            <div className={`px-5 py-3.5 border-t border-slate-200 bg-slate-50/60 items-center justify-between flex-wrap gap-3 ${mainTab === 'details' ? 'flex' : 'hidden xl:flex'}`}>
               <button
                 type="button"
                 onClick={() => setShowReturnModal(true)}
                 disabled={isLocked || isSubmittingReturn}
-                className="px-4 py-2.5 border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 text-sm font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Return candidate to Applicant Profiling"
+                className="text-sm font-medium text-slate-500 hover:text-amber-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
               >
-                <Undo2 className="w-4 h-4 text-amber-600" />
-                Return to Profiling
+                <Undo2 className="w-4 h-4" /> Send back to Profiling
               </button>
-              {/* Preview CV — beside Save Draft */}
-              {currentApplicant && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setShowPreview(p => !p)}
-                  className={`px-4 py-2.5 text-sm font-bold rounded-lg border flex items-center gap-1.5 transition-colors cursor-pointer ${
-                    showPreview
-                      ? 'bg-slate-700 text-white border-slate-700'
-                      : 'border-slate-300 text-slate-600 bg-white hover:bg-slate-50'
-                  }`}
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={!canSaveDraft || isSaving}
+                  className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  {showPreview ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  {showPreview ? 'Hide Preview' : 'Preview CV'}
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {cvRecord ? 'Save changes' : 'Save draft'}
                 </button>
-              )}
-              <button
-                onClick={handleSaveDraft}
-                disabled={!canSaveDraft || isSaving}
-                className="px-5 py-2.5 border-2 border-slate-200 text-[#475569] text-sm font-bold rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Draft
+                <button
+                  type="button"
+                  onClick={handleSubmitForApproval}
+                  disabled={!canSubmit || isSubmitting}
+                  className="px-4 py-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold rounded-lg disabled:opacity-40 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {submitLabel}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CV preview overlay ── */}
+      {showPreview && currentApplicant && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-black/80 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}
+        >
+          <div className="flex items-center justify-between px-6 py-3 bg-[#1e293b] border-b border-white/10 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <Eye className="w-4 h-4 text-white/60" />
+              <span className="text-white font-bold text-sm">CV Preview — {currentApplicant.name}</span>
+              <span className="px-2 py-0.5 bg-white/10 text-white/80 rounded text-[11px] font-mono">{hasPage2 ? '2 Pages · A4' : '1 Page · A4'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Zoom out">
+                <ZoomOut className="w-4 h-4" />
               </button>
-              <button
-                onClick={handleSubmitForApproval}
-                disabled={!canSubmit || isSubmitting}
-                className="px-6 py-2.5 bg-[#0EA5E9] text-white text-sm font-bold rounded-lg hover:bg-[#0284C7] shadow-md shadow-[#0EA5E9]/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                {cvRecord?.status_code === 'REJECTED' ? 'Resubmit for Approval' : 'Submit for Approval'}
+              <span className="text-white/60 text-xs font-mono min-w-[48px] text-center">{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={() => setZoomLevel(z => Math.min(2, +(z + 0.1).toFixed(1)))} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Zoom in">
+                <ZoomIn className="w-4 h-4" />
               </button>
+              <div className="w-px h-5 bg-white/20 mx-1" />
+              <button onClick={handleExportToPDF} disabled={isExporting} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors">
+                <Download className="w-3.5 h-3.5" /> Download PDF
+              </button>
+              <button onClick={() => setShowPreview(false)} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1" title="Close (Esc)">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto flex items-start justify-center p-8 bg-slate-900/80">
+            <div style={{ width: 794 * zoomLevel, minHeight: (hasPage2 ? 2340 : 1160) * zoomLevel, flexShrink: 0, position: 'relative', paddingBottom: 40 * zoomLevel }}>
+              <div style={{ transformOrigin: 'top left', transform: `scale(${zoomLevel})`, width: 794 }}>
+                <CVPreviewDoc
+                  applicant={currentApplicant}
+                  summaryOverride={summaryOverride}
+                  customFields={effectiveCustomFields}
+                  cvId={cvRecord?.cv_id}
+                />
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Return to Profiling Modal ── */}
+      {/* ── Send back to Profiling dialog ── */}
       {showReturnModal && currentApplicant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
-            {/* Header */}
-            <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
-              <div className="flex items-center gap-2.5 text-amber-900">
-                <Undo2 className="w-5 h-5 text-amber-600" />
-                <div>
-                  <h3 className="font-extrabold text-base">Return Candidate to Profiling</h3>
-                  <p className="text-xs text-amber-700">Reverts candidate phase back to Applicant Profiling</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowReturnModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
-              >
-                <XCircle className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="px-6 pt-5 pb-3">
+              <h3 className="font-bold text-base text-[#0F172A]">Send {currentApplicant.name} back to Profiling?</h3>
+              <p className="text-sm text-slate-500 mt-1">They will leave CV Encoding until they are sent over again.</p>
             </div>
-
-            {/* Candidate Summary */}
-            <div className="p-6 space-y-4">
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                <div>
-                  <p className="font-bold text-slate-800 text-sm">{currentApplicant.name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {currentApplicant.role || currentApplicant.appliedRole || 'Candidate'} · {currentApplicant.applicantCode || `#APP-${currentApplicant.id}`}
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-200">
-                  Phase 3 → Phase 2
-                </span>
-              </div>
-
+            <div className="px-6 pb-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
-                  Reason Category
-                </label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason</label>
                 <select
                   value={returnCategory}
                   onChange={e => setReturnCategory(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 bg-white focus:border-[#0EA5E9] outline-none"
                 >
-                  <option value="Trade Skills / Assessment Re-evaluation">Trade Skills / Assessment Re-evaluation Required</option>
-                  <option value="Job Order Qualifications Mismatch">Job Order Qualifications Mismatch</option>
-                  <option value="Missing / Incomplete Certifications">Missing / Incomplete Certifications or Documents</option>
-                  <option value="Candidate Requested Different Role / Country">Candidate Requested Different Role / Country</option>
-                  <option value="Encoding Discrepancy / Other">Other Profile Inconsistency</option>
+                  <option value="Trade Skills / Assessment Re-evaluation">Skills need to be re-checked</option>
+                  <option value="Job Order Qualifications Mismatch">Does not match the job order</option>
+                  <option value="Missing / Incomplete Certifications">Missing certificates or documents</option>
+                  <option value="Candidate Requested Different Role / Country">Candidate wants a different role or country</option>
+                  <option value="Encoding Discrepancy / Other">Other</option>
                 </select>
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
-                  Detailed Findings & Guidance for Profiling Team <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Note for the profiling team <span className="text-red-500">*</span></label>
                 <textarea
                   rows={3}
                   value={returnNotes}
                   onChange={e => setReturnNotes(e.target.value)}
-                  placeholder="Explain why candidate is returning to profiling (e.g. Needs higher language score, reassignment to another job order)..."
+                  placeholder="Tell them what needs to be fixed..."
                   className="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-800 focus:border-[#0EA5E9] outline-none resize-none"
                 />
               </div>
             </div>
-
-            {/* Actions */}
             <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowReturnModal(false)}
                 disabled={isSubmittingReturn}
-                className="px-4 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1261,10 +1224,10 @@ export default function CVEncoding({
                 type="button"
                 onClick={() => handleConfirmReturnToProfiling()}
                 disabled={isSubmittingReturn || !returnNotes.trim()}
-                className="px-4 py-2 text-sm font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-40 shadow-sm transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-1.5 disabled:opacity-40 transition-colors cursor-pointer"
               >
                 {isSubmittingReturn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
-                Confirm Return to Profiling
+                {isSubmittingReturn ? 'Sending…' : 'Send back'}
               </button>
             </div>
           </div>

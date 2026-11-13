@@ -16,7 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   BookOpen, CheckCircle2, XCircle, Eye, RotateCcw, Loader2, X,
   AlertTriangle, Clock, Play, FileText, Check, Award, ChevronRight,
-  Filter, Sparkles, Link2
+  Filter, Sparkles, Link2, Undo2
 } from 'lucide-react';
 import api from '../../../lib/api';
 
@@ -117,6 +117,22 @@ export function ExamReviewModal({
       onClose();
     } catch (e: any) {
       showToast?.(e?.response?.data?.detail || 'Failed to grant retake.');
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  const handleRevokeRetake = async () => {
+    const assignmentId = review?.attempt?.assignment_id || review?.assignment?.assignment_id;
+    if (!assignmentId) return;
+    setGranting(true);
+    try {
+      await api.patch(`/exam-module/assignments/${assignmentId}/revoke-retake`);
+      showToast?.('Retake reverted. Candidate previous attempt is restored.');
+      onRetakeGranted?.();
+      onClose();
+    } catch (e: any) {
+      showToast?.(e?.response?.data?.detail || 'Failed to revert retake.');
     } finally {
       setGranting(false);
     }
@@ -383,16 +399,33 @@ export function ExamReviewModal({
         {/* Footer */}
         <div className="px-6 py-3.5 bg-white border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
           <div>
-            {!review?.assignment?.retake_allowed && (
+            {!review?.assignment?.retake_allowed ? (
               <button
                 type="button"
                 onClick={handleGrantRetake}
                 disabled={granting}
-                className="px-3.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
               >
                 {granting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
                 <span>{isFailed ? 'Allow Candidate Retake' : 'Allow Retake / Re-attempt'}</span>
               </button>
+            ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl inline-flex items-center gap-1.5 shadow-2xs">
+                  <RotateCcw size={12} className="text-amber-600 animate-spin" />
+                  <span>Retake In Progress</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRevokeRetake}
+                  disabled={granting}
+                  className="px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Revert the granted retake and restore previous score"
+                >
+                  {granting ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+                  <span>Revert Retake</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -617,6 +650,30 @@ export default function ScreeningExamPreview({
                     >
                       <RotateCcw size={13} />
                       <span>Allow Retake</span>
+                    </button>
+                  )}
+
+                  {/* Revert Retake if retake is active */}
+                  {it.retake_allowed && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setGranting(true);
+                        try {
+                          await api.patch(`/exam-module/assignments/${it.assignment_id}/revoke-retake`);
+                          showToast?.('Retake reverted. Candidate previous attempt is restored.');
+                          load();
+                        } catch (e: any) {
+                          showToast?.(e?.response?.data?.detail || 'Failed to revert retake.');
+                        } finally {
+                          setGranting(false);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title="Revert the granted retake"
+                    >
+                      <Undo2 size={13} />
+                      <span>Revert Retake</span>
                     </button>
                   )}
                 </div>

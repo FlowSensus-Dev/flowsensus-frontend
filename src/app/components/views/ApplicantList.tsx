@@ -2,10 +2,10 @@ import { useState } from 'react';
 import {
   Plus, Search, User, Briefcase, Clock,
   ChevronRight, ChevronLeft, ArrowLeft, Flag, BadgeCheck, OctagonX,
-  ArrowUpDown
+  ArrowUpDown, CheckCircle2, ArchiveRestore
 } from 'lucide-react';
 import { Skeleton, SkeletonAvatar, SkeletonBadge } from '../ui/skeleton';
-import { ApplicantRecord, ActivityLog, ExpenseRecord } from '../../types';
+import { ApplicantRecord, ActivityLog, ExpenseRecord, UserRole } from '../../types';
 import { ViewType } from '../AppShell';
 import ApplicantProfile from './ApplicantProfile';
 
@@ -32,6 +32,7 @@ interface ApplicantListProps {
   showToast?: (msg: string) => void;
   onEditApplicant?: () => void;
   currentUserRole?: string;
+  currentUserRoles?: (UserRole | string)[];
 }
 
 const PHASE_META: Record<number, { title: string; desc: string; color: string; bg: string; border: string }> = {
@@ -59,6 +60,7 @@ export default function ApplicantList({
   showToast,
   onEditApplicant,
   currentUserRole,
+  currentUserRoles,
 }: ApplicantListProps) {
   const [search, setSearch] = useState('');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'stopped' | number>('all');
@@ -70,6 +72,7 @@ export default function ApplicantList({
   const uniqueRoles = Array.from(new Set(applicants.map(a => a.role).filter(Boolean))).sort();
 
   const filtered = applicants.filter(a => {
+    if (a.deletedAt || a.archiveType === 'deleted' || a.status === 'Deleted') return false;
     const q = search.toLowerCase();
     const matchSearch = !search ||
       a.name.toLowerCase().includes(q) ||
@@ -261,6 +264,7 @@ export default function ApplicantList({
           applicantIndexText={applicantIndexText}
           onEdit={onEditApplicant}
           currentUserRole={currentUserRole}
+          currentUserRoles={currentUserRoles}
         />
       </div>
     );
@@ -324,7 +328,7 @@ export default function ApplicantList({
         </div>
         <button
           onClick={() => onNavigate?.('registration')}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm flex-shrink-0"
+          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-sm font-semibold transition-colors shadow-sm flex-shrink-0 cursor-pointer"
         >
           <Plus size={16} /> Add New Applicant
         </button>
@@ -553,12 +557,19 @@ export default function ApplicantList({
 
                 {/* Footer */}
                 <div className="w-full bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between mt-auto">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center">
-                      <User size={10} className="text-slate-600" />
+                  {a.status === 'Deployed' || a.phase === 6 ? (
+                    <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                      <CheckCircle2 size={10} className="text-emerald-600" />
+                      <span className="text-[10px] font-bold">Deployed (Complete)</span>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{a.currentHandler}</span>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center">
+                        <User size={10} className="text-slate-600" />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{a.currentHandler || 'Unassigned'}</span>
+                    </div>
+                  )}
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 flex-shrink-0">
                     <Clock size={10} /> {a.lastUpdated?.slice(0, 10) || '—'}
                   </span>
