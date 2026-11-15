@@ -1,13 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { api } from '../../../lib/api';
+import { validAlpha } from '../../../lib/sesAlpha';
 import SesAlphaDecisionGuide from './SesAlphaDecisionGuide';
 
 class InvalidSettingsResponse extends Error {}
-
-export function validAlpha(value: string): boolean {
-  return value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 1;
-}
 
 function readAlpha(data: any): number {
   if (typeof data?.ses_alpha !== 'number' || !validAlpha(String(data.ses_alpha))) {

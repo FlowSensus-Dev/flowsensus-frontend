@@ -81,6 +81,10 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
   const [isSaving, setIsSaving] = useState(false);
   const [modalJobOrderSearch, setModalJobOrderSearch] = useState<string>('');
 
+  // Delete confirmation dialog
+  const [deleteTarget, setDeleteTarget] = useState<DocumentRequirement | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Drag and Drop
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -408,26 +412,36 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     }
   };
 
-  const remove = async (id: string) => {
+  // Opens the in-app confirmation dialog; nothing is deleted until the user confirms
+  const remove = (id: string) => {
     const req = requirements.find(r => r.id === id);
     if (!req) return;
 
-    if (!window.confirm(`Are you sure you want to delete "${req.name}"? This action cannot be undone.`)) {
-      return;
-    }
+    setDeleteTarget(req);
+  };
 
-    const numId = parseInt(id.replace('new-', ''), 10);
-    if (!isNaN(numId)) {
-      try {
-        await api.delete(`/requirements/${numId}`);
-      } catch (err: any) {
-        console.error('Failed to delete requirement from server:', err);
-        showToast('Failed to delete from server: ' + (err.response?.data?.detail || err.message));
-        return;
+  const confirmDelete = async () => {
+    const req = deleteTarget;
+    if (!req || isDeleting) return;
+    const id = req.id;
+    setIsDeleting(true);
+    try {
+      const numId = parseInt(id.replace('new-', ''), 10);
+      if (!isNaN(numId)) {
+        try {
+          await api.delete(`/requirements/${numId}`);
+        } catch (err: any) {
+          console.error('Failed to delete requirement from server:', err);
+          showToast('Failed to delete from server: ' + (err.response?.data?.detail || err.message));
+          return;
+        }
       }
+      setRequirements(prev => prev.filter(r => r.id !== id));
+      showToast(`"${req.name}" deleted successfully`);
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
-    setRequirements(prev => prev.filter(r => r.id !== id));
-    showToast(`"${req.name}" deleted successfully`);
   };
 
   const toggleStatus = async (id: string) => {
@@ -500,478 +514,331 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
     setEditing({ ...editing, jobOrders: updated });
   };
 
+  const inactiveCount = totalCount - activeCount;
+
+  // ── Plain-language descriptions for table cells ────────────────────────────
+  const describeApplicants = (r: DocumentRequirement) => {
+    if (r.applicantTypes.length === 0) return 'Everyone';
+    const names = r.applicantTypes.map(c => applicantTypeNames.get(c) || c);
+    return names.length <= 2 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  };
+
+  const jobLabel = (id: number) => {
+    const jo = jobOrderMap.get(id);
+    return jo ? `${jo.position} (${jo.job_code})` : `Job order #${id}`;
+  };
+
+  const describeJobs = (r: DocumentRequirement) => {
+    if (r.jobOrders.length === 0) return 'All jobs';
+    if (r.jobOrders.length === 1) return jobLabel(r.jobOrders[0]);
+    return `${r.jobOrders.length} specific jobs`;
+  };
+
+  const categoryLabel = (c?: string) =>
+    c === 'CERTIFICATION' ? 'Certificate' : c === 'MEDICAL' ? 'Medical' : c === 'OTHER' ? 'Clearance / Other' : 'Document';
+
+  const filteredModalJobOrders = editing
+    ? jobOrders.filter(jo => {
+        const q = modalJobOrderSearch.trim().toLowerCase();
+        if (!q) return true;
+        return (
+          jo.position.toLowerCase().includes(q) ||
+          jo.job_code.toLowerCase().includes(q) ||
+          (jo.employer_name || '').toLowerCase().includes(q)
+        );
+      })
+    : [];
+
   return (
-    <div className="w-full max-w-full space-y-6 pb-12 transition-all duration-300">
-      {/* ── Page Header (Flowsensus Consistent Style) ────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="w-full max-w-full space-y-5 pb-12">
+      {/* ── Page header ─────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 pb-4 border-b border-slate-200/90">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0F172A]">
-              Document Requirements Setup
-            </h1>
-            <span className="px-2.5 py-0.5 bg-sky-50 text-[#0EA5E9] text-xs font-bold rounded border border-sky-200 uppercase tracking-wider">
-              Compliance Rules
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-[#0F172A]">Document Requirements</h1>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-900 text-white font-mono">
+              {totalCount}
             </span>
           </div>
-          <p className="text-sm text-[#64748B] mt-1 font-medium">
-            Configure dynamic regulatory and agency document requirements targeted by applicant type and job order.
+          <p className="text-xs text-slate-500 mt-1">
+            Choose which documents applicants need to submit, and who each one applies to.
           </p>
+          {!loading && totalCount > 0 && (
+            <p className="text-xs text-slate-400 mt-1.5">
+              <span className="text-slate-600 font-semibold">{mandatoryCount}</span> required
+              {' · '}
+              <span className="text-slate-600 font-semibold">{optionalCount}</span> optional
+              {inactiveCount > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-slate-600 font-semibold">{inactiveCount}</span> turned off
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         <button
+          type="button"
           onClick={openNew}
-          className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm cursor-pointer self-start sm:self-auto"
+          className="flex items-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer self-start"
         >
-          <Plus size={16} /> Add Requirement
+          <Plus size={14} /> Add requirement
         </button>
       </div>
 
-      {/* ── KPI Metric Summary Cards (Signature Flowsensus Card Layout) ───── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {/* Total Requirements */}
-        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#0F172A] shadow-sm relative overflow-hidden group">
-          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#0F172A]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
-            Total Requirements
-          </p>
-          <p className="text-3xl sm:text-4xl font-black text-[#0F172A] mt-2">
-            {totalCount}
-          </p>
-        </div>
-
-        {/* Active Requirements */}
-        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#10B981] shadow-sm relative overflow-hidden group">
-          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#10B981]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
-            Active in Workflows
-          </p>
-          <p className="text-3xl sm:text-4xl font-black text-[#10B981] mt-2">
-            {activeCount}
-          </p>
-        </div>
-
-        {/* Mandatory Requirements */}
-        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#EF4444] shadow-sm relative overflow-hidden group">
-          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#EF4444]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
-            Mandatory Documents
-          </p>
-          <p className="text-3xl sm:text-4xl font-black text-[#EF4444] mt-2">
-            {mandatoryCount}
-          </p>
-        </div>
-
-        {/* Optional Requirements */}
-        <div className="bg-white p-5 sm:p-6 rounded-lg border-l-4 border-l-[#F59E0B] shadow-sm relative overflow-hidden group">
-          <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#F59E0B]/10 rounded-full group-hover:scale-150 transition-transform duration-500" />
-          <p className="text-xs sm:text-sm font-bold text-[#64748B] uppercase tracking-wider">
-            Optional / Supporting
-          </p>
-          <p className="text-3xl sm:text-4xl font-black text-[#F59E0B] mt-2">
-            {optionalCount}
-          </p>
-        </div>
-      </div>
-
-      {/* ── Dynamic Filter Toolbar ────────────────────────────────────────── */}
-      <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-5 space-y-3.5 shadow-sm">
-        {/* Row 1: Search Input + Searchable Job Order Dropdown Combobox */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Requirement Search Input */}
-          <div className="relative flex-1 min-w-[240px]">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              value={searchFilter}
-              onChange={e => setSearchFilter(e.target.value)}
-              placeholder="Search requirement name or instructions..."
-              className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] bg-white text-slate-800 placeholder-slate-400 transition-all"
-            />
-            {searchFilter && (
-              <button
-                onClick={() => setSearchFilter('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
-                title="Clear search"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          {/* Searchable Job Order Dropdown Combobox */}
-          <div ref={jobOrderDropdownRef} className="relative sm:w-80 lg:w-96 flex-shrink-0">
+      {/* ── Filters (one calm row) ──────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Search */}
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchFilter}
+            onChange={e => setSearchFilter(e.target.value)}
+            placeholder="Search requirements..."
+            className="pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400 shadow-2xs w-56 sm:w-64 transition-all"
+          />
+          {searchFilter && (
             <button
               type="button"
-              onClick={() => setIsJobOrderDropdownOpen(prev => !prev)}
-              className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded text-sm transition-all cursor-pointer ${
-                jobOrderFilter !== 'all'
-                  ? 'border-[#0EA5E9] bg-sky-50/70 text-[#0F172A] font-medium shadow-xs'
-                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50'
-              }`}
+              onClick={() => setSearchFilter('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+              title="Clear search"
             >
-              <div className="flex items-center gap-2 min-w-0 truncate">
-                <Briefcase
-                  size={15}
-                  className={`flex-shrink-0 ${
-                    jobOrderFilter !== 'all' ? 'text-[#0EA5E9]' : 'text-slate-400'
-                  }`}
-                />
-                <span className="truncate">
-                  {selectedJobOrderDisplay}
-                </span>
-                {jobOrderFilter === 'all' && (
-                  <span className="text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-semibold flex-shrink-0">
-                    {jobOrders.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {jobOrderFilter !== 'all' && (
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setJobOrderFilter('all');
-                    }}
-                    className="p-0.5 hover:bg-sky-200/60 rounded text-slate-500 hover:text-slate-700 transition-colors"
-                    title="Clear Job Order filter"
-                  >
-                    <X size={13} />
-                  </span>
-                )}
-                <ChevronDown
-                  size={15}
-                  className={`text-slate-400 transition-transform duration-200 ${
-                    isJobOrderDropdownOpen ? 'rotate-180 text-[#0EA5E9]' : ''
-                  }`}
-                />
-              </div>
-            </button>
-
-            {/* Popover Dropdown Panel */}
-            {isJobOrderDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-full sm:w-96 bg-white rounded-lg shadow-xl border border-slate-200 py-2.5 z-50 animate-in fade-in-50 zoom-in-95 duration-100">
-                {/* Search Box inside Dropdown */}
-                <div className="px-3 pb-2 border-b border-slate-100">
-                  <div className="relative">
-                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={jobOrderDropdownSearch}
-                      onChange={e => setJobOrderDropdownSearch(e.target.value)}
-                      placeholder="Search position, job code, employer..."
-                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] transition-all"
-                    />
-                    {jobOrderDropdownSearch && (
-                      <button
-                        onClick={() => setJobOrderDropdownSearch('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      >
-                        <X size={12} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Dropdown Tabs: By Position vs By Job Order */}
-                <div className="px-3 pt-2 pb-1 flex items-center gap-1 border-b border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setJobOrderDropdownTab('positions')}
-                    className={`flex-1 py-1 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
-                      jobOrderDropdownTab === 'positions'
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    Positions ({filteredPositionsForDropdown.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setJobOrderDropdownTab('orders')}
-                    className={`flex-1 py-1 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
-                      jobOrderDropdownTab === 'orders'
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    Specific Orders ({filteredJobOrdersForDropdown.length})
-                  </button>
-                </div>
-
-                {/* Scrollable Options List */}
-                <div className="max-h-64 overflow-y-auto px-1 py-1 space-y-0.5 text-xs">
-                  {/* All Job Orders Option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setJobOrderFilter('all');
-                      setIsJobOrderDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
-                      jobOrderFilter === 'all'
-                        ? 'bg-sky-50 text-[#0284C7] font-bold'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Briefcase size={14} className={jobOrderFilter === 'all' ? 'text-[#0EA5E9]' : 'text-slate-400'} />
-                      <span>All Job Orders (Baseline Requirements)</span>
-                    </div>
-                    {jobOrderFilter === 'all' && <Check size={14} className="text-[#0EA5E9] stroke-[2.5]" />}
-                  </button>
-
-                  {/* Tab 1: Positions */}
-                  {jobOrderDropdownTab === 'positions' && (
-                    <>
-                      {filteredPositionsForDropdown.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-slate-400">
-                          No positions match &quot;{jobOrderDropdownSearch}&quot;
-                        </div>
-                      ) : (
-                        filteredPositionsForDropdown.map(pos => {
-                          const isSelected = jobOrderFilter.toLowerCase() === pos.toLowerCase();
-                          const stats = positionStats.get(pos);
-                          return (
-                            <button
-                              key={pos}
-                              type="button"
-                              onClick={() => {
-                                setJobOrderFilter(pos);
-                                setIsJobOrderDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
-                                isSelected
-                                  ? 'bg-sky-50 text-[#0284C7] font-bold'
-                                  : 'text-slate-700 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Layers size={13} className={isSelected ? 'text-[#0EA5E9]' : 'text-slate-400'} />
-                                <span className="truncate">{pos}</span>
-                                {stats && (
-                                  <span className="text-[10px] text-slate-400 font-normal">
-                                    ({stats.count} {stats.count === 1 ? 'order' : 'orders'})
-                                  </span>
-                                )}
-                              </div>
-                              {isSelected && <Check size={14} className="text-[#0EA5E9] stroke-[2.5]" />}
-                            </button>
-                          );
-                        })
-                      )}
-                    </>
-                  )}
-
-                  {/* Tab 2: Specific Job Orders */}
-                  {jobOrderDropdownTab === 'orders' && (
-                    <>
-                      {filteredJobOrdersForDropdown.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-slate-400">
-                          No job orders match &quot;{jobOrderDropdownSearch}&quot;
-                        </div>
-                      ) : (
-                        filteredJobOrdersForDropdown.map(jo => {
-                          const isSelected = jobOrderFilter === String(jo.job_order_id);
-                          return (
-                            <button
-                              key={jo.job_order_id}
-                              type="button"
-                              onClick={() => {
-                                setJobOrderFilter(String(jo.job_order_id));
-                                setIsJobOrderDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
-                                isSelected
-                                  ? 'bg-sky-50 text-[#0284C7] font-bold'
-                                  : 'text-slate-700 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex flex-col min-w-0 pr-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-semibold truncate text-slate-800">{jo.position}</span>
-                                  <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[10px] font-mono rounded border border-slate-200">
-                                    {jo.job_code}
-                                  </span>
-                                </div>
-                                {(jo.employer_name || jo.company_name) && (
-                                  <div className="flex items-center gap-1 text-[11px] text-slate-400 truncate mt-0.5">
-                                    <Building2 size={11} className="flex-shrink-0" />
-                                    <span className="truncate">{jo.employer_name || jo.company_name}</span>
-                                  </div>
-                                )}
-                              </div>
-                              {isSelected && <Check size={14} className="text-[#0EA5E9] stroke-[2.5] flex-shrink-0" />}
-                            </button>
-                          );
-                        })
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Row 2: Applicant Type Pills + Clear Controls */}
-        <div className="pt-2 border-t border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
-              <Filter size={13} />
-              <span>By Applicant Type:</span>
-            </span>
-
-            <button
-              onClick={() => setApplicantTypeFilter('all')}
-              className={`px-3 py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
-                applicantTypeFilter === 'all'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-              }`}
-            >
-              All Applicant Types
-            </button>
-            {applicantTypes.map(t => {
-              const active = applicantTypeFilter === t.applicant_type_code;
-              const palette = getBadgeColor(t.applicant_type_code);
-              return (
-                <button
-                  key={t.applicant_type_code}
-                  onClick={() => setApplicantTypeFilter(t.applicant_type_code)}
-                  className="px-3 py-1.5 rounded text-xs font-bold transition-all border cursor-pointer"
-                  style={
-                    active
-                      ? { background: '#0F172A', color: '#fff', borderColor: '#0F172A' }
-                      : { background: palette.bg, color: palette.text, borderColor: palette.border }
-                  }
-                >
-                  {t.type_name}
-                </button>
-              );
-            })}
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              onClick={handleResetFilters}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 font-semibold transition-colors cursor-pointer self-start md:self-auto"
-            >
-              <RotateCcw size={12} />
-              <span>Reset All Filters</span>
+              ✕
             </button>
           )}
         </div>
 
-        {/* Active Filters Summary Strip (Shown when any filter is on) */}
+        {/* Applicant type */}
+        <div className="relative">
+          <select
+            value={applicantTypeFilter}
+            onChange={e => setApplicantTypeFilter(e.target.value)}
+            className={`appearance-none pl-3 pr-8 py-1.5 border rounded-lg text-xs font-semibold shadow-2xs cursor-pointer focus:outline-none transition-colors ${
+              applicantTypeFilter !== 'all'
+                ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <option value="all">Applicant: Everyone</option>
+            {applicantTypes.map(t => (
+              <option key={t.applicant_type_code} value={t.applicant_type_code}>
+                Applicant: {t.type_name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            size={14}
+            className={`absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${
+              applicantTypeFilter !== 'all' ? 'text-slate-300' : 'text-slate-400'
+            }`}
+          />
+        </div>
+
+        {/* Job order / position */}
+        <div ref={jobOrderDropdownRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setIsJobOrderDropdownOpen(prev => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer shadow-2xs max-w-[260px] ${
+              jobOrderFilter !== 'all'
+                ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                : isJobOrderDropdownOpen
+                ? 'bg-slate-50 text-slate-900 border-slate-300'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+            }`}
+          >
+            <span className={`font-normal ${jobOrderFilter !== 'all' ? 'text-slate-300' : 'text-slate-400'}`}>Job:</span>
+            <span className="truncate">{jobOrderFilter === 'all' ? 'All jobs' : selectedJobOrderDisplay.replace(/^Position: /, '')}</span>
+            <ChevronDown
+              size={14}
+              className={`flex-shrink-0 transition-transform duration-150 ${
+                jobOrderFilter !== 'all' ? 'text-slate-300' : 'text-slate-400'
+              } ${isJobOrderDropdownOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {isJobOrderDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-80 bg-white rounded-xl shadow-xl border border-slate-200/90 py-2 z-40 animate-in fade-in zoom-in-95 duration-100">
+              <div className="px-3 pb-2">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={jobOrderDropdownSearch}
+                    onChange={e => setJobOrderDropdownSearch(e.target.value)}
+                    placeholder="Search by position, code or employer..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:border-slate-400"
+                  />
+                </div>
+              </div>
+
+              <div className="px-3 pb-2 flex items-center gap-1">
+                {(['positions', 'orders'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setJobOrderDropdownTab(tab)}
+                    className={`flex-1 py-1 text-[11px] font-semibold rounded-md text-center transition-colors cursor-pointer ${
+                      jobOrderDropdownTab === tab
+                        ? 'bg-slate-100 text-[#0F172A]'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {tab === 'positions'
+                      ? `By position (${filteredPositionsForDropdown.length})`
+                      : `By job order (${filteredJobOrdersForDropdown.length})`}
+                  </button>
+                ))}
+              </div>
+
+              <div className="max-h-64 overflow-y-auto border-t border-slate-100 pt-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJobOrderFilter('all');
+                    setIsJobOrderDropdownOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-4 py-2 text-left transition-colors cursor-pointer ${
+                    jobOrderFilter === 'all' ? 'bg-slate-100 text-[#0F172A] font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>All jobs</span>
+                  {jobOrderFilter === 'all' && <Check size={13} className="text-[#0EA5E9]" />}
+                </button>
+
+                {jobOrderDropdownTab === 'positions' &&
+                  (filteredPositionsForDropdown.length === 0 ? (
+                    <div className="py-6 text-center text-slate-400">No positions found</div>
+                  ) : (
+                    filteredPositionsForDropdown.map(pos => {
+                      const isSelected = jobOrderFilter.toLowerCase() === pos.toLowerCase();
+                      const stats = positionStats.get(pos);
+                      return (
+                        <button
+                          key={pos}
+                          type="button"
+                          onClick={() => {
+                            setJobOrderFilter(pos);
+                            setIsJobOrderDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-2 text-left transition-colors cursor-pointer ${
+                            isSelected ? 'bg-slate-100 text-[#0F172A] font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="truncate">
+                            {pos}
+                            {stats && <span className="text-slate-400 font-normal"> · {stats.count}</span>}
+                          </span>
+                          {isSelected && <Check size={13} className="text-[#0EA5E9] flex-shrink-0" />}
+                        </button>
+                      );
+                    })
+                  ))}
+
+                {jobOrderDropdownTab === 'orders' &&
+                  (filteredJobOrdersForDropdown.length === 0 ? (
+                    <div className="py-6 text-center text-slate-400">No job orders found</div>
+                  ) : (
+                    filteredJobOrdersForDropdown.map(jo => {
+                      const isSelected = jobOrderFilter === String(jo.job_order_id);
+                      return (
+                        <button
+                          key={jo.job_order_id}
+                          type="button"
+                          onClick={() => {
+                            setJobOrderFilter(String(jo.job_order_id));
+                            setIsJobOrderDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-2 text-left transition-colors cursor-pointer ${
+                            isSelected ? 'bg-slate-100 text-[#0F172A] font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate">{jo.position}</div>
+                            <div className="text-[11px] text-slate-400 font-normal truncate">
+                              {jo.job_code}
+                              {(jo.employer_name || jo.company_name) && ` · ${jo.employer_name || jo.company_name}`}
+                            </div>
+                          </div>
+                          {isSelected && <Check size={13} className="text-[#0EA5E9] flex-shrink-0 ml-2" />}
+                        </button>
+                      );
+                    })
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {hasActiveFilters && (
-          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-500 font-medium">
-              Showing <strong className="text-slate-800">{filtered.length}</strong> of {totalCount} requirements
-            </span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-400 font-semibold uppercase text-[10px] tracking-wider">Filtered by:</span>
-
-            {searchFilter && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs border border-slate-200">
-                <span>Keyword: &quot;{searchFilter}&quot;</span>
-                <button onClick={() => setSearchFilter('')} className="hover:text-rose-600 cursor-pointer">
-                  <X size={12} />
-                </button>
-              </span>
-            )}
-
-            {applicantTypeFilter !== 'all' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-50 text-sky-700 rounded text-xs border border-sky-200">
-                <span>Type: {applicantTypeNames.get(applicantTypeFilter) || applicantTypeFilter}</span>
-                <button onClick={() => setApplicantTypeFilter('all')} className="hover:text-rose-600 cursor-pointer">
-                  <X size={12} />
-                </button>
-              </span>
-            )}
-
-            {jobOrderFilter !== 'all' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs border border-indigo-200">
-                <span>Job Order: {selectedJobOrderDisplay}</span>
-                <button onClick={() => setJobOrderFilter('all')} className="hover:text-rose-600 cursor-pointer">
-                  <X size={12} />
-                </button>
-              </span>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="text-xs font-medium text-slate-500 hover:text-slate-800 px-2 py-1 rounded hover:bg-slate-100 cursor-pointer"
+          >
+            ✕ Clear filters
+          </button>
         )}
       </div>
 
-      {/* Dynamic Targeting Rule Banner */}
-      <div className="bg-sky-50 border border-sky-200 rounded-lg px-4 py-3 flex items-start gap-3 text-sm text-sky-800">
-        <AlertCircle size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
-        <div className="text-xs leading-relaxed">
-          <strong>Dynamic Targeting Rule:</strong> Requirements with no specific applicant types or job orders selected apply to <em>All Job Orders & All Applicants</em> (baseline compliance).
-          Drag and drop rows to customize checklist ordering across staff workflows.
-        </div>
-      </div>
-
-      {/* ── Requirements Table ────────────────────────────────────────────── */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        {/* Table Subheader */}
-        <div className="px-5 sm:px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="font-black text-[#0F172A] text-sm uppercase tracking-wider">
-              Document Requirements Catalog
-            </h3>
-            <span className="px-2 py-0.5 bg-slate-200 text-slate-800 font-bold rounded text-xs">
-              {filtered.length} {filtered.length === 1 ? 'Item' : 'Items'}
-            </span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto min-w-full">
-          <table className="w-full text-sm text-left border-collapse">
+      {/* ── Requirements list ───────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/90 border-b border-slate-200 text-xs text-[#0F172A] uppercase tracking-wider font-black">
-                <th className="w-8 px-3 py-3.5" />
-                <th className="px-3 py-3.5 w-12 text-slate-400">#</th>
-                <th className="px-4 py-3.5 min-w-[200px]">Requirement</th>
-                <th className="px-4 py-3.5 min-w-[170px]">Applicant Types</th>
-                <th className="px-4 py-3.5 min-w-[200px]">Targeted Job Orders</th>
-                <th className="px-3 py-3.5 text-center w-28">Mandatory</th>
-                <th className="px-3 py-3.5 text-center w-28">Expiry Track</th>
-                <th className="px-3 py-3.5 text-center w-20">Status</th>
-                <th className="px-4 py-3.5 text-center w-24">Actions</th>
+              <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="w-8 py-3 pl-4" />
+                <th className="py-3 px-4 min-w-[220px]">Requirement</th>
+                <th className="py-3 px-4 text-center min-w-[200px]">Who needs it</th>
+                <th className="py-3 px-4 text-center w-28">Required</th>
+                <th className="py-3 px-4 text-center w-32">Valid for</th>
+                <th className="py-3 px-4 text-center w-24">In use</th>
+                <th className="py-3 px-4 text-center w-24">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 font-medium text-xs">
+            <tbody className="divide-y divide-slate-100 text-xs">
               {loading ? (
-                <>
-                  {[...Array(5)].map((_, i) => (
-                    <tr key={i}>
-                      <td className="px-2 py-3 w-8"><Skeleton className="h-4 w-4 mx-auto" /></td>
-                      <td className="px-3 py-3 w-8"><Skeleton className="h-3.5 w-6" /></td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1.5">
-                          <Skeleton className="h-3.5 w-44" />
-                          <Skeleton className="h-4 w-14 rounded bg-slate-100" />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3"><SkeletonBadge className="w-20" /></td>
-                      <td className="px-4 py-3 min-w-[180px]"><SkeletonBadge className="w-28" /></td>
-                      <td className="px-3 py-3 w-28 text-center"><Skeleton className="h-4 w-4 rounded mx-auto" /></td>
-                      <td className="px-3 py-3 w-28 text-center"><SkeletonBadge className="w-16 mx-auto" /></td>
-                      <td className="px-3 py-3 w-20 text-center"><SkeletonBadge className="w-14 mx-auto" /></td>
-                      <td className="px-4 py-3 w-24 text-center"><Skeleton className="h-7 w-16 mx-auto" /></td>
-                    </tr>
-                  ))}
-                </>
+                [...Array(5)].map((_, i) => (
+                  <tr key={i}>
+                    <td className="py-4 pl-4"><Skeleton className="h-4 w-4" /></td>
+                    <td className="py-4 px-4">
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-3.5 w-44" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                    </td>
+                    <td className="py-4 px-4"><Skeleton className="h-3.5 w-32 mx-auto" /></td>
+                    <td className="py-4 px-4"><Skeleton className="h-3.5 w-14 mx-auto" /></td>
+                    <td className="py-4 px-4"><Skeleton className="h-3.5 w-16 mx-auto" /></td>
+                    <td className="py-4 px-4"><Skeleton className="h-5 w-9 mx-auto rounded-full" /></td>
+                    <td className="py-4 px-4"><Skeleton className="h-6 w-14 mx-auto" /></td>
+                  </tr>
+                ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
-                    <div className="max-w-sm mx-auto space-y-2">
-                      <p className="font-semibold text-slate-700">No requirements found</p>
-                      <p className="text-xs text-slate-400">
-                        No document requirements match the selected filters. Change filter options or click "Add Requirement" to create one.
+                  <td colSpan={7} className="px-6 py-14 text-center">
+                    <div className="max-w-sm mx-auto space-y-1.5">
+                      <p className="text-sm font-semibold text-slate-700">
+                        {hasActiveFilters ? 'No requirements match your filters' : 'No requirements yet'}
                       </p>
+                      <p className="text-xs text-slate-400">
+                        {hasActiveFilters
+                          ? 'Try a different search, or clear the filters to see everything.'
+                          : 'Add your first requirement to start building the applicant checklist.'}
+                      </p>
+                      {hasActiveFilters && (
+                        <button
+                          type="button"
+                          onClick={handleResetFilters}
+                          className="mt-2 text-xs font-semibold text-[#0EA5E9] hover:underline cursor-pointer"
+                        >
+                          Clear filters
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -987,172 +854,91 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                       setDragId(null);
                       setDragOverId(null);
                     }}
-                    className={`transition-colors ${
+                    className={`group transition-colors ${
                       dragOverId === req.id
-                        ? 'bg-[#0EA5E9]/10 border-t-2 border-[#0EA5E9]'
-                        : req.isActive
-                        ? 'hover:bg-slate-50/70'
-                        : 'opacity-60 bg-slate-50/50'
-                    }`}
+                        ? 'bg-sky-50 shadow-[inset_0_2px_0_0_#0EA5E9]'
+                        : 'hover:bg-slate-50/70'
+                    } ${req.isActive ? '' : 'bg-slate-50/50'}`}
                   >
-                    {/* Drag Handle */}
-                    <td className="px-3 py-3 cursor-grab text-slate-300 hover:text-slate-500">
-                      <GripVertical size={16} />
+                    {/* Drag handle (visible on hover) */}
+                    <td className="py-3.5 pl-4 w-8 align-middle">
+                      <GripVertical
+                        size={14}
+                        className="text-slate-300 opacity-0 group-hover:opacity-100 cursor-grab transition-opacity"
+                      />
                     </td>
 
-                    {/* Sort # */}
-                    <td className="px-3 py-3 text-slate-400 font-mono text-xs">
-                      {String(req.sortOrder).padStart(2, '0')}
-                    </td>
-
-                    {/* Name & Description */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-[#0F172A] text-sm">{req.name}</span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                          req.category === 'CERTIFICATION'
-                            ? 'bg-purple-50 text-purple-700 border-purple-200'
-                            : req.category === 'MEDICAL'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : req.category === 'OTHER'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}>
-                          {req.category || 'DOCUMENT'}
-                        </span>
-                      </div>
+                    {/* Requirement */}
+                    <td className={`py-3.5 px-4 ${req.isActive ? '' : 'opacity-60'}`}>
+                      <div className="font-semibold text-[#0F172A] text-[13.5px]">{req.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{categoryLabel(req.category)}</div>
                       {req.description && (
-                        <div className="text-xs text-slate-500 mt-0.5 line-clamp-2 max-w-sm">
+                        <div className="text-[11px] text-slate-400 mt-0.5 line-clamp-1 max-w-md" title={req.description}>
                           {req.description}
                         </div>
                       )}
-                      {req.expiryTracked && req.validityMonths && (
-                        <span className="text-[10px] bg-sky-50 text-[#0284C7] border border-sky-200 px-2 py-0.5 rounded mt-1.5 inline-block font-semibold">
-                          Valid for {req.validityMonths} mo ({req.validityMonths * 30} days)
-                        </span>
-                      )}
                     </td>
 
-                    {/* Applicant Type Badges */}
-                    <td className="px-4 py-3">
-                      {req.applicantTypes.length === 0 ? (
-                        <span className="inline-flex items-center text-[11px] px-2.5 py-0.5 rounded font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                          All Applicants
-                        </span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {req.applicantTypes.map(code => {
-                            const label = applicantTypeNames.get(code) || code;
-                            const palette = getBadgeColor(code);
-                            return (
-                              <span
-                                key={code}
-                                className="text-[10px] px-2 py-0.5 rounded font-bold border"
-                                style={{
-                                  background: palette.bg,
-                                  color: palette.text,
-                                  borderColor: palette.border,
-                                }}
-                              >
-                                {label}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
+                    {/* Who needs it */}
+                    <td className={`py-3.5 px-4 text-center ${req.isActive ? '' : 'opacity-60'}`}>
+                      <div className="font-medium text-slate-700 text-xs">{describeApplicants(req)}</div>
+                      <div
+                        className="text-[11px] text-slate-400 mt-0.5"
+                        title={req.jobOrders.length > 0 ? req.jobOrders.map(jobLabel).join('\n') : undefined}
+                      >
+                        {describeJobs(req)}
+                      </div>
                     </td>
 
-                    {/* Job Order Badges */}
-                    <td className="px-4 py-3">
-                      {req.jobOrders.length === 0 ? (
-                        <span className="inline-flex items-center text-[11px] px-2.5 py-0.5 rounded font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                          All Job Orders (Baseline)
-                        </span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 items-center">
-                          {req.jobOrders.slice(0, 3).map(id => {
-                            const jo = jobOrderMap.get(id);
-                            const label = jo ? `${jo.position} (${jo.job_code})` : `Job Order #${id}`;
-                            const palette = getBadgeColor(id);
-                            return (
-                              <span
-                                key={id}
-                                className="text-[10px] px-2 py-0.5 rounded font-semibold border truncate max-w-[170px]"
-                                style={{
-                                  background: palette.bg,
-                                  color: palette.text,
-                                  borderColor: palette.border,
-                                }}
-                                title={label}
-                              >
-                                {label}
-                              </span>
-                            );
-                          })}
-                          {req.jobOrders.length > 3 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                              +{req.jobOrders.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Mandatory */}
-                    <td className="px-3 py-3 text-center">
+                    {/* Required */}
+                    <td className={`py-3.5 px-4 text-center whitespace-nowrap ${req.isActive ? '' : 'opacity-60'}`}>
                       {req.isRequired ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
-                          <CheckCircle2 size={12} /> Mandatory
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Required
                         </span>
                       ) : (
-                        <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                           Optional
                         </span>
                       )}
                     </td>
 
-                    {/* Expiry Track */}
-                    <td className="px-3 py-3 text-center">
-                      {req.expiryTracked ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                          <CheckCircle2 size={12} /> Tracked
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-xs">—</span>
-                      )}
+                    {/* Valid for */}
+                    <td className={`py-3.5 px-4 text-center whitespace-nowrap text-xs text-slate-600 ${req.isActive ? '' : 'opacity-60'}`}>
+                      {req.expiryTracked && req.validityMonths
+                        ? `${req.validityMonths} ${req.validityMonths === 1 ? 'month' : 'months'}`
+                        : <span className="text-slate-400">No expiry</span>}
                     </td>
 
-                    {/* Status Toggle */}
-                    <td className="px-3 py-3 text-center">
-                      <button
-                        onClick={() => toggleStatus(req.id)}
-                        title={`Click to ${req.isActive ? 'deactivate' : 'activate'}`}
-                        className="transition-transform active:scale-95 cursor-pointer"
-                      >
-                        {req.isActive ? (
-                          <ToggleRight size={26} className="text-[#10B981] mx-auto" />
-                        ) : (
-                          <ToggleLeft size={26} className="text-slate-300 mx-auto" />
-                        )}
-                      </button>
+                    {/* In use switch */}
+                    <td className="py-3.5 px-4 text-center">
+                      <Switch
+                        checked={req.isActive}
+                        onChange={() => toggleStatus(req.id)}
+                        label={req.isActive ? `Turn off ${req.name}` : `Turn on ${req.name}`}
+                      />
                     </td>
 
                     {/* Actions */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <td className="py-3.5 px-4 text-center">
+                      <div className="flex items-center justify-center gap-0.5">
                         <button
+                          type="button"
                           onClick={() => openEdit(req)}
-                          title="Edit requirement"
-                          className="p-1.5 hover:bg-sky-50 hover:text-[#0EA5E9] rounded-md transition-colors text-slate-400 cursor-pointer"
+                          title="Edit"
+                          className="p-1.5 hover:bg-slate-100 hover:text-[#0F172A] rounded-md transition-colors text-slate-400 cursor-pointer"
                         >
-                          <Pencil size={15} />
+                          <Pencil size={14} />
                         </button>
                         <button
+                          type="button"
                           onClick={() => remove(req.id)}
-                          title="Delete requirement"
+                          title="Delete"
                           className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-md transition-colors text-slate-400 cursor-pointer"
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>
@@ -1162,149 +948,133 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
             </tbody>
           </table>
         </div>
+
+        {!loading && filtered.length > 0 && (
+          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 text-[11px] text-slate-400">
+            Showing {filtered.length} of {totalCount}. Drag a row by its handle to change the order staff see.
+            Requirements with no specific group apply to everyone.
+          </div>
+        )}
       </div>
 
-      {/* ── Edit / Add Modal ──────────────────────────────────────────────── */}
+      {/* ── Add / Edit requirement ──────────────────────────────────────── */}
       {editing && (
         <div className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl my-8 overflow-hidden border border-slate-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-8 overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="font-extrabold text-lg text-[#0F172A]">
-                  {isNew ? 'Add Document Requirement' : 'Edit Document Requirement'}
+                <h2 className="font-bold text-lg text-[#0F172A]">
+                  {isNew ? 'Add requirement' : 'Edit requirement'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Configure checklist rules, validity, and targeting across overseas job orders.
+                  Set what applicants need to submit and who it applies to.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setEditing(null)}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Close"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="px-6 py-5 space-y-4 max-h-[75vh] overflow-y-auto">
-              {/* Requirement Name */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Requirement Name *
-                </label>
-                <input
-                  value={editing.name}
-                  onChange={e => setEditing(p => (p ? { ...p, name: e.target.value } : p))}
-                  placeholder="e.g. Passport, NBI Clearance, PEOS Certificate, Practical Skills Certificate"
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9]"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Description / Instructions
-                </label>
-                <textarea
-                  value={editing.description}
-                  onChange={e => setEditing(p => (p ? { ...p, description: e.target.value } : p))}
-                  rows={2}
-                  placeholder="Specific requirements, validity guidelines, or notes for recruitment staff..."
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] focus:border-[#0EA5E9] resize-none"
-                />
-              </div>
-
-              {/* Category, Compliance & Status Level */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Body */}
+            <div className="px-6 py-5 space-y-6 max-h-[70vh] overflow-y-auto">
+              {/* Basics */}
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Category *
-                  </label>
-                  <select
-                    value={editing.category || 'DOCUMENT'}
-                    onChange={e => setEditing(p => (p ? { ...p, category: e.target.value as any } : p))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
-                  >
-                    <option value="DOCUMENT">Document</option>
-                    <option value="CERTIFICATION">Certification</option>
-                    <option value="MEDICAL">Medical</option>
-                    <option value="OTHER">Other / Clearance</option>
-                  </select>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Name</label>
+                  <input
+                    value={editing.name}
+                    onChange={e => setEditing(p => (p ? { ...p, name: e.target.value } : p))}
+                    placeholder="e.g. NBI Clearance"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-slate-400"
+                  />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Compliance Requirement
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Instructions <span className="font-normal text-slate-400">(optional)</span>
                   </label>
-                  <select
-                    value={editing.isRequired ? 'required' : 'optional'}
-                    onChange={e => setEditing(p => (p ? { ...p, isRequired: e.target.value === 'required' } : p))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
-                  >
-                    <option value="required">Mandatory (Required for deployment)</option>
-                    <option value="optional">Optional (Supporting document)</option>
-                  </select>
+                  <textarea
+                    value={editing.description}
+                    onChange={e => setEditing(p => (p ? { ...p, description: e.target.value } : p))}
+                    rows={2}
+                    placeholder="Anything staff or applicants should know about this document"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-slate-400 resize-none"
+                  />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Initial Status
-                  </label>
-                  <select
-                    value={editing.isActive ? 'active' : 'inactive'}
-                    onChange={e => setEditing(p => (p ? { ...p, isActive: e.target.value === 'active' } : p))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] bg-white font-medium"
-                  >
-                    <option value="active">Active (Visible to staff)</option>
-                    <option value="inactive">Inactive (Hidden)</option>
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Type</label>
+                    <select
+                      value={editing.category || 'DOCUMENT'}
+                      onChange={e => setEditing(p => (p ? { ...p, category: e.target.value as any } : p))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:border-slate-400"
+                    >
+                      <option value="DOCUMENT">Document</option>
+                      <option value="CERTIFICATION">Certificate</option>
+                      <option value="MEDICAL">Medical</option>
+                      <option value="OTHER">Clearance / Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Is it required?</label>
+                    <div className="inline-flex w-full items-center bg-slate-100 border border-slate-200/80 rounded-lg p-0.5">
+                      {[
+                        { v: true, label: 'Required' },
+                        { v: false, label: 'Optional' },
+                      ].map(opt => (
+                        <button
+                          key={String(opt.v)}
+                          type="button"
+                          onClick={() => setEditing(p => (p ? { ...p, isRequired: opt.v } : p))}
+                          className={`flex-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                            editing.isRequired === opt.v
+                              ? 'bg-white text-[#0F172A] shadow-2xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Target Applicant Types */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Target Applicant Types
-                  </label>
+              {/* Who needs it */}
+              <div className="pt-5 border-t border-slate-100 space-y-2.5">
+                <div>
+                  <div className="text-xs font-semibold text-slate-700">Which applicants need this?</div>
+                  <p className="text-xs text-slate-400 mt-0.5">Pick one or more. Leave on “Everyone” if it applies to all.</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => setEditing(p => (p ? { ...p, applicantTypes: [] } : p))}
-                    className="text-[11px] text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
-                  >
-                    Apply to All (Baseline)
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Select which applicant types require this document. If none are selected, it applies to <strong>All Applicants</strong>.
-                </p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(p => (p ? { ...p, applicantTypes: [] } : p))}
-                    className={`text-xs px-3 py-1.5 rounded border font-semibold transition-all cursor-pointer ${
+                    className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors cursor-pointer ${
                       editing.applicantTypes.length === 0
                         ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    All Applicants (Baseline)
+                    Everyone
                   </button>
                   {applicantTypes.map(t => {
                     const selected = editing.applicantTypes.includes(t.applicant_type_code);
-                    const palette = getBadgeColor(t.applicant_type_code);
                     return (
                       <button
                         key={t.applicant_type_code}
                         type="button"
                         onClick={() => toggleApplicantType(t.applicant_type_code)}
-                        className="text-xs px-3 py-1.5 rounded border font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
-                        style={
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
                           selected
-                            ? { background: palette.text, color: '#fff', borderColor: palette.text }
-                            : { background: palette.bg, color: palette.text, borderColor: palette.border }
-                        }
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
                       >
                         {selected && <Check size={12} className="stroke-[3]" />}
                         <span>{t.type_name}</span>
@@ -1314,128 +1084,125 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 </div>
               </div>
 
-              {/* Target Job Orders (Replacing Job Category) */}
-              <div className="space-y-2 pt-3 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                    <Briefcase size={12} className="text-[#0EA5E9]" />
-                    <span>Target Job Orders</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(p => (p ? { ...p, jobOrders: [] } : p))}
-                    className="text-[11px] text-[#0EA5E9] hover:underline font-semibold cursor-pointer"
-                  >
-                    Apply to All Job Orders (Baseline)
-                  </button>
+              {/* Which jobs */}
+              <div className="pt-5 border-t border-slate-100 space-y-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-700">Which jobs need this?</div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {editing.jobOrders.length === 0
+                        ? 'Applies to all jobs. Tick specific jobs below to narrow it down.'
+                        : `${editing.jobOrders.length} ${editing.jobOrders.length === 1 ? 'job' : 'jobs'} selected.`}
+                    </p>
+                  </div>
+                  {editing.jobOrders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setEditing(p => (p ? { ...p, jobOrders: [] } : p))}
+                      className="text-xs font-semibold text-[#0EA5E9] hover:underline cursor-pointer flex-shrink-0"
+                    >
+                      Apply to all jobs
+                    </button>
+                  )}
                 </div>
-                <p className="text-xs text-slate-500">
-                  Select which specific job orders require this document. If none are selected, it applies as a baseline requirement to <strong>All Job Orders</strong>.
-                </p>
 
-                {/* Job Order Search inside Modal */}
-                <div className="pt-1">
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     value={modalJobOrderSearch}
                     onChange={e => setModalJobOrderSearch(e.target.value)}
-                    placeholder="Search job orders by position, job code, or employer..."
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]"
+                    placeholder="Search by position, code or employer..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-slate-400"
                   />
                 </div>
 
-                {/* Job Order Toggle Buttons */}
-                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pt-1 pr-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(p => (p ? { ...p, jobOrders: [] } : p))}
-                    className={`text-xs px-3 py-1.5 rounded border font-semibold transition-all cursor-pointer ${
-                      editing.jobOrders.length === 0
-                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    All Job Orders (Baseline)
-                  </button>
-
-                  {jobOrders
-                    .filter(jo => {
-                      if (!modalJobOrderSearch.trim()) return true;
-                      const q = modalJobOrderSearch.toLowerCase();
+                <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {filteredModalJobOrders.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">No jobs found</div>
+                  ) : (
+                    filteredModalJobOrders.map(jo => {
+                      const selected = editing.jobOrders.includes(jo.job_order_id);
                       return (
-                        jo.position.toLowerCase().includes(q) ||
-                        jo.job_code.toLowerCase().includes(q) ||
-                        (jo.employer_name || '').toLowerCase().includes(q)
+                        <label
+                          key={jo.job_order_id}
+                          className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                            selected ? 'bg-slate-50' : 'hover:bg-slate-50/70'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleJobOrder(jo.job_order_id)}
+                            className="w-4 h-4 rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-slate-800 truncate">{jo.position}</div>
+                            <div className="text-[11px] text-slate-400 truncate">
+                              {jo.job_code}
+                              {jo.employer_name && ` · ${jo.employer_name}`}
+                            </div>
+                          </div>
+                        </label>
                       );
                     })
-                    .map(jo => {
-                      const selected = editing.jobOrders.includes(jo.job_order_id);
-                      const palette = getBadgeColor(jo.job_order_id);
-                      return (
-                        <button
-                          key={jo.job_order_id}
-                          type="button"
-                          onClick={() => toggleJobOrder(jo.job_order_id)}
-                          className="text-xs px-2.5 py-1.5 rounded border font-medium transition-all flex items-center gap-1.5 cursor-pointer max-w-xs truncate"
-                          style={
-                            selected
-                              ? { background: '#0F172A', color: '#fff', borderColor: '#0F172A' }
-                              : { background: palette.bg, color: palette.text, borderColor: palette.border }
-                          }
-                          title={`${jo.position} (${jo.job_code}) - ${jo.employer_name || ''}`}
-                        >
-                          {selected && <Check size={12} className="stroke-[3]" />}
-                          <span className="truncate">
-                            {jo.position} ({jo.job_code})
-                          </span>
-                        </button>
-                      );
-                    })}
+                  )}
                 </div>
               </div>
 
-              {/* Expiry Tracking */}
-              <div className="pt-3 border-t border-slate-100 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
+              {/* Expiry + status */}
+              <div className="pt-5 border-t border-slate-100 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-700">This document expires</div>
+                    <p className="text-xs text-slate-400 mt-0.5">We'll flag it when it's about to run out.</p>
+                  </div>
+                  <Switch
                     checked={editing.expiryTracked}
-                    onChange={e => setEditing(p => (p ? { ...p, expiryTracked: e.target.checked } : p))}
-                    className="w-4 h-4 rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
+                    onChange={() => setEditing(p => (p ? { ...p, expiryTracked: !p.expiryTracked } : p))}
+                    label="This document expires"
                   />
-                  <span className="text-sm font-medium text-slate-800">
-                    Track document expiration date
-                  </span>
-                </label>
+                </div>
 
                 {editing.expiryTracked && (
-                  <div className="bg-slate-50 p-3 rounded border border-slate-200 flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold text-slate-800">Default Document Validity</div>
-                      <div className="text-[11px] text-slate-500">How many months this document remains valid</div>
-                    </div>
+                  <div className="flex items-center justify-between gap-4 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                    <div className="text-xs text-slate-600">Valid for</div>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
                         min={1}
                         max={120}
                         value={editing.validityMonths || 12}
-                        onChange={e => setEditing(p => (p ? { ...p, validityMonths: Math.max(1, parseInt(e.target.value) || 1) } : p))}
-                        className="w-16 px-2 py-1 border border-slate-300 rounded text-sm text-center font-bold bg-white"
+                        onChange={e =>
+                          setEditing(p => (p ? { ...p, validityMonths: Math.max(1, parseInt(e.target.value) || 1) } : p))
+                        }
+                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center font-semibold bg-white focus:outline-none focus:border-slate-400"
                       />
-                      <span className="text-xs font-semibold text-slate-600">months</span>
+                      <span className="text-xs text-slate-600">months</span>
                     </div>
                   </div>
                 )}
+
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-700">Show to staff</div>
+                    <p className="text-xs text-slate-400 mt-0.5">Turn off to hide it without deleting.</p>
+                  </div>
+                  <Switch
+                    checked={editing.isActive}
+                    onChange={() => setEditing(p => (p ? { ...p, isActive: !p.isActive } : p))}
+                    label="Show to staff"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs font-semibold cursor-pointer transition-colors"
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
               >
                 Cancel
               </button>
@@ -1443,15 +1210,92 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
                 type="button"
                 onClick={save}
                 disabled={isSaving}
-                className="flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2 rounded text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
               >
-                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                <span>{isNew ? 'Create Requirement' : 'Save Changes'}</span>
+                {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                <span>{isNew ? 'Add requirement' : 'Save changes'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ─────────────────────────────────────────── */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-xs z-[60] flex items-center justify-center p-4"
+          onClick={() => !isDeleting && setDeleteTarget(null)}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-requirement-title"
+            className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 pt-6 pb-5 flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} />
+              </div>
+              <div className="min-w-0">
+                <h2 id="delete-requirement-title" className="font-bold text-base text-[#0F172A]">
+                  Delete this requirement?
+                </h2>
+                <p className="text-sm text-slate-600 mt-1.5">
+                  <span className="font-semibold text-[#0F172A]">{deleteTarget.name}</span> will be removed from the
+                  checklist for all applicants and jobs. This can't be undone.
+                </p>
+                <p className="text-xs text-slate-400 mt-2">
+                  Just want to hide it for now? Turn off "In use" instead and keep it for later.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+                autoFocus
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                <span>{isDeleting ? 'Deleting...' : 'Yes, delete'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+        checked ? 'bg-[#10B981]' : 'bg-slate-300'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-[18px]' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
   );
 }

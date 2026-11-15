@@ -4,7 +4,8 @@ import {
   Check, X, Sparkles, ExternalLink, FileText, Loader2, ShieldCheck, Trash2,
   Calendar, Clock, Undo2, User, UserCheck, Send, Plane, TrendingUp, AlertCircle, Info,
   RefreshCw, ChevronRight, Search, Filter, ArrowRight, ShieldAlert, ArrowUpDown,
-  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck, FilePlus
+  ChevronDown, Layers, CheckCircle, ZoomIn, ZoomOut, RotateCw, ClipboardCheck, FilePlus,
+  ArrowLeft, ChevronLeft
 } from 'lucide-react';
 import { ApplicantRecord, WorkflowState, ActivityLog, ApplicationForecastResponse } from '../../types';
 import { api } from '../../../lib/api';
@@ -245,7 +246,7 @@ function checkDocumentTypeMismatch(
   return null;
 }
 
-export function isNonExpiringDocument(name?: string): boolean {
+function isNonExpiringDocument(name?: string): boolean {
   if (!name) return false;
   const n = name.toLowerCase();
   return (
@@ -353,6 +354,10 @@ export default function DocumentOCR({
   const [isLoadingForecast, setIsLoadingForecast] = useState(false);
   const [actualDeploymentInput, setActualDeploymentInput] = useState('');
   const [isSavingDeployment, setIsSavingDeployment] = useState(false);
+  const [showSaveDeploymentConfirm, setShowSaveDeploymentConfirm] = useState(false);
+  const [showCancelDeploymentConfirm, setShowCancelDeploymentConfirm] = useState(false);
+  const [deploymentRemarks, setDeploymentRemarks] = useState('');
+  const [cancelDeploymentReason, setCancelDeploymentReason] = useState('');
 
   // Helper: Normalize Supabase storage paths to absolute URLs
   const resolveStorageUrl = (urlOrPath: string | null | undefined): string | null => {
@@ -595,6 +600,18 @@ export default function DocumentOCR({
     setAcceptedExtractedExp(null);
     setImageError(false);
   };
+
+  // Close full screen validation on Escape key press (unless a sub-modal is open)
+  useEffect(() => {
+    if (!modalApplicant) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !showRenewModal && !returnModalApplicant && !showDeleteModal) {
+        handleCloseApplicantModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modalApplicant, showRenewModal, returnModalApplicant, showDeleteModal]);
 
   // ── Load Predictive Forecast for Candidate ────────────────────────────────
   const loadForecast = async (app: ApplicantRecord) => {
@@ -962,6 +979,7 @@ export default function DocumentOCR({
       const numericId = parseInt(applicantId, 10);
       const nowIso = new Date().toISOString();
       const reqName = selectedReq.requirement?.requirement_name || 'Document';
+      const isCurrentlyUnassigned = !modalApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', ''].includes(modalApplicant.currentHandler.trim());
 
       // If verifying passport and expiration date is entered, sync to applicant profile
       if (typedExpirationDate && reqName.toLowerCase().includes('passport')) {
@@ -969,15 +987,28 @@ export default function DocumentOCR({
           api.put(`/applicants/${numericId}`, {
             application_id: modalApplicant.applicationId,
             passport_expiration_date: typedExpirationDate,
+            current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+            current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
             updated_at: nowIso,
           }).catch(console.error);
         }
-        setModalApplicant(prev => prev ? ({ ...prev, passportExpirationDate: typedExpirationDate }) : null);
+        setModalApplicant(prev => prev ? ({
+          ...prev,
+          passportExpirationDate: typedExpirationDate,
+          ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+        }) : null);
         if (modalApplicantRef.current) {
-          modalApplicantRef.current = { ...modalApplicantRef.current, passportExpirationDate: typedExpirationDate };
+          modalApplicantRef.current = {
+            ...modalApplicantRef.current,
+            passportExpirationDate: typedExpirationDate,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+          };
         }
         if (updateApplicant) {
-          updateApplicant(applicantId, { passportExpirationDate: typedExpirationDate });
+          updateApplicant(applicantId, {
+            passportExpirationDate: typedExpirationDate,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
+          });
         }
       }
 
@@ -988,6 +1019,7 @@ export default function DocumentOCR({
           status: 'Provisional',
           phase: 5,
           phaseDescription: reasonText,
+          ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
         };
 
         if (updateApplicant) {
@@ -1006,6 +1038,8 @@ export default function DocumentOCR({
             phase_description: reasonText,
             statusChangeReason: `Document rejected: ${reqName}`,
             statusChangeSource: 'DOCUMENT_VALIDATION',
+            current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+            current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
             updated_at: nowIso,
           }).catch(console.error);
         }
@@ -1034,6 +1068,7 @@ export default function DocumentOCR({
             status: 'Provisional',
             phase: 5,
             phaseDescription: reasonText,
+            ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
           };
 
           if (updateApplicant) {
@@ -1052,6 +1087,8 @@ export default function DocumentOCR({
               phase_description: reasonText,
               statusChangeReason: `Document verified, but candidate has rejected document(s): ${rejectedNames}`,
               statusChangeSource: 'DOCUMENT_VALIDATION',
+              current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+              current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
               updated_at: nowIso,
             }).catch(console.error);
           }
@@ -1065,6 +1102,7 @@ export default function DocumentOCR({
               status: 'Endorse for Administrative Processing',
               phase: 5,
               phaseDescription: reasonText,
+              ...(isCurrentlyUnassigned ? { currentHandler: currentUserName, currentDepartment: 'Admin' } : {}),
             };
 
             if (updateApplicant) {
@@ -1083,6 +1121,8 @@ export default function DocumentOCR({
                 phase_description: reasonText,
                 statusChangeReason: 'Document rejections resolved',
                 statusChangeSource: 'DOCUMENT_VALIDATION',
+                current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+                current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
                 updated_at: nowIso,
               }).catch(console.error);
             }
@@ -1097,6 +1137,29 @@ export default function DocumentOCR({
 
             showToast(`✓ Document approved. All rejections cleared; candidate returned to Administrative Processing.`);
           } else {
+            if (isCurrentlyUnassigned) {
+              const updates: Partial<ApplicantRecord> = {
+                currentHandler: currentUserName,
+                currentDepartment: 'Admin',
+              };
+              if (updateApplicant) {
+                updateApplicant(applicantId, updates);
+              }
+              setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+              if (modalApplicantRef.current) {
+                modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+              }
+              if (!isNaN(numericId)) {
+                api.put(`/applicants/${numericId}`, {
+                  application_id: modalApplicant.applicationId,
+                  current_handler: currentUserName,
+                  current_department: 'Admin',
+                  statusChangeReason: `Document ${reqName} verified; claimed by ${currentUserName}`,
+                  statusChangeSource: 'DOCUMENT_VALIDATION',
+                  updated_at: nowIso,
+                }).catch(console.error);
+              }
+            }
             showToast(`✓ Document ${reqName} marked as Approved & Verified.`);
           }
         }
@@ -1673,8 +1736,18 @@ export default function DocumentOCR({
     }
   };
 
-  // ── Encode Actual Deployment Date & Transition to Deployed ────────────────
-  const handleSaveActualDeploymentDate = async () => {
+  // ── Request Deployment Date Save / Reschedule (Opens Confirmation Dialog) ──
+  const handleRequestSaveDeploymentDate = () => {
+    if (!modalApplicant || !actualDeploymentInput) {
+      showToast('Please select the confirmed DMW actual deployment date.');
+      return;
+    }
+    setDeploymentRemarks('');
+    setShowSaveDeploymentConfirm(true);
+  };
+
+  // ── Execute Actual Deployment Date Save or Reschedule ─────────────────────
+  const handleExecuteSaveDeploymentDate = async () => {
     if (!modalApplicant || !actualDeploymentInput) {
       showToast('Please select the confirmed DMW actual deployment date.');
       return;
@@ -1690,8 +1763,12 @@ export default function DocumentOCR({
     const targetStatus = isAlreadyReached ? 'Deployed' : 'Ready for Deployment';
     const targetPhase = isAlreadyReached ? 6 : 5;
 
+    const previousActualDate = modalApplicant.actualDeploymentDate || (modalApplicant as any).actual_deployment_at;
+    const isReschedule = Boolean(previousActualDate && previousActualDate !== actualDeploymentInput);
+
     setIsSavingDeployment(true);
     try {
+      const isCurrentlyUnassigned = !modalApplicant.currentHandler || ['Unassigned', 'Unassigned Pool', ''].includes(modalApplicant.currentHandler.trim());
       const updates: Partial<ApplicantRecord> = {
         actualDeploymentDate: actualDeploymentInput,
         phase: targetPhase,
@@ -1700,6 +1777,10 @@ export default function DocumentOCR({
           ? `Candidate deployed overseas on ${actualDeploymentInput}. 3-2-1 compliance alert tracking concluded.`
           : `Confirmed DMW deployment date encoded: ${actualDeploymentInput}. Departure scheduled.`,
       };
+      if (isCurrentlyUnassigned) {
+        updates.currentHandler = currentUserName;
+        updates.currentDepartment = 'Admin';
+      }
 
       if (updateApplicant) {
         updateApplicant(applicantId, updates);
@@ -1709,6 +1790,9 @@ export default function DocumentOCR({
         modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
       }
 
+      const reasonPrefix = isReschedule ? 'DMW deployment rescheduled' : 'DMW deployment date recorded';
+      const reasonDetail = deploymentRemarks.trim() ? ` (${deploymentRemarks.trim()})` : '';
+
       if (!isNaN(numericId)) {
         await api.put(`/applicants/${numericId}`, {
           application_id: modalApplicant.applicationId,
@@ -1716,8 +1800,10 @@ export default function DocumentOCR({
           current_phase: targetPhase,
           application_status: targetStatus,
           phase_description: updates.phaseDescription,
-          statusChangeReason: `DMW deployment date recorded: ${actualDeploymentInput}`,
+          statusChangeReason: `${reasonPrefix}: ${actualDeploymentInput}${reasonDetail}`,
           statusChangeSource: 'DMW_RESPONSE',
+          current_handler: isCurrentlyUnassigned ? currentUserName : undefined,
+          current_department: isCurrentlyUnassigned ? 'Admin' : undefined,
           updated_at: nowIso,
         });
 
@@ -1729,21 +1815,90 @@ export default function DocumentOCR({
 
       addActivityLog({
         applicantId,
-        action: isAlreadyReached ? 'Applicant Deployed' : 'Encoded Actual Deployment Date',
+        action: isReschedule
+          ? 'Deployment Rescheduled'
+          : (isAlreadyReached ? 'Applicant Deployed' : 'Encoded Actual Deployment Date'),
         performedBy: currentUserName,
         department: 'Admin',
-        details: `DMW actual deployment date recorded: ${actualDeploymentInput}.${isAlreadyReached ? ' 3-2-1 alerts stopped.' : ''}`,
+        details: `${reasonPrefix}: ${actualDeploymentInput}.${reasonDetail} Status: ${targetStatus}.${isAlreadyReached ? ' 3-2-1 alerts stopped.' : ''}`,
       });
 
       showToast(
-        isAlreadyReached
-          ? `✓ Candidate marked as Deployed! 3-2-1 Compliance Alert tracking has been successfully stopped.`
-          : `✓ DMW Actual Deployment Date saved (${actualDeploymentInput}).`
+        isReschedule
+          ? `✓ Deployment rescheduled to ${actualDeploymentInput}. Status set to ${targetStatus}.`
+          : (isAlreadyReached
+              ? `✓ Candidate marked as Deployed! 3-2-1 Compliance Alert tracking has been successfully stopped.`
+              : `✓ DMW Actual Deployment Date saved (${actualDeploymentInput}). Departure scheduled.`)
       );
 
+      setShowSaveDeploymentConfirm(false);
+      setDeploymentRemarks('');
       loadForecast({ ...modalApplicant, ...updates });
     } catch (err: any) {
       showToast(`Failed to record deployment date: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setIsSavingDeployment(false);
+    }
+  };
+
+  // ── Cancel / Clear Actual Deployment Date & Revert Status ─────────────────
+  const handleExecuteCancelDeploymentDate = async () => {
+    if (!modalApplicant) return;
+    const applicantId = String(modalApplicant.id);
+    const numericId = parseInt(applicantId, 10);
+    const nowIso = new Date().toISOString();
+
+    setIsSavingDeployment(true);
+    try {
+      const updates: Partial<ApplicantRecord> = {
+        actualDeploymentDate: '',
+        phase: 5,
+        status: 'Ready for Deployment',
+        phaseDescription: 'Scheduled deployment date cancelled. Candidate awaiting rescheduled flight.',
+      };
+
+      if (updateApplicant) {
+        updateApplicant(applicantId, updates);
+      }
+      setModalApplicant(prev => prev ? ({ ...prev, ...updates }) : null);
+      if (modalApplicantRef.current) {
+        modalApplicantRef.current = { ...modalApplicantRef.current, ...updates };
+      }
+      setActualDeploymentInput('');
+
+      const reasonText = cancelDeploymentReason.trim()
+        ? `Deployment cancelled: ${cancelDeploymentReason.trim()}`
+        : 'Scheduled deployment date cancelled / cleared';
+
+      if (!isNaN(numericId)) {
+        await api.put(`/applicants/${numericId}`, {
+          application_id: modalApplicant.applicationId,
+          actual_deployment_at: null,
+          current_phase: 5,
+          application_status: 'Ready for Deployment',
+          phase_description: updates.phaseDescription,
+          statusChangeReason: reasonText,
+          statusChangeSource: 'STAFF_ACTION',
+          updated_at: nowIso,
+        });
+      }
+
+      addActivityLog({
+        applicantId,
+        action: 'Deployment Date Cancelled',
+        performedBy: currentUserName,
+        department: 'Admin',
+        details: `Actual deployment date cancelled for ${modalApplicant.name}.${
+          cancelDeploymentReason.trim() ? ` Reason: ${cancelDeploymentReason.trim()}` : ''
+        } Candidate reverted to Ready for Deployment.`,
+      });
+
+      showToast(`✓ Deployment date cancelled for ${modalApplicant.name}. Status reverted to Ready for Deployment.`);
+      setShowCancelDeploymentConfirm(false);
+      setCancelDeploymentReason('');
+      loadForecast({ ...modalApplicant, ...updates });
+    } catch (err: any) {
+      showToast(`Failed to cancel deployment date: ${err.response?.data?.detail || err.message}`);
     } finally {
       setIsSavingDeployment(false);
     }
@@ -1754,6 +1909,7 @@ export default function DocumentOCR({
     return phaseQualifiedApplicants.filter(app => {
       // Status tab filter
       if (statusFilter === 'mine' && app.currentHandler !== currentUserName) return false;
+      if (statusFilter === 'unassigned' && (app.status === 'Deployed' || app.phase === 6)) return false;
       if (statusFilter === 'unassigned' && app.currentHandler && app.currentHandler !== 'Unassigned' && app.currentHandler !== 'Unassigned Pool') return false;
       if (statusFilter === 'ready' && app.status !== 'Ready for Deployment') return false;
       if (statusFilter === 'deployed' && app.status !== 'Deployed' && app.phase !== 6) return false;
@@ -2080,21 +2236,23 @@ export default function DocumentOCR({
                       <span className="text-slate-400 font-semibold uppercase text-[10px] tracking-wider">Handler:</span>
                       <span
                         className={`font-bold truncate max-w-[140px] ${
-                          isClaimedByMe
+                          isDeployed ? 'text-emerald-700' : isClaimedByMe
                             ? 'text-violet-700'
                             : isUnassigned
                             ? 'text-slate-400 italic'
                             : 'text-slate-700'
                         }`}
                       >
-                        {isUnassigned ? 'Unassigned Pool' : app.currentHandler}
+                        {isDeployed ? 'Not needed — completed' : isUnassigned ? 'Unassigned Pool' : app.currentHandler}
                       </span>
                     </div>
 
                     {/* Quick Card Action Buttons */}
                     <div className="space-y-1.5 pt-1">
                       <div className="flex items-center justify-between gap-2">
-                        {isUnassigned ? (
+                        {isDeployed ? (
+                          <div className="text-[11px] text-emerald-700 font-medium whitespace-nowrap px-1">Processing complete</div>
+                        ) : isUnassigned ? (
                           <button
                             type="button"
                             onClick={e => handleClaim(app, e)}
@@ -2158,124 +2316,182 @@ export default function DocumentOCR({
 
       {/* ── 5. Full Document Verification Pop-up Modal ── */}
       {modalApplicant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-6 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/90 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <div className="flex items-center gap-3.5">
-                <div className="relative flex-shrink-0">
-                  {modalApplicant.photoDataUrl || modalApplicant.photo ? (
-                    <img
-                      src={modalApplicant.photoDataUrl || modalApplicant.photo}
-                      alt={modalApplicant.name}
-                      className="w-12 h-12 rounded-full object-cover border border-slate-200 shadow-xs"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center font-bold text-slate-700 text-sm">
-                      {modalApplicant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                </div>
+        <div className="fixed inset-0 z-50 bg-white flex flex-col w-full h-screen overflow-hidden animate-in fade-in duration-150">
+          {/* Top Bar Header with Navigation and Candidate Identity */}
+          <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/95 backdrop-blur-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <button
+                type="button"
+                onClick={handleCloseApplicantModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 hover:text-slate-900 transition-colors shadow-2xs cursor-pointer flex-shrink-0"
+                title="Return to candidate list (Esc)"
+              >
+                <ArrowLeft className="w-4 h-4 text-slate-600" />
+                <span className="hidden sm:inline">Back to Candidates</span>
+              </button>
 
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-base sm:text-lg font-black text-slate-900">{modalApplicant.name}</h2>
-                    <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
-                      {modalApplicant.applicantCode || `APP-${modalApplicant.id}`}
-                    </span>
-                    <span
-                      className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
-                        modalApplicant.status === 'Deployed'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : modalApplicant.status === 'Ready for Deployment'
-                          ? 'bg-sky-50 text-sky-700 border-sky-200'
-                          : modalApplicant.status === 'Provisional'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
-                          : 'bg-amber-50 text-amber-800 border-amber-200'
-                      }`}
+              {(() => {
+                const currentIndex = filteredApplicants.findIndex(a => String(a.id) === String(modalApplicant.id));
+                const hasPrev = currentIndex > 0;
+                const hasNext = currentIndex >= 0 && currentIndex < filteredApplicants.length - 1;
+                return (
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-xl shadow-2xs text-xs font-semibold text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => hasPrev && handleOpenApplicantModal(filteredApplicants[currentIndex - 1])}
+                      disabled={!hasPrev}
+                      className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none cursor-pointer transition-colors"
+                      title="Previous candidate in queue"
                     >
-                      {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
-                      {modalApplicant.status || 'Endorsed for Admin'}
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[11px] px-1 font-mono font-bold text-slate-700 whitespace-nowrap">
+                      {currentIndex >= 0 ? `${currentIndex + 1} / ${filteredApplicants.length}` : '—'}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => hasNext && handleOpenApplicantModal(filteredApplicants[currentIndex + 1])}
+                      disabled={!hasNext}
+                      className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none cursor-pointer transition-colors"
+                      title="Next candidate in queue"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
+                );
+              })()}
 
-                  <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
-                    <span>Role: <strong>{modalApplicant.role || 'N/A'}</strong></span>
-                    <span>•</span>
-                    <span>DOB: <strong>{modalApplicant.dateOfBirth ? String(modalApplicant.dateOfBirth).split('T')[0] : ((modalApplicant as any).birth_date ? String((modalApplicant as any).birth_date).split('T')[0] : ((modalApplicant as any).birthDate ? String((modalApplicant as any).birthDate).split('T')[0] : 'N/A'))}</strong></span>
-                    <span>•</span>
-                    <span>Gender: <strong>{modalApplicant.sex || 'Not Specified'}</strong></span>
-                    <span>•</span>
-                    <span>Contact: <strong>{modalApplicant.contact || modalApplicant.email || 'N/A'}</strong></span>
-                  </p>
-                </div>
+              <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+
+              <div className="relative flex-shrink-0">
+                {modalApplicant.photoDataUrl || modalApplicant.photo ? (
+                  <img
+                    src={modalApplicant.photoDataUrl || modalApplicant.photo}
+                    alt={modalApplicant.name}
+                    className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-xs"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center font-bold text-slate-700 text-xs">
+                    {modalApplicant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                )}
               </div>
 
-              {/* Header Right Actions */}
-              <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
-                {/* Handler Claim/Release */}
-                {(!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
-                  <button
-                    onClick={() => handleClaim(modalApplicant)}
-                    className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>Claim Candidate</span>
-                  </button>
-                ) : modalApplicant.currentHandler === currentUserName ? (
-                  <button
-                    onClick={() => handleRelease(modalApplicant)}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
-                  >
-                    <span>Release Claim</span>
-                  </button>
-                ) : (
-                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
-                    Handler: {modalApplicant.currentHandler}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm sm:text-base font-black text-slate-900 truncate">{modalApplicant.name}</h2>
+                  <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
+                    {modalApplicant.applicantCode || `APP-${modalApplicant.id}`}
                   </span>
-                )}
-
-                {/* Revert Deployment Status if Ready for Deployment */}
-                {modalApplicant.status === 'Ready for Deployment' && (
-                  <button
-                    type="button"
-                    onClick={() => handleRevertReadyForDeployment()}
-                    disabled={isSavingDeployment}
-                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                    title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                  <span
+                    className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                      modalApplicant.status === 'Deployed'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : modalApplicant.status === 'Ready for Deployment'
+                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                        : modalApplicant.status === 'Provisional'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
                   >
-                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Revert Deployment</span>
-                  </button>
-                )}
+                    {modalApplicant.status === 'Provisional' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600 inline" />}
+                    {modalApplicant.status || 'Endorsed for Admin'}
+                  </span>
+                </div>
 
-                {/* Revert to Pre-Deployment Processing */}
-                {modalApplicant.status !== 'Deployed' && modalApplicant.status !== 'Ready for Deployment' && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenRevertToPreDeployment(modalApplicant)}
-                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex-shrink-0"
-                    title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
-                  >
-                    <Undo2 className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Revert to Pre-Deployment</span>
-                  </button>
-                )}
-
-                {/* Close Modal */}
-                <button
-                  onClick={handleCloseApplicantModal}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200/80 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>Role: <strong>{modalApplicant.role || 'N/A'}</strong></span>
+                  <span>•</span>
+                  <span>DOB: <strong>{modalApplicant.dateOfBirth ? String(modalApplicant.dateOfBirth).split('T')[0] : ((modalApplicant as any).birth_date ? String((modalApplicant as any).birth_date).split('T')[0] : ((modalApplicant as any).birthDate ? String((modalApplicant as any).birthDate).split('T')[0] : 'N/A'))}</strong></span>
+                  <span>•</span>
+                  <span>Gender: <strong>{modalApplicant.sex || 'Not Specified'}</strong></span>
+                  <span>•</span>
+                  <span>Contact: <strong>{modalApplicant.contact || modalApplicant.email || 'N/A'}</strong></span>
+                </p>
               </div>
             </div>
 
-            {/* Modal Body: Split Pane */}
-            <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
-              {/* ── Left Pane: Requirements List (4 cols) ── */}
-              <div className="lg:col-span-4 border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden">
+            {/* Header Right Actions */}
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+              {/* Handler Claim/Release */}
+              {(modalApplicant.status === 'Deployed' || modalApplicant.phase === 6) ? (
+                <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl font-bold whitespace-nowrap flex-shrink-0">
+                  Deployed — no handler needed
+                </span>
+              ) : (!modalApplicant.currentHandler || modalApplicant.currentHandler === 'Unassigned' || modalApplicant.currentHandler === 'Unassigned Pool') ? (
+                <button
+                  onClick={() => handleClaim(modalApplicant)}
+                  className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Claim Candidate</span>
+                </button>
+              ) : modalApplicant.currentHandler === currentUserName ? (
+                <button
+                  onClick={() => handleRelease(modalApplicant)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  <span>Release Claim</span>
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-slate-100/90 border border-slate-200/80 px-3 py-1.5 rounded-xl flex-shrink-0">
+                  <span className="text-xs font-semibold text-slate-600">
+                    Handler: <strong className="text-slate-800">{modalApplicant.currentHandler}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleClaim(modalApplicant)}
+                    className="text-xs font-bold text-[#0EA5E9] hover:text-[#0284C7] ml-1 cursor-pointer hover:underline"
+                    title="Take over this candidate into your queue"
+                  >
+                    Take over
+                  </button>
+                </div>
+              )}
+
+              {/* Revert Deployment Status if Ready for Deployment */}
+              {modalApplicant.status === 'Ready for Deployment' && (
+                <button
+                  type="button"
+                  onClick={() => handleRevertReadyForDeployment()}
+                  disabled={isSavingDeployment}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  title="Revert candidate status from Ready for Deployment to Administrative Processing"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Revert Deployment</span>
+                </button>
+              )}
+
+              {/* Revert to Pre-Deployment Processing */}
+              {modalApplicant.status !== 'Deployed' && modalApplicant.status !== 'Ready for Deployment' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenRevertToPreDeployment(modalApplicant)}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs whitespace-nowrap flex-shrink-0"
+                  title="Revert endorsement back to Pre-Deployment Processing in Endorsement Tracker"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Revert to Pre-Deployment</span>
+                </button>
+              )}
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={handleCloseApplicantModal}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition-colors cursor-pointer"
+                title="Close full screen validation (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body: Split Pane filling remaining height */}
+          <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+            {/* ── Left Pane: Requirements List (3-4 cols) ── */}
+            <div className="lg:col-span-4 xl:col-span-3 border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden">
                 <div className="p-3.5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                   <h3 className="font-extrabold text-xs text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                     <FileCheck className="w-4 h-4 text-[#0EA5E9]" />
@@ -2433,7 +2649,7 @@ export default function DocumentOCR({
               </div>
 
               {/* ── Right Pane: Document Review & Verification Center (8 cols) ── */}
-              <div className="lg:col-span-8 flex flex-col h-full overflow-hidden bg-slate-50/40">
+              <div className="lg:col-span-8 xl:col-span-9 flex flex-col h-full overflow-hidden bg-slate-50/40">
                 {selectedReq ? (
                   <div className="flex-1 flex flex-col h-full overflow-hidden">
                     {/* Sub-header for selected document */}
@@ -3256,13 +3472,32 @@ export default function DocumentOCR({
                           />
                           <button
                             type="button"
-                            onClick={handleSaveActualDeploymentDate}
+                            onClick={handleRequestSaveDeploymentDate}
                             disabled={isSavingDeployment || !actualDeploymentInput}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                           >
                             {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                            <span>Save Actual Date</span>
+                            <span>
+                              {modalApplicant.actualDeploymentDate && modalApplicant.actualDeploymentDate !== actualDeploymentInput
+                                ? 'Reschedule Date'
+                                : (modalApplicant.actualDeploymentDate ? 'Update Date' : 'Save Actual Date')}
+                            </span>
                           </button>
+                          {modalApplicant.actualDeploymentDate && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelDeploymentReason('');
+                                setShowCancelDeploymentConfirm(true);
+                              }}
+                              disabled={isSavingDeployment}
+                              title="Cancel or clear this deployment date and revert candidate status"
+                              className="border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap flex-shrink-0"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Cancel Date</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3276,7 +3511,6 @@ export default function DocumentOCR({
               </div>
             </div>
           </div>
-        </div>
       )}
 
       {/* ── Document Renewal Modal ── */}
@@ -3523,6 +3757,244 @@ export default function DocumentOCR({
               >
                 {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 <span>Yes, Remove File</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation Modal: Save / Reschedule Deployment Date ── */}
+      {showSaveDeploymentConfirm && modalApplicant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-sky-50 to-emerald-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-100 text-[#0EA5E9] flex items-center justify-center flex-shrink-0 shadow-xs">
+                  <Plane className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {modalApplicant.actualDeploymentDate && modalApplicant.actualDeploymentDate !== actualDeploymentInput
+                      ? 'Confirm Deployment Reschedule'
+                      : 'Confirm Actual Deployment Date'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {modalApplicant.name} • {modalApplicant.applicationId}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveDeploymentConfirm(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-white/60 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              {/* Date Comparison & Status Impact */}
+              {(() => {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const isAlreadyReached = actualDeploymentInput <= todayStr;
+                const prevDate = modalApplicant.actualDeploymentDate;
+                const isReschedule = Boolean(prevDate && prevDate !== actualDeploymentInput);
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                          {isReschedule ? 'Previous Date' : 'Current Status'}
+                        </span>
+                        <div className="text-xs font-semibold text-slate-700">
+                          {isReschedule ? (
+                            <span className="inline-flex items-center gap-1 text-slate-600 font-mono">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                              {prevDate}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">
+                              {modalApplicant.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] font-bold text-[#0EA5E9] uppercase tracking-wider block mb-1">
+                          New Deployment Date
+                        </span>
+                        <div className="text-xs font-bold text-slate-900 inline-flex items-center gap-1 font-mono">
+                          <Plane className="w-3.5 h-3.5 text-[#0EA5E9]" />
+                          {actualDeploymentInput}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Operational Impact Notice */}
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs leading-relaxed flex items-start gap-2.5 ${
+                        isAlreadyReached
+                          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+                          : 'bg-sky-50/80 border-sky-200 text-sky-950'
+                      }`}
+                    >
+                      <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-current opacity-80" />
+                      <div>
+                        <div className="font-bold mb-0.5">
+                          {isAlreadyReached ? 'Immediate Overseas Deployment' : 'Future Departure Scheduled'}
+                        </div>
+                        <div className="text-[11px] text-slate-600">
+                          {isAlreadyReached ? (
+                            <>
+                              This date is today or in the past. Candidate status will immediately transition to{' '}
+                              <strong className="text-emerald-700">Deployed (Phase 6)</strong> and active 3-2-1 compliance alerts will be resolved.
+                            </>
+                          ) : (
+                            <>
+                              This date is in the future. Candidate status will stay or adjust to{' '}
+                              <strong className="text-sky-700">Ready for Deployment (Phase 5)</strong> until the flight day arrives.
+                              {modalApplicant.status === 'Deployed' && (
+                                <span className="block mt-1 text-amber-700 font-medium">
+                                  ⚠️ Reschedule notice: Candidate status will revert from "Deployed" back to "Ready for Deployment" until this new date.
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Remarks / Justification */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Remarks / Travel Reference (Optional)
+                </label>
+                <textarea
+                  value={deploymentRemarks}
+                  onChange={e => setDeploymentRemarks(e.target.value)}
+                  placeholder="e.g. Flight PR 658 to Riyadh, rescheduled due to host employer visa processing..."
+                  rows={2}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSaveDeploymentConfirm(false)}
+                disabled={isSavingDeployment}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteSaveDeploymentDate}
+                disabled={isSavingDeployment}
+                className="px-4 py-2 text-xs font-bold text-white bg-[#0EA5E9] hover:bg-sky-600 rounded-xl transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>
+                  {isSavingDeployment
+                    ? 'Saving Date...'
+                    : (modalApplicant.actualDeploymentDate && modalApplicant.actualDeploymentDate !== actualDeploymentInput
+                        ? 'Confirm Reschedule'
+                        : 'Confirm & Save Date')}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation Modal: Cancel / Clear Deployment Date ── */}
+      {showCancelDeploymentConfirm && modalApplicant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-rose-100 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-rose-100 flex items-center justify-between bg-rose-50/70">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0 shadow-xs">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Cancel Deployment Date</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {modalApplicant.name} • {modalApplicant.applicationId}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCancelDeploymentConfirm(false);
+                  setCancelDeploymentReason('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-rose-100/50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-3.5">
+              <div className="p-3 bg-rose-50/60 border border-rose-200/80 rounded-xl text-xs text-rose-900 leading-relaxed">
+                <div className="font-bold flex items-center gap-1.5 mb-1 text-rose-700">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  Scheduled Flight Cancellation
+                </div>
+                Cancelling this deployment date will clear the recorded departure date (
+                <span className="font-mono font-semibold">
+                  {modalApplicant.actualDeploymentDate || actualDeploymentInput || 'N/A'}
+                </span>
+                ) and revert candidate status back to{' '}
+                <strong className="text-slate-900">Ready for Deployment (Phase 5)</strong>.
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Reason for Cancellation / Hold
+                </label>
+                <textarea
+                  value={cancelDeploymentReason}
+                  onChange={e => setCancelDeploymentReason(e.target.value)}
+                  placeholder="e.g. Flight cancelled by airline, visa delay, employer postponement, or medical re-examination required..."
+                  rows={3}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCancelDeploymentConfirm(false);
+                  setCancelDeploymentReason('');
+                }}
+                disabled={isSavingDeployment}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Keep Deployment Date
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteCancelDeploymentDate}
+                disabled={isSavingDeployment}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isSavingDeployment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{isSavingDeployment ? 'Cancelling...' : 'Confirm Cancellation'}</span>
               </button>
             </div>
           </div>

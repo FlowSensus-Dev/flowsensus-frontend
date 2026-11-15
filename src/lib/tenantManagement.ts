@@ -1,3 +1,5 @@
+import { normalizeThemeColor, validateLicenseExpiry } from './agencyBranding';
+
 export const TENANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'CLOSED'] as const;
 export type TenantStatus = typeof TENANT_STATUSES[number];
 
@@ -15,6 +17,8 @@ export function tenantEditForm(agency: any) {
   return {
     agency_name: agency.agency_name || '',
     poea_license_no: agency.poea_license_no || '',
+    license_expiry_date: agency.license_expiry_date || '',
+    theme_color: agency.theme_color || '',
     agency_prefix: agency.agency_prefix || '',
     workspace_url: String(agency.workspace_code ?? agency.workspace_url ?? '').trim().toLowerCase().replace(/\.flowsensus\.com$/, ''),
     workspace_status: validTenantStatus(rawTenantStatus(agency)),
@@ -33,6 +37,10 @@ export function tenantEditPayload(agency: any, form: ReturnType<typeof tenantEdi
   }
   const prefix = form.agency_prefix.trim().toUpperCase();
   if (prefix && prefix !== initial.agency_prefix.trim().toUpperCase()) payload.agency_prefix = prefix;
+  if (form.license_expiry_date !== initial.license_expiry_date) {
+    payload.license_expiry_date = validateLicenseExpiry(form.license_expiry_date);
+  }
+  if (form.theme_color !== initial.theme_color) payload.theme_color = normalizeThemeColor(form.theme_color);
   const workspace = form.workspace_url.trim().toLowerCase();
   if (workspace !== initial.workspace_url) {
     if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(workspace)) throw new Error('Use a Workspace Code of 1–63 lowercase letters, digits, or hyphens, starting and ending with a letter or digit.');
@@ -52,10 +60,14 @@ export function tenantEditPayload(agency: any, form: ReturnType<typeof tenantEdi
 
 class UnconfirmedTenantUpdate extends Error {}
 
-export function confirmedTenantUpdate(data: any, agencyId: number, expectedStatus?: string) {
+export function confirmedTenantUpdate(data: any, agencyId: number, expectedStatus?: string, expected: Record<string, string> = {}) {
   if (!data || data.agency_id !== agencyId ||
     (typeof data.status !== 'string' && typeof data.workspace_status !== 'string') ||
     (expectedStatus && validTenantStatus(rawTenantStatus(data)) !== expectedStatus)) {
+    throw new UnconfirmedTenantUpdate();
+  }
+  // Older PATCH handlers may silently ignore unknown fields. Confirm new values were saved.
+  if (['license_expiry_date', 'theme_color'].some((key) => key in expected && data[key] !== expected[key])) {
     throw new UnconfirmedTenantUpdate();
   }
   // Synchronize display aliases from the returned record, never from the requested status.
@@ -68,7 +80,7 @@ export function tenantUpdateError(error: any): string {
   switch (error?.response?.status) {
     case 401: return 'Your session has expired. Sign in again before updating the agency.';
     case 403: return 'The backend denied this agency update. Status changes require verified platform Super Admin privileges.';
-    case 422: return 'The backend rejected the update. Status must be Active, Suspended, or Closed. Check any edited profile fields as well.';
+    case 422: return 'The backend rejected the update. Status must be Active, Suspended, or Closed. Check the license expiry date, six-digit theme color, and other edited profile fields.';
     case 409: return 'An agency profile value conflicts with an existing record. Check the license number and Workspace Code.';
     case 404: return 'The agency could not be found. Refresh agency records.';
     default: return 'Unable to confirm the agency update. Check your connection and refresh agency records before retrying.';

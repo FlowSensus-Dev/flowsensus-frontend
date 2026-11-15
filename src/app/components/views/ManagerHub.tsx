@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   CheckSquare, XCircle, Clock, FileText,
   Search, Loader2, Eye, EyeOff, ThumbsUp, ThumbsDown,
-  Send, RefreshCw, Download, ZoomIn, ZoomOut, CheckCircle2, ArrowRight
+  Send, RefreshCw, Download, ZoomIn, ZoomOut, CheckCircle2, ArrowRight,
+  ArrowLeft, X
 } from 'lucide-react';
 import { WorkflowState, ApplicantRecord, ActivityLog } from '../../types';
 import { SkeletonText, SkeletonBadge } from '../ui/skeleton';
 import { api } from '../../../lib/api';
-import { CVPreviewDoc, buildCVHtml, downloadCVPdf } from '../CVPreview';
+import { CVPreviewDoc, downloadCVPdf } from '../CVPreview';
 
 interface ManagerHubProps {
   workflow: WorkflowState;
@@ -35,6 +36,22 @@ interface CvRecord {
   created_at: string;
   updated_at: string;
 }
+
+// Candidates returned to these pre-CV statuses should not appear as active CV review items
+const PRE_CV_STATUSES = [
+  'Applicant Registration',
+  'Initial Screening',
+  'Pending Interview',
+  'Review Score for Medical Referral',
+  'Medical Clearance',
+  'Medical Referral',
+  'Applicant Profiling',
+  'Profiling',
+  'Provisional',
+  'Processing Stopped',
+];
+
+const INTERNAL_CV_KEYS = ['summary_override', 'return_reason', 'returned_at', 'returned_by'];
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
   DRAFT: { label: 'Draft', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
@@ -78,7 +95,7 @@ interface CvDetailGateProps {
   isEndorsed: boolean;
   activeSubmission?: any;
   onApprove: (cvId: number) => void;
-  onReject: (cvId: number, reason: string) => void;
+  onReject: (cvId: number, reason: string) => Promise<boolean>;
   onEndorse: (cvId: number) => void;
   onNavigate?: (view: string) => void;
   isActing: boolean;
@@ -90,16 +107,14 @@ function CvDetailGate({
 }: CvDetailGateProps) {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
-  const [showCVPreview, setShowCVPreview] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(0.65);
+  const [zoomLevel, setZoomLevel] = useState(0.85);
 
   const canApproveOrReject = cvRecord.status_code === 'PENDING_APPROVAL';
-  const canEndorse = cvRecord.status_code === 'APPROVED' && !isEndorsed;
 
-  // Build custom fields array from cv_record for the preview
+  // Build custom fields array from cv_record for the preview (excluding internal metadata)
   const previewCustomFields = cvRecord.custom_fields
     ? Object.entries(cvRecord.custom_fields)
-        .filter(([k]) => k !== 'summary_override')
+        .filter(([k]) => !INTERNAL_CV_KEYS.includes(k))
         .map(([key, value]) => ({ key, value: String(value) }))
     : [];
   const previewSummary = cvRecord.custom_fields?.summary_override as string | undefined;
@@ -129,273 +144,94 @@ function CvDetailGate({
     }
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 sticky top-0 bg-white z-10">
-          <div>
-            <h3 className="font-black text-[#0F172A] text-lg flex items-center gap-2">
-              <FileText className="w-5 h-5 text-[#0EA5E9]" />
-              CV Review — {applicant?.name || `Applicant #${cvRecord.applicant_id}`}
-            </h3>
-            <p className="text-sm text-[#64748B] mt-0.5">
-              {applicant?.role || applicant?.appliedRole || 'Unknown Role'} · CV #{cvRecord.cv_id}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <StatusBadge status={cvRecord.status_code} />
-            {isEndorsed && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300">
-                <Send className="w-3 h-3 text-sky-600" />
-                Endorsed to Tracker
-              </span>
-            )}
-            <button
-              onClick={() => setShowCVPreview(p => !p)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-colors ${
-                showCVPreview
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
-              }`}
-            >
-              {showCVPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {showCVPreview ? 'Hide Preview' : 'Preview CV'}
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <XCircle className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-0 z-50 bg-[#F1F5F9] flex flex-col w-full h-screen overflow-hidden animate-in fade-in duration-150">
+      {/* ── Top Bar Header ── */}
+      <div className="px-5 sm:px-8 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-4 flex-shrink-0 shadow-xs z-10">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors cursor-pointer flex-shrink-0"
+            title="Return to CV & Employer Hub (Esc)"
+          >
+            <ArrowLeft className="w-4 h-4 text-slate-600" />
+            <span className="hidden sm:inline">Back to Hub</span>
+          </button>
 
-        {/* Body */}
-        <div className="p-6 space-y-5">
+          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
 
-          {/* ── Full-width A4 CV Preview Panel ── */}
-          {showCVPreview && applicant && (
-            <div className="rounded-xl border border-slate-300 overflow-hidden bg-slate-100">
-              {/* Preview toolbar */}
-              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-200 border-b border-slate-300">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-slate-600" />
-                  <span className="text-xs font-bold text-slate-700">CV Preview</span>
-                  <span className="text-[10px] text-slate-500 font-mono bg-white px-2 py-0.5 rounded border border-slate-300">
-                    {previewHasPage2 ? '2 Pages · A4' : '1 Page · A4'}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0EA5E9] to-[#6366f1] flex items-center justify-center text-white font-bold text-sm shadow-xs flex-shrink-0">
+              {(applicant?.name || '?')[0].toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-extrabold text-[#0F172A] text-base leading-tight truncate">
+                  {applicant?.name || `Applicant #${cvRecord.applicant_id}`}
+                </h3>
+                <StatusBadge status={cvRecord.status_code} />
+                {isEndorsed && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                    <Send className="w-3 h-3 text-sky-600" />
+                    Endorsed to Tracker
                   </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setZoomLevel(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
-                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-300 rounded transition-colors"
-                    title="Zoom out"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-slate-500 text-xs font-mono w-10 text-center">
-                    {Math.round(zoomLevel * 100)}%
-                  </span>
-                  <button
-                    onClick={() => setZoomLevel(z => Math.min(1.5, +(z + 0.1).toFixed(1)))}
-                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-300 rounded transition-colors"
-                    title="Zoom in"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="w-px h-4 bg-slate-400 mx-1" />
-                  <button
-                    onClick={handleExportPreviewPDF}
-                    className="px-2.5 py-1 text-[10px] font-bold text-sky-700 border border-sky-200 bg-white rounded hover:bg-sky-50 flex items-center gap-1 transition-colors"
-                  >
-                    <Download className="w-3 h-3" />
-                    Export PDF
-                  </button>
-                </div>
-              </div>
-              {/* Scrollable A4 canvas — fills full modal width */}
-              <div
-                className="overflow-auto"
-                style={{ maxHeight: '60vh' }}
-              >
-                <div
-                  style={{
-                    width: '100%',
-                    minWidth: 794 * zoomLevel,
-                    minHeight: (previewHasPage2 ? 2340 : 1160) * zoomLevel,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'flex-start',
-                    padding: '24px 16px 48px',
-                    background: '#334155',
-                  }}
-                >
-                  <div
-                    style={{
-                      transformOrigin: 'top center',
-                      transform: `scale(${zoomLevel})`,
-                      width: 794,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <CVPreviewDoc
-                      applicant={applicant}
-                      summaryOverride={previewSummary}
-                      customFields={previewCustomFields}
-                      cvId={cvRecord.cv_id}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Applicant snapshot */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-            <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-3">Applicant Snapshot</p>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-              {[
-                ['Name', applicant?.name || '—'],
-                ['Position', applicant?.role || applicant?.appliedRole || '—'],
-                ['Phase', applicant?.phase != null ? `Phase ${applicant.phase}` : '—'],
-                ['Status', applicant?.status || '—'],
-                ['Email', applicant?.email || '—'],
-                ['Contact', applicant?.contact || '—'],
-              ].map(([l, v]) => (
-                <div key={l}>
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
-                  <p className="font-medium text-[#0F172A]">{v}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Professional summary from custom_fields */}
-          {cvRecord.custom_fields?.summary_override && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide mb-1">Professional Summary</p>
-              <p className="text-sm text-[#0F172A] italic">{cvRecord.custom_fields.summary_override}</p>
-            </div>
-          )}
-
-          {/* Custom fields table */}
-          {cvRecord.custom_fields && Object.keys(cvRecord.custom_fields).filter(k => k !== 'summary_override').length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-2">Custom / Additional Fields</p>
-              <div className="rounded-xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {Object.entries(cvRecord.custom_fields)
-                      .filter(([k]) => k !== 'summary_override')
-                      .map(([k, v]) => (
-                        <tr key={k} className="border-b border-slate-100 last:border-0">
-                          <td className="px-4 py-2 font-semibold text-[#475569] bg-slate-50 w-2/5">{k}</td>
-                          <td className="px-4 py-2 text-[#0F172A]">{String(v)}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Rejection reason display */}
-          {cvRecord.status_code === 'REJECTED' && cvRecord.rejection_reason && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">Rejection Reason</p>
-              <p className="text-sm text-red-700">{cvRecord.rejection_reason}</p>
-            </div>
-          )}
-
-          {/* Approval stamp */}
-          {cvRecord.status_code === 'APPROVED' && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
-              <CheckSquare className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-bold text-emerald-700">Approved by {cvRecord.approved_by || 'Manager'}</p>
-                {cvRecord.approved_at && (
-                  <p className="text-xs text-emerald-600">
-                    {new Date(cvRecord.approved_at).toLocaleString('en-PH')}
-                  </p>
                 )}
               </div>
+              <p className="text-xs text-[#64748B] flex items-center gap-1.5 mt-0.5 truncate">
+                <span className="font-medium text-slate-700">{applicant?.role || applicant?.appliedRole || 'Unknown Role'}</span>
+                <span>·</span>
+                <span className="font-mono text-slate-500">CV #{cvRecord.cv_id}</span>
+                {applicant?.jobOrder && (
+                  <>
+                    <span>·</span>
+                    <span className="text-slate-500 truncate">{applicant.jobOrder}</span>
+                  </>
+                )}
+              </p>
             </div>
-          )}
-
-          {/* Active Tracker Endorsement banner */}
-          {isEndorsed && (
-            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 text-sky-900 font-semibold">
-                <CheckCircle2 className="w-4 h-4 text-sky-600 flex-shrink-0" />
-                <span>
-                  This CV is actively endorsed in the <strong>Endorsement Tracker</strong>
-                  {activeSubmission?.board_stage_code ? ` (${activeSubmission.board_stage_code.replace(/_/g, ' ')})` : ''}.
-                </span>
-              </div>
-              <span className="px-2 py-0.5 rounded font-mono font-bold bg-sky-100 text-sky-700 text-[10px]">
-                Phase 4 Active
-              </span>
-            </div>
-          )}
-
-          {/* Reject form */}
-          {showRejectForm && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-bold text-red-700">Provide rejection reason:</p>
-              <textarea
-                rows={3}
-                value={rejectionReason}
-                onChange={e => setRejectionReason(e.target.value)}
-                placeholder="Describe what needs to be corrected..."
-                className="w-full border-2 border-red-200 px-3 py-2 rounded-lg text-sm focus:border-red-400 outline-none resize-none"
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setShowRejectForm(false)}
-                  className="px-4 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => { if (rejectionReason.trim()) onReject(cvRecord.cv_id, rejectionReason.trim()); }}
-                  disabled={!rejectionReason.trim() || isActing}
-                  className="px-4 py-2 text-sm font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-40 flex items-center gap-1.5 transition-colors"
-                >
-                  {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
-                  Confirm Rejection
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* Footer actions */}
-        <div className="flex items-center justify-end gap-2 p-5 border-t border-slate-200 bg-slate-50 flex-wrap">
+        {/* Right Header Controls & Actions */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           {canApproveOrReject && !showRejectForm && (
             <>
               <button
+                type="button"
                 onClick={() => setShowRejectForm(true)}
-                className="px-4 py-2.5 text-sm font-bold text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 flex items-center gap-1.5 transition-colors"
+                className="px-3.5 py-1.5 text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <ThumbsDown className="w-4 h-4" />
-                Reject
+                <ThumbsDown className="w-3.5 h-3.5" />
+                <span>Reject</span>
               </button>
               <button
+                type="button"
                 onClick={() => onApprove(cvRecord.cv_id)}
                 disabled={isActing}
-                className="px-5 py-2.5 text-sm font-bold bg-[#10B981] text-white rounded-lg hover:bg-[#059669] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-emerald-100 transition-colors"
+                className="px-4 py-1.5 text-xs font-bold bg-[#10B981] hover:bg-[#059669] text-white rounded-xl flex items-center gap-1.5 disabled:opacity-40 shadow-xs transition-colors cursor-pointer"
               >
-                {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
-                Approve CV
+                {isActing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsUp className="w-3.5 h-3.5" />}
+                <span>Approve CV</span>
               </button>
             </>
           )}
+
           {cvRecord.status_code === 'APPROVED' && (
             isEndorsed ? (
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   Already Endorsed
                 </span>
                 {onNavigate && (
@@ -405,7 +241,7 @@ function CvDetailGate({
                       onClose();
                       onNavigate('endorsement');
                     }}
-                    className="px-4 py-2 text-xs font-bold bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg flex items-center gap-1.5 shadow-sm transition-colors"
+                    className="px-3.5 py-1.5 text-xs font-bold bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                     title="Open Endorsement Tracker"
                   >
                     <span>View in Tracker</span>
@@ -415,21 +251,262 @@ function CvDetailGate({
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => onEndorse(cvRecord.cv_id)}
                 disabled={isActing}
-                className="px-5 py-2.5 text-sm font-bold bg-[#0EA5E9] text-white rounded-lg hover:bg-[#0284C7] flex items-center gap-1.5 disabled:opacity-40 shadow-md shadow-sky-100 transition-colors"
+                className="px-4 py-1.5 text-xs font-bold bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-xl flex items-center gap-1.5 disabled:opacity-40 shadow-xs transition-colors cursor-pointer"
               >
-                {isActing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Endorse to Tracker
+                {isActing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>Endorse to Tracker</span>
               </button>
             )
           )}
+
           <button
-            onClick={onClose}
-            className="px-4 py-2.5 text-sm font-bold text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+            type="button"
+            onClick={handleExportPreviewPDF}
+            disabled={!applicant}
+            className="px-3 py-1.5 text-xs font-bold text-sky-700 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Download formatted CV PDF"
           >
-            Close
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export PDF</span>
           </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+            title="Close (Esc)"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Main Full-Screen Workspace (2-Column Layout) ── */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-slate-100">
+        {/* Left Column: Full-Height Interactive A4 CV Canvas */}
+        <div className="flex-1 h-full flex flex-col bg-slate-800 overflow-hidden min-w-0">
+          {/* Document canvas top toolbar */}
+          <div className="flex items-center justify-between px-6 py-2.5 bg-slate-900 border-b border-slate-700/80 text-white flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <FileText className="w-4 h-4 text-sky-400" />
+              <span className="text-xs font-bold text-slate-200">A4 Document Viewer</span>
+              <span className="text-[10px] text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                {previewHasPage2 ? '2 Pages · A4' : '1 Page · A4'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setZoomLevel(z => Math.max(0.4, +(z - 0.1).toFixed(1)))}
+                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                title="Zoom out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-slate-300 text-xs font-mono w-12 text-center select-none">
+                {Math.round(zoomLevel * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomLevel(z => Math.min(1.6, +(z + 0.1).toFixed(1)))}
+                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                title="Zoom in"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomLevel(0.85)}
+                className="px-2 py-0.5 text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                title="Reset zoom to 85%"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable A4 Preview Area */}
+          <div className="flex-1 overflow-auto p-6 lg:p-10 flex justify-center items-start">
+            {applicant ? (
+              <div
+                style={{
+                  transformOrigin: 'top center',
+                  transform: `scale(${zoomLevel})`,
+                  width: 794,
+                  flexShrink: 0,
+                  marginBottom: `${(previewHasPage2 ? 2340 : 1160) * (zoomLevel - 1)}px`,
+                }}
+                className="shadow-2xl ring-1 ring-black/40 rounded-sm"
+              >
+                <CVPreviewDoc
+                  applicant={applicant}
+                  summaryOverride={previewSummary}
+                  customFields={previewCustomFields}
+                  cvId={cvRecord.cv_id}
+                />
+              </div>
+            ) : (
+              <div className="text-center py-20 text-slate-400">
+                <FileText className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No applicant record linked to this CV</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Review Details & Audit Inspector */}
+        <div className="w-full lg:w-[420px] xl:w-[460px] h-full flex flex-col bg-white border-l border-slate-200 overflow-y-auto flex-shrink-0">
+          <div className="p-6 space-y-5 flex-1">
+            {/* Rejection Form Box if active */}
+            {showRejectForm && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-red-700 font-bold text-sm">
+                  <XCircle className="w-4 h-4" />
+                  <span>Provide Rejection Reason</span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={rejectionReason}
+                  onChange={e => setRejectionReason(e.target.value)}
+                  placeholder="Specify what needs correction in this CV..."
+                  className="w-full border-2 border-red-200 px-3 py-2 rounded-lg text-sm focus:border-red-400 outline-none resize-none bg-white"
+                  autoFocus
+                />
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowRejectForm(false)}
+                    className="px-3 py-1.5 text-xs font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!rejectionReason.trim() || isActing) return;
+                      const ok = await onReject(cvRecord.cv_id, rejectionReason.trim());
+                      if (ok) {
+                        setRejectionReason('');
+                        setShowRejectForm(false);
+                        onClose();
+                      }
+                    }}
+                    disabled={!rejectionReason.trim() || isActing}
+                    className="px-4 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {isActing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsDown className="w-3.5 h-3.5" />}
+                    <span>Confirm Rejection</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Rejection Notice if already rejected */}
+            {cvRecord.status_code === 'REJECTED' && cvRecord.rejection_reason && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">Rejection Reason</p>
+                <p className="text-sm text-red-700">{cvRecord.rejection_reason}</p>
+              </div>
+            )}
+
+            {/* Approval Stamp */}
+            {cvRecord.status_code === 'APPROVED' && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+                <CheckSquare className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-emerald-800">Approved by {cvRecord.approved_by || 'Manager'}</p>
+                  {cvRecord.approved_at && (
+                    <p className="text-xs text-emerald-600 mt-0.5">
+                      {new Date(cvRecord.approved_at).toLocaleString('en-PH')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Endorsement Active Banner */}
+            {isEndorsed && (
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-sky-900 font-semibold">
+                  <CheckCircle2 className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                  <span>
+                    Actively endorsed in <strong>Endorsement Tracker</strong>
+                    {activeSubmission?.board_stage_code ? ` (${activeSubmission.board_stage_code.replace(/_/g, ' ')})` : ''}.
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded font-mono font-bold bg-sky-100 text-sky-700 text-[10px]">
+                  Phase 4 Active
+                </span>
+              </div>
+            )}
+
+            {/* Applicant Snapshot Card */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-3 flex items-center justify-between">
+                <span>Applicant Snapshot</span>
+                <span className="text-[10px] text-slate-400 font-normal">Candidate Records</span>
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                {[
+                  ['Name', applicant?.name || '—'],
+                  ['Position', applicant?.role || applicant?.appliedRole || '—'],
+                  ['Phase', applicant?.phase != null ? `Phase ${applicant.phase}` : '—'],
+                  ['Status', applicant?.status || '—'],
+                  ['Email', applicant?.email || '—'],
+                  ['Contact', applicant?.contact || '—'],
+                  ['Job Order', applicant?.jobOrder || '—'],
+                  ['Passport', applicant?.passport || applicant?.identifications?.find(i => i.type?.toLowerCase().includes('passport'))?.identificationNo || '—'],
+                ].map(([l, v]) => (
+                  <div key={l} className="min-w-0">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">{l}</p>
+                    <p className="font-semibold text-[#0F172A] truncate" title={String(v)}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Professional Summary */}
+            {cvRecord.custom_fields?.summary_override && (
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-[#0EA5E9] uppercase tracking-wide mb-1.5">Professional Summary</p>
+                <p className="text-sm text-[#0F172A] leading-relaxed italic">"{cvRecord.custom_fields.summary_override}"</p>
+              </div>
+            )}
+
+            {/* Custom Fields */}
+            {previewCustomFields.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-[#64748B] uppercase tracking-wide mb-2">Custom / Supplementary Fields</p>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {previewCustomFields.map(({ key: k, value: v }) => (
+                        <tr key={k} className="border-b border-slate-100 last:border-0">
+                          <td className="px-3.5 py-2 font-semibold text-[#475569] bg-slate-50 w-2/5 text-xs">{k}</td>
+                          <td className="px-3.5 py-2 text-[#0F172A] text-xs font-medium">{v}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Panel Footer Actions */}
+          <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs text-slate-500 font-mono font-medium">CV ID: #{cvRecord.cv_id}</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              Close Workspace
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -437,7 +514,6 @@ function CvDetailGate({
 }
 
 export default function ManagerHub({
-  workflow,
   updateWorkflow,
   showToast,
   applicants = [],
@@ -475,7 +551,6 @@ export default function ManagerHub({
     loadCvRecords();
   }, [loadCvRecords]);
 
-  // ─── Approve ──────────────────────────────────────────────────────────────────
   // ─── Approve ──────────────────────────────────────────────────────────────────
   const handleApprove = async (cvId: number) => {
     setIsActing(true);
@@ -520,7 +595,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
@@ -551,7 +626,7 @@ export default function ManagerHub({
   };
 
   // ─── Reject ───────────────────────────────────────────────────────────────────
-  const handleReject = async (cvId: number, reason: string) => {
+  const handleReject = async (cvId: number, reason: string): Promise<boolean> => {
     setIsActing(true);
     try {
       const res = await api.patch(`/cv/${cvId}`, {
@@ -573,7 +648,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Encoding',
             current_phase: 3,
@@ -595,9 +670,11 @@ export default function ManagerHub({
         details: `CV #${cvId} rejected. Reason: ${reason}`,
       });
 
-      showToast('CV rejected — applicant must revise and resubmit.');
+      showToast('✓ CV sent back for revision — the encoder has been notified to edit and resubmit.');
+      return true;
     } catch (err: any) {
       showToast(`❌ Rejection failed: ${err?.response?.data?.detail || err.message}`);
+      return false;
     } finally {
       setIsActing(false);
     }
@@ -640,7 +717,7 @@ export default function ManagerHub({
 
         const numId = parseInt(String(app.id), 10);
         if (!isNaN(numId)) {
-          api.put(`/applicants/${numId}`, {
+          await api.put(`/applicants/${numId}`, {
             application_id: app.applicationId,
             application_status: 'CV Approved - Sending to Employer',
             current_phase: 4,
@@ -680,8 +757,17 @@ export default function ManagerHub({
     return Boolean(getSubmissionForCv(cv.cv_id, cv.applicant_id));
   }, [getSubmissionForCv]);
 
+  // Exclude CV records whose applicant was returned to Applicant Profiling or an earlier stage
+  const activeCvRecords = cvRecords.filter(cv => {
+    const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
+    if (!app) return true;
+    if (app.isStopped) return false;
+    const s = String(app.status || '').trim();
+    return !PRE_CV_STATUSES.includes(s);
+  });
+
   // ─── Filtered list ────────────────────────────────────────────────────────────
-  const filtered = cvRecords.filter(cv => {
+  const filtered = activeCvRecords.filter(cv => {
     const app = applicants.find(a => String(a.id) === String(cv.applicant_id));
     const q = searchQuery.toLowerCase();
     const matchSearch = !q
@@ -693,11 +779,11 @@ export default function ManagerHub({
   });
 
   const counts = {
-    all: cvRecords.length,
-    DRAFT: cvRecords.filter(r => r.status_code === 'DRAFT').length,
-    PENDING_APPROVAL: cvRecords.filter(r => r.status_code === 'PENDING_APPROVAL').length,
-    APPROVED: cvRecords.filter(r => r.status_code === 'APPROVED').length,
-    REJECTED: cvRecords.filter(r => r.status_code === 'REJECTED').length,
+    all: activeCvRecords.length,
+    DRAFT: activeCvRecords.filter(r => r.status_code === 'DRAFT').length,
+    PENDING_APPROVAL: activeCvRecords.filter(r => r.status_code === 'PENDING_APPROVAL').length,
+    APPROVED: activeCvRecords.filter(r => r.status_code === 'APPROVED').length,
+    REJECTED: activeCvRecords.filter(r => r.status_code === 'REJECTED').length,
   };
 
   const selectedCvApplicant = selectedCv
@@ -774,7 +860,7 @@ export default function ManagerHub({
           <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
             <FileText className="w-12 h-12 text-slate-200 mx-auto mb-3" />
             <p className="font-bold text-slate-400">
-              {cvRecords.length === 0 ? 'No CV records yet — staff must submit CVs from the CV Encoding module.' : 'No records match your filter.'}
+              {activeCvRecords.length === 0 ? 'No CV records yet — staff must submit CVs from the CV Encoding module.' : 'No records match your filter.'}
             </p>
           </div>
         ) : (

@@ -176,6 +176,27 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
   const formattedApplicantCode = item.applicant_code || (item.applicant_id ? `APP-2026-FP-${String(item.applicant_id).padStart(5, '0')}` : undefined);
   const formattedJobOrderCode = item.job_order_code || item.job_code || (item.job_order_id ? `JO-2026-${String(item.job_order_id).padStart(4, '0')}` : 'Unassigned');
 
+  const rawActual = item.actual_deployment_at
+    ? (typeof item.actual_deployment_at === 'string' ? item.actual_deployment_at.split('T')[0] : String(item.actual_deployment_at).split('T')[0])
+    : (item.actualDeploymentDate || undefined);
+
+  let rawPhase = typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1);
+  let rawStatus = item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration';
+
+  // Automatic date-based deployment status synchronization:
+  // If an actual deployment date is set and candidate is in pre-deployment / deployment (phase 5 or 6):
+  const isStopped = Boolean(item.is_stopped || item.isStopped || rawStatus === 'Processing Stopped');
+  if (!isStopped && rawActual && (rawPhase >= 5 || rawStatus === 'Ready for Deployment' || rawStatus === 'Deployed')) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (rawActual <= todayStr) {
+      rawPhase = 6;
+      rawStatus = 'Deployed';
+    } else {
+      rawPhase = 5;
+      rawStatus = 'Ready for Deployment';
+    }
+  }
+
   return {
     id: String(item.applicant_id),
     applicationId,
@@ -189,15 +210,19 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     appliedRole: item.applied_position || item.applied_role || item.position || '',
     jobOrder: formattedJobOrderCode,
     selectedJobOrderId: item.job_order_id ? String(item.job_order_id) : (formattedJobOrderCode !== 'Unassigned' ? formattedJobOrderCode : undefined),
-    phase: typeof item.current_phase === 'number' ? item.current_phase : (typeof item.currentPhase === 'number' ? item.currentPhase : 1),
-    status: item.application_status || item.status_code || item.statusCode || item.status || 'Applicant Registration',
-    actualDeploymentDate: item.actual_deployment_at
-      ? (typeof item.actual_deployment_at === 'string' ? item.actual_deployment_at.split('T')[0] : String(item.actual_deployment_at).split('T')[0])
-      : (item.actualDeploymentDate || undefined),
+    phase: rawPhase,
+    status: rawStatus,
+    actualDeploymentDate: rawActual,
     currentHandler: (item.current_handler === 'Unassigned Pool' || item.currentHandler === 'Unassigned Pool') ? 'Unassigned' : (item.current_handler || item.currentHandler || 'Unassigned'),
     currentHandlerUserId: item.current_handler_user_id || item.currentHandlerUserId || undefined,
     currentDepartment: item.current_department || 'Recruitment',
-    lastUpdated: item.last_updated ? new Date(item.last_updated).toLocaleString() : (item.updated_at ? new Date(item.updated_at).toLocaleString() : new Date().toLocaleString()),
+    lastUpdated: item.last_updated
+      ? (isNaN(new Date(item.last_updated).getTime()) ? String(item.last_updated) : new Date(item.last_updated).toISOString())
+      : item.updated_at
+      ? (isNaN(new Date(item.updated_at).getTime()) ? String(item.updated_at) : new Date(item.updated_at).toISOString())
+      : (item.created_at || item.createdAt)
+      ? (isNaN(new Date(item.created_at || item.createdAt).getTime()) ? String(item.created_at || item.createdAt) : new Date(item.created_at || item.createdAt).toISOString())
+      : new Date().toISOString(),
     createdAt: item.created_at || item.createdAt || item.application_created_at || item.last_updated || item.updated_at || '',
     phaseDescription: item.phase_description || 'Active in candidate pipeline',
     presentAddress: item.present_address || '',
@@ -253,5 +278,15 @@ export function mapApplicantFromApi(item: any): ApplicantRecord {
     photoDocumentId: item.photo_document_id || item.photoDocumentId || undefined,
     photoUrl: item.photo_url || item.photo || '',
     photoDataUrl: item.photo_url || item.photo || '',
+    isStopped: Boolean(item.is_stopped ?? item.isStopped),
+    stoppedReason: item.stopped_reason || item.stoppedReason || '',
+    stoppedBy: item.stopped_by || item.stoppedBy || '',
+    stoppedAt: item.stopped_at || item.stoppedAt || '',
+    stoppedPhase: item.stopped_phase || item.stoppedPhase || undefined,
+    deletedAt: item.deleted_at || item.deletedAt || undefined,
+    deletedBy: item.deleted_by || item.deletedBy || undefined,
+    deletedByName: item.deleted_by_name || item.deletedByName || undefined,
+    deletedByEmail: item.deleted_by_email || item.deletedByEmail || (typeof item.deleted_by === 'string' && item.deleted_by.includes('@') ? item.deleted_by : undefined),
+    archiveType: item.archive_type || item.archiveType || undefined,
   };
 }

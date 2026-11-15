@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Globe, Briefcase,
   Users, Calendar, DollarSign, FileText, ChevronDown, ChevronRight,
-  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star, Loader2
+  CheckCircle2, Clock, XCircle, AlertTriangle, Building2, Tag, Star, Loader2,
+  Lock, Sparkles
 } from 'lucide-react';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 import { JobOrder, EmployerProfile } from '../../types';
@@ -25,6 +26,41 @@ const STATUS_META: Record<JobOrder['status'], { label: string; color: string; ic
   closed: { label: 'Closed', color: '#64748B', icon: <XCircle size={13} /> },
   draft: { label: 'Draft', color: '#94A3B8', icon: <Clock size={13} /> },
   cancelled: { label: 'Cancelled', color: '#EF4444', icon: <XCircle size={13} /> },
+};
+
+const normalizeStatus = (statusStr: string | null | undefined): JobOrder['status'] => {
+  const clean = (statusStr || 'open').toLowerCase().trim();
+  if (clean === 'active' || clean === 'approved') return 'open';
+  if (['open', 'pending', 'filled', 'closed', 'draft', 'cancelled'].includes(clean)) {
+    return clean as JobOrder['status'];
+  }
+  return 'open';
+};
+
+const generateNextJobOrderCode = (existingOrders: JobOrder[]): string => {
+  const currentYear = new Date().getFullYear();
+  const prefix = `JO-${currentYear}-`;
+  let maxSeq = 0;
+  for (const o of existingOrders) {
+    if (!o.code) continue;
+    const match = o.code.match(/JO-(\d{4})-(\d+)/i);
+    if (match) {
+      const seq = parseInt(match[2], 10);
+      if (!isNaN(seq) && seq > maxSeq) {
+        maxSeq = seq;
+      }
+    } else {
+      const numMatch = o.code.match(/(\d+)$/);
+      if (numMatch) {
+        const seq = parseInt(numMatch[1], 10);
+        if (!isNaN(seq) && seq > maxSeq) {
+          maxSeq = seq;
+        }
+      }
+    }
+  }
+  const nextSeq = maxSeq + 1;
+  return `${prefix}${String(nextSeq).padStart(4, '0')}`;
 };
 
 const BLANK_ORDER: Omit<JobOrder, 'id'> = {
@@ -90,7 +126,7 @@ const mapJobOrderFromApi = (jo: any): JobOrder => ({
             ...(Array.isArray(jo.requirements) ? jo.requirements.map((name: string) => ({ name, category: 'DOCUMENT' as const, isMandatory: true })) : []),
             ...(Array.isArray(jo.certifications) ? jo.certifications.map((name: string) => ({ name, category: 'CERTIFICATION' as const, isMandatory: true })) : [])
           ]),
-  status: (jo.order_status || jo.status || 'open').toLowerCase() as JobOrder['status'],
+  status: normalizeStatus(jo.order_status || jo.status),
   datePosted: jo.date_posted || '',
   deadline: jo.application_deadline || jo.deadline || '',
   notes: jo.clean_notes || jo.notes || '',
@@ -198,10 +234,12 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   });
 
   const openNew = () => {
-    setEditing({ ...BLANK_ORDER, id: `jo-${Date.now()}` });
+    setEditing({ ...BLANK_ORDER, id: `jo-${Date.now()}`, code: '' });
     setIsNew(true);
     setReqInput('');
     setCertInput('');
+    setReqIsMandatory(true);
+    setCertIsMandatory(true);
   };
 
   const openEdit = (o: JobOrder) => {
@@ -240,12 +278,31 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     if (!editing.position.trim()) { showToast('Position is required'); return; }
     if (!editing.employerId) { showToast('Select an employer'); return; }
 
-    if (editing.slots <= 0) { showToast('Total slots must be greater than 0'); return; }
-    if (editing.salaryMax < editing.salaryMin) { showToast('Salary Max cannot be less than Salary Min'); return; }
+    const cleanSlots = Number(editing.slots) || 1;
+    if (cleanSlots <= 0) { showToast('Total slots must be greater than 0'); return; }
+    if (cleanSlots < (editing.filledSlots || 0)) {
+      showToast(`Total slots (${cleanSlots}) cannot be less than currently filled candidate slots (${editing.filledSlots})`);
+      return;
+    }
+
+    const cleanSalaryMin = Number(editing.salaryMin) || 0;
+    let cleanSalaryMax = Number(editing.salaryMax) || 0;
+    if (cleanSalaryMax === 0 && cleanSalaryMin > 0) {
+      cleanSalaryMax = cleanSalaryMin;
+    }
+    if (cleanSalaryMax < cleanSalaryMin) { showToast('Salary Max cannot be less than Salary Min'); return; }
+
+    if (editing.minAge && editing.maxAge && editing.minAge > editing.maxAge) {
+      showToast('Minimum age cannot be greater than Maximum age');
+      return;
+    }
+
     if (editing.deadline && editing.datePosted && editing.deadline < editing.datePosted) { showToast('Deadline cannot be before Date Posted'); return; }
     if (editing.contractMonths <= 0) { showToast('Contract duration must be greater than 0'); return; }
     if (editing.minExperience < 0) { showToast('Min experience cannot be negative'); return; }
-    if (!/^[A-Z]{3}$/.test(editing.salaryCurrency)) { showToast('Salary currency must be a 3-letter code (e.g. USD)'); return; }
+
+    const cleanCurrency = (editing.salaryCurrency || 'USD').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(cleanCurrency)) { showToast('Salary currency must be a 3-letter code (e.g. USD)'); return; }
 
     setIsSaving(true);
     const empObj = employers.find(e => e.id === editing.employerId);
@@ -275,21 +332,24 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       ...editing,
       employerName: empObj ? empObj.companyName : editing.employerName,
       country: finalCountry,
+      slots: cleanSlots,
+      salaryMin: cleanSalaryMin,
+      salaryMax: cleanSalaryMax,
+      salaryCurrency: cleanCurrency,
       requirements: finalReqs,
       certifications: finalCerts,
       detailedRequirements: finalDetailed,
     };
 
-    const payload = {
+    const payload: any = {
       employer_id: parseInt(editing.employerId, 10) || 1,
       position: editing.position,
       country: finalCountry,
       country_name: finalCountry,
-      job_code: editing.code || `JO-${Date.now().toString().slice(-4)}`,
-      total_slots: editing.slots,
-      salary_min: editing.salaryMin,
-      salary_max: editing.salaryMax,
-      salary_currency: editing.salaryCurrency,
+      total_slots: cleanSlots,
+      salary_min: cleanSalaryMin,
+      salary_max: cleanSalaryMax,
+      salary_currency: cleanCurrency,
       contract_months: editing.contractMonths,
       min_experience_years: editing.minExperience,
       gender_preference: editing.genderPreference || 'Any',
@@ -307,6 +367,11 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
         is_mandatory: r.isMandatory
       })),
     };
+
+    // If editing existing order, include existing code; on new order, omit so system auto-generates
+    if (!isNew && editing.code) {
+      payload.job_code = editing.code;
+    }
 
     try {
       if (isNew) {
@@ -338,6 +403,13 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
 
   const remove = async (id: string) => {
     const o = orders.find(o => o.id === id);
+    if ((o?.filledSlots || 0) > 0) {
+      showToast(`Cannot delete Job Order "${o?.code}" because it currently has ${o?.filledSlots} assigned/filled slot(s).`);
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete Job Order ${o?.code || ''} (${o?.position || ''})? This action cannot be undone.`)) {
+      return;
+    }
     setOrders(p => p.filter(o => o.id !== id));
     try {
       await api.delete(`/job-orders/${id}`);
@@ -633,8 +705,29 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
             <div className="px-6 py-5 space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Order Code</label>
-                  <input value={editing.code} onChange={e => setEditing(p => p ? { ...p, code: e.target.value } : p)} placeholder="e.g. JO-2026-0055" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Job Order Code</label>
+                    {isNew ? (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles size={11} className="text-emerald-600" /> Auto-Generated
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Lock size={11} className="text-slate-500" /> System-Locked
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-full px-3 py-2 bg-slate-50/90 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-800 flex items-center justify-between select-all">
+                    <span>{isNew ? 'Auto-assigned upon creation' : editing.code}</span>
+                    <span className="text-[11px] text-slate-400 font-sans font-medium">
+                      {isNew ? 'JO-YYYY-[AGY]-XXXX' : 'Fixed Code'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {isNew
+                      ? 'Automatically assigned upon creation using your agency prefix and sequence number.'
+                      : 'Unique Job Order code is permanently preserved across candidate applications.'}
+                  </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">

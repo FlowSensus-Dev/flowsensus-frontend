@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, ArrowLeft, Activity, Heart, Shield, FileText, Globe } from 'lucide-react';
+import { 
+  Settings, Save, ArrowLeft, Heart, Shield, FileText, 
+  Globe, ShieldCheck, Info, Plane, Award
+} from 'lucide-react';
 
 export interface ExpenseBaseRates {
   medical: number;
@@ -9,16 +12,20 @@ export interface ExpenseBaseRates {
   owwa: number;
   visa: number;
   nbi: number;
+  psa?: number;
+  tesda?: number;
 }
 
 export const defaultRates: ExpenseBaseRates = {
   medical: 1500,
   passport: 1200,
+  nbi: 160,
+  psa: 365,
+  tesda: 1000,
   oec: 2500,
   pdos: 500,
   owwa: 1500,
   visa: 2000,
-  nbi: 130,
 };
 
 export const getStoredRates = (): ExpenseBaseRates => {
@@ -50,7 +57,7 @@ export default function AccountingSettings({ onBack, showToast }: AccountingSett
     setIsSaving(true);
     try {
       localStorage.setItem('fs_expense_base_rates', JSON.stringify(rates));
-      showToast('Base rates updated successfully');
+      showToast('✓ Financial base rates and DMW policy rules updated successfully');
     } catch (e) {
       showToast('Failed to save base rates');
     } finally {
@@ -67,9 +74,10 @@ export default function AccountingSettings({ onBack, showToast }: AccountingSett
   };
 
   return (
-    <div className="flex-1 overflow-auto bg-slate-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+    <div className="flex-1 overflow-auto bg-slate-50 p-8 w-full">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
           <div>
             <button 
               onClick={onBack}
@@ -78,137 +86,164 @@ export default function AccountingSettings({ onBack, showToast }: AccountingSett
               <ArrowLeft className="w-4 h-4 mr-1" /> Back to Dashboard
             </button>
             <h1 className="text-2xl font-black text-[#0F172A] flex items-center gap-3">
-              <Settings className="w-8 h-8 text-indigo-600 bg-indigo-100 p-1.5 rounded-lg" />
-              Accounting Settings
+              <Settings className="w-6 h-6 text-emerald-600" />
+              Accounting & Fee Standard Settings
             </h1>
-            <p className="text-slate-500 mt-1 font-medium">Configure global base rates for automated applicant expenses.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Configure baseline fee rates for automated stage synchronization in accordance with DMW / POEA guidelines.
+            </p>
           </div>
-          <button 
+          <button
             onClick={handleSave}
             disabled={isSaving}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-all disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             {isSaving ? 'Saving...' : 'Save Configuration'}
           </button>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-indigo-600" /> Standard Processing Fees (PHP)
-            </h3>
+        {/* Regulatory Summary Banner */}
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-emerald-900 text-xs">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sm text-emerald-950">DMW Regulatory Compliance Principles</p>
+              <p className="text-emerald-800 leading-relaxed">
+                Under Department of Migrant Workers rules, costs are divided strictly by legal responsibility:
+                <strong> Personal documents</strong> (medical examinations, passport, NBI, PSA) are worker-borne.
+                <strong> Deployment costs</strong> (visa, work permits, OEC, OWWA, airfare) must be covered by the foreign employer/agency.
+                Placement fees are capped at <strong>1 month's basic salary</strong> and are strictly forbidden for domestic workers and zero-fee countries.
+              </p>
+            </div>
           </div>
-          
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-6">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                  <Heart className="w-4 h-4 text-rose-500" /> Medical Package (Fit-to-Work)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                  <input 
-                    type="number" 
-                    value={rates.medical}
-                    onChange={(e) => updateRate('medical', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Automatically charged when medical phase is cleared.</p>
-              </div>
+        </div>
 
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                  <FileText className="w-4 h-4 text-blue-500" /> OEC Processing
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                  <input 
-                    type="number" 
-                    value={rates.oec}
-                    onChange={(e) => updateRate('oec', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
-                </div>
-              </div>
+        {/* Section 1: Worker-Borne Personal Documentation */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-slate-100">
+            <Heart className="w-5 h-5 text-emerald-600" />
+            <div>
+              <h3 className="font-bold text-[#0F172A] text-base">Worker-Borne Personal Documentation (PHP)</h3>
+              <p className="text-xs text-slate-500">Standard candidate documentation fees paid directly by the applicant</p>
+            </div>
+          </div>
 
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                  <Shield className="w-4 h-4 text-emerald-500" /> OWWA Membership
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                  <input 
-                    type="number" 
-                    value={rates.owwa}
-                    onChange={(e) => updateRate('owwa', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">Medical Examination (Fit-to-Work / PEME)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.medical}
+                  onChange={e => updateRate('medical', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
               </div>
             </div>
 
-            <div className="space-y-6">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                  <Globe className="w-4 h-4 text-amber-500" /> Passport Processing
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                  <input 
-                    type="number" 
-                    value={rates.passport}
-                    onChange={(e) => updateRate('passport', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
-                </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">Passport Processing / Renewal</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.passport}
+                  onChange={e => updateRate('passport', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
               </div>
+            </div>
 
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                  <Globe className="w-4 h-4 text-purple-500" /> Visa Processing
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                  <input 
-                    type="number" 
-                    value={rates.visa}
-                    onChange={(e) => updateRate('visa', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  />
-                </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">NBI / Police Clearance</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.nbi}
+                  onChange={e => updateRate('nbi', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                    <FileText className="w-4 h-4 text-slate-500" /> PDOS
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                    <input 
-                      type="number" 
-                      value={rates.pdos}
-                      onChange={(e) => updateRate('pdos', e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
-                    <FileText className="w-4 h-4 text-slate-500" /> NBI
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₱</span>
-                    <input 
-                      type="number" 
-                      value={rates.nbi}
-                      onChange={(e) => updateRate('nbi', e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg pl-8 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                    />
-                  </div>
-                </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">PSA / NSO Birth Certificate</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.psa || 365}
+                  onChange={e => updateRate('psa', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Employer-Covered Processing Costs */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-slate-100">
+            <Plane className="w-5 h-5 text-indigo-600" />
+            <div>
+              <h3 className="font-bold text-[#0F172A] text-base">Employer-Covered Processing Costs (PHP)</h3>
+              <p className="text-xs text-slate-500">Government and deployment costs paid by foreign employer / agency (Zero-Fee to OFW)</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">OEC Processing Fee (POEA/DMW)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.oec}
+                  onChange={e => updateRate('oec', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">OWWA Membership Contribution</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.owwa}
+                  onChange={e => updateRate('owwa', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">Working Visa & Entry Permit</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.visa}
+                  onChange={e => updateRate('visa', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 mb-1.5 block">PDOS / PEOS Pre-Departure Seminar</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
+                <input
+                  type="number"
+                  value={rates.pdos}
+                  onChange={e => updateRate('pdos', e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                />
               </div>
             </div>
           </div>
