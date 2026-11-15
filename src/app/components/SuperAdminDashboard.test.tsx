@@ -168,6 +168,19 @@ describe('Super Admin onboarding (mocked API only)', () => {
     expect(text(render())).not.toContain(mockPassword);
     change('agency-name', 'New Agency'); expect(field('workspace-code').props.value).toBe('new-agency');
   });
+  it('displays email dispatch confirmation when onboarding email was successfully sent', async () => {
+    const customSuccess = {
+      ...success(),
+      data: {
+        ...success().data,
+        admin: { ...success().data.admin, email_dispatched: true },
+      },
+    };
+    h.post.mockResolvedValueOnce(customSuccess);
+    fill(); await submit();
+    expect(text(render())).toContain('An onboarding email with login credentials and initial workspace setup instructions has been sent to');
+    expect(text(render())).not.toContain('No email has been sent');
+  });
   it('validates a pasted hostname and required fields before submitting', async () => {
     await submit(); expect(h.post).not.toHaveBeenCalled();
     fill(); change('workspace-code', 'agency2test.flowsensus.com'); await submit();
