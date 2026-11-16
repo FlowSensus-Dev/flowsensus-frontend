@@ -1,4 +1,16 @@
 // PF05 contract: stage_order is the write identity. IDs and keys come only from GET.
+// Display only: retain canonical backend names for requests and stage identity.
+export function forecastStageDisplayLabel(stageName: string): string {
+  switch (stageName) {
+    case 'Registration & Screening': return 'Registration & Screening';
+    case 'Medical Clearance': return 'Medical Clearance';
+    case 'CV & Endorsement': return 'CV Encoding & Management Approval';
+    case 'Under Employer Review': return 'Employer Endorsement';
+    case 'Final Deployment': return 'Final Deployment Processing';
+    default: return stageName;
+  }
+}
+
 export interface PertStage {
   stage_order: number;
   stage_name: string;

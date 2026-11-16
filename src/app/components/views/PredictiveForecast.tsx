@@ -13,8 +13,7 @@ import { api } from '../../../lib/api';
 import { ApplicantRecord, ApplicationForecastResponse } from '../../types';
 import { Skeleton, SkeletonBadge } from '../ui/skeleton';
 import ForecastingConfiguration from './ForecastingConfiguration';
-import useDelayReasons from './useDelayReasons';
-import { applicableDelayReasons, DelayReason } from '../../../lib/forecastPenalties';
+import { forecastStageDisplayLabel } from '../../../lib/pertConfiguration';
 import SesCalculationBreakdown, { SimulationCalculationBreakdown } from './SesCalculationBreakdown';
 
 interface StageForecast {
@@ -31,20 +30,11 @@ interface StageForecast {
   fallback_reason?: string;
 }
 
-interface DynamicException {
-  reason_name: string;
-  stage_name?: string | null;
-  seed_penalty_days: number;
-  current_weight_days: number;
-  observation_count: number;
-}
-
 interface PipelineForecastData {
   agency_id: number;
   total_pipeline_duration_days: number;
   alpha_used: number;
   stages: StageForecast[];
-  dynamic_exceptions: DynamicException[];
 }
 
 interface SimulationStepRequest {
@@ -55,7 +45,6 @@ interface SimulationStepRequest {
   alpha: number;
   reason?: string;
   actual_penalty?: number;
-  prior_exception_weight_days?: number;
   advance_stage?: boolean;
 }
 
@@ -81,9 +70,7 @@ interface SimulationStepResponse {
 
 interface PreviewObservation {
   data: SimulationStepResponse;
-  reason: string;
   liveBasis: string;
-  exceptionBasis?: string;
 }
 
 type PreviewChains = Record<string, PreviewObservation[]>;
@@ -117,45 +104,30 @@ function getWhatIfPipelineForecast(pipeline: PipelineForecastData | null, chains
   for (const stage of pipeline.stages) {
     const history = chains[stage.stage_name] ?? [];
     const latest = history[history.length - 1]?.data;
-    const contribution = latest
-      ? latest.actual_penalty_days > 0 ? latest.adjusted_stage_forecast_days : latest.new_stage_forecast
-      : getLiveStageForecast(stage);
+    const contribution = latest ? latest.new_stage_forecast : getLiveStageForecast(stage);
     if (typeof contribution !== 'number' || !Number.isFinite(contribution)) return null;
     total += contribution;
   }
   return total;
 }
 
-export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, exceptions, delaysUnavailable = false, onSuccess, onReset }: {
+export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveBasis, onSuccess, onReset }: {
   stage: StageForecast;
   applicantId: string;
   alpha: number | undefined;
   inputId: string;
   history: PreviewObservation[];
   liveBasis: string;
-  exceptions: DelayReason[];
-  delaysUnavailable?: boolean;
   onSuccess: (observation: PreviewObservation) => void;
   onReset: () => void;
 }) {
   const [baseDuration, setBaseDuration] = useState('');
-  const [includePenalty, setIncludePenalty] = useState(false);
-  const [reason, setReason] = useState(history[history.length - 1]?.reason ?? '');
-  const [penaltyDays, setPenaltyDays] = useState('');
-  const [delaySelection, setDelaySelection] = useState('');
   const [result, setResult] = useState<PreviewObservation | null>(history[history.length - 1] ?? null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const requestId = useRef(0);
   const livePrior = getLiveStageForecast(stage);
   const prior = history[history.length - 1]?.data.new_stage_forecast ?? livePrior;
-  const options = applicableDelayReasons(exceptions, stage.workflow_stage_id);
-  const selection = delaySelection || (options.length === 0 ? 'custom' : '');
-  const selectedException = options.find((option) => String(option.exception_type_id) === selection);
-  const selectedReason = selection === 'custom' ? reason.trim() : selectedException?.reason_name ?? '';
-  const delayDays = selection === 'custom' ? penaltyDays : selectedException ? String(selectedException.current_weight_days) : '';
-  const learnedPenaltyHistory = history.filter((observation) => observation.data.exception_weight_updated &&
-    observation.data.previous_weight_days != null && observation.data.new_exception_weight != null);
   const liveStateAvailable = typeof prior === 'number' && Number.isFinite(prior) && prior >= 0 &&
     typeof alpha === 'number' && Number.isFinite(alpha) && alpha > 0 && alpha <= 1;
 
@@ -170,11 +142,7 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
     if (running) return;
     clearResult();
     if (!validDays(baseDuration)) {
-      setError('Enter a valid base duration of zero or more days.');
-      return;
-    }
-    if (includePenalty && (!validDays(delayDays) || !selectedReason)) {
-      setError('Select a configured delay reason or enter a custom reason and a delay of zero or more days.');
+      setError('Enter a valid hypothetical stage duration of zero or more days.');
       return;
     }
     if (!liveStateAvailable || !applicantId) {
@@ -188,9 +156,9 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
       days_passed: Number(baseDuration),
       prior_forecast_days: prior!,
       alpha: alpha!,
-      actual_penalty: includePenalty ? Number(delayDays) : 0,
-      reason: includePenalty ? selectedReason : 'Normal Process',
-      // Configured and custom delays are one-off adjustments, not exception learning commands.
+      // Neutral values preserve the existing stateless simulation contract.
+      actual_penalty: 0,
+      reason: 'Normal Process',
       advance_stage: true,
     };
     setRunning(true);
@@ -205,12 +173,10 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
         throw new Error('Unexpected preview response.');
       }
       if (data.base_actual_days !== payload.days_passed || data.actual_penalty_days !== payload.actual_penalty ||
-        (data.exception_weight_updated && (payload.prior_exception_weight_days == null ||
-          data.previous_weight_days !== payload.prior_exception_weight_days ||
-          typeof data.new_exception_weight !== 'number' || !Number.isFinite(data.new_exception_weight) || data.new_exception_weight < 0))) {
+        data.exception_weight_updated) {
         throw new Error('Unexpected exception preview response.');
       }
-      const observation: PreviewObservation = { data, reason: payload.reason!, liveBasis };
+      const observation: PreviewObservation = { data, liveBasis };
       onSuccess(observation);
       setResult(observation);
     } catch (err: any) {
@@ -236,7 +202,7 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
       <form onSubmit={runPreview} noValidate className="mt-2 space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-end gap-3">
           <div>
-            <label htmlFor={`${inputId}-base`} className="block text-slate-600 mb-1">Actual Base Duration (Days)</label>
+            <label htmlFor={`${inputId}-base`} className="block text-slate-600 mb-1">Hypothetical Stage Duration (Days)</label>
             <input id={`${inputId}-base`} type="number" min="0" step="any" value={baseDuration} disabled={running}
               onChange={(event) => { setBaseDuration(event.target.value); clearResult(); }} className={`${inputClass} sm:w-44`} />
           </div>
@@ -246,35 +212,6 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
             {running ? 'Running Preview...' : 'Run Preview'}
           </button>
         </div>
-        <label className="inline-flex items-center gap-2 text-slate-600">
-          <input type="checkbox" checked={includePenalty} disabled={running} className="accent-sky-600"
-            onChange={(event) => { setIncludePenalty(event.target.checked); clearResult(); }} />
-          Include Additional Delay
-        </label>
-        {includePenalty && (
-          <div className="space-y-2 max-w-lg">
-            <div><label htmlFor={`${inputId}-delay-choice`} className="block text-slate-600 mb-1">Select Configured Delay Reason or Custom What-if Delay</label>
-              <select id={`${inputId}-delay-choice`} value={selection} disabled={running} className={inputClass}
-                onChange={(event) => { setDelaySelection(event.target.value); clearResult(); }}>
-                <option value="" disabled>Select a delay reason</option>
-                {options.map((option) => <option key={option.exception_type_id} value={option.exception_type_id}>{option.reason_name} ({option.workflow_stage_id === null ? 'All Stages' : 'This Stage'})</option>)}
-                <option value="custom">Custom What-if Delay</option>
-              </select>
-            </div>
-            {delaysUnavailable && <p className="text-[11px] text-slate-500">Configured reasons are loading or unavailable. Custom What-if Delay remains available.</p>}
-            {(!Number.isSafeInteger(stage.workflow_stage_id) || stage.workflow_stage_id! <= 0) && <p className="text-[11px] text-slate-500">Stage ID unavailable. Only All Stages reasons and custom delays can be used.</p>}
-            {selectedException && <p className="text-slate-600">Current estimated delay: <strong className="font-mono">{selectedException.current_weight_days} days</strong> · One-off preview adjustment</p>}
-            {selection === 'custom' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label htmlFor={`${inputId}-reason`} className="block text-slate-600 mb-1">Reason</label>
-                <input id={`${inputId}-reason`} value={reason} disabled={running}
-                  onChange={(event) => { setReason(event.target.value); clearResult(); }} className={inputClass} /></div>
-              <div><label htmlFor={`${inputId}-penalty`} className="block text-slate-600 mb-1">Penalty Days</label>
-                <input id={`${inputId}-penalty`} type="number" min="0" step="any" value={penaltyDays} disabled={running}
-                  onChange={(event) => { setPenaltyDays(event.target.value); clearResult(); }} className={inputClass} /></div>
-            </div>}
-          </div>
-        )}
-        {includePenalty && <p className="text-[11px] text-slate-500">One-off delay impact · Not saved</p>}
       </form>
       {error && <p role="alert" className="mt-2 text-rose-700">{error}</p>}
       {result && (
@@ -290,16 +227,6 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
             <span>Normal What-if SES: <strong className="font-mono text-sky-700">{result.data.new_stage_forecast.toFixed(2)} d</strong></span>
           </div>
           <SesCalculationBreakdown data={result.data} />
-          {result.data.actual_penalty_days > 0 && (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2 text-amber-900">
-              <p className="font-semibold">Exception / Penalty</p>
-              <p className="mt-1">Reason: {result.reason} &middot; Penalty: <strong className="font-mono">+{result.data.actual_penalty_days.toFixed(2)} d</strong></p>
-              {result.data.exception_weight_updated ? (
-                <p className="mt-1">Exception Weight Preview: <strong className="font-mono">{result.data.new_exception_weight!.toFixed(2)} d</strong></p>
-              ) : <p className="mt-1">One-off penalty impact</p>}
-              <p className="mt-1">Adjusted What-if Stage Forecast: <strong className="font-mono">{result.data.adjusted_stage_forecast_days.toFixed(2)} d</strong></p>
-            </div>
-          )}
           <p className="text-[11px] text-slate-500 mt-2">Temporary preview &bull; Not saved</p>
         </div>
       )}
@@ -312,20 +239,6 @@ export function StageWhatIf({ stage, applicantId, alpha, inputId, history, liveB
               <li key={index} className="font-mono">
                 Prior {observation.data.previous_stage_forecast.toFixed(2)} d &rarr; Actual {observation.data.base_actual_days.toFixed(2)} d &rarr; SES {observation.data.new_stage_forecast.toFixed(2)} d
                 <SesCalculationBreakdown data={observation.data} compact />
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {learnedPenaltyHistory.length > 0 && (
-        <div className="mt-3 border-t border-slate-200 pt-2">
-          <p className="font-semibold text-slate-700">Exception Learning Chain</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Preview history</p>
-          <ol className="list-decimal pl-5 mt-1 space-y-1 text-slate-600 max-h-32 overflow-y-auto">
-            {learnedPenaltyHistory.map((observation, index) => (
-              <li key={index}>
-                <span className="font-semibold">{observation.reason}: </span>
-                <span className="font-mono">Prior Weight {observation.data.previous_weight_days!.toFixed(2)} d &rarr; Observed Penalty {observation.data.actual_penalty_days.toFixed(2)} d &rarr; Weight {observation.data.new_exception_weight!.toFixed(2)} d</span>
               </li>
             ))}
           </ol>
@@ -350,10 +263,10 @@ export default function PredictiveForecast({
   globalPipelineForecast,
   canEditAgencySettings = false,
 }: PredictiveForecastProps) {
-  const delays = useDelayReasons();
-  const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(null);
+  const [pipelineData, setPipelineData] = useState<PipelineForecastData | null>(globalPipelineForecast ?? null);
   const [loading, setLoading] = useState<boolean>(true);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const pipelineRequestId = useRef(0);
 
   // Candidate and Application Selection
   const [candidateId, setActiveApplicantId] = useState<string>(selectedApplicantId);
@@ -372,6 +285,9 @@ export default function PredictiveForecast({
   const [previewChains, setPreviewChains] = useState<PreviewChains>({});
   const [previewEpoch, setPreviewEpoch] = useState(0);
   const [lightweightApplicants, setLightweightApplicants] = useState<any[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState(true);
+  const [applicationsError, setApplicationsError] = useState<string | null>(null);
+  const applicationsRequestId = useRef(0);
 
   // Unique applicants for Target Candidate selector
   const uniqueApplicants = useMemo(() => {
@@ -429,33 +345,40 @@ export default function PredictiveForecast({
 
 
   const fetchLightweightApplications = async () => {
+    const requestId = ++applicationsRequestId.current;
+    setLoadingApplications(true);
+    setApplicationsError(null);
     try {
       const res = await api.get('/forecasting/applications');
+      if (requestId !== applicationsRequestId.current) return;
       setLightweightApplicants(res.data || []);
     } catch (err) {
+      if (requestId !== applicationsRequestId.current) return;
       console.error('Failed to load forecasting applications', err);
+      setApplicationsError('Unable to load forecasting applications. Use Refresh Live Forecast to retry.');
+    } finally {
+      if (requestId === applicationsRequestId.current) setLoadingApplications(false);
     }
   };
 
-  useEffect(() => {
-    fetchLightweightApplications();
-  }, []);
-
-  const fetchPipeline = async (force = false) => {
+  const fetchPipeline = async () => {
+    const requestId = ++pipelineRequestId.current;
     setLoading(true);
     setBackendError(null);
     try {
-      const res = !force && globalPipelineForecast ? { data: globalPipelineForecast } : await api.get('/forecasting/pipeline');
+      const res = await api.get('/forecasting/pipeline');
+      if (requestId !== pipelineRequestId.current) return;
       setPipelineData(res.data);
       return true;
     } catch (err: any) {
+      if (requestId !== pipelineRequestId.current) return;
       console.error('Failed to fetch forecasting data from backend:', err);
       setBackendError(
         err.response?.data?.detail || err.message || 'Could not connect to FastAPI backend.'
       );
       return false;
     } finally {
-      setLoading(false);
+      if (requestId === pipelineRequestId.current) setLoading(false);
     }
   };
 
@@ -494,8 +417,14 @@ export default function PredictiveForecast({
   };
 
   useEffect(() => {
-    fetchPipeline();
-  }, [globalPipelineForecast]);
+    // The login cache is initial display data only. Every visit checks live values.
+    void fetchPipeline();
+    void fetchLightweightApplications();
+    return () => {
+      ++pipelineRequestId.current;
+      ++applicationsRequestId.current;
+    };
+  }, []);
 
   // Clear the previous application before paint and invalidate requests on selection changes.
   useLayoutEffect(() => {
@@ -526,10 +455,10 @@ export default function PredictiveForecast({
   }, [activeApplicantId, activeApplicationId, pipelineData?.agency_id]);
 
   const handleRefresh = () => {
-    void delays.refresh();
+    void fetchLightweightApplications();
     setPreviewChains({});
     setPreviewEpoch((previous) => previous + 1);
-    fetchPipeline(true);
+    void fetchPipeline();
     if (activeApplicationId) {
       fetchApplicationForecast(activeApplicationId);
     }
@@ -539,13 +468,21 @@ export default function PredictiveForecast({
     setPreviewChains({});
     setPreviewEpoch((previous) => previous + 1);
     const results = await Promise.all([
-      fetchPipeline(true),
+      fetchPipeline(),
       ...(activeApplicationId ? [fetchApplicationForecast(activeApplicationId)] : []),
     ]);
     if (results.some((result) => result === false)) throw new Error('Forecast refresh failed');
   };
 
-  const configuration = <ForecastingConfiguration {...delays} canEdit={canEditAgencySettings} onAlphaSaved={refreshAfterSettings} />;
+  const configuration = <ForecastingConfiguration canEdit={canEditAgencySettings} onAlphaSaved={refreshAfterSettings} />;
+  const refreshButton = <button
+    onClick={handleRefresh}
+    disabled={loading || loadingApplicant || loadingApplications}
+    className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-all"
+  >
+    <RefreshCw size={14} className={loading || loadingApplicant || loadingApplications ? 'animate-spin text-sky-500' : ''} />
+    <span>Refresh Live Forecast</span>
+  </button>;
 
   const selectedApplicationRecord =
     matchingApplications.find((a) => a.applicationId === activeApplicationId) ||
@@ -595,9 +532,9 @@ export default function PredictiveForecast({
       'active-stage start timestamp is unavailable; remaining eta cannot be calculated')
   );
 
-  if (!applicantsLoaded && lightweightApplicants.length === 0) {
+  if ((!applicantsLoaded || loadingApplications) && lightweightApplicants.length === 0) {
     return (
-      <div className="space-y-6 w-full">
+      <div role="status" aria-label="Loading forecasting applications" className="space-y-6 w-full">
         {/* Connection banner skeleton */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -653,7 +590,10 @@ export default function PredictiveForecast({
     return (
       <div className="space-y-6"><div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-2xl font-bold text-slate-900">Predictive Timeline Forecast</h2>
-        <p className="text-sm text-slate-500">No applicants are available to forecast.</p>
+        {applicationsError
+          ? <p role="alert" className="text-sm text-rose-700">{applicationsError}</p>
+          : <p className="text-sm text-slate-500">No applicants are available to forecast.</p>}
+        {refreshButton}
       </div>{configuration}</div>
     );
   }
@@ -672,15 +612,10 @@ export default function PredictiveForecast({
           </p>
         </div>
 
-        <button
-          onClick={handleRefresh}
-          disabled={loading || loadingApplicant}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-all"
-        >
-          <RefreshCw size={14} className={loading || loadingApplicant ? 'animate-spin text-sky-500' : ''} />
-          <span>Refresh Live Forecast</span>
-        </button>
+        {refreshButton}
       </div>
+
+      {applicationsError && <p role="alert" className="text-sm text-rose-700">{applicationsError}</p>}
 
       {/* Live Backend Connection Status Banner */}
       <div
@@ -769,7 +704,7 @@ export default function PredictiveForecast({
             <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
               {forecastResponse.current_stage && (
                 <span className="inline-flex items-center gap-1 bg-sky-100 text-sky-800 text-[11px] font-bold px-2 py-0.5 rounded">
-                  Current Stage: {forecastResponse.current_stage}
+                  Current Stage: {forecastStageDisplayLabel(forecastResponse.current_stage)}
                 </span>
               )}
             </div>
@@ -852,7 +787,7 @@ export default function PredictiveForecast({
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(ellipse_at_center,rgba(14,165,233,0.15),transparent)] pointer-events-none" />
           <div className="relative z-10">
             <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight break-words">
-              Current Phase: {forecastResponse?.current_stage || (loadingApplicant ? 'Loading...' : 'Unavailable')}
+              Current Phase: {forecastResponse?.current_stage ? forecastStageDisplayLabel(forecastResponse.current_stage) : (loadingApplicant ? 'Loading...' : 'Unavailable')}
             </h3>
             {formattedEstimate && (
               <p className="text-xs text-slate-300 mt-2 flex items-center gap-1.5">
@@ -909,7 +844,6 @@ export default function PredictiveForecast({
                   const coldStart = stage.observation_count === 0;
                   const expanded = expandedStages.has(stage.stage_name);
                   const detailsId = `forecast-stage-details-${idx}`;
-                  const exceptions = applicableDelayReasons(delays.reasons, stage.workflow_stage_id);
                   const liveBasis = getStageLiveBasis(pipelineData!, stage);
                   const stageHistory = activePreviewChains[stage.stage_name] ?? [];
                   const latestPreview = stageHistory[stageHistory.length - 1]?.data;
@@ -923,7 +857,7 @@ export default function PredictiveForecast({
                             type="button"
                             aria-expanded={expanded}
                             aria-controls={expanded ? detailsId : undefined}
-                            aria-label={`${expanded ? 'Collapse' : 'Expand'} Forecast Details for ${stage.stage_name}`}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} Forecast Details for ${forecastStageDisplayLabel(stage.stage_name)}`}
                             onClick={() => setExpandedStages((previous) => {
                               const next = new Set(previous);
                               if (next.has(stage.stage_name)) next.delete(stage.stage_name);
@@ -934,13 +868,12 @@ export default function PredictiveForecast({
                           >
                             <ChevronDown size={14} className={`shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                             <span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-mono">{idx + 1}</span>
-                            <span>{stage.stage_name}</span>
+                            <span>{forecastStageDisplayLabel(stage.stage_name)}</span>
                           </button>
                           {latestPreview && (
                             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-normal text-slate-600">
                               <span>Live: <strong className="font-mono">{days(getLiveStageForecast(stage))}</strong></span>
                               <span>Normal What-if: <strong className="font-mono text-sky-700">{days(latestPreview.new_stage_forecast)}</strong></span>
-                              {latestPreview.actual_penalty_days > 0 && <span>Adjusted What-if: <strong className="font-mono text-amber-700">{days(latestPreview.adjusted_stage_forecast_days)}</strong></span>}
                             </div>
                           )}
                         </td>
@@ -980,8 +913,6 @@ export default function PredictiveForecast({
                               inputId={`stage-what-if-${idx}`}
                               history={stageHistory}
                               liveBasis={liveBasis}
-                              exceptions={exceptions}
-                              delaysUnavailable={delays.loading || !!delays.error}
                               onSuccess={(observation) => setPreviewChains((previous) => ({
                                 ...previous,
                                 [stage.stage_name]: [...(previous[stage.stage_name] ?? []), observation],

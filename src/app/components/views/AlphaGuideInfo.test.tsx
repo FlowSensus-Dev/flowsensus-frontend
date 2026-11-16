@@ -39,7 +39,7 @@ describe('alpha information tooltips', () => {
     expect(rows[1].props.children).not.toMatch(/current setting/i);
     expect(rows[2].props.children).toContain('Hypothetical'); expect(rows[2].props.children).toContain('DMW');
     expect(rows[2].props.children).toContain('cannot predict an outage before observations arrive');
-    expect(rows[2].props.children).toContain('one-day disruption with a specific Delay Reason');
+    expect(rows[2].props.children).toContain('longer stage duration with a What-if forecast');
     expect(rows[3].props.children).toContain('90%'); expect(rows[3].props.children).toContain('10%');
     expect(rows[3].props.children).toContain('SES follows the newest observation entirely');
     expect(rows[3].props.children).toContain('not universally better or more accurate');
