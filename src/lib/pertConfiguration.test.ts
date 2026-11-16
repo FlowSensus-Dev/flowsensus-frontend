@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canDeferPert, confirmedPertDeferral, isPertDeferred, createPertAttempt, expectedPertDays, pertDrafts, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration, PertConfiguration } from './pertConfiguration';
+import { canDeferPert, confirmedPertDeferral, isPertDeferred, createPertAttempt, expectedPertDays, forecastStageDisplayLabel, pertDrafts, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration, PertConfiguration } from './pertConfiguration';
 
 const config = {
   agency_id: 7, revision: 1, setup_status: 'complete', initial_setup_required: false, can_manage: true,
@@ -10,6 +10,20 @@ const config = {
 } as PertConfiguration;
 
 describe('PF05 PERT validation and display rounding', () => {
+  it('maps only the five canonical backend names for display without changing configuration or save identities', () => {
+    const names = ['Registration & Screening', 'Medical Clearance', 'CV & Endorsement', 'Under Employer Review', 'Final Deployment'];
+    const display = ['Registration & Screening', 'Medical Clearance', 'CV Encoding & Management Approval', 'Employer Endorsement', 'Final Deployment Processing'];
+    expect(names.map(forecastStageDisplayLabel)).toEqual(display);
+    for (const unknown of ['', 'All', 'Phase 0', 'Phase 6 — Deployed', 'Deployed', 'Unrelated', 'toString', ' CV & Endorsement ']) {
+      expect(forecastStageDisplayLabel(unknown)).toBe(unknown);
+    }
+    const canonical = readPertConfiguration({ ...config, stages: config.stages.map((stage, index) => ({ ...stage, stage_name: names[index] })) });
+    canonical.stages.forEach((stage) => forecastStageDisplayLabel(stage.stage_name));
+    expect(canonical.stages.map((stage) => stage.stage_name)).toEqual(names);
+    expect(createPertAttempt(canonical, pertDrafts(canonical), '').payload).toEqual(expect.objectContaining({
+      stages: [1, 2, 3, 4, 5].map((stage_order) => ({ stage_order, optimistic_days: 2, most_likely_days: 5, pessimistic_days: 14 })),
+    }));
+  });
   it.each(['', ' ', 'NaN', 'Infinity', '-1', '3650.0001', '1.00001', '1e2', '0x10', '1,2'])('rejects invalid duration %j', (value) => {
     expect(validPertDuration(value)).toBe(false);
   });

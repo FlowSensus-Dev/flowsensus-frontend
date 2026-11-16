@@ -19,7 +19,6 @@ vi.mock('react', async (original) => {
   };
 });
 import { StageWhatIf } from './PredictiveForecast';
-import { DelayReason } from '../../../lib/forecastPenalties';
 
 function nodes(tree: any): any[] {
   if (!tree || typeof tree !== 'object') return [];
@@ -28,24 +27,22 @@ function nodes(tree: any): any[] {
 
 describe('existing stage simulation with equation details (mocked API)', () => {
   let histories: Record<string, any[]>;
-  let categories: DelayReason[];
-  let stageIds: Record<string, number>;
   const render = (stage = 'Trade Test') => {
     h.stage = stage; h.cursor = 0; h.slots[stage] ??= [];
-    return StageWhatIf({ stage: { stage_name: stage, workflow_stage_id: stageIds[stage], observation_count: 2, optimistic: 0, most_likely: 1,
+    return StageWhatIf({ stage: { stage_name: stage, workflow_stage_id: 42, observation_count: 2, optimistic: 0, most_likely: 1,
       pessimistic: 2, pert_baseline: 1, current_forecast: 0.07, is_fallback: false },
     applicantId: '19', alpha: 0.3, inputId: stage, history: histories[stage] ?? [], liveBasis: stage,
-    exceptions: categories, onSuccess: (value) => { histories[stage] = [...(histories[stage] ?? []), value]; },
+    onSuccess: (value) => { histories[stage] = [...(histories[stage] ?? []), value]; },
     onReset: () => { histories[stage] = []; } });
   };
-  const input = (stage: string, id: string, value: any, prop = 'value') => {
-    nodes(render(stage)).find((n) => n.props?.id === `${stage}-${id}`).props.onChange({ target: { [prop]: value } });
+  const input = (stage: string, value: string) => {
+    nodes(render(stage)).find((n) => n.props?.id === `${stage}-base`).props.onChange({ target: { value } });
   };
   const run = (stage = 'Trade Test') => nodes(render(stage)).find((n) => n.type === 'form').props.onSubmit({ preventDefault() {} });
   const html = (stage = 'Trade Test') => renderToStaticMarkup(render(stage));
 
   beforeEach(() => {
-    h.slots = {}; histories = {}; categories = []; stageIds = {}; vi.clearAllMocks();
+    h.slots = {}; histories = {}; vi.clearAllMocks();
     h.post.mockImplementation(async (_url, p) => {
       const actual = p.alpha * p.days_passed;
       const complement = 1 - p.alpha;
@@ -64,19 +61,31 @@ describe('existing stage simulation with equation details (mocked API)', () => {
     });
   });
 
-  it('keeps independent chains, each equation, normal priors after penalty, and reset behavior', async () => {
+  it('shows only the hypothetical duration input and keeps the preview actions', () => {
+    const tree = render();
+    expect(nodes(tree).filter((n) => n.type === 'input')).toHaveLength(1);
+    expect(nodes(tree).some((n) => n.props?.type === 'checkbox' || n.type === 'select')).toBe(false);
+    expect(nodes(tree).some((n) => n.props?.id === 'Trade Test-reason' || n.props?.id === 'Trade Test-penalty')).toBe(false);
+    expect(html()).toContain('Hypothetical Stage Duration (Days)');
+    expect(html()).toContain('What-if Forecast'); expect(html()).toContain('Run Preview');
+    expect(html()).toContain('Reset Preview Chain');
+    expect(html()).not.toMatch(/Include Additional Delay|Penalty Days|Configured Delay Reason|Custom What-if Delay|Actual Base Duration/);
+    expect(nodes(tree).find((n) => n.props?.children === 'Reset Preview Chain').props.disabled).toBe(true);
+  });
+
+  it('keeps independent chains, each equation, full-precision priors, and reset behavior', async () => {
     const stage = 'Trade Test';
-    input(stage, 'base', '3');
-    nodes(render()).find((n) => n.props?.type === 'checkbox').props.onChange({ target: { checked: true } });
-    input(stage, 'reason', 'Weather'); input(stage, 'penalty', '2'); await run();
+    input(stage, '3'); await run();
     expect(html()).toContain('(0.3 × 3.00) + (0.7 × 0.07)');
-    expect(html()).toContain('Normal SES 0.949 + Penalty 2.00');
-    input(stage, 'base', '4'); await run();
+    expect(html()).not.toContain('Exception / Penalty');
+    expect(html()).not.toContain('Exception Learning Chain');
+    expect(html()).toContain('Temporary preview'); expect(html()).toContain('Not saved');
+    input(stage, '4'); await run();
     expect(h.post.mock.calls[1][1].prior_forecast_days).toBe(0.949);
     expect(html()).toContain('(0.3 × 4.00) + (0.7 × 0.949)');
     expect(html()).toContain('(0.3 × 3.00) + (0.7 × 0.07)');
     expect(histories[stage]).toHaveLength(2);
-    input('Medical', 'base', '1'); await run('Medical');
+    input('Medical', '1'); await run('Medical');
     expect(h.post.mock.calls[2][1].prior_forecast_days).toBe(0.07);
     expect(histories.Medical).toHaveLength(1);
     nodes(render()).find((n) => n.type === 'button' && n.props.children === 'Reset Preview Chain').props.onClick();
@@ -93,7 +102,7 @@ describe('existing stage simulation with equation details (mocked API)', () => {
       const result = await implementation(...args);
       delete result.data.calculation_breakdown; return result;
     });
-    input('Trade Test', 'base', '3'); await run();
+    input('Trade Test', '3'); await run();
     expect(html()).toContain('Calculation details unavailable for this preview.');
     expect(html()).toContain('Normal What-if SES');
     expect(html()).toContain('Temporary preview');
@@ -103,8 +112,8 @@ describe('existing stage simulation with equation details (mocked API)', () => {
 
   it('preserves input validation, request payload, and simulation errors', async () => {
     await run(); expect(h.post).not.toHaveBeenCalled();
-    expect(html()).toContain('Enter a valid base duration');
-    input('Trade Test', 'base', '3');
+    expect(html()).toContain('Enter a valid hypothetical stage duration');
+    input('Trade Test', '3');
     h.post.mockRejectedValueOnce({ response: { data: { detail: 'Preview unavailable' } } });
     await run(); expect(html()).toContain('Preview unavailable');
     expect(h.post).toHaveBeenCalledWith('/forecasting/simulate-step', expect.objectContaining({
@@ -114,46 +123,51 @@ describe('existing stage simulation with equation details (mocked API)', () => {
     expect(histories['Trade Test']).toBeUndefined();
   });
 
-  const configure = () => {
-    stageIds = { 'Trade Test': 42, Medical: 97 };
-    categories = [
-      { exception_type_id: 1, reason_name: 'Phase 1 documents', workflow_stage_id: 42, stage_name: 'Medical', seed_penalty_days: 2, current_weight_days: 3, observation_count: 2 },
-      { exception_type_id: 2, reason_name: 'Medical booking', workflow_stage_id: 97, stage_name: 'Trade Test', seed_penalty_days: 1, current_weight_days: 1, observation_count: 0 },
-      { exception_type_id: 3, reason_name: 'Agency holiday', workflow_stage_id: null, stage_name: null, seed_penalty_days: 4, current_weight_days: 4, observation_count: 0 },
-      { exception_type_id: 4, reason_name: 'Phase 1 review', workflow_stage_id: 42, stage_name: 'Medical', seed_penalty_days: 2, current_weight_days: 2, observation_count: 0 },
-    ];
-  };
-  const enable = (stage = 'Trade Test') => nodes(render(stage)).find((n) => n.props?.type === 'checkbox').props.onChange({ target: { checked: true } });
-  it('shows only ID-matched and agency-wide reasons, including multiple reasons per stage', () => {
-    configure(); enable();
-    expect(html()).toContain('Phase 1 documents'); expect(html()).toContain('Phase 1 review');
-    expect(html()).toContain('Agency holiday'); expect(html()).not.toContain('Medical booking');
-    enable('Medical');
-    expect(html('Medical')).toContain('Medical booking'); expect(html('Medical')).toContain('Agency holiday');
-    expect(html('Medical')).not.toContain('Phase 1 documents');
-  });
-  it('requires explicit configured selection and uses current weight as a one-off adjustment', async () => {
-    configure(); enable(); input('Trade Test', 'base', '3'); await run();
-    expect(h.post).not.toHaveBeenCalled();
-    input('Trade Test', 'delay-choice', '1'); expect(html()).toContain('Current estimated delay:');
-    await run();
-    expect(h.post.mock.calls[0][1]).toMatchObject({ actual_penalty: 3, reason: 'Phase 1 documents' });
+  it.each(['Registration & Screening', 'Medical Clearance', 'CV & Endorsement', 'Under Employer Review', 'Final Deployment'])('preserves raw backend stage %s with neutral delay fields', async (stage) => {
+    input(stage, '3');
+    await run(stage);
+    expect(h.post).toHaveBeenCalledWith('/forecasting/simulate-step', {
+      applicant_id: '19', workflow_stage: stage, days_passed: 3, prior_forecast_days: 0.07,
+      alpha: 0.3, actual_penalty: 0, reason: 'Normal Process', advance_stage: true,
+    });
     expect(h.post.mock.calls[0][1]).not.toHaveProperty('prior_exception_weight_days');
-    await run(); expect(h.post.mock.calls[1][1].prior_forecast_days).toBe(0.949);
+    expect(histories[stage]).toHaveLength(1);
+    expect(html(stage)).toContain('Normal What-if SES');
   });
-  it('preserves the manual custom option even when configured reasons exist', async () => {
-    configure(); enable(); input('Trade Test', 'delay-choice', 'custom');
-    input('Trade Test', 'base', '3'); input('Trade Test', 'reason', 'Custom delay'); input('Trade Test', 'penalty', '1.25'); await run();
-    expect(h.post.mock.calls[0][1]).toMatchObject({ actual_penalty: 1.25, reason: 'Custom delay' });
-    expect(h.post.mock.calls[0][1]).not.toHaveProperty('prior_exception_weight_days');
+
+  it('validates the response against the original backend stage name', async () => {
+    const implementation = h.post.getMockImplementation()!;
+    h.post.mockImplementation(async (...args) => {
+      const result = await implementation(...args);
+      result.data.workflow_stage = 'Employer Endorsement'; return result;
+    });
+    input('Under Employer Review', '3'); await run('Under Employer Review');
+    expect(histories['Under Employer Review']).toBeUndefined();
+    expect(html('Under Employer Review')).toContain('Unable to run this preview');
   });
-  it('handles missing stage ID safely and accepts refreshed category options', () => {
-    configure(); delete stageIds['Trade Test']; enable();
-    expect(html()).toContain('Stage ID unavailable'); expect(html()).toContain('Agency holiday');
-    expect(html()).not.toContain('Phase 1 documents');
-    stageIds['Trade Test'] = 42;
-    expect(html()).toContain('Phase 1 documents');
-    categories.push({ ...categories[0], exception_type_id: 5, reason_name: 'Newly saved reason' });
-    expect(html()).toContain('Newly saved reason');
+
+  it.each(['-1', 'NaN', 'Infinity', ' '])('rejects invalid hypothetical duration %s', async (value) => {
+    input('Trade Test', value); await run();
+    expect(h.post).not.toHaveBeenCalled(); expect(html()).toContain('Enter a valid hypothetical stage duration');
+  });
+
+  it('accepts a zero-day hypothetical duration without adding a penalty', async () => {
+    input('Trade Test', '0'); await run();
+    expect(h.post.mock.calls[0][1]).toMatchObject({ days_passed: 0, actual_penalty: 0, reason: 'Normal Process' });
+    expect(histories['Trade Test']).toHaveLength(1);
+  });
+
+  it.each([
+    { applicant_id: 'another-applicant' }, { workflow_stage: 'another-stage' }, { alpha_used: 0.7 },
+    { previous_stage_forecast: 4 }, { base_actual_days: 5 }, { actual_penalty_days: 2 },
+    { exception_weight_updated: true, previous_weight_days: 1, new_exception_weight: 2 },
+    { new_stage_forecast: NaN }, { adjusted_stage_forecast_days: Infinity },
+  ])('rejects an incompatible response %j', async (changes) => {
+    const implementation = h.post.getMockImplementation()!;
+    h.post.mockImplementation(async (...args) => {
+      const result = await implementation(...args); Object.assign(result.data, changes); return result;
+    });
+    input('Trade Test', '3'); await run();
+    expect(histories['Trade Test']).toBeUndefined(); expect(html()).toContain('Unable to run this preview');
   });
 });

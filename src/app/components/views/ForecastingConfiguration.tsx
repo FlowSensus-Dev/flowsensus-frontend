@@ -1,10 +1,9 @@
 import React, { useContext, useState } from 'react';
 import AgencySesSettings from './AgencySesSettings';
-import DelayReasonManagement, { DelayReasonManagementProps } from './DelayReasonManagement';
 import StagePertConfiguration from './StagePertConfiguration';
 import { PertOnboardingContext } from '../PertOnboardingContext';
 
-export default function ForecastingConfiguration({ canEdit, onAlphaSaved, ...delays }: Omit<DelayReasonManagementProps, 'canEdit'> & { canEdit: boolean; onAlphaSaved: () => Promise<void> }) {
+export default function ForecastingConfiguration({ canEdit, onAlphaSaved }: { canEdit: boolean; onAlphaSaved: () => Promise<void> }) {
   const [sesVersion, setSesVersion] = useState(0);
   const refreshOnboarding = useContext(PertOnboardingContext);
   const pertSaved = async (refreshSesSettings = false) => {
@@ -18,10 +17,6 @@ export default function ForecastingConfiguration({ canEdit, onAlphaSaved, ...del
     <div className="mt-4 space-y-4">
       {canEdit && <StagePertConfiguration canEdit={canEdit} onSaved={pertSaved} />}
       <AgencySesSettings key={sesVersion} canEdit={canEdit} onSaved={onAlphaSaved} />
-      <details className="border-t border-slate-200 pt-4">
-        <summary className="cursor-pointer font-bold text-slate-900 text-sm">Delay Reason Management</summary>
-        <div className="mt-3"><DelayReasonManagement {...delays} canEdit={canEdit} /></div>
-      </details>
     </div>
   </details>;
 }

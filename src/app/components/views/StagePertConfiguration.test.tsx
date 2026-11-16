@@ -17,10 +17,10 @@ vi.mock('react', async (original) => ({ ...(await original() as any),
 import StagePertConfiguration, { PertManagerGuide } from './StagePertConfiguration';
 import ForecastingConfiguration from './ForecastingConfiguration';
 import AgencySesSettings from './AgencySesSettings';
-import DelayReasonManagement from './DelayReasonManagement';
 import { pertAttemptKey } from '../../../lib/pertConfiguration';
 
 const names = ['Registration & Screening', 'Medical Clearance', 'CV & Endorsement', 'Under Employer Review', 'Final Deployment'];
+const displayNames = ['Registration & Screening', 'Medical Clearance', 'CV Encoding & Management Approval', 'Employer Endorsement', 'Final Deployment Processing'];
 const base = (extra: any = {}) => ({
   agency_id: 7, revision: 3, setup_status: 'complete', initial_setup_required: false, can_manage: true, must_change_password: false,
   next_action: 'normal_operations', completed_at: '2026-10-28T12:00:00Z', completed_by: 17,
@@ -80,7 +80,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(stages).toHaveLength(5);
     expect(nodes(table).filter((n) => n.props?.scope === 'col').map(text)).toEqual(['Stage', 'PERT baseline', 'Optimistic (O)', 'Most Likely (M)', 'Pessimistic (P)']);
     stages.forEach((stage, index) => {
-      expect(text(nodes(stage).find((n) => n.props?.scope === 'row'))).toContain(names[index]);
+      expect(text(nodes(stage).find((n) => n.props?.scope === 'row'))).toContain(displayNames[index]);
       expect(nodes(stage).filter((n) => n.type === 'input').map((n) => n.props.value)).toEqual(['2', '5', '14']);
       expect(nodes(stage).filter((n) => n.type === 'input').every((n) => !n.props.disabled)).toBe(true);
       const cells = nodes(stage).filter((n) => n.type === 'td').map((n) => text(n).replace(/\s+/g, ' '));
@@ -138,6 +138,14 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     expect(text(render()).replace(/\s+/g, ' ')).toContain('Configuration revision: 3');
     expect(h.get).toHaveBeenCalledTimes(2); expect(h.post).not.toHaveBeenCalled(); expect(h.put).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(pertAttemptKey(7))).toBeNull();
+  });
+  it('uses the display label for stage validation without changing the canonical GET data', async () => {
+    change('6', 3); await submit();
+    const error = nodes(render()).find((n) => n.props?.id === 'pert-stage-3-error');
+    expect(text(error)).toContain(displayNames[2]); expect(text(error)).not.toContain(names[2]);
+    const response = await h.get.mock.results[0].value;
+    expect(response.data.stages[2].stage_name).toBe(names[2]);
+    expect(h.put).not.toHaveBeenCalled();
   });
   it('uses existing AppShell multi-role Management handling without changing page authorization', async () => {
     const shell = readFileSync(new URL('../AppShell.tsx', import.meta.url), 'utf8');
@@ -307,7 +315,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     await submit();
     const feedback = nodes(render()).find((n) => n.props?.id === 'pert-save-feedback');
     expect(text(feedback)).toContain('PERT configuration saved. Learned SES is preserved.');
-    expect(text(feedback)).toContain('Forecast refresh failed; use Refresh Data to retry.');
+    expect(text(feedback)).toContain('Forecast refresh failed; use Refresh Live Forecast to retry.');
     expect(text(feedback)).not.toContain('Forecast refresh completed');
     expect(nodes(feedback).find((n) => n.props?.role === 'status').props.className).toContain('bg-amber-50');
     expect(button('Save PERT Configuration').props.disabled).toBe(false);
@@ -367,15 +375,14 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
     vi.spyOn(sessionStorage, 'setItem').mockImplementationOnce(() => { throw new Error('Browser storage unavailable'); });
     await submit(); expect(text(render())).toContain('cannot retain a pending save'); expect(h.put).not.toHaveBeenCalled();
   });
-  it('preserves SES Settings and Delay Reason Management while refreshing SES settings and forecasts after PERT saves', async () => {
+  it('preserves SES settings and forecast refresh after PERT saves without Delay Reason Management', async () => {
     h.slots = [];
-    const props = { canEdit: true, onAlphaSaved: onSaved, reasons: [], stages: [], loading: false, error: null, refresh: vi.fn() };
+    const props = { canEdit: true, onAlphaSaved: onSaved };
     const wrapper = () => { h.cursor = 0; return ForecastingConfiguration(props); };
     const tree = wrapper();
     const ses = nodes(tree).find((n) => n.type === AgencySesSettings);
-    const delay = nodes(tree).find((n) => n.type === DelayReasonManagement);
     expect(ses.props.canEdit).toBe(true); expect(ses.props.onSaved).toBe(onSaved);
-    expect(delay.props.refresh).toBe(props.refresh); expect(delay.props.reasons).toBe(props.reasons);
+    expect(text(tree)).not.toContain('Delay Reason Management');
     const afterSave = nodes(tree).find((n) => n.type === StagePertConfiguration).props.onSaved;
     await afterSave(false);
     expect(onSaved).toHaveBeenCalledOnce();
@@ -432,7 +439,7 @@ describe('Manager PERT configuration, mocked PF05 API', () => {
         expect(nodes(tree).filter((n) => n.props?.id === helpId)).toHaveLength(1);
         const label = nodes(tree).find((n) => n.type === 'label' && n.props.htmlFor === input.props.id);
         expect(text(label)).toContain(' (days)');
-        expect(text(label)).toContain(names[order - 1]);
+        expect(text(label)).toContain(displayNames[order - 1]);
       }
     }
     expect(text(guide)).toContain('The shortest realistic time');

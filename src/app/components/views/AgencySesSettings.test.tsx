@@ -89,6 +89,7 @@ describe('Agency SES settings (mocked API)', () => {
     h.put.mockResolvedValue({ data: { ses_alpha: 0.6 } }); onSaved.mockRejectedValue(new Error());
     edit(); input('0.6'); await save();
     expect(text(render())).toContain('saved, but forecasts could not be refreshed');
+    expect(text(render())).toContain('Use Refresh Live Forecast to retry.');
     expect(text(render())).toContain('0.6');
   });
 

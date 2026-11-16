@@ -15,7 +15,7 @@ const guidance = [
   {
     label: 'High Alpha', range: '0.6–0.7',
     description: 'Responds faster to sustained operational changes.',
-    detail: 'Hypothetical example: a prolonged DMW or passport-processing disruption consistently changes actual durations. Higher alpha adapts subsequent forecasts faster as newly completed cases are recorded. Alpha cannot predict an outage before observations arrive. Represent a one-day disruption with a specific Delay Reason.',
+    detail: 'Hypothetical example: a prolonged DMW or passport-processing disruption consistently changes actual durations. Higher alpha adapts subsequent forecasts faster as newly completed cases are recorded. Alpha cannot predict an outage before observations arrive. Explore a longer stage duration with a What-if forecast.',
   },
   {
     label: 'Very High Alpha', range: '0.8–1.0',

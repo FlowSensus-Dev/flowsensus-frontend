@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { api } from '../../../lib/api';
 import {
-  PertAttempt, PertConfiguration, PertDraft, PertField, confirmedPertSave, createPertAttempt,
+  PertAttempt, PertConfiguration, PertDraft, PertField, confirmedPertSave, createPertAttempt, forecastStageDisplayLabel,
   canDeferPert, confirmedPertDeferral, isPertDeferred, expectedPertDays, pertAttemptKey, pertDrafts, pertError, pertDeferralError, pertFields, pertStageError, readPertAttempt, readPertConfiguration, validPertDuration,
 } from '../../../lib/pertConfiguration';
 
@@ -171,7 +171,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
       }
       setSuccess(`PERT configuration saved. Learned SES is preserved.${onboarding
         ? results[1].status === 'rejected' ? ' Setup status could not be confirmed. Use Refresh setup status to retry.' : ' Setup status refreshed.'
-        : results[1].status === 'rejected' ? ' Forecast refresh failed; use Refresh Data to retry.' : ' Forecast refresh completed.'}`);
+        : results[1].status === 'rejected' ? ' Forecast refresh failed; use Refresh Live Forecast to retry.' : ' Forecast refresh completed.'}`);
       setLoading(false); setSaving(false);
     }
     busy.current = false;
@@ -274,7 +274,7 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
                 return <React.Fragment key={stage.stage_order}>
                   <tr role="row" className="grid grid-cols-3 gap-x-3 gap-y-3 border-t border-slate-200 p-3 lg:table-row lg:p-0">
                     <th role="rowheader" scope="row" className="col-span-3 min-w-0 break-words text-left font-bold text-slate-800 lg:px-3 lg:py-3 lg:align-top">
-                      {stage.stage_order}. {stage.stage_name}
+                      {stage.stage_order}. {forecastStageDisplayLabel(stage.stage_name)}
                     </th>
                     <td role="cell" className="col-span-3 min-w-0 break-words lg:px-3 lg:py-3 lg:align-top">
                       <span className="block text-slate-500 lg:sr-only">Current PERT Baseline</span>
@@ -282,14 +282,14 @@ export default function StagePertConfiguration({ canEdit = false, onSaved, onboa
                       <span className="mt-1 block text-[11px] text-slate-500">Preview: <output aria-describedby="pert-preview-help" className="font-mono text-sky-700">{preview}</output></span>
                     </td>
                     {pertFields.map((field) => <td role="cell" key={field} className="col-span-3 min-w-0 sm:col-span-1 lg:px-3 lg:py-3 lg:align-top">
-                      <label htmlFor={`pert-${stage.stage_order}-${field}`} className="block lg:sr-only"><span className="sr-only">{stage.stage_name}: </span>{fieldLabels[field]} (days)</label>
+                      <label htmlFor={`pert-${stage.stage_order}-${field}`} className="block lg:sr-only"><span className="sr-only">{forecastStageDisplayLabel(stage.stage_name)}: </span>{fieldLabels[field]} (days)</label>
                       <input id={`pert-${stage.stage_order}-${field}`} type="text" inputMode="decimal" required value={draft[field]} disabled={disabled}
                         aria-invalid={!!validation} aria-describedby={`pert-${field}-summary pert-duration-help${validation ? ` pert-stage-${stage.stage_order}-error` : ''}`}
                         onChange={(event) => change(stage.stage_order, field, event.target.value)} className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60" />
                     </td>)}
                   </tr>
                   {validation && <tr role="row" className="block bg-rose-50 lg:table-row"><td role="cell" colSpan={5} className="block px-3 py-2 lg:table-cell">
-                    <p id={`pert-stage-${stage.stage_order}-error`} role="alert" className="text-rose-700"><strong>{stage.stage_name}:</strong> {validation}</p>
+                    <p id={`pert-stage-${stage.stage_order}-error`} role="alert" className="text-rose-700"><strong>{forecastStageDisplayLabel(stage.stage_name)}:</strong> {validation}</p>
                   </td></tr>}
                 </React.Fragment>;
               })}

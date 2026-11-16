@@ -83,7 +83,7 @@ export default function AgencySesSettings({ canEdit = false, onSaved }: {
         await onSaved();
         if (mounted.current) setSuccess('Agency SES alpha saved. Forecast refresh completed.');
       } catch {
-        if (mounted.current) setSuccess('Agency SES alpha saved, but forecasts could not be refreshed. Use Refresh Data to retry.');
+        if (mounted.current) setSuccess('Agency SES alpha saved, but forecasts could not be refreshed. Use Refresh Live Forecast to retry.');
       }
     } catch (err) {
       if (mounted.current) {
