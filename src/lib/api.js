@@ -5,7 +5,7 @@ const fallbackApiUrl = "http://localhost:8000";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL || fallbackApiUrl,
-  timeout: 10000,
+  timeout: 30000,
   headers: {
     "Content-Type": "application/json",
   },
