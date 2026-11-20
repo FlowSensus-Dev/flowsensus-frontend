@@ -342,7 +342,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     };
 
     const payload: any = {
-      employer_id: parseInt(editing.employerId, 10) || 1,
+      employer_id: parseInt(editing.employerId, 10),
       position: editing.position,
       country: finalCountry,
       country_name: finalCountry,

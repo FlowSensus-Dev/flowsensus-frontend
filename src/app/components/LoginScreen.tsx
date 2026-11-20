@@ -135,10 +135,26 @@ export default function LoginScreen({
       }
       try {
         const resolveRes = await api.get(`/auth/resolve-applicant?query=${encodeURIComponent(trimmedUser)}`, {
-          timeout: 2500,
+          timeout: 15000,
         });
         resolvedApplicantData = resolveRes.data;
-      } catch {
+      } catch (resolveErr: any) {
+        const status = resolveErr?.response?.status;
+        if (status && status !== 404) {
+          setErrorMessage(
+            resolveErr?.response?.data?.detail ||
+            'Unable to verify Applicant Code right now due to a server error. Please try again.'
+          );
+          setLoading(false);
+          return;
+        }
+        if (!status) {
+          setErrorMessage(
+            'Unable to reach the server to verify your Applicant Code. Please check your connection or try again in a moment.'
+          );
+          setLoading(false);
+          return;
+        }
         resolvedApplicantData = null;
       }
     }
@@ -167,6 +183,10 @@ export default function LoginScreen({
         }
         if (resolvedApplicantData.email) {
           targetEmail = resolvedApplicantData.email;
+        } else {
+          setErrorMessage('This applicant account does not have a registered email address for portal login. Please contact your agency handler.');
+          setLoading(false);
+          return;
         }
       } else if (!trimmedUser.includes('@')) {
         setErrorMessage('No registered applicant found with this Applicant Code. Please verify your code or contact your agency handler.');
