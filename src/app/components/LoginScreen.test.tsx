@@ -114,4 +114,19 @@ describe('existing password dialog, PF09 staff confirmation (mocked only)', () =
     expect(props.onLogin).toHaveBeenCalledWith(flag === true ? '' : 'Recruitment', 'admin@findstaff.ph', undefined,
       flag === true, flag === true ? [] : ['Recruitment', 'Management'], false);
   });
+  it('shows server error instead of "No registered applicant found" when /auth/resolve-applicant fails with 500', async () => {
+    props = { onLogin: vi.fn() };
+    h.get.mockRejectedValueOnce({ response: { status: 500, data: { detail: 'Internal server error resolving applicant' } } });
+    nodes(render()).find((n) => n.type === 'button' && text(n).startsWith('Applicant')).props.onClick();
+    input('e.g. APP-2026-FPT-00028', 'APP-2026-FPT-00042'); input('Enter your password', mockPassword); await submit();
+    expect(text(render())).toContain('Internal server error resolving applicant');
+    expect(text(render())).not.toContain('No registered applicant found');
+  });
+  it('shows "No registered applicant found" on an actual 404 from /auth/resolve-applicant', async () => {
+    props = { onLogin: vi.fn() };
+    h.get.mockRejectedValueOnce({ response: { status: 404 } });
+    nodes(render()).find((n) => n.type === 'button' && text(n).startsWith('Applicant')).props.onClick();
+    input('e.g. APP-2026-FPT-00028', 'APP-2026-FPT-00042'); input('Enter your password', mockPassword); await submit();
+    expect(text(render())).toContain('No registered applicant found with this Applicant Code');
+  });
 });

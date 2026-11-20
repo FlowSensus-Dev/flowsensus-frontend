@@ -756,6 +756,7 @@ export default function EndorsementTracker({
 }: EndorsementTrackerProps) {
   const [submissions, setSubmissions] = useState<CvSubmission[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [actingId, setActingId] = useState<number | null>(null);
 
   // Layout & Display Controls (Collapsible & Scrollable)
@@ -824,20 +825,32 @@ export default function EndorsementTracker({
   const [verificationCard, setVerificationCard] = useState<CvSubmission | null>(null);
 
   // Fetch submissions from backend
-  const load = useCallback(async () => {
-    setIsLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setIsLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
     try {
       const res = await api.get('/cv-submissions');
       setSubmissions(res.data || []);
-    } catch {
-      setSubmissions([]);
+    } catch (err) {
+      console.error('[EndorsementTracker] Failed to load submissions:', err);
+      if (!silent) {
+        setSubmissions([]);
+        showToast?.('Unable to load Endorsement Tracker right now. Please try clicking Refresh.');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      } else {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => { 
-    load(); 
+    load(false); 
 
     // Live Real-Time Subscription to cv_employer_submission table
     const channel = supabase
@@ -847,7 +860,7 @@ export default function EndorsementTracker({
         { event: '*', schema: 'public', table: 'cv_employer_submission' },
         (payload: any) => {
           console.log('[EndorsementTracker] Realtime CV submission update:', payload.eventType);
-          load();
+          load(true);
         }
       )
       .subscribe();
@@ -1888,11 +1901,11 @@ export default function EndorsementTracker({
             {/* Refresh Board */}
             <button
               type="button"
-              onClick={load}
-              disabled={isLoading}
+              onClick={() => load(true)}
+              disabled={isLoading || isRefreshing}
               className="flex items-center gap-1.5 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors shadow-2xs text-xs font-semibold cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading || isRefreshing ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
             </button>
           </div>

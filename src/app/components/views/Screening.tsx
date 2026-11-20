@@ -509,7 +509,7 @@ export default function Screening({
     return getTestEvaluationResult(test, rawMap, totalMap, pfMap).passed;
   };
 
-  const phase1AllPassed = activeEvaluationTests.length > 0 && activeEvaluationTests.every(t => isTestPassed(t));
+  const phase1AllPassed = activeEvaluationTests.length === 0 || activeEvaluationTests.every(t => isTestPassed(t));
   const eqPass = personalityEQVerdict === 'Suitable';
   const eqFail = personalityEQVerdict === 'Not Suitable';
   const eqPending = personalityEQVerdict === 'Pending' || !personalityEQVerdict;
@@ -2994,7 +2994,16 @@ export default function Screening({
         </div>
 
         {/* Phase 1 Evaluation Action Bar */}
-        {(() => {
+        {activeEvaluationTests.length === 0 ? (
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Phase 1 Evaluation Status</p>
+              <p className="text-sm font-extrabold text-emerald-600">
+                ✓ No Phase 1 evaluations configured — proceed directly to Phase 2 Interview
+              </p>
+            </div>
+          </div>
+        ) : (() => {
           const enteredCount = activeEvaluationTests.filter(t => getTestEvaluationResult(t).hasEntry).length;
           const isAllEntered = enteredCount === activeEvaluationTests.length;
           const failedCount = activeEvaluationTests.filter(t => !isTestPassed(t)).length;
@@ -3313,9 +3322,15 @@ export default function Screening({
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
                 <div>
-                  <span className="font-bold text-emerald-950">Candidate Cleared Phase 1 Evaluations & Phase 2 Interview</span>
+                  <span className="font-bold text-emerald-950">
+                    {activeEvaluationTests.length === 0
+                      ? 'Candidate Cleared Phase 2 Interview'
+                      : 'Candidate Cleared Phase 1 Evaluations & Phase 2 Interview'}
+                  </span>
                   <p className="text-emerald-700 text-xs mt-0.5">
-                    All {activeEvaluationTests.length} evaluations and suitability interview criteria met with <strong>{currentWeightedScore}%</strong> aggregate rating.
+                    {activeEvaluationTests.length === 0
+                      ? 'Suitability interview criteria met (no Phase 1 evaluations configured).'
+                      : <>All {activeEvaluationTests.length} evaluations and suitability interview criteria met with <strong>{currentWeightedScore}%</strong> aggregate rating.</>}
                   </p>
                 </div>
               </div>

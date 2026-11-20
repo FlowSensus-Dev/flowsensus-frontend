@@ -354,12 +354,15 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
 
     setIsSaving(true);
     try {
+      const computedValidityDays = editing.expiryTracked
+        ? Math.max(1, (editing.validityMonths || 12) * 30)
+        : 36500;
       const payload = {
         name: editing.name.trim(),
         description: editing.description.trim(),
         category: (editing.category || 'DOCUMENT').toUpperCase(),
         isRequired: editing.isRequired,
-        validityDays: editing.expiryTracked && editing.validityMonths ? editing.validityMonths * 30 : 365,
+        validityDays: computedValidityDays,
         isActive: editing.isActive,
         sortOrder: editing.sortOrder,
         applicantTypes: editing.applicantTypes,
@@ -369,27 +372,39 @@ export default function RequirementsSetup({ showToast, currentUserName }: Props)
       if (isNew) {
         const res = await api.post('/requirements', payload);
         const created = res.data;
+        const createdId = String(created.requirement_id || created.id);
+        const savedValidityDays = Number(created.validity_days || created.validity_period || computedValidityDays);
         const newReq: DocumentRequirement = {
           ...editing,
-          id: String(created.requirement_id || created.id),
+          id: createdId,
           category: (created.category || editing.category || 'DOCUMENT').toUpperCase() as any,
+          validityDays: savedValidityDays,
+          validityMonths: Math.max(1, Math.round(savedValidityDays / 30)),
+          expiryTracked: savedValidityDays !== 0 && savedValidityDays !== 36500,
           sortOrder: created.sort_order ?? editing.sortOrder,
           applicantTypes: created.applicant_types || editing.applicantTypes,
           jobOrders: created.job_orders || editing.jobOrders,
         };
-        setRequirements(prev => [...prev, newReq]);
-        showToast(`"${editing.name}" added successfully`);
+        setRequirements(prev => {
+          const exists = prev.some(r => r.id === createdId);
+          return exists ? prev.map(r => (r.id === createdId ? newReq : r)) : [...prev, newReq];
+        });
+        showToast(`"${editing.name}" saved successfully`);
       } else {
         const numId = parseInt(editing.id.replace('new-', ''), 10);
         if (!isNaN(numId)) {
           const res = await api.put(`/requirements/${numId}`, payload);
           const updated = res.data;
+          const savedValidityDays = Number(updated.validity_days || updated.validity_period || computedValidityDays);
           setRequirements(prev =>
             prev.map(r =>
               r.id === editing.id
                 ? {
                     ...editing,
                     category: (updated.category || editing.category || 'DOCUMENT').toUpperCase() as any,
+                    validityDays: savedValidityDays,
+                    validityMonths: Math.max(1, Math.round(savedValidityDays / 30)),
+                    expiryTracked: savedValidityDays !== 0 && savedValidityDays !== 36500,
                     applicantTypes: updated.applicant_types || editing.applicantTypes,
                     jobOrders: updated.job_orders || editing.jobOrders,
                   }

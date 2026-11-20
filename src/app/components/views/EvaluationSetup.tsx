@@ -163,13 +163,33 @@ const DEFAULT_WORKFLOW_MODULES: WorkflowModuleAccess[] = [
   }
 ];
 
-const BLANK_TEST: Omit<EvaluationTest, 'id'> = {
+type EvaluationTestFormState = Omit<EvaluationTest, 'maxScore' | 'passingScore' | 'weight'> & {
+  maxScore?: number;
+  passingScore?: number;
+  weight?: number;
+};
+
+const parseOptionalInt = (raw: string, min = 0, max?: number): number | undefined => {
+  if (raw === '') return undefined;
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) return undefined;
+  const clampedMin = Math.max(min, n);
+  return max !== undefined ? Math.min(max, clampedMin) : clampedMin;
+};
+
+const preventNegativeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === '-' || e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+  }
+};
+
+const BLANK_TEST: Omit<EvaluationTestFormState, 'id'> = {
   name: '',
   type: 'custom',
   description: '',
-  maxScore: 100,
-  passingScore: 60,
-  weight: 10,
+  maxScore: undefined,
+  passingScore: undefined,
+  weight: undefined,
   isActive: true,
   scoringGuide: '',
   scoringType: 'numeric',
@@ -192,7 +212,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   // Evaluation Templates State
   const [tests, setTests] = useState<EvaluationTest[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
-  const [editingTest, setEditingTest] = useState<EvaluationTest | null>(null);
+  const [editingTest, setEditingTest] = useState<EvaluationTestFormState | null>(null);
   const [isNewTest, setIsNewTest] = useState(false);
   const [isSavingTest, setIsSavingTest] = useState(false);
   const [showScoringGuide, setShowScoringGuide] = useState(false);
@@ -373,7 +393,7 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   const generalWeight = generalTests.reduce((s, t) => s + t.weight, 0);
   const totalWeight = tests.filter(t => t.isActive).reduce((s, t) => s + t.weight, 0);
   const hasJobSpecific = jobSpecificTests.length > 0;
-  const weightOk = hasJobSpecific ? generalWeight === 100 : totalWeight === 100;
+  const weightOk = generalTests.length === 0 || (hasJobSpecific ? generalWeight === 100 : totalWeight === 100);
 
   // Search filtered lists
   const filteredGeneralTests = useMemo(() => {
@@ -446,33 +466,50 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
   const saveTest = async () => {
     if (!editingTest || isSavingTest) return;
     if (!editingTest.name.trim()) { showToast('Test name is required'); return; }
-    if (editingTest.weight < 0 || editingTest.weight > 100) { showToast('Weight must be 0–100'); return; }
+
+    const scoringType = editingTest.scoringType || 'numeric';
+    const applicableJobOrders = editingTest.applicableJobOrders || [];
+    const examMode = editingTest.examMode || 'paper';
+    const digitalExamTemplateId = examMode === 'digital' ? (editingTest.digitalExamTemplateId || null) : null;
+
+    const chosenExam = (examMode === 'digital' && digitalExamTemplateId)
+      ? digitalExams.find(ex => ex.template_id === digitalExamTemplateId)
+      : null;
+
+    const cleanMaxScore = editingTest.maxScore ?? 100;
+    if (scoringType !== 'pass_fail' && !chosenExam && cleanMaxScore <= 0) {
+      showToast('Total score must be greater than 0');
+      return;
+    }
+
+    const examTotalScore = chosenExam
+      ? Number(chosenExam.total_points || chosenExam.questions_count || (chosenExam.questions ? chosenExam.questions.length : 10))
+      : cleanMaxScore;
+
+    const rawPassingScore = editingTest.passingScore !== undefined
+      ? Number(editingTest.passingScore)
+      : (chosenExam?.passing_score !== undefined ? Number(chosenExam.passing_score) : 60);
+    if (scoringType !== 'pass_fail' && (rawPassingScore < 0 || rawPassingScore > 100)) {
+      showToast('Passing mark must be between 0% and 100%');
+      return;
+    }
+    const resolvedPassingScore = scoringType === 'pass_fail' ? 100 : rawPassingScore;
+
+    const cleanWeight = editingTest.weight ?? 10;
+    if (cleanWeight < 0 || cleanWeight > 100) {
+      showToast('Weight must be between 0% and 100%');
+      return;
+    }
 
     setIsSavingTest(true);
     try {
-      const scoringType = editingTest.scoringType || 'numeric';
-      const applicableJobOrders = editingTest.applicableJobOrders || [];
-      const examMode = editingTest.examMode || 'paper';
-      const digitalExamTemplateId = examMode === 'digital' ? (editingTest.digitalExamTemplateId || null) : null;
-
-      const chosenExam = (examMode === 'digital' && digitalExamTemplateId)
-        ? digitalExams.find(ex => ex.template_id === digitalExamTemplateId)
-        : null;
-      const examTotalScore = chosenExam
-        ? Number(chosenExam.total_points || chosenExam.questions_count || (chosenExam.questions ? chosenExam.questions.length : 10))
-        : (editingTest.maxScore || 100);
-
-      const resolvedPassingScore = scoringType === 'pass_fail'
-        ? 100
-        : (editingTest.passingScore !== undefined ? Number(editingTest.passingScore) : (chosenExam?.passing_score !== undefined ? Number(chosenExam.passing_score) : 60));
-
       const payload = {
         name: editingTest.name,
         test_type: editingTest.type,
         description: editingTest.description,
         max_score: scoringType === 'pass_fail' ? 100 : examTotalScore,
         passing_score: resolvedPassingScore,
-        weight_percentage: editingTest.weight,
+        weight_percentage: cleanWeight,
         scoring_guide: editingTest.scoringGuide,
         is_active: editingTest.isActive,
         scoring_type: scoringType,
@@ -489,8 +526,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         const newTest: EvaluationTest = {
           ...editingTest,
           id: String(savedTemplateId),
-          maxScore: examTotalScore,
+          maxScore: scoringType === 'pass_fail' ? 100 : examTotalScore,
           passingScore: resolvedPassingScore,
+          weight: cleanWeight,
           scoringType,
           applicableJobOrders,
           examMode,
@@ -511,8 +549,9 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
         setTests(p => {
           const next = p.map(t => t.id === editingTest.id ? {
             ...editingTest,
-            maxScore: examTotalScore,
+            maxScore: scoringType === 'pass_fail' ? 100 : examTotalScore,
             passingScore: resolvedPassingScore,
+            weight: cleanWeight,
             scoringType,
             applicableJobOrders,
             examMode,
@@ -770,9 +809,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                 General Tests Total Weight: <span className="text-sm font-bold ml-1">{generalWeight}%</span> / 100%
               </span>
               <span className="text-xs opacity-75 hidden sm:inline">
-                {weightOk
-                  ? '— General evaluation weights are balanced.'
-                  : `— General evaluations must total exactly 100% (currently ${generalWeight}%).`}
+                {generalTests.length === 0
+                  ? '— No active baseline evaluations (Phase 2 interview only).'
+                  : weightOk
+                    ? '— General evaluation weights are balanced.'
+                    : `— General evaluations must total exactly 100% (currently ${generalWeight}%).`}
               </span>
             </div>
 
@@ -1706,12 +1747,13 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                         <input
                           type="number"
                           min={1}
-                          value={isLinkedToDigital ? digitalTotal : editingTest.maxScore}
+                          value={isLinkedToDigital ? digitalTotal : (editingTest.maxScore ?? '')}
                           disabled={isLinkedToDigital}
                           readOnly={isLinkedToDigital}
-                          onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseInt(e.target.value) || 100 } : p)}
+                          onKeyDown={preventNegativeKeyDown}
+                          onChange={e => setEditingTest(p => p ? { ...p, maxScore: parseOptionalInt(e.target.value, 0) } : p)}
                           placeholder="100"
-                          className={`w-full px-3 py-2 border rounded-lg text-sm text-center transition-all ${
+                          className={`w-full px-3 py-2 border rounded-lg text-sm text-center transition-all placeholder:text-slate-400 ${
                             isLinkedToDigital
                               ? 'bg-slate-100 text-slate-600 font-bold border-slate-200 cursor-not-allowed select-none'
                               : 'border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]'
@@ -1740,10 +1782,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                           type="number"
                           min={0}
                           max={100}
-                          value={editingTest.passingScore}
-                          onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseInt(e.target.value) || 0 } : p)}
+                          value={editingTest.passingScore ?? ''}
+                          onKeyDown={preventNegativeKeyDown}
+                          onChange={e => setEditingTest(p => p ? { ...p, passingScore: parseOptionalInt(e.target.value, 0, 100) } : p)}
                           placeholder="60"
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center placeholder:text-slate-400"
                         />
                         {isLinkedToDigital && (
                           <div className="text-[10px] text-violet-700 font-medium mt-1 leading-tight text-center flex items-center justify-center gap-1">
@@ -1758,10 +1801,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                           type="number"
                           min={0}
                           max={100}
-                          value={editingTest.weight}
-                          onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
+                          value={editingTest.weight ?? ''}
+                          onKeyDown={preventNegativeKeyDown}
+                          onChange={e => setEditingTest(p => p ? { ...p, weight: parseOptionalInt(e.target.value, 0, 100) } : p)}
                           placeholder="10"
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center placeholder:text-slate-400"
                         />
                       </div>
                     </div>
@@ -1779,10 +1823,11 @@ export default function EvaluationSetup({ showToast, onPermissionsUpdated, onTem
                       type="number"
                       min={0}
                       max={100}
-                      value={editingTest.weight}
-                      onChange={e => setEditingTest(p => p ? { ...p, weight: parseInt(e.target.value) || 0 } : p)}
+                      value={editingTest.weight ?? ''}
+                      onKeyDown={preventNegativeKeyDown}
+                      onChange={e => setEditingTest(p => p ? { ...p, weight: parseOptionalInt(e.target.value, 0, 100) } : p)}
                       placeholder="10"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center bg-white"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0EA5E9] text-center bg-white placeholder:text-slate-400"
                     />
                   </div>
                 </div>
