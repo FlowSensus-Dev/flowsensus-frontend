@@ -834,8 +834,12 @@ export default function EndorsementTracker({
     try {
       const res = await api.get('/cv-submissions');
       setSubmissions(res.data || []);
-    } catch {
-      if (!silent) setSubmissions([]);
+    } catch (err) {
+      console.error('[EndorsementTracker] Failed to load submissions:', err);
+      if (!silent) {
+        setSubmissions([]);
+        showToast?.('Unable to load Endorsement Tracker right now. Please try clicking Refresh.');
+      }
     } finally {
       if (!silent) {
         setIsLoading(false);
