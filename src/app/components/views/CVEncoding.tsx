@@ -175,27 +175,12 @@ export default function CVEncoding({
   const [mainTab, setMainTab] = useState<'details' | 'profile'>('details');
 
   // ── Eligible candidates ──
-  // 1) Strictly EXCLUDES anyone in earlier phases or returned to Applicant Profiling / Medical / Screening
-  // 2) INCLUDES candidates actively in CV Encoding AND candidates who have advanced past CV Encoding
-  //    (so staff can still view & preview their CV, while editing/resubmitting is locked for advanced candidates)
+  // Strictly show ONLY candidates actively in CV Encoding (exclude pre-CV and post-CV/approved candidates)
   const eligibleApplicants = useMemo(() => {
-    const list = applicants.filter(a => {
+    return applicants.filter(a => {
       if (a.isStopped || a.status === 'Processing Stopped') return false;
       const s = String(a.status || '').trim();
-      // Never show candidates in Applicant Profiling, Medical Clearance, Screening, or Registration
-      if (PRE_CV_STATUSES.includes(s)) return false;
-      if (CV_ENCODING_STATUSES.includes(s) || POST_CV_STATUSES.includes(s)) return true;
-      if (typeof a.phase === 'number' && a.phase >= 3) {
-        return !PRE_CV_STATUSES.includes(s);
-      }
-      return false;
-    });
-
-    // Sort so candidates actively in CV Encoding appear first, followed by advanced/approved candidates
-    return list.sort((a, b) => {
-      const aActive = CV_ENCODING_STATUSES.includes(String(a.status || '').trim()) ? 0 : 1;
-      const bActive = CV_ENCODING_STATUSES.includes(String(b.status || '').trim()) ? 0 : 1;
-      return aActive - bActive;
+      return CV_ENCODING_STATUSES.includes(s);
     });
   }, [applicants]);
 
@@ -738,9 +723,7 @@ export default function CVEncoding({
         </div>
         {eligibleApplicants.length > 0 && (
           <p className="text-xs text-slate-500">
-            <span className="font-semibold text-slate-700">{activeEncodingCount}</span> to work on
-            {' · '}
-            <span className="font-semibold text-slate-700">{eligibleApplicants.length - activeEncodingCount}</span> already moved on (view only)
+            <span className="font-semibold text-slate-700">{activeEncodingCount}</span> candidate{activeEncodingCount === 1 ? '' : 's'} in CV Encoding
           </p>
         )}
       </div>
