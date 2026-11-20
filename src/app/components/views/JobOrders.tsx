@@ -63,10 +63,36 @@ const generateNextJobOrderCode = (existingOrders: JobOrder[]): string => {
   return `${prefix}${String(nextSeq).padStart(4, '0')}`;
 };
 
-const BLANK_ORDER: Omit<JobOrder, 'id'> = {
-  code: '', position: '', country: '', employerId: '', employerName: '', slots: 1, filledSlots: 0,
-  salaryMin: 0, salaryMax: 0, salaryCurrency: 'USD', contractMonths: 24, requirements: [], minExperience: 0, certifications: [], detailedRequirements: [],
-  genderPreference: 'Any', minAge: 21, maxAge: 45,
+type JobOrderFormState = Omit<JobOrder, 'slots' | 'salaryMin' | 'salaryMax' | 'contractMonths' | 'minExperience'> & {
+  slots?: number;
+  salaryMin?: number;
+  salaryMax?: number;
+  contractMonths?: number;
+  minExperience?: number;
+};
+
+const parseOptionalInt = (raw: string): number | undefined => {
+  if (raw === '') return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? undefined : Math.max(0, n);
+};
+
+const parseOptionalFloat = (raw: string): number | undefined => {
+  if (raw === '') return undefined;
+  const n = parseFloat(raw);
+  return Number.isNaN(n) ? undefined : Math.max(0, n);
+};
+
+const preventNegativeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === '-' || e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+  }
+};
+
+const BLANK_ORDER: Omit<JobOrderFormState, 'id'> = {
+  code: '', position: '', country: '', employerId: '', employerName: '', slots: undefined, filledSlots: 0,
+  salaryMin: undefined, salaryMax: undefined, salaryCurrency: '', contractMonths: undefined, requirements: [], minExperience: undefined, certifications: [], detailedRequirements: [],
+  genderPreference: 'Any', minAge: undefined, maxAge: undefined,
   status: 'draft', datePosted: new Date().toISOString().slice(0, 10), deadline: '', notes: '',
 };
 
@@ -142,7 +168,7 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | JobOrder['status']>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [editing, setEditing] = useState<JobOrder | null>(null);
+  const [editing, setEditing] = useState<JobOrderFormState | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [reqInput, setReqInput] = useState('');
   const [certInput, setCertInput] = useState('');
@@ -309,28 +335,37 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     if (!editing.position.trim()) { showToast('Position is required'); return; }
     if (!editing.employerId) { showToast('Select an employer'); return; }
 
-    const cleanSlots = Number(editing.slots) || 1;
+    const cleanSlots = editing.slots ?? 1;
     if (cleanSlots <= 0) { showToast('Total slots must be greater than 0'); return; }
     if (cleanSlots < (editing.filledSlots || 0)) {
       showToast(`Total slots (${cleanSlots}) cannot be less than currently filled candidate slots (${editing.filledSlots})`);
       return;
     }
 
-    const cleanSalaryMin = Number(editing.salaryMin) || 0;
-    let cleanSalaryMax = Number(editing.salaryMax) || 0;
+    const cleanSalaryMin = editing.salaryMin ?? 0;
+    let cleanSalaryMax = editing.salaryMax ?? 0;
+    if (cleanSalaryMin < 0 || cleanSalaryMax < 0) { showToast('Salary cannot be negative'); return; }
     if (cleanSalaryMax === 0 && cleanSalaryMin > 0) {
       cleanSalaryMax = cleanSalaryMin;
     }
     if (cleanSalaryMax < cleanSalaryMin) { showToast('Salary Max cannot be less than Salary Min'); return; }
 
-    if (editing.minAge && editing.maxAge && editing.minAge > editing.maxAge) {
+    const cleanMinAge = editing.minAge ?? 21;
+    const cleanMaxAge = editing.maxAge ?? 45;
+    if (cleanMinAge < 0 || cleanMaxAge < 0) {
+      showToast('Age cannot be negative');
+      return;
+    }
+    if (cleanMinAge > cleanMaxAge) {
       showToast('Minimum age cannot be greater than Maximum age');
       return;
     }
 
+    const cleanContractMonths = editing.contractMonths ?? 24;
+    const cleanMinExperience = editing.minExperience ?? 0;
     if (editing.deadline && editing.datePosted && editing.deadline < editing.datePosted) { showToast('Deadline cannot be before Date Posted'); return; }
-    if (editing.contractMonths <= 0) { showToast('Contract duration must be greater than 0'); return; }
-    if (editing.minExperience < 0) { showToast('Min experience cannot be negative'); return; }
+    if (cleanContractMonths <= 0) { showToast('Contract duration must be greater than 0'); return; }
+    if (cleanMinExperience < 0) { showToast('Min experience cannot be negative'); return; }
 
     const cleanCurrency = (editing.salaryCurrency || 'USD').trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(cleanCurrency)) { showToast('Salary currency must be a 3-letter code (e.g. USD)'); return; }
@@ -367,6 +402,10 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       salaryMin: cleanSalaryMin,
       salaryMax: cleanSalaryMax,
       salaryCurrency: cleanCurrency,
+      contractMonths: cleanContractMonths,
+      minExperience: cleanMinExperience,
+      minAge: cleanMinAge,
+      maxAge: cleanMaxAge,
       requirements: finalReqs,
       certifications: finalCerts,
       detailedRequirements: finalDetailed,
@@ -381,11 +420,11 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       salary_min: cleanSalaryMin,
       salary_max: cleanSalaryMax,
       salary_currency: cleanCurrency,
-      contract_months: editing.contractMonths,
-      min_experience_years: editing.minExperience,
+      contract_months: cleanContractMonths,
+      min_experience_years: cleanMinExperience,
       gender_preference: editing.genderPreference || 'Any',
-      min_age: editing.minAge ?? 21,
-      max_age: editing.maxAge ?? 45,
+      min_age: cleanMinAge,
+      max_age: cleanMaxAge,
       status: editing.status.toUpperCase(),
       date_posted: editing.datePosted || new Date().toISOString().slice(0, 10),
       deadline: editing.deadline || undefined,
@@ -908,17 +947,12 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       </span>
                     )}
                   </div>
-                  <div className="w-full px-3 py-2 bg-slate-50/90 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-800 flex items-center justify-between select-all">
-                    <span>{isNew ? 'Auto-assigned upon creation' : editing.code}</span>
-                    <span className="text-[11px] text-slate-400 font-sans font-medium">
-                      {isNew ? 'JO-YYYY-[AGY]-XXXX' : 'Fixed Code'}
-                    </span>
+                  <div className={`w-full px-3 py-2 bg-slate-50/90 border border-slate-200 rounded-lg text-sm font-mono flex items-center justify-between gap-2 ${isNew ? 'text-slate-400' : 'font-bold text-slate-800 select-all'}`}>
+                    <span className="truncate">{isNew ? 'JO-YYYY-[AGY]-XXXX' : editing.code}</span>
+                    {!isNew && (
+                      <span className="text-[11px] text-slate-400 font-sans font-medium shrink-0">Fixed</span>
+                    )}
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    {isNew
-                      ? 'Automatically assigned upon creation using your agency prefix and sequence number.'
-                      : 'Unique Job Order code is permanently preserved across candidate applications.'}
-                  </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
@@ -1030,29 +1064,29 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Total Slots</label>
-                  <input type="number" min={1} value={editing.slots} onChange={e => setEditing(p => p ? { ...p, slots: parseInt(e.target.value) || 1 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" />
+                  <input type="number" min={1} placeholder="1" value={editing.slots ?? ''} onKeyDown={preventNegativeKeyDown} onChange={e => setEditing(p => p ? { ...p, slots: parseOptionalInt(e.target.value) } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center placeholder:text-slate-400" />
                 </div>
                 <div className="grid grid-cols-3 gap-2 col-span-1 md:col-span-2">
                   <div className="col-span-1">
                     <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Currency</label>
-                    <input value={editing.salaryCurrency} onChange={e => setEditing(p => p ? { ...p, salaryCurrency: e.target.value.toUpperCase() } : p)} maxLength={3} placeholder="USD" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                    <input value={editing.salaryCurrency} onChange={e => setEditing(p => p ? { ...p, salaryCurrency: e.target.value.toUpperCase() } : p)} maxLength={3} placeholder="USD" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] placeholder:text-slate-400" />
                   </div>
                   <div className="col-span-1">
                     <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Min Salary</label>
-                    <input type="number" value={editing.salaryMin} onChange={e => setEditing(p => p ? { ...p, salaryMin: parseFloat(e.target.value) || 0 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40" />
+                    <input type="number" min={0} placeholder="0" value={editing.salaryMin ?? ''} onKeyDown={preventNegativeKeyDown} onChange={e => setEditing(p => p ? { ...p, salaryMin: parseOptionalFloat(e.target.value) } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 placeholder:text-slate-400" />
                   </div>
                   <div className="col-span-1">
                     <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Max Salary</label>
-                    <input type="number" value={editing.salaryMax} onChange={e => setEditing(p => p ? { ...p, salaryMax: parseFloat(e.target.value) || 0 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40" />
+                    <input type="number" min={0} placeholder="0" value={editing.salaryMax ?? ''} onKeyDown={preventNegativeKeyDown} onChange={e => setEditing(p => p ? { ...p, salaryMax: parseOptionalFloat(e.target.value) } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 placeholder:text-slate-400" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Contract Duration (Months)</label>
-                  <input type="number" min={1} value={editing.contractMonths} onChange={e => setEditing(p => p ? { ...p, contractMonths: parseInt(e.target.value) || 24 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
+                  <input type="number" min={1} placeholder="24" value={editing.contractMonths ?? ''} onKeyDown={preventNegativeKeyDown} onChange={e => setEditing(p => p ? { ...p, contractMonths: parseOptionalInt(e.target.value) } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9] placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Min. Experience (years)</label>
-                  <input type="number" min={0} value={editing.minExperience} onChange={e => setEditing(p => p ? { ...p, minExperience: parseInt(e.target.value) || 0 } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" />
+                  <input type="number" min={0} placeholder="0" value={editing.minExperience ?? ''} onKeyDown={preventNegativeKeyDown} onChange={e => setEditing(p => p ? { ...p, minExperience: parseOptionalInt(e.target.value) } : p)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Date Posted</label>
@@ -1087,9 +1121,10 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       type="number" 
                       min={18} 
                       max={65} 
-                      value={editing.minAge ?? 21} 
-                      onChange={e => setEditing(p => p ? { ...p, minAge: parseInt(e.target.value) || 18 } : p)} 
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" 
+                      value={editing.minAge ?? ''} 
+                      onKeyDown={preventNegativeKeyDown}
+                      onChange={e => setEditing(p => p ? { ...p, minAge: parseOptionalInt(e.target.value) } : p)} 
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center placeholder:text-slate-400" 
                       placeholder="21"
                     />
                   </div>
@@ -1099,9 +1134,10 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
                       type="number" 
                       min={18} 
                       max={65} 
-                      value={editing.maxAge ?? 45} 
-                      onChange={e => setEditing(p => p ? { ...p, maxAge: parseInt(e.target.value) || 45 } : p)} 
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center" 
+                      value={editing.maxAge ?? ''} 
+                      onKeyDown={preventNegativeKeyDown}
+                      onChange={e => setEditing(p => p ? { ...p, maxAge: parseOptionalInt(e.target.value) } : p)} 
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 text-center placeholder:text-slate-400" 
                       placeholder="45"
                     />
                   </div>
