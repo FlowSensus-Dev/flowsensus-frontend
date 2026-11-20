@@ -823,10 +823,12 @@ export default function CVEncoding({
           )}
         </>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center max-w-xl mx-auto my-6">
-          <FileText className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-[#0F172A] mb-1">No candidates here yet</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mb-4">
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 px-6 py-14 text-center shadow-2xs">
+          <div className="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200">
+            <FileText className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-[#0F172A] mb-1.5">No candidates here yet</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto mb-5 leading-relaxed">
             Candidates show up here after they are sent over from Applicant Profiling.
           </p>
           {onNavigate && (
@@ -857,10 +859,10 @@ export default function CVEncoding({
       {/* ── One workspace card with two tabs ── */}
       {isLoading ? (
         <SkeletonCVLoader />
-      ) : !currentApplicant ? (
-        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 sm:p-14 text-center max-w-2xl mx-auto my-6 shadow-2xs">
-          <div className="w-14 h-14 rounded-full bg-sky-50 text-[#0EA5E9] flex items-center justify-center mx-auto mb-4 border border-sky-100">
-            <User className="w-7 h-7" />
+      ) : eligibleApplicants.length === 0 ? null : !currentApplicant ? (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 px-6 py-14 text-center shadow-2xs">
+          <div className="w-12 h-12 rounded-full bg-sky-50 text-[#0EA5E9] flex items-center justify-center mx-auto mb-3 border border-sky-100">
+            <User className="w-6 h-6" />
           </div>
           <h3 className="text-base font-bold text-[#0F172A] mb-1.5">
             Select an applicant to begin
