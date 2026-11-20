@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, Save, X, Search, Globe, Briefcase,
   Users, Calendar, DollarSign, FileText, ChevronDown, ChevronRight,
@@ -152,6 +152,23 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
   const [catalogCountries, setCatalogCountries] = useState<string[]>([]);
   const [reqIsMandatory, setReqIsMandatory] = useState(true);
   const [certIsMandatory, setCertIsMandatory] = useState(true);
+  const [showDocDropdown, setShowDocDropdown] = useState(false);
+  const [showCertDropdown, setShowCertDropdown] = useState(false);
+  const docPickerRef = useRef<HTMLDivElement>(null);
+  const certPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (docPickerRef.current && !docPickerRef.current.contains(event.target as Node)) {
+        setShowDocDropdown(false);
+      }
+      if (certPickerRef.current && !certPickerRef.current.contains(event.target as Node)) {
+        setShowCertDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   // Synchronize when globalJobOrders updates from background fetch
   useEffect(() => {
@@ -233,6 +250,14 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     return matchSearch && matchStatus;
   });
 
+  const refreshCatalogRequirements = () => {
+    api.get('/requirements').then(res => {
+      if (Array.isArray(res.data)) {
+        setCatalogRequirements(res.data);
+      }
+    }).catch(() => {});
+  };
+
   const openNew = () => {
     setEditing({ ...BLANK_ORDER, id: `jo-${Date.now()}`, code: '' });
     setIsNew(true);
@@ -240,6 +265,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setCertInput('');
     setReqIsMandatory(true);
     setCertIsMandatory(true);
+    setShowDocDropdown(false);
+    setShowCertDropdown(false);
+    refreshCatalogRequirements();
   };
 
   const openEdit = (o: JobOrder) => {
@@ -271,6 +299,9 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
     setCertInput('');
     setReqIsMandatory(true);
     setCertIsMandatory(true);
+    setShowDocDropdown(false);
+    setShowCertDropdown(false);
+    refreshCatalogRequirements();
   };
 
   const save = async () => {
@@ -431,8 +462,19 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       detailedRequirements: [...(p.detailedRequirements || []), { name: v, category, isMandatory }],
       [category === 'DOCUMENT' ? 'requirements' : 'certifications']: [...(p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []), v]
     } : p);
-    if (category === 'DOCUMENT') { setReqInput(''); setReqIsMandatory(true); }
-    else { setCertInput(''); setCertIsMandatory(true); }
+    if (category === 'DOCUMENT') { setReqInput(''); setReqIsMandatory(true); setShowDocDropdown(false); }
+    else { setCertInput(''); setCertIsMandatory(true); setShowCertDropdown(false); }
+  };
+
+  const toggleDetailedMandatory = (category: 'DOCUMENT' | 'CERTIFICATION', val: string) => {
+    setEditing(p => p ? {
+      ...p,
+      detailedRequirements: (p.detailedRequirements || []).map(r =>
+        r.category === category && r.name.toLowerCase() === val.toLowerCase()
+          ? { ...r, isMandatory: !r.isMandatory }
+          : r
+      ),
+    } : p);
   };
 
   const removeDetailedTag = (category: 'DOCUMENT' | 'CERTIFICATION', val: string) => {
@@ -441,6 +483,155 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
       detailedRequirements: (p.detailedRequirements || []).filter(r => r.name !== val),
       [category === 'DOCUMENT' ? 'requirements' : 'certifications']: (p[category === 'DOCUMENT' ? 'requirements' : 'certifications'] || []).filter(x => x !== val)
     } : p);
+  };
+
+  const renderRequirementPicker = (opts: {
+    category: 'DOCUMENT' | 'CERTIFICATION';
+    label: string;
+    placeholder: string;
+    inputValue: string;
+    setInputValue: (val: string) => void;
+    isMandatory: boolean;
+    setIsMandatory: (val: boolean) => void;
+    isOpen: boolean;
+    setIsOpen: (val: boolean) => void;
+    pickerRef: React.RefObject<HTMLDivElement | null>;
+    pillToneClass: string;
+  }) => {
+    if (!editing) return null;
+    const addedSet = new Set((editing.detailedRequirements || []).map(r => r.name.toLowerCase()));
+    const query = opts.inputValue.trim().toLowerCase();
+    const availableOptions = catalogRequirements.filter(r => {
+      const cat = String(r.category || 'DOCUMENT').toUpperCase();
+      const matchesCategory = opts.category === 'CERTIFICATION' ? cat === 'CERTIFICATION' : cat !== 'CERTIFICATION';
+      const isActive = r.is_active !== false;
+      const name = String(r.requirement_name || '').trim();
+      if (!matchesCategory || !isActive || !name || addedSet.has(name.toLowerCase())) return false;
+      return !query || name.toLowerCase().includes(query);
+    });
+    const exactMatchInCatalogOrAdded =
+      !query ||
+      addedSet.has(query) ||
+      catalogRequirements.some(r => String(r.requirement_name || '').trim().toLowerCase() === query);
+
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">{opts.label}</label>
+          <span className="text-[11px] text-slate-400">Applies only to this job order</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {editing.detailedRequirements?.filter(r => r.category === opts.category).map(r => (
+            <span
+              key={r.name}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${r.isMandatory ? opts.pillToneClass : 'bg-slate-100 text-slate-600'}`}
+            >
+              <span>{r.name}</span>
+              <button
+                type="button"
+                onClick={() => toggleDetailedMandatory(opts.category, r.name)}
+                title="Click to switch Mandatory / Optional for this job order only"
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
+                  r.isMandatory
+                    ? 'bg-white/70 text-slate-800 hover:bg-white'
+                    : 'bg-slate-200/80 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {r.isMandatory ? 'Mandatory' : 'Optional'}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeDetailedTag(opts.category, r.name)}
+                className="hover:text-red-500 transition-colors"
+                aria-label={`Remove ${r.name}`}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div ref={opts.pickerRef} className="relative flex flex-wrap gap-2 items-center">
+          <div className="relative flex-1 min-w-[200px]">
+            <input
+              type="text"
+              value={opts.inputValue}
+              onFocus={() => opts.setIsOpen(true)}
+              onClick={() => opts.setIsOpen(true)}
+              onChange={e => {
+                opts.setInputValue(e.target.value);
+                opts.setIsOpen(true);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addDetailedTag(opts.category, opts.inputValue, opts.isMandatory);
+                } else if (e.key === 'Escape') {
+                  opts.setIsOpen(false);
+                }
+              }}
+              placeholder={opts.placeholder}
+              className="w-full pl-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]"
+            />
+            <button
+              type="button"
+              onClick={() => opts.setIsOpen(!opts.isOpen)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+              aria-label={`Toggle ${opts.label} list`}
+            >
+              <ChevronDown size={15} className={`transition-transform ${opts.isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {opts.isOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-30 py-1">
+                {availableOptions.map(item => (
+                  <button
+                    key={item.requirement_id}
+                    type="button"
+                    onClick={() => addDetailedTag(opts.category, item.requirement_name, opts.isMandatory)}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 hover:text-sky-900 flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">{item.requirement_name}</span>
+                    <span className="text-[11px] text-slate-400 flex-shrink-0">
+                      {String(item.category || 'DOCUMENT').toLowerCase()}
+                    </span>
+                  </button>
+                ))}
+                {opts.inputValue.trim() && !exactMatchInCatalogOrAdded && (
+                  <button
+                    type="button"
+                    onClick={() => addDetailedTag(opts.category, opts.inputValue, opts.isMandatory)}
+                    className="w-full text-left px-3 py-2 text-sm text-[#0284C7] font-medium hover:bg-sky-50 flex items-center gap-1.5 border-t border-slate-100"
+                  >
+                    <Plus size={14} /> Add "{opts.inputValue.trim()}" for this job order
+                  </button>
+                )}
+                {availableOptions.length === 0 && !opts.inputValue.trim() && (
+                  <div className="px-3 py-2.5 text-xs text-slate-400">
+                    No saved items available — type a custom name above and press Enter or +.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={opts.isMandatory}
+              onChange={e => opts.setIsMandatory(e.target.checked)}
+              className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]"
+            />
+            Mandatory
+          </label>
+          <button
+            type="button"
+            onClick={() => addDetailedTag(opts.category, opts.inputValue, opts.isMandatory)}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"
+            aria-label={`Add ${opts.label}`}
+          >
+            <Plus size={15} />
+          </button>
+        </div>
+      </div>
+    );
   };
 
   const onEmployerChange = (empId: string) => {
@@ -918,56 +1109,34 @@ export default function JobOrders({ showToast, currentUserName, globalJobOrders,
               </div>
 
               {/* Requirements tags */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Required Documents</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editing.detailedRequirements?.filter(r => r.category === 'DOCUMENT').map(r => (
-                    <span key={r.name} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${r.isMandatory ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {r.name} {!r.isMandatory && '(Optional)'}
-                      <button onClick={() => removeDetailedTag('DOCUMENT', r.name)} className="hover:text-red-500 transition-colors ml-1"><X size={11} /></button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <input list="doc-catalog" value={reqInput} onChange={e => setReqInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('DOCUMENT', reqInput, reqIsMandatory); } }} placeholder="Select or type document..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
-                  <datalist id="doc-catalog">
-                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() !== 'CERTIFICATION').map(r => (
-                      <option key={r.requirement_id} value={r.requirement_name} />
-                    ))}
-                  </datalist>
-                  <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" checked={reqIsMandatory} onChange={e => setReqIsMandatory(e.target.checked)} className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]" />
-                    Mandatory
-                  </label>
-                  <button onClick={() => addDetailedTag('DOCUMENT', reqInput, reqIsMandatory)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
-                </div>
-              </div>
+              {renderRequirementPicker({
+                category: 'DOCUMENT',
+                label: 'Required Documents',
+                placeholder: 'Select or type document...',
+                inputValue: reqInput,
+                setInputValue: setReqInput,
+                isMandatory: reqIsMandatory,
+                setIsMandatory: setReqIsMandatory,
+                isOpen: showDocDropdown,
+                setIsOpen: setShowDocDropdown,
+                pickerRef: docPickerRef,
+                pillToneClass: 'bg-blue-50 text-blue-700',
+              })}
 
               {/* Certifications tags */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Required Certifications</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editing.detailedRequirements?.filter(r => r.category === 'CERTIFICATION').map(r => (
-                    <span key={r.name} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${r.isMandatory ? 'bg-purple-50 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {r.name} {!r.isMandatory && '(Optional)'}
-                      <button onClick={() => removeDetailedTag('CERTIFICATION', r.name)} className="hover:text-red-500 transition-colors ml-1"><X size={11} /></button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <input list="cert-catalog" value={certInput} onChange={e => setCertInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDetailedTag('CERTIFICATION', certInput, certIsMandatory); } }} placeholder="Select or type certification..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/40 focus:border-[#0EA5E9]" />
-                  <datalist id="cert-catalog">
-                    {catalogRequirements.filter(r => (r.category || '').toUpperCase() === 'CERTIFICATION').map(r => (
-                      <option key={r.requirement_id} value={r.requirement_name} />
-                    ))}
-                  </datalist>
-                  <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" checked={certIsMandatory} onChange={e => setCertIsMandatory(e.target.checked)} className="rounded text-[#0EA5E9] focus:ring-[#0EA5E9]" />
-                    Mandatory
-                  </label>
-                  <button onClick={() => addDetailedTag('CERTIFICATION', certInput, certIsMandatory)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"><Plus size={15} /></button>
-                </div>
-              </div>
+              {renderRequirementPicker({
+                category: 'CERTIFICATION',
+                label: 'Required Certifications',
+                placeholder: 'Select or type certification...',
+                inputValue: certInput,
+                setInputValue: setCertInput,
+                isMandatory: certIsMandatory,
+                setIsMandatory: setCertIsMandatory,
+                isOpen: showCertDropdown,
+                setIsOpen: setShowCertDropdown,
+                pickerRef: certPickerRef,
+                pillToneClass: 'bg-purple-50 text-purple-700',
+              })}
 
               {/* Notes */}
               <div>
